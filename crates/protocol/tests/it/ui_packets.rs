@@ -20,10 +20,10 @@ use valentine::bedrock::version::v1_26_51::{
 };
 use valentine::protocol::wire;
 
-const TEXT_FIXTURE: &[u8] = include_bytes!("../fixtures/text.bin");
-const TITLE_FIXTURE: &[u8] = include_bytes!("../fixtures/set_title.bin");
-const BOSS_FIXTURE: &[u8] = include_bytes!("../fixtures/boss_event.bin");
-const FORM_FIXTURE: &[u8] = include_bytes!("../fixtures/modal_form_request.bin");
+const TEXT_FIXTURE: &[u8] = include_bytes!("../../fixtures/text.bin");
+const TITLE_FIXTURE: &[u8] = include_bytes!("../../fixtures/set_title.bin");
+const BOSS_FIXTURE: &[u8] = include_bytes!("../../fixtures/boss_event.bin");
+const FORM_FIXTURE: &[u8] = include_bytes!("../../fixtures/modal_form_request.bin");
 
 /// gophertunnel's `LevelEventStartBlockCracking` / `LevelEventStopBlockCracking`
 /// / `LevelEventUpdateBlockCracking` (`minecraft/protocol/packet/level_event.go`).
@@ -624,7 +624,7 @@ fn element_button_forms_keep_the_existing_count_and_text_limits() {
 #[test]
 fn pinned_text_menu_and_response_fixtures_match_exact_wire_payloads() {
     let UiEvent::Form(form) =
-        decode_ui_fixture(include_bytes!("../fixtures/modal_form_text_menu.bin"))
+        decode_ui_fixture(include_bytes!("../../fixtures/modal_form_text_menu.bin"))
     else {
         panic!("expected form")
     };
@@ -635,15 +635,15 @@ fn pinned_text_menu_and_response_fixtures_match_exact_wire_payloads() {
     assert_eq!(menu.buttons[1].as_ref(), "第二");
     for (fixture, mut expected) in [
         (
-            include_bytes!("../fixtures/modal_form_response_button.bin").as_slice(),
+            include_bytes!("../../fixtures/modal_form_response_button.bin").as_slice(),
             modal_form_submit_response(92, ModalFormResponseSelection::ButtonIndex(1)),
         ),
         (
-            include_bytes!("../fixtures/modal_form_response_closed.bin").as_slice(),
+            include_bytes!("../../fixtures/modal_form_response_closed.bin").as_slice(),
             modal_form_cancel_response(92),
         ),
         (
-            include_bytes!("../fixtures/modal_form_response_busy.bin").as_slice(),
+            include_bytes!("../../fixtures/modal_form_response_busy.bin").as_slice(),
             protocol::modal_form_busy_response(92),
         ),
     ] {

@@ -11,27 +11,27 @@ use valentine::bedrock::{
     },
 };
 
-const MANIFEST: &str = include_str!("../../../tools/protocol-normalize/manifest.json");
+const MANIFEST: &str = include_str!("../../../../tools/protocol-normalize/manifest.json");
 const SOURCES: [(&str, &[u8]); 5] = [
     (
         "common.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/common.rs"),
+        include_bytes!("../../vendor/valentine/bedrock_versions/v1_26_51/src/common.rs"),
     ),
     (
         "mcpe.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/mcpe.rs"),
+        include_bytes!("../../vendor/valentine/bedrock_versions/v1_26_51/src/mcpe.rs"),
     ),
     (
         "proto.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/proto.rs"),
+        include_bytes!("../../vendor/valentine/bedrock_versions/v1_26_51/src/proto.rs"),
     ),
     (
         "types.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/types.rs"),
+        include_bytes!("../../vendor/valentine/bedrock_versions/v1_26_51/src/types.rs"),
     ),
     (
         "borrowed.rs",
-        include_bytes!("../vendor/valentine/bedrock_versions/v1_26_51/src/borrowed.rs"),
+        include_bytes!("../../vendor/valentine/bedrock_versions/v1_26_51/src/borrowed.rs"),
     ),
 ];
 

@@ -9,9 +9,10 @@ use protocol::BedrockSession;
 use valentine::bedrock::error::DecodeError;
 use valentine::protocol::wire;
 
-const GOPHERTUNNEL_AVAILABLE_COMMANDS: &[u8] = include_bytes!("../fixtures/available_commands.bin");
+const GOPHERTUNNEL_AVAILABLE_COMMANDS: &[u8] =
+    include_bytes!("../../fixtures/available_commands.bin");
 const LIVE_BODY_LENGTH_REGRESSION: &[u8] =
-    include_bytes!("../fixtures/available_commands_live_356513.bin");
+    include_bytes!("../../fixtures/available_commands_live_356513.bin");
 const MAX_COMMAND_VALUES: usize = 4_096;
 
 fn raw_fixture(fixture: &'static [u8]) -> RawPacket {

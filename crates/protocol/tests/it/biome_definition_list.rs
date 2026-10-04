@@ -12,7 +12,7 @@ use valentine::bedrock::{
 };
 
 const GOPHERTUNNEL_BIOME_DEFINITION_LIST: &[u8] =
-    include_bytes!("../fixtures/biome_definition_list_chunk_generation.bin");
+    include_bytes!("../../fixtures/biome_definition_list_chunk_generation.bin");
 const MAX_BIOME_COLLECTION_ELEMENTS: usize = 4_096;
 
 fn session() -> BedrockSession {

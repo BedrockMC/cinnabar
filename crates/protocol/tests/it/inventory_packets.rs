@@ -25,15 +25,15 @@ use valentine::bedrock::version::v1_26_51::{
 };
 use valentine::bedrock::{codec::BedrockCodec, error::DecodeError};
 
-const CONTENT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_content.bin");
-const SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot.bin");
+const CONTENT_FIXTURE: &[u8] = include_bytes!("../../fixtures/inventory_content.bin");
+const SLOT_FIXTURE: &[u8] = include_bytes!("../../fixtures/inventory_slot.bin");
 /// A zeqa.net hotbar item: window 0 whose container name is `AnvilMaterial` (1).
-const LIVE_ZEQA_SLOT_FIXTURE: &[u8] = include_bytes!("../fixtures/inventory_slot_live_zeqa.bin");
+const LIVE_ZEQA_SLOT_FIXTURE: &[u8] = include_bytes!("../../fixtures/inventory_slot_live_zeqa.bin");
 /// zeqa.net's spawn armor: window 120 whose container name is `AnvilMaterial` (1).
 const LIVE_ZEQA_ARMOR_FIXTURE: &[u8] =
-    include_bytes!("../fixtures/inventory_content_armor_live_zeqa.bin");
-const HOTBAR_FIXTURE: &[u8] = include_bytes!("../fixtures/player_hotbar.bin");
-const RESPONSE_FIXTURE: &[u8] = include_bytes!("../fixtures/item_stack_response.bin");
+    include_bytes!("../../fixtures/inventory_content_armor_live_zeqa.bin");
+const HOTBAR_FIXTURE: &[u8] = include_bytes!("../../fixtures/player_hotbar.bin");
+const RESPONSE_FIXTURE: &[u8] = include_bytes!("../../fixtures/item_stack_response.bin");
 
 /// `CONTAINER_ID_INVENTORY`. 1.26.40 carries raw container IDs rather than the
 /// named `WindowId` / `WindowIdVarint` enums protocol 1001 modelled.

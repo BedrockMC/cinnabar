@@ -20,20 +20,21 @@ use valentine::bedrock::version::v1_26_51::{
     EnumsPlayerRespawnState, InventoryTransactionPacketTransaction, McpePacketData, McpePacketName,
 };
 
-const CLICK_BLOCK: &[u8] = include_bytes!("../fixtures/inventory_transaction_click_block.bin");
+const CLICK_BLOCK: &[u8] = include_bytes!("../../fixtures/inventory_transaction_click_block.bin");
 const CLICK_BLOCK_EMPTY_HAND: &[u8] =
-    include_bytes!("../fixtures/inventory_transaction_click_block_empty_hand.bin");
-const DESTROY_BLOCK: &[u8] = include_bytes!("../fixtures/inventory_transaction_destroy_block.bin");
+    include_bytes!("../../fixtures/inventory_transaction_click_block_empty_hand.bin");
+const DESTROY_BLOCK: &[u8] =
+    include_bytes!("../../fixtures/inventory_transaction_destroy_block.bin");
 const DESTROY_BLOCK_EMPTY_HAND: &[u8] =
-    include_bytes!("../fixtures/inventory_transaction_destroy_block_empty_hand.bin");
-const ATTACK_ACTOR: &[u8] = include_bytes!("../fixtures/inventory_transaction_attack_actor.bin");
+    include_bytes!("../../fixtures/inventory_transaction_destroy_block_empty_hand.bin");
+const ATTACK_ACTOR: &[u8] = include_bytes!("../../fixtures/inventory_transaction_attack_actor.bin");
 const ATTACK_ACTOR_EMPTY_HAND: &[u8] =
-    include_bytes!("../fixtures/inventory_transaction_attack_actor_empty_hand.bin");
+    include_bytes!("../../fixtures/inventory_transaction_attack_actor_empty_hand.bin");
 const INTERACT_ACTOR: &[u8] =
-    include_bytes!("../fixtures/inventory_transaction_interact_actor.bin");
+    include_bytes!("../../fixtures/inventory_transaction_interact_actor.bin");
 const INTERACT_ACTOR_EMPTY_HAND: &[u8] =
-    include_bytes!("../fixtures/inventory_transaction_interact_actor_empty_hand.bin");
-const CONTAINER_CLOSE: &[u8] = include_bytes!("../fixtures/container_close.bin");
+    include_bytes!("../../fixtures/inventory_transaction_interact_actor_empty_hand.bin");
+const CONTAINER_CLOSE: &[u8] = include_bytes!("../../fixtures/container_close.bin");
 
 fn session() -> BedrockSession {
     BedrockSession { shield_item_id: 0 }

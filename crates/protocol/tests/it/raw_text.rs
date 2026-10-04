@@ -11,10 +11,10 @@ use valentine::bedrock::version::v1_26_51::{
     TextPacketBody, TextPacketPayloadMessageOnly,
 };
 
-const OBJECT_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_rawtext.bin");
-const WHISPER_FIXTURE: &[u8] = include_bytes!("../fixtures/text_object_whisper_rawtext.bin");
+const OBJECT_FIXTURE: &[u8] = include_bytes!("../../fixtures/text_object_rawtext.bin");
+const WHISPER_FIXTURE: &[u8] = include_bytes!("../../fixtures/text_object_whisper_rawtext.bin");
 const ANNOUNCEMENT_FIXTURE: &[u8] =
-    include_bytes!("../fixtures/text_object_announcement_rawtext.bin");
+    include_bytes!("../../fixtures/text_object_announcement_rawtext.bin");
 
 /// Builds a Text packet with one of the message-only union arms.
 fn message_only(body: TextPacketBody) -> TextPacket {
