@@ -2279,6 +2279,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     face-specific lighting, a shared bounded/no-cull direct+MDI GPU path, and an
     exhaustive hash-bound gallery; assets 112, render 102, world 51, client 187,
     acceptance, strict Clippy, and final independent re-review are green.
+    Wheat's later farmland reproduction exposed the generic cross as incorrect:
+    its eight stages now use four native quarter-position rows with a -1/16 Y
+    offset and their original pinned sprites. Compiler and subchunk-boundary
+    regressions pass; see `docs/reference/farmland-rendering.md`. This does not
+    establish native geometry parity for the other generic Crop families.
   - [x] Mesh animated, biome-tinted water from the shared bounded palette
     snapshot. Task 12 preserves all 16 water depth/falling states, vanilla-like
     weighted four-corner surfaces, diagonal and cross-subchunk influence,
@@ -2651,8 +2656,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         GPU-completed model-stream witnesses with stable generation/ref counts
         and zero contamination counters.
     - [x] Exact farmland family implementation: all eight canonical
-      `minecraft:farmland` states (sequential IDs 6,122-6,129) now require the
-      complete exact `moisturized_amount:int 0..7` product, formula IDs,
+      `minecraft:farmland` states now require the
+      complete exact `moisturized_amount:int 0..7` product and unique identities
+      from the target registry (see `docs/reference/farmland-rendering.md`),
       Primary/Cuboid ownership, empty flags/coverage, exact shape-43 collision,
       and literal untinted side/top routes. Native 1.26.33.1 evidence binds
       amount zero to dry terrain-array index 1 and amounts one through seven to
@@ -2666,6 +2672,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         1, and 7 native viewpoints in Cinnabar and require two consecutive
         exact GPU-completed model-stream witnesses with stable generation/ref
         counts and zero contamination counters.
+        The October 4 macOS Metal manual check confirms that farmland and the
+        corrected wheat model render correctly; the user approved this fix.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
