@@ -66,13 +66,15 @@ type Service struct {
 	signedOut atomic.Bool
 	messaging *catalog.MessagingSession
 
-	mu         sync.Mutex
-	snap       snapshot
-	flights    [3]*flight
-	attempted  [3]time.Time
-	profileArt []string   // current avatar and achievement art pruning must keep
-	gamerpic   string     // profile artwork pruning must keep
-	disk       sync.Mutex // orders cache rewrites
+	mu           sync.Mutex
+	snap         snapshot
+	flights      [3]*flight
+	attempted    [3]time.Time
+	profileLogMu sync.Mutex
+	profileLogs  map[string]time.Time
+	profileArt   []string   // current avatar and achievement art pruning must keep
+	gamerpic     string     // profile artwork pruning must keep
+	disk         sync.Mutex // orders cache rewrites
 }
 
 // New returns a Service; it fills unset injectables with the real implementations.
@@ -160,54 +162,6 @@ func (s *Service) FeaturedServers(ctx context.Context) ([]catalog.FeaturedServer
 // Gatherings lists the community gatherings with their artwork cached, from the last good fetch.
 func (s *Service) Gatherings(ctx context.Context) ([]catalog.Gathering, error) {
 	return cached(ctx, s, gatheringsFeed)
-}
-
-// Profile returns the signed-in profile with its gamerpic cached.
-func (s *Service) Profile(ctx context.Context) (catalog.Profile, error) {
-	src, err := s.source()
-	if err != nil {
-		return catalog.Profile{}, err
-	}
-	profile, err := s.cfg.Profile(ctx, src)
-	if err != nil {
-		return catalog.Profile{}, err
-	}
-	if partial := profile.Partial(); partial != nil {
-		s.logger.Warn("profile partly unavailable", "error", control.RedactError(partial))
-	}
-	if s.cfg.ArtworkDir != "" && profile.XUID != "" {
-		avatar, err := s.cfg.ProfileAvatar(ctx, src, profile.XUID, s.cfg.ArtworkDir)
-		if err != nil {
-			profile.AvatarError = true
-			s.logger.Warn("profile avatar unavailable", "error", control.RedactError(err))
-		} else {
-			profile.Avatar = avatar
-		}
-	}
-	if profile.XUID != "" {
-		screenshot, err := s.cfg.ProfileFeaturedScreenshot(ctx, src, profile.XUID)
-		if err != nil {
-			profile.FeaturedScreenshotError = true
-			s.logger.Warn("profile featured screenshot unavailable", "error", control.RedactError(err))
-		} else {
-			profile.FeaturedScreenshot = screenshot
-		}
-	}
-	images := []*catalog.Image{&profile.Gamerpic, &profile.FeaturedScreenshot}
-	if profile.Achievements != nil {
-		for _, entry := range catalog.ProfileOverviewAchievements(profile.Achievements.Entries) {
-			images = append(images, &entry.Image)
-		}
-	}
-	s.cacheArt(ctx, images)
-	s.mu.Lock()
-	s.gamerpic = profile.Gamerpic.Path
-	s.profileArt = []string{profile.Avatar.Path}
-	for _, image := range images {
-		s.profileArt = append(s.profileArt, image.Path)
-	}
-	s.mu.Unlock()
-	return profile, nil
 }
 
 // Home returns the start screen's service data with its artwork cached, from the last good fetch.
