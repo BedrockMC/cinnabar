@@ -3,7 +3,7 @@
 - Optional custom setting, off by default, persisted with the existing settings registry.
 - Forward movement requests normal sprint; sneak, hunger and other restrictions still apply.
 - Auth-input sprint flags remain derived from the completed physics state.
-- Windows official install: Keyboard & Mouse rendered at a 1280�720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
+- Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
 
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
