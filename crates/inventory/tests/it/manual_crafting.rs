@@ -172,7 +172,7 @@ fn catalog() -> RecipeCatalog {
         1,
         1,
         &admitted(include_bytes!(
-            "../../protocol/fixtures/crafting_data_manual_named_1x1.bin"
+            "../../../protocol/fixtures/crafting_data_manual_named_1x1.bin"
         )),
     );
     catalog
@@ -217,7 +217,7 @@ fn candidate_compound_order_and_current_request_reference_match_pinned_codec() {
         encode(&packet, &BedrockSession { shield_item_id: 0 })
             .unwrap()
             .as_ref(),
-        include_bytes!("../../protocol/fixtures/item_stack_request_manual_craft.bin")
+        include_bytes!("../../../protocol/fixtures/item_stack_request_manual_craft.bin")
     );
     let McpePacketData::ItemStackRequestPacket(request) = packet.data else {
         panic!("request");
@@ -245,7 +245,7 @@ fn vertical_named_shape_uses_personal_grid_stride_and_positive_input_ids() {
         1,
         2,
         &admitted(include_bytes!(
-            "../../protocol/fixtures/crafting_data_manual_named_1x2.bin"
+            "../../../protocol/fixtures/crafting_data_manual_named_1x2.bin"
         )),
     );
     let prepare = |a, b| {
@@ -287,7 +287,7 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
         1,
         2,
         &admitted(include_bytes!(
-            "../../protocol/fixtures/crafting_data_manual_unsupported_replacement.bin"
+            "../../../protocol/fixtures/crafting_data_manual_unsupported_replacement.bin"
         )),
     );
     // The catalog retains the three-wide replacement for the table grid, but
@@ -301,7 +301,7 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
         1,
         3,
         &admitted(include_bytes!(
-            "../../protocol/fixtures/crafting_data_manual_clear_empty.bin"
+            "../../../protocol/fixtures/crafting_data_manual_clear_empty.bin"
         )),
     );
     catalog.begin_session(2);
@@ -331,7 +331,7 @@ fn replaced_or_retired_recipe_cannot_emit_and_generic_negative_slots_stay_invali
 fn synthetic_acceptance_response_retains_exact_request_and_result_mapping() {
     let packets = decode_batch(
         Bytes::from_static(include_bytes!(
-            "../../protocol/fixtures/item_stack_response_manual_craft.bin"
+            "../../../protocol/fixtures/item_stack_response_manual_craft.bin"
         )),
         &BedrockSession { shield_item_id: 0 },
     )

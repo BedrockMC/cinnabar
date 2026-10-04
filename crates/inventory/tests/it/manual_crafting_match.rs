@@ -224,7 +224,7 @@ fn registry_binding_and_capacity_are_current_immutable_inputs() {
 #[test]
 fn existing_pinned_recipe_fixture_is_matchable_without_materializing_a_request() {
     let mut bytes = Bytes::from_static(include_bytes!(
-        "../../protocol/fixtures/crafting_data_manual_named_1x1.bin"
+        "../../../protocol/fixtures/crafting_data_manual_named_1x1.bin"
     ));
     let raw = ::protocol::wire::jolyne::batch::decode_batch_raw(&mut bytes, false, Some(4096))
         .unwrap()
