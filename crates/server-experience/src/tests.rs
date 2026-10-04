@@ -417,3 +417,31 @@ fn review_session_snapshots_share_single_use_handshake_authority() {
         assert!(matches!(snapshot.state, session::State::Disabled));
     }
 }
+
+/// A client part's strikes mirror the server adapter's: the same limit within the same window,
+/// read from `tools/localserver/experience/limits.go`.
+#[test]
+fn guest_strikes_mirror_the_server_adapter() {
+    let go = include_str!("../../../tools/localserver/experience/limits.go");
+    let value = |name: &str| {
+        go.lines()
+            .find_map(|line| line.strip_prefix(&format!("const {name} = ")))
+            .unwrap_or_else(|| panic!("limits.go declares {name}"))
+            .trim()
+    };
+    assert_eq!(value("strikeLimit"), policy::MAX_GUEST_STRIKES.to_string());
+    let window_ms = match value("strikeWindow") {
+        "time.Minute" => 60_000,
+        "time.Second" => 1_000,
+        other => {
+            let (count, unit) = other.split_once(" * time.").expect("N * time.Unit");
+            let unit = match unit {
+                "Minute" => 60_000,
+                "Second" => 1_000,
+                other => panic!("unit {other}"),
+            };
+            count.trim().parse::<u64>().unwrap() * unit
+        }
+    };
+    assert_eq!(window_ms, policy::GUEST_STRIKE_WINDOW_MS);
+}

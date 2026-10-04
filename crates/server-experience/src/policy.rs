@@ -44,6 +44,11 @@ pub const CACHE_QUOTA: u64 = 512 * 1024 * 1024;
 pub const MAX_OFFER_LIFETIME_SECS: u64 = 24 * 60 * 60;
 pub const NEGOTIATION_TIMEOUT_MS: u64 = 15_000;
 pub const DEVELOPER_ENV: &str = "CINNABAR_DEV_SERVER_EXPERIENCES";
+/// Failed callbacks of one client part within [`GUEST_STRIKE_WINDOW_MS`] that stop it. Both
+/// mirror the server adapter's `strikeLimit` and `strikeWindow`
+/// (`tools/localserver/experience/limits.go`), which this crate's tests check.
+pub const MAX_GUEST_STRIKES: usize = 3;
+pub const GUEST_STRIKE_WINDOW_MS: u64 = 60_000;
 /// JSON-UI files a bundle indexes in its manifest `templates`, and each one's size.
 pub const MAX_TEMPLATES: usize = 32;
 pub const MAX_TEMPLATE_BYTES: usize = 256 * 1024;
