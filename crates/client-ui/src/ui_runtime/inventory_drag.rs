@@ -1,12 +1,13 @@
 //! Pointer gesture state for the inventory screens: drag-distribute and
 //! double-click gather. Pure so the click timing is testable.
 
+use super::inventory_ledger::{DragDistribution, MAX_DISTRIBUTION_CELLS};
 use super::presentation::inventory_pointer::InventoryCellHit;
 
 /// Two primary presses this close on one cell gather the held item.
 pub const DOUBLE_CLICK_MILLIS: u64 = 250;
 /// Bounds a drag's remembered cells.
-const MAX_DRAG_CELLS: usize = 54;
+const MAX_DRAG_CELLS: usize = MAX_DISTRIBUTION_CELLS;
 
 /// What one frame's pointer input asks the inventory to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +23,8 @@ pub enum PointerAction {
         cells: Vec<InventoryCellHit>,
         one_each: bool,
     },
+    /// Clears incremental split accounting after the matching button is released.
+    EndDistribute,
     Gather,
 }
 
@@ -49,6 +52,7 @@ struct Drag {
 pub struct InventoryPointer {
     drag: Option<Drag>,
     last_primary: Option<(InventoryCellHit, u64)>,
+    pub(crate) distribution: Option<DragDistribution>,
 }
 
 fn draggable(hit: InventoryCellHit) -> bool {
@@ -67,22 +71,28 @@ impl InventoryPointer {
     /// Advances the gesture state by one frame and returns what to dispatch.
     pub fn step(&mut self, frame: PointerFrame) -> Vec<PointerAction> {
         let mut actions = Vec::new();
+        // A fresh press starts a new gesture, not another slot in the old drag.
+        if frame.primary_pressed || frame.secondary_pressed {
+            self.drag = None;
+            self.distribution = None;
+        }
         if let (Some(drag), Some(hit)) = (self.drag.as_mut(), frame.hit)
             && draggable(hit)
             && !drag.cells.contains(&hit)
             && drag.cells.len() < MAX_DRAG_CELLS
         {
             drag.cells.push(hit);
+            actions.push(PointerAction::Distribute {
+                cells: drag.cells.clone(),
+                one_each: drag.secondary,
+            });
         }
         if frame.primary_released || frame.secondary_released {
             let released_primary = frame.primary_released;
             if let Some(drag) = self.drag.take() {
                 if released_primary != drag.secondary {
                     if drag.cells.len() >= 2 {
-                        actions.push(PointerAction::Distribute {
-                            cells: drag.cells,
-                            one_each: drag.secondary,
-                        });
+                        actions.push(PointerAction::EndDistribute);
                     } else if let Some(hit) = drag.cells.first().copied().or(frame.hit) {
                         actions.push(if drag.secondary {
                             PointerAction::SecondaryClick(hit)
@@ -105,6 +115,7 @@ impl InventoryPointer {
                 return actions;
             };
             if frame.holding && draggable(hit) {
+                self.distribution = None;
                 self.drag = Some(Drag {
                     secondary: true,
                     cells: vec![hit],
@@ -132,7 +143,8 @@ impl InventoryPointer {
             self.last_primary = None;
             actions.push(PointerAction::Gather);
         } else if frame.holding && draggable(hit) {
-            // Held stacks act on release, so a drag can claim the gesture first.
+            // A single cell acts on release; visiting a second starts live splits.
+            self.distribution = None;
             self.drag = Some(Drag {
                 secondary: false,
                 cells: vec![hit],
@@ -185,18 +197,19 @@ mod tests {
             primary_pressed: true,
             ..frame(Some(A), 0)
         });
-        pointer.step(frame(Some(B), 5));
-        let actions = pointer.step(PointerFrame {
-            primary_released: true,
-            ..frame(Some(B), 10)
-        });
+        let actions = pointer.step(frame(Some(B), 5));
         assert_eq!(
             actions,
             vec![PointerAction::Distribute {
                 cells: vec![A, B],
-                one_each: false
+                one_each: false,
             }]
         );
+        let actions = pointer.step(PointerFrame {
+            primary_released: true,
+            ..frame(Some(B), 10)
+        });
+        assert_eq!(actions, vec![PointerAction::EndDistribute]);
     }
 
     #[test]
@@ -206,17 +219,57 @@ mod tests {
             secondary_pressed: true,
             ..frame(Some(A), 0)
         });
-        pointer.step(frame(Some(B), 5));
-        let actions = pointer.step(PointerFrame {
-            secondary_released: true,
-            ..frame(Some(B), 10)
-        });
+        let actions = pointer.step(frame(Some(B), 5));
         assert_eq!(
             actions,
             vec![PointerAction::Distribute {
                 cells: vec![A, B],
                 one_each: true
             }]
+        );
+        assert_eq!(
+            pointer.step(PointerFrame {
+                secondary_released: true,
+                ..frame(Some(B), 10)
+            }),
+            vec![PointerAction::EndDistribute]
+        );
+    }
+
+    #[test]
+    fn live_drag_continues_after_the_cursor_becomes_empty() {
+        let mut pointer = InventoryPointer::default();
+        pointer.step(PointerFrame {
+            primary_pressed: true,
+            ..frame(Some(A), 0)
+        });
+        pointer.step(frame(Some(B), 5));
+        let c = InventoryCellHit::Player(11);
+        assert_eq!(
+            pointer.step(PointerFrame {
+                holding: false,
+                ..frame(Some(c), 8)
+            }),
+            vec![PointerAction::Distribute {
+                cells: vec![A, B, c],
+                one_each: false
+            }]
+        );
+        assert!(
+            pointer
+                .step(PointerFrame {
+                    holding: false,
+                    ..frame(Some(A), 9)
+                })
+                .is_empty()
+        );
+        assert_eq!(
+            pointer.step(PointerFrame {
+                primary_released: true,
+                holding: false,
+                ..frame(Some(c), 10)
+            }),
+            vec![PointerAction::EndDistribute]
         );
     }
 
@@ -300,6 +353,42 @@ mod tests {
                         ..frame(Some(B), 510)
                     })
                     .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_drag_does_not_distribute_into_the_previous_drag() {
+        let c = InventoryCellHit::Player(11);
+        for secondary in [false, true] {
+            let mut pointer = InventoryPointer::default();
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                ..frame(Some(A), 0)
+            });
+            assert!(
+                pointer
+                    .step(PointerFrame {
+                        primary_pressed: !secondary,
+                        secondary_pressed: secondary,
+                        ..frame(Some(B), 500)
+                    })
+                    .is_empty()
+            );
+            assert_eq!(
+                pointer.step(frame(Some(c), 505)),
+                vec![PointerAction::Distribute {
+                    cells: vec![B, c],
+                    one_each: secondary,
+                }]
+            );
+            assert_eq!(
+                pointer.step(PointerFrame {
+                    primary_released: !secondary,
+                    secondary_released: secondary,
+                    ..frame(Some(c), 510)
+                }),
+                vec![PointerAction::EndDistribute]
             );
         }
     }

@@ -15,6 +15,13 @@ impl<'a> ActorRigSnapshot<'a> {
     }
 }
 
+#[cfg(test)]
+#[path = "geometry/inherited_cubes_tests.rs"]
+mod inherited_cubes_tests;
+#[cfg(test)]
+#[path = "geometry/pinned_baby_tests.rs"]
+mod pinned_baby_tests;
+
 pub(super) fn resolve_binding(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
@@ -209,7 +216,10 @@ pub(super) fn resolve_bones(
             {
                 overlay_bone(existing, child);
             } else {
-                merged.push(child.clone());
+                if merged.len() >= MAX_RUNTIME_BONES_PER_RIG {
+                    return None;
+                }
+                merged.push(bone_metadata(child));
             }
         }
     }
@@ -249,6 +259,25 @@ pub(super) fn skeleton(merged: &[EntityGeometryBone]) -> Option<(Vec<RuntimeBone
     Some((bones, names))
 }
 
+// A skeleton consumes only bone defaults. Never copy or accumulate mesh payloads while
+// following an inheritance chain; mesh resolution has its own cumulative cube budget.
+fn bone_metadata(bone: &EntityGeometryBone) -> EntityGeometryBone {
+    EntityGeometryBone {
+        name: bone.name.clone(),
+        parent: bone.parent.clone(),
+        pivot: bone.pivot,
+        rotation: bone.rotation,
+        bind_pose_rotation: bone.bind_pose_rotation,
+        mirror: bone.mirror,
+        inflate: bone.inflate,
+        never_render: bone.never_render,
+        reset: bone.reset,
+        binding: bone.binding.clone(),
+        texture_meshes: Box::default(),
+        cubes: Box::default(),
+    }
+}
+
 fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
     if child.binding.is_some() {
         base.binding.clone_from(&child.binding);
@@ -262,6 +291,9 @@ fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
     if child.rotation.is_some() {
         base.rotation = child.rotation;
     }
+    if child.bind_pose_rotation.is_some() {
+        base.bind_pose_rotation = child.bind_pose_rotation;
+    }
     if child.mirror.is_some() {
         base.mirror = child.mirror;
     }
@@ -273,9 +305,6 @@ fn overlay_bone(base: &mut EntityGeometryBone, child: &EntityGeometryBone) {
     }
     if child.reset.is_some() {
         base.reset = child.reset;
-    }
-    if !child.cubes.is_empty() {
-        base.cubes.clone_from(&child.cubes);
     }
 }
 

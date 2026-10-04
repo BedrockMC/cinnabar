@@ -29,7 +29,7 @@ pub mod trace;
 pub use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
-pub use control_trace::trace_server_control;
+pub use control_trace::{trace_local_attributes, trace_server_control};
 pub use coordination::physics_authority_fault_for_frame;
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
 pub use correction_shape::{

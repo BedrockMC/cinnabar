@@ -108,11 +108,13 @@ pub enum CommittedControlEvent {
         tick: u64,
         flags: crate::MovementFlagUpdate,
     },
-    /// Valid current `minecraft:movement` authority for local prediction.
+    /// Effective `minecraft:movement` current and the packet's sprint modifier.
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
         current: f64,
+        /// Total/current factor for the identified native sprint modifier.
+        sprint_modifier: Option<f32>,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
     },
@@ -157,9 +159,17 @@ pub enum CommittedControlEvent {
         sequence: u64,
         update: SetTimeEvent,
     },
+    WorldClocks {
+        sequence: u64,
+        update: protocol::WorldClockUpdateEvent,
+    },
     DaylightCycle {
         sequence: u64,
         update: DaylightCycleUpdateEvent,
+    },
+    WeatherCycle {
+        sequence: u64,
+        enabled: bool,
     },
     Weather {
         sequence: u64,

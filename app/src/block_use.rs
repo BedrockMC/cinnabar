@@ -265,6 +265,19 @@ fn use_surroundings(
                 observed.target.runtime_id,
             )
             .map(str::to_owned),
+        clicked_canonical_state: stream.and_then(|stream| {
+            context
+                .collisions
+                .block_canonical_state(stream.network_id_mode(), observed.target.runtime_id)
+                .map(str::to_owned)
+        }),
+        held_block_identifier: stream.and_then(|stream| {
+            let block = held_block_store_id(stream, observed.selection.item.block_runtime_id())?;
+            context
+                .collisions
+                .block_identifier(stream.network_id_mode(), block)
+                .map(str::to_owned)
+        }),
         neighbor_identifier: identifier(placement_cell(
             observed.target.position,
             observed.target.face,

@@ -633,7 +633,11 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		cache = observedResourcePackCache{cache: connections.resourcePackCache, telemetry: packAdmission}
 	}
 	// The account is the Dialer's multiplayer token source, so it needs no Xbox or PlayFab client.
-	dialer := newUpstreamDialerForAdmission(downstream, accountTokenSource(connections.account), cache, packAdmission, connections.upstreamClientCache)
+	tokenSource := accountTokenSource(connections.account)
+	if target.offline {
+		tokenSource = nil
+	}
+	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, connections.upstreamClientCache)
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}

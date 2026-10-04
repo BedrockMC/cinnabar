@@ -57,6 +57,28 @@ fn concurrent_claims_have_exactly_one_observation() {
 }
 
 #[test]
+fn element_menu_observation_keeps_structure_without_payload_text() {
+    let probe = event(
+        r#"{"type":"form","elements":[{"type":"button","text":"PRIVATE_LABEL"},{"type":"button","text":"PRIVATE_IMAGE","image":{"type":"path","data":"PRIVATE_PATH"}}]}"#,
+    );
+    let Summary::Parsed { node, .. } = inspect(true, &AtomicBool::new(false), &probe).unwrap()
+    else {
+        panic!("shape");
+    };
+    assert_eq!(node.buttons_shape.kind, Kind::Missing);
+    assert_eq!(node.elements_shape.kind, Kind::Array);
+    assert_eq!(node.elements_shape.entries, 2);
+    assert_eq!(node.elements[0].type_class, TypeClass::Button);
+    assert_eq!(node.elements[0].image.shape.kind, Kind::Missing);
+    assert_eq!(node.elements[1].image.type_class, TypeClass::Path);
+    assert_eq!(node.other_keys, 0);
+    let output = format!("{node:?}");
+    for private in ["PRIVATE_LABEL", "PRIVATE_IMAGE", "PRIVATE_PATH"] {
+        assert!(!output.contains(private));
+    }
+}
+
+#[test]
 fn structural_summary_does_not_contain_payload_text_names_urls_or_ids() {
     let probe = event(
         r#"{"type":"form","title":{"rawtext":[{"text":"TITLE_SECRET"}]},"content":"BODY_SECRET","UNKNOWN_SECRET_KEY":{"secret":"NEVER_LOG"},"buttons":[{"text":"LABEL_SECRET","type":"button","image":{"type":"url","data":"https://secret.invalid/token"}},{"text":{"rawtext":[{"text":"SECOND_SECRET"}]},"image":null}]}"#,

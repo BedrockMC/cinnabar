@@ -447,6 +447,7 @@ impl LocalPhysicsController {
         };
 
         let sprint_request = input.sprinting;
+        let requested_movement_speed = input.movement_speed;
         let sneak_request = input.sneaking;
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
@@ -479,6 +480,7 @@ impl LocalPhysicsController {
             input.jump_pressed = self.jump_edge_pending || jump_repeated;
             input.effects = effects.snapshot();
             input.sprinting = sprint_request;
+            input.movement_speed = requested_movement_speed;
             let mut forced_sneak = false;
             let mut mode_error = None;
             let previous_modes = self.modes;
@@ -513,6 +515,7 @@ impl LocalPhysicsController {
             ) {
                 input.sprinting = false;
             }
+            super::speed_authority::preserve_effective_speed(&mut input, sprint_request);
             // A rider's position is its seat on the mount, not a simulated result.
             let mut ride_delta = None;
             if input.mode == sim::MovementMode::Riding

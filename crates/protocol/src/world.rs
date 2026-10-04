@@ -39,17 +39,24 @@ use crate::{
 
 mod biomes;
 mod block_side;
+mod clocks;
 mod custom_blocks;
+mod environment;
 mod events;
 mod game_mode;
 mod game_rules;
 mod requests;
 
+pub use self::clocks::{
+    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, WorldClockDefinition, WorldClockState,
+    WorldClockUpdateEvent,
+};
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
     CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
     CustomTransformation, CustomVisualComponents, block_name_sort_key,
 };
+pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
     ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
     BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
@@ -62,7 +69,7 @@ pub use self::events::{
     air_network_id, vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
-use self::game_rules::{daylight_cycle_rule_update, hud_rules};
+use self::game_rules::{daylight_cycle_rule_update, hud_rules, weather_cycle_rule_update};
 pub use self::requests::request_sub_chunk_column;
 use self::requests::{checked_sub_chunk_position, normalize_layer};
 use biomes::canonical_biome_name;
@@ -174,51 +181,6 @@ impl WorldBootstrap {
             air_network_id: air_network_id(start_game.block_network_ids_are_hashes),
             block_network_ids_are_hashes: start_game.block_network_ids_are_hashes,
         }
-    }
-}
-
-/// Initial clock and weather state retained from StartGame.
-///
-/// This is separate from [`WorldBootstrap`] so existing world-stream
-/// construction remains independent of the later app-owned atmosphere state.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct WorldEnvironmentBootstrap {
-    /// StartGame's current absolute world tick.
-    pub initial_time: i64,
-    /// StartGame's cycle lock tick, used only when the daylight cycle is disabled.
-    pub day_cycle_lock_time: i32,
-    /// Whether the world clock advances between server-authored time updates.
-    pub daylight_cycle_enabled: bool,
-    /// Initial rain intensity clamped to the closed unit interval.
-    pub rain_level: f32,
-    /// Initial lightning intensity clamped to the closed unit interval.
-    pub lightning_level: f32,
-}
-
-impl WorldEnvironmentBootstrap {
-    #[must_use]
-    pub fn from_game_data(game_data: &GameData) -> Self {
-        let settings = &game_data.start_game.settings;
-        Self {
-            // gophertunnel packet/start_game.go writes `Time int64`; the
-            // generated field is u64 over the same eight little-endian bytes.
-            initial_time: game_data.start_game.level_current_time as i64,
-            day_cycle_lock_time: settings.day_cycle_stop_time,
-            // StartGame and GameRulesChanged now carry the same `GameRule`
-            // type, so the two rule scans collapse into one helper.
-            daylight_cycle_enabled: daylight_cycle_rule_update(&settings.rule_data.rules_list)
-                .unwrap_or(true),
-            rain_level: normalize_weather_level(settings.rain_level),
-            lightning_level: normalize_weather_level(settings.lightning_level),
-        }
-    }
-}
-
-fn normalize_weather_level(level: f32) -> f32 {
-    if level.is_finite() {
-        level.clamp(0.0, 1.0)
-    } else {
-        0.0
     }
 }
 
@@ -604,12 +566,21 @@ pub fn into_world_event(
                     }
                 }
                 let name = canonical_biome_name(name);
+                // Climate is optional on the wire. Ignore an unusable optional
+                // field instead of rejecting a well-framed biome definition.
+                let max_snow_accumulation = definition
+                    .chunkgendata
+                    .as_ref()
+                    .and_then(|generation| generation.climate.as_ref())
+                    .map(|climate| climate.snowaccumulationmax)
+                    .filter(|value| value.is_finite());
                 definitions.push(BiomeDefinitionEvent {
                     biome_id: (definition.id != u16::MAX).then_some(definition.id),
                     name,
                     temperature: definition.temperature,
                     downfall: definition.downfall,
                     snow_foliage: definition.foliagesnow,
+                    max_snow_accumulation,
                     map_water_color: definition.mapwatercolor_argb as u32,
                 });
             }
@@ -874,16 +845,25 @@ pub fn into_world_event(
         McpePacketData::SetTimePacket(packet) => {
             WorldEvent::SetTime(SetTimeEvent { time: packet.time })
         }
+        McpePacketData::SyncWorldClocksPacket(packet) => {
+            let updates = clocks::normalize_world_clocks(packet.data);
+            if updates.is_empty() {
+                return Ok(None);
+            }
+            WorldEvent::WorldClocks(updates)
+        }
         McpePacketData::GameRulesChangedPacket(packet) => {
             let rules = &packet.rule_data.rules_list;
             let daylight_cycle = daylight_cycle_rule_update(rules)
                 .map(|enabled| DaylightCycleUpdateEvent { enabled });
+            let weather_cycle = weather_cycle_rule_update(rules);
             let hud = hud_rules(rules);
-            if daylight_cycle.is_none() && hud.is_empty() {
+            if daylight_cycle.is_none() && weather_cycle.is_none() && hud.is_empty() {
                 return Ok(None);
             }
             WorldEvent::GameRules(GameRulesEvent {
                 daylight_cycle,
+                weather_cycle,
                 hud,
             })
         }

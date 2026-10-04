@@ -13,6 +13,11 @@ pub enum PackDependency {
         limit: u64,
     },
     Directory(String),
+    /// Names matching the suffixes under the prefix; unrelated files do not invalidate it.
+    DirectoryWithSuffixes {
+        prefix: String,
+        suffixes: Vec<String>,
+    },
     /// Names and bytes of every file under the prefix, for a subscriber that reads lazily.
     Contents(String),
 }
@@ -62,5 +67,20 @@ impl PackDependencies {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .insert(PackDependency::Contents(prefix.to_owned()));
+    }
+
+    /// Records a directory filter with sorted, unique suffixes for stable reload checks.
+    pub(crate) fn directory_with_suffixes(&self, prefix: &str, suffixes: &[&str]) {
+        let mut suffixes: Vec<String> =
+            suffixes.iter().map(|suffix| (*suffix).to_owned()).collect();
+        suffixes.sort();
+        suffixes.dedup();
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(PackDependency::DirectoryWithSuffixes {
+                prefix: prefix.to_owned(),
+                suffixes,
+            });
     }
 }

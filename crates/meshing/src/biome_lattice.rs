@@ -191,6 +191,20 @@ pub fn shader_source(source: &str) -> String {
     constants.push_str(");\n");
     let permutation = assets::grass_noise_permutation();
     constants.push_str(&format!(
+        "const SEASONAL_FOLIAGE_COUNT: u32 = {}u;\nconst SEASONAL_FOLIAGE_EXPOSED_OFFSET: u32 = {}u;\nconst BIOME_SEASONAL_FOLIAGE: u32 = {}u;\nconst MATERIAL_SEASONAL_FOLIAGE: u32 = {}u;\nconst MATERIAL_EXPOSED_FOLIAGE: u32 = {}u;\n",
+        assets::SEASONAL_FOLIAGE_COUNT,
+        assets::SEASONAL_FOLIAGE_EXPOSED_OFFSET,
+        assets::BIOME_TINT_FLAG_SEASONAL_FOLIAGE,
+        assets::MATERIAL_FLAG_SEASONAL_FOLIAGE,
+        assets::MATERIAL_FLAG_EXPOSED_FOLIAGE,
+    ));
+    constants.push_str(&format!(
+        "const SEASONAL_EVERGREEN_CELL: u32 = {}u;\nconst SEASONAL_BIRCH_CELL: u32 = {}u;\nconst SEASONAL_DEFAULT_CELL: u32 = {}u;\n",
+        assets::seasonal_foliage_palette_index(assets::MATERIAL_FLAG_EVERGREEN_FOLIAGE, false),
+        assets::seasonal_foliage_palette_index(assets::MATERIAL_FLAG_BIRCH_FOLIAGE, false),
+        assets::seasonal_foliage_palette_index(0, false),
+    ));
+    constants.push_str(&format!(
         "const BIOME_TINT_MAP_SIZE: u32 = {}u;\nconst BIOME_SWAMP_GRASS: u32 = {}u;\nconst GRASS_PERMUTATION_MASK: u32 = {}u;\nconst GRASS_PERMUTATION = array<u32, {}>({});\n",
         assets::TINT_MAP_SIZE,
         assets::BIOME_TINT_FLAG_SWAMP_GRASS,

@@ -162,6 +162,10 @@ const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseSurroundings {
     pub clicked_identifier: Option<String>,
+    /// Canonical block state used to classify state-dependent block interactions.
+    pub clicked_canonical_state: Option<String>,
+    /// The selected block item's resolved block type, including server remaps.
+    pub held_block_identifier: Option<String>,
     /// Identifier of the cell across the clicked face; `None` when unreadable.
     pub neighbor_identifier: Option<String>,
     pub player_box: BoxBounds,
@@ -209,9 +213,12 @@ impl LocalUse {
         let clicked_identifier = surroundings.clicked_identifier.as_deref();
         let holding = item.network_id() != 0 && item.count() > 0;
         // Sneaking with an item uses the item instead of the block.
-        if clicked_identifier
-            .and_then(interaction)
-            .is_some_and(|interaction| interaction.permitted(caps))
+        let block_interaction = if clicked_identifier == Some("minecraft:respawn_anchor") {
+            respawn_anchor::uses_block(surroundings).then_some(Interaction::Other)
+        } else {
+            clicked_identifier.and_then(interaction)
+        };
+        if block_interaction.is_some_and(|interaction| interaction.permitted(caps))
             && !(surroundings.sneaking && holding)
         {
             return Self::Interact;
@@ -499,3 +506,5 @@ pub fn use_packets(
 
 #[cfg(test)]
 mod tests;
+
+mod respawn_anchor;

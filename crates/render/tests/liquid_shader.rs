@@ -109,7 +109,16 @@ fn liquid_shader_cpu_and_wgsl_decode_share_task12_winding_and_height_scale() {
             ],
         ),
     ];
-    for (face, (_, heights, expected)) in cases.into_iter().enumerate() {
+    for (face, (_, heights, mut expected)) in cases.into_iter().enumerate() {
+        for position in &mut expected {
+            match face {
+                0 => position[0] += meshing::liquid::LIQUID_FACE_INSET,
+                1 => position[0] -= meshing::liquid::LIQUID_FACE_INSET,
+                4 => position[2] += meshing::liquid::LIQUID_FACE_INSET,
+                5 => position[2] -= meshing::liquid::LIQUID_FACE_INSET,
+                _ => {}
+            }
+        }
         assert_eq!(
             std::array::from_fn(|corner| {
                 contract.corner(face, corner, [3.0, 4.0, 5.0], heights[corner])
@@ -123,7 +132,7 @@ fn liquid_shader_cpu_and_wgsl_decode_share_task12_winding_and_height_scale() {
 #[test]
 fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
     let contract = LiquidShaderContract::parse(SHADER);
-    let face_uvs = [
+    let mut face_uvs = [
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
         [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
@@ -131,6 +140,11 @@ fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
         [[0.0, 1.0], [0.0, 0.498_039_22], [1.0, 0.0], [1.0, 1.0]],
     ];
+    for face in [0, 1, 4, 5] {
+        for corner in &mut face_uvs[face] {
+            *corner = corner.map(|value| value / 2.0);
+        }
+    }
     for (face, expected) in face_uvs.into_iter().enumerate() {
         let heights = [0, 128, 255, 0];
         for (corner, expected) in expected.into_iter().enumerate() {
@@ -146,10 +160,10 @@ fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
         [1.0, 1.0]
     );
     let cardinal_flow = [
-        ([1, 0], [0.0, 1.0]),
-        ([0, 1], [0.0, 0.0]),
-        ([-1, 0], [1.0, 0.0]),
-        ([0, -1], [1.0, 1.0]),
+        ([1, 0], [0.75, 0.25]),
+        ([0, 1], [0.25, 0.25]),
+        ([-1, 0], [0.25, 0.75]),
+        ([0, -1], [0.75, 0.75]),
     ];
     for (flow, expected) in cardinal_flow {
         let actual = contract.uv(3, 0, 128, flow, false, [0.0, 0.0]);
@@ -157,9 +171,12 @@ fn liquid_shader_cpu_and_wgsl_uv_rules_cover_still_flow_side_and_falling() {
         assert!((actual[1] - expected[1]).abs() < 1.0e-6, "flow {flow:?}");
     }
     let side = contract.uv(1, 3, 128, [0, 0], false, [0.0, 0.0]);
-    assert_eq!(side, [1.0, 1.0 - 128.0 / 255.0]);
+    assert_eq!(side, [0.5, (1.0 - 128.0 / 255.0) / 2.0]);
     let falling = contract.uv(1, 3, 128, [0, 0], true, [4.0, 0.0]);
-    assert!((falling[1].fract() - side[1].fract()).abs() > 0.1);
+    assert_eq!(
+        falling, side,
+        "falling animation must not invent another UV scroll"
+    );
 }
 
 #[test]
@@ -198,17 +215,6 @@ fn shader_contract_decoder_observes_wgsl_table_and_operator_mutations() {
         baseline.uv(0, 1, 128, [0, 0], false, [0.0, 0.0]),
         changed_side.uv(0, 1, 128, [0, 0], false, [0.0, 0.0]),
     );
-
-    let falling_mutation = SHADER.replacen(
-        "uv.y += FALLING_SCROLL_DIRECTION * falling_phase",
-        "uv.y -= FALLING_SCROLL_DIRECTION * falling_phase",
-        1,
-    );
-    let changed_falling = LiquidShaderContract::parse(&falling_mutation);
-    assert_ne!(
-        baseline.uv(0, 1, 128, [0, 0], true, [4.0, 0.0]),
-        changed_falling.uv(0, 1, 128, [0, 0], true, [4.0, 0.0]),
-    );
 }
 
 #[test]
@@ -218,9 +224,9 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("textureSampleGrad(block_textures_page_1"));
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
     assert!(SHADER.contains("out.water_tint = blended_biome_tint("));
-    assert!(SHADER.contains("let colour = lit_colour("));
-    assert!(SHADER.contains("sampled.rgb * in.water_tint.rgb,"));
-    assert!(SHADER.contains("apply_distance_fog(colour, in.world_position)"));
+    assert!(SHADER.contains("native_liquid_colour(sampled.rgb, in.water_tint.rgb, in)"));
+    assert!(SHADER.contains("terrain_light_colour(in.native_light_levels)"));
+    assert!(SHADER.contains("return tint_to_gamma(sampled)"));
     assert!(SHADER.contains("sampled.a * in.water_tint.a"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
@@ -233,9 +239,8 @@ fn liquid_shader_has_mutually_exclusive_water_and_depth_writing_entries() {
     assert!(SHADER.contains("@interpolate(flat) depth_write_route: u32"));
     assert!(SHADER.contains("LIQUID_DEPTH_WRITE_BIT"));
     assert!(
-        SHADER.contains(
-            "let material = positional_material(packed_material & ~LIQUID_DEPTH_WRITE_BIT,"
-        )
+        SHADER
+            .contains("let material = positional_material(packed_material & LIQUID_MATERIAL_MASK,")
     );
     assert!(
         SHADER.contains("let draw_ref = TransparentDrawRef(instance_index, vertex_index / 4u)")
@@ -256,7 +261,7 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
         .nth(1)
         .expect("liquid shader must retain a fragment stage");
 
-    assert!(SHADER.contains("@location(4) @interpolate(flat) water_tint: vec4<f32>"));
+    assert!(SHADER.contains("@location(4) water_tint: vec4<f32>"));
     assert!(vertex.contains("let block_coordinate = vec3<u32>("));
     assert!(vertex.contains("geometry & 15u"));
     assert!(vertex.contains("(geometry >> 4u) & 15u"));
@@ -275,6 +280,11 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
             "liquid fragment stage repeated vertex-only tint work: {forbidden}",
         );
     }
-    assert!(fragment.contains("let colour = lit_colour("));
-    assert!(fragment.contains("sampled.rgb * in.water_tint.rgb,"));
+    assert!(fragment.contains("native_liquid_colour(sampled.rgb, in.water_tint.rgb, in)"));
 }
+#[allow(
+    dead_code,
+    reason = "shared shader adapter uses production material definitions"
+)]
+#[path = "../src/material_shader.rs"]
+mod material_shader;

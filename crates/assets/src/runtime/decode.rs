@@ -2,7 +2,7 @@ use sha2::{Digest, Sha256};
 
 use super::RuntimeAssets;
 use crate::model::{
-    MODEL_QUAD_FLAG_TWO_SIDED, model_template_flags_are_valid,
+    MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
     transparent_cube_quad_geometry_is_valid,
 };
 use crate::{
@@ -13,11 +13,11 @@ use crate::{
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad,
-    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT,
-    TINT_MAP_SIZE, TextureArray, TextureMip, TexturePage, TextureRef, TintSource, VisualKind,
-    VisualSupport,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, TILE_SIZE, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE, TextureArray,
+    TextureMip, TexturePage, TextureRef, TintSource, VisualKind, VisualSupport,
     biome::{BIOME_RULE_FLAGS_MASK, validate_biome_assets},
     blob::{
         ANIMATION_BYTES, BIOME_RULE_BYTES, FRAME_BYTES, HASH_BYTES, HASH_ENTRY_BYTES, HEADER_BYTES,
@@ -278,6 +278,9 @@ fn validate_fixed(
             return Err(invalid("visual flags are invalid"));
         }
         let kind = VisualKind::from_raw(record[25])?;
+        if !covered_grass_variant_is_valid(kind, u32_at(record, 40), header.counts[2]) {
+            return Err(invalid("visual has invalid covered-grass material"));
+        }
         let contributor_role = ContributorRole::read(record[26])?;
         let support = VisualSupport::from_raw(record[28])?;
         if record[29..32] != [0; 3] {
@@ -406,6 +409,8 @@ fn validate_fixed(
             || !model_template_flags_are_valid(u32_at(record, 8))
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
+            || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_SNOW_LAYER && u32_at(record, 4) != 6)
+            || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_LILY_PAD && u32_at(record, 4) != 2)
         {
             return Err(invalid("template spans are noncanonical"));
         }

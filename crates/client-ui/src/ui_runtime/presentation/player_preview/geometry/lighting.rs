@@ -53,10 +53,8 @@ pub(super) fn triangle_light(
 
 /// UI shading supplies TILE_LIGHT_COLOR=(1,1,1,1), so its W direction is +1.
 /// This is the entity shader's formula, not world ambient or a byte tint.
-pub(super) fn fancy_intensity([x, y, z]: [f32; 3]) -> f32 {
-    let ambient = 0.45;
-    let y_light = (1.0 + y) * 0.5;
-    y_light * (1.0 - ambient) + x * x * -0.1 + z * z * 0.1 + ambient
+pub(super) fn fancy_intensity(normal: [f32; 3]) -> f32 {
+    render::fancy_actor_shade(normal, 0.0)
 }
 
 fn sub(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {

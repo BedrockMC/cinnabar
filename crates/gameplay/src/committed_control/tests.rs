@@ -38,7 +38,7 @@ fn owners() -> (
 #[test]
 fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
-    assert!(speed.apply(7, 1, 0, 0.25));
+    assert!(speed.apply(7, 1, 0, 0.25, None));
     let position = [10.0, 80.0, 20.0];
     let control = CommittedControlEvent::ChangeDimension {
         change: protocol::ChangeDimensionEvent {
@@ -157,4 +157,39 @@ fn a_correction_outside_retained_history_keeps_prediction_and_still_resets_the_f
     assert_eq!(observations, [ControlObservation::BeforeSpatial(control)]);
     assert_eq!(physics.network_position(), before);
     assert!(movement.physics_is_authorized());
+}
+
+#[test]
+fn world_clock_and_weather_cycle_controls_stay_with_the_environment_adapter() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let position = physics.network_position();
+    for control in [
+        CommittedControlEvent::WorldClocks {
+            sequence: 1,
+            update: protocol::WorldClockUpdateEvent::Sync(protocol::WorldClockState {
+                id: protocol::OVERWORLD_CLOCK_ID,
+                time: 42,
+                paused: false,
+            }),
+        },
+        CommittedControlEvent::WeatherCycle {
+            sequence: 2,
+            enabled: false,
+        },
+    ] {
+        let disposition = CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+        }
+        .apply(control, &NoQueries, |_| {
+            panic!("environment control emitted a spatial observation")
+        });
+        assert_eq!(disposition, ControlDisposition::Environment);
+        assert_eq!(physics.network_position(), position);
+        assert!(movement.physics_is_authorized());
+    }
 }

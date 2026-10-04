@@ -75,6 +75,7 @@ fn element_menu_indexes_count_buttons_only() {
                 MenuElement::Label(Arc::from("L")),
                 MenuElement::Button {
                     text: Arc::from("A"),
+                    image: None,
                 },
             ]
             .into(),

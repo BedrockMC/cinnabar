@@ -36,6 +36,47 @@ func TestRetailLightCorrectionsReplaceOnlyUnimplementedDefaults(t *testing.T) {
 	}
 }
 
+// Lens 1.26.50.26 TopSnowBlock 0a5c5fb0 sets dampening to zero; the
+// inherited 0365cdf0 getter and per-height component override do not change it.
+func TestSnowLayerNativeLightDampening(t *testing.T) {
+	var records []Record
+	var properties []byte
+	for height := range 8 {
+		for covered := range 2 {
+			records = append(records, Record{
+				Name:      "minecraft:snow_layer",
+				StateJSON: []byte(fmt.Sprintf(`{"height":{"type":"int","value":%d},"covered_bit":{"type":"byte","value":%d}}`, height, covered)),
+			})
+			properties = append(properties, 2<<4)
+		}
+	}
+	records = append(records, Record{Name: "minecraft:leaves"}, Record{Name: "test:snow_layer"})
+	properties = append(properties, 2<<4, 2<<4)
+	retail := map[string]PMMPLightProperties{
+		"minecraft:snow_layer": {Opacity: 2},
+	}
+	changed, err := applyRetailLightCorrections(records, properties, retail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, record := range records {
+		want := byte(2 << 4)
+		if record.Name == "minecraft:snow_layer" {
+			want = 0
+		}
+		if got := properties[index]; got != want {
+			t.Errorf("%s %s light = %#x, want %#x", record.Name, record.StateJSON, got, want)
+		}
+	}
+	if changed != 16 {
+		t.Errorf("changed = %d, want 16", changed)
+	}
+	changed, err = applyRetailLightCorrections(records, properties, retail)
+	if err != nil || changed != 0 {
+		t.Errorf("second correction: changed=%d err=%v, want unchanged", changed, err)
+	}
+}
+
 // Lens 1.26.50.26 0x4794430 selects emission by trial-spawner state, independent of ominous.
 func TestTrialSpawnerEmissionIsStateResolved(t *testing.T) {
 	for ominous := 0; ominous < 2; ominous++ {

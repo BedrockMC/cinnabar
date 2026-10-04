@@ -49,7 +49,6 @@ pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 pub use server_view::{ServerCameraSkips, ServerCameraView};
 
 pub const PITCH_LIMIT: f32 = 89.9_f32.to_radians();
-pub const DEFAULT_HORIZONTAL_FOV_RADIANS: f32 = 90.0_f32.to_radians();
 /// Radius declared by the pinned `minecraft:camera_orbit` vanilla presets.
 pub const THIRD_PERSON_RADIUS_BLOCKS: f32 = 4.0;
 pub const THIRD_PERSON_COLLISION_RADIUS_BLOCKS: f32 = 0.2;
@@ -195,6 +194,8 @@ impl CameraSettingsAuthority {
         self.generation
     }
 
+    /// The Bedrock FOV setting is vertical for a full-window viewport. The
+    /// legacy accessor name is retained with the settings storage field.
     #[must_use]
     pub const fn horizontal_fov_degrees(&self) -> f32 {
         self.horizontal_fov_degrees
@@ -228,17 +229,6 @@ pub const fn next_perspective(current: PerspectiveMode) -> PerspectiveMode {
     }
 }
 
-#[must_use]
-pub fn perspective_look_delta(delta: Vec2, perspective: PerspectiveMode) -> Vec2 {
-    // The pinned third_person_front preset declares invert_x_input=true;
-    // neither first person nor the rear orbit does.
-    if perspective == PerspectiveMode::ThirdPersonFront {
-        Vec2::new(-delta.x, delta.y)
-    } else {
-        delta
-    }
-}
-
 /// Computes the unobstructed vanilla preset pose.
 ///
 /// This function deliberately does not shorten the third-person boom: that
@@ -266,15 +256,10 @@ pub fn perspective_pose(
             }
         }
         PerspectiveMode::ThirdPersonFront => {
-            let horizontal_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-            let horizontal_forward = if horizontal_forward == Vec3::ZERO {
-                Vec3::NEG_Z
-            } else {
-                horizontal_forward
-            };
-            let translation = subject_translation + horizontal_forward * THIRD_PERSON_RADIUS_BLOCKS;
-            Transform::from_translation(translation)
-                .looking_at(subject_translation, subject_rotation * Vec3::Y)
+            // Lens 26.30 reverse orbit setup (0x1007fe590) retains the full
+            // player look vector; look-at (0x102059060) keeps global Y as up.
+            let translation = subject_translation + forward * THIRD_PERSON_RADIUS_BLOCKS;
+            Transform::from_translation(translation).looking_at(subject_translation, Vec3::Y)
         }
     }
 }
@@ -578,25 +563,28 @@ impl Plugin for FlyCameraPlugin {
     }
 }
 
-/// Converts the user-facing horizontal FOV to Bevy's aspect-correct vertical
-/// FOV while keeping malformed or zero-size window input finite and valid.
+/// Converts Bedrock's full-viewport FOV setting to Bevy's vertical radians.
+///
+/// Native `getNormalizedViewportSize` measures viewport fractions of the full
+/// screen, not its pixel aspect. A full-window camera therefore keeps the
+/// configured vertical angle; the projection matrix applies width/height.
 #[must_use]
-pub fn horizontal_fov_to_vertical(horizontal: f32, aspect: f32) -> f32 {
-    let horizontal = if horizontal.is_finite() {
-        horizontal.clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS)
+pub fn projection_fov_radians(fov_degrees: f32) -> f32 {
+    let degrees = if fov_degrees.is_finite() {
+        fov_degrees
     } else {
-        DEFAULT_HORIZONTAL_FOV_RADIANS
+        UserSettings::default().video.horizontal_fov_degrees
     };
-    let aspect = if aspect.is_finite() && aspect > 0.0 {
-        aspect
-    } else {
-        DEFAULT_ASPECT_RATIO
-    };
-    (2.0 * ((horizontal * 0.5).tan() / aspect).atan()).clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS)
+    degrees.to_radians().clamp(MIN_FOV_RADIANS, MAX_FOV_RADIANS)
 }
 
 fn window_aspect(window: &Window) -> f32 {
-    window.resolution.width() / window.resolution.height()
+    let aspect = window.resolution.width() / window.resolution.height();
+    if aspect.is_finite() && aspect > 0.0 {
+        aspect
+    } else {
+        DEFAULT_ASPECT_RATIO
+    }
 }
 
 fn apply_runtime_camera_settings(
@@ -625,10 +613,8 @@ fn spawn_fly_camera(
         Msaa::Off,
         Fxaa::default(),
         Projection::Perspective(PerspectiveProjection {
-            fov: horizontal_fov_to_vertical(
-                settings.horizontal_fov_degrees().to_radians(),
-                window_aspect(&window),
-            ),
+            fov: projection_fov_radians(settings.horizontal_fov_degrees()),
+            aspect_ratio: window_aspect(&window),
             ..default()
         }),
         Tonemapping::None,
@@ -652,12 +638,12 @@ fn update_camera_fov(
 ) {
     let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
     let base = settings.horizontal_fov_degrees();
-    let horizontal_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
-    let vertical =
-        horizontal_fov_to_vertical(horizontal_degrees.to_radians(), window_aspect(&window));
+    let fov_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
+    let vertical = projection_fov_radians(fov_degrees);
     for mut projection in &mut cameras {
         if let Projection::Perspective(perspective) = projection.as_mut() {
             perspective.fov = vertical;
+            perspective.aspect_ratio = window_aspect(&window);
         }
     }
 }
@@ -836,9 +822,12 @@ fn update_look(
         menu.as_ref()
             .map_or(0.0, |menu| menu.spyglass_damping(mode)),
     );
-    let delta = perspective_look_delta(look_delta, settings.perspective());
+    // LocalViewPose stores actor rotation. Lens 26.30 CameraAttachSystem::_handleLookInput
+    // (0x10c316a00) inverts the front preset's polar input in camera space;
+    // UpdatePlayerFromCameraSystemUtil::_updatePlayer (0x1007fdb40) reverses the
+    // rendered forward vector back into actor space. Neither reverses actor yaw.
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
-    let (yaw, pitch) = look_angles(yaw, pitch, delta, Vec2::splat(scale));
+    let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));
     view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
 }
 

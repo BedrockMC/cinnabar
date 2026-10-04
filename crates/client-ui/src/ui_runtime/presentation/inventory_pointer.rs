@@ -51,7 +51,11 @@ impl InventoryScreen {
     pub fn of(ledger: &crate::ui_runtime::inventory_ledger::PlayerInventoryLedger) -> Self {
         let cells = ledger.storage_slot_count();
         match (ledger.window_kind(), cells) {
-            (Some(WindowKind::Storage), Some(count @ (27 | 54))) => Self::Storage(count),
+            (Some(WindowKind::Storage), Some(count))
+                if super::forms::supported_storage_slots(count) =>
+            {
+                Self::Storage(count)
+            }
             (Some(WindowKind::Workbench), _) => Self::Workbench,
             (Some(WindowKind::Storage) | None, _) => Self::Personal,
             (Some(kind), cells) => Self::Window(kind, cells.unwrap_or(0)),
@@ -299,9 +303,12 @@ mod tests {
     }
 
     #[test]
-    fn generic_storage_hit_testing_is_exact_for_27_and_54_cells() {
+    fn generic_storage_hit_testing_is_exact_for_server_menu_rows() {
         let geometry = geometry([1280, 720], 1.0, SafeArea::ZERO);
-        for count in [27, 54] {
+        let Some(protocol::OpenCells::Generic(lengths)) = WindowKind::Storage.open_cells() else {
+            panic!("storage cell contract");
+        };
+        for &count in lengths {
             let rows = count / 9;
             let panel_height = 114.0 + rows as f32 * SLOT_SIZE;
             let origin = [
@@ -335,6 +342,38 @@ mod tests {
                     InventoryScreen::Storage(count),
                 ),
                 Some(InventoryCellHit::Player(9))
+            );
+        }
+    }
+
+    #[test]
+    fn admitted_server_menu_rows_choose_storage_instead_of_personal_inventory() {
+        use protocol::{
+            ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent,
+            NetworkItemStack,
+        };
+        let Some(protocol::OpenCells::Generic(lengths)) = WindowKind::Storage.open_cells() else {
+            panic!("storage cell contract");
+        };
+        for &count in lengths {
+            let mut ledger = crate::ui_runtime::inventory_ledger::PlayerInventoryLedger::default();
+            ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(7),
+                window_type: protocol::WINDOW_TYPE_CONTAINER,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }));
+            ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity {
+                    slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                    ..ContainerIdentity::window(7)
+                },
+                slots: vec![NetworkItemStack::empty(); count].into(),
+                storage_item: NetworkItemStack::empty(),
+            }));
+            assert_eq!(
+                InventoryScreen::of(&ledger),
+                InventoryScreen::Storage(count)
             );
         }
     }

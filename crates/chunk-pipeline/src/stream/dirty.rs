@@ -54,6 +54,24 @@ impl WorldStream {
         let mut dirty = preexpanded_dirty.into_iter().collect::<BTreeSet<_>>();
         for &key in &sources {
             dirty.extend(key.mesh_dependents());
+            // A roof/log several sub-chunks above a seasonal leaf can change
+            // its tint. Restrict the extra dependency to the same X/Z column,
+            // resident lower chunks, and meshes whose palette actually has leaves.
+            if let Some(column) = self.authority.terrain().chunk(key.chunk()) {
+                for (y, _) in column.sub_chunks() {
+                    if y >= key.y {
+                        continue;
+                    }
+                    let dependent = SubChunkKey::from_chunk(key.chunk(), y);
+                    if self.resident.contains(&dependent)
+                        && self
+                            .current_mesh_dependency_mask(dependent)
+                            .is_none_or(|mask| mask.seasonal_foliage)
+                    {
+                        dirty.insert(dependent);
+                    }
+                }
+            }
             for dependent in key.mesh_neighbourhood_dependents() {
                 let ao_needed = self.resident.contains(&dependent)
                     && self

@@ -16,6 +16,7 @@ use render::{
 };
 
 use super::{
+    ambient::AmbientParticles,
     tiles::{block_tile, item_tile},
     world_adapter::StreamParticleWorld,
 };
@@ -96,7 +97,8 @@ pub(crate) fn configure_particles(app: &mut App) {
             render::end_stage_span::<{ render::RuntimeStage::Particles as usize }>,
         )
             .chain()
-            .after(crate::camera::FlyCameraUpdateSet),
+            .after(crate::camera::FlyCameraUpdateSet)
+            .after(crate::environment::update_seasonal_foliage),
     );
 }
 
@@ -380,6 +382,7 @@ fn drive_particles(
     mut crack_timer: Local<f32>,
     mut block_cues: MessageReader<crate::audio::LocalBlockCue>,
     mut break_echoes: Local<crate::audio::EchoLedger>,
+    mut ambient: Local<AmbientParticles>,
 ) {
     let Some(stream) = client_world.stream.as_ref() else {
         if system.emitter_count() > 0 {
@@ -388,6 +391,7 @@ fn drive_particles(
         inbox.events.clear();
         inbox.notices.clear();
         block_cues.clear();
+        ambient.reset();
         return;
     };
     let Ok((transform, projection)) = cameras.single() else {
@@ -398,6 +402,7 @@ fn drive_particles(
         *session = identity;
         *break_echoes = crate::audio::EchoLedger::default();
         system.clear();
+        ambient.reset();
         inbox.events.retain(|event| event.dimension == identity.1);
     }
     let mode = stream.network_id_mode();
@@ -411,6 +416,14 @@ fn drive_particles(
     let view = particle_view(&(*transform).into(), projection);
     system.set_camera(view.position);
     system.daylight = atmosphere.daylight();
+    ambient.drive(
+        time.delta(),
+        &view,
+        stream,
+        &world,
+        &collisions,
+        &mut system,
+    );
 
     // R:CommonGameModeMessenger--e7656654e901:65 emits local destruction before a server echo.
     // The cue carries the destroyed id because the world already predicts air.

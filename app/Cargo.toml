@@ -66,6 +66,7 @@ bevy = { workspace = true, default-features = false, features = ["wayland", "x11
 gameplay = { path = "../crates/gameplay", features = ["test-support"] }
 client-session = { path = "../crates/client-session", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }
+protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }
 client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
