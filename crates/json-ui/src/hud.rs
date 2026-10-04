@@ -199,6 +199,7 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
                 FactoryItem::new("item_text", 0.0)
                     .clocked(ITEM_NAME_CLOCK)
                     .named("item_name_text")
+                    .var("localize", Value::Bool(false))
                     .var("show_survival_padding", Value::Bool(model.survival_ui))
                     .var("show_text_background", Value::Bool(false))
                     .var("item_text_background_alpha", Value::from(0.0)),
