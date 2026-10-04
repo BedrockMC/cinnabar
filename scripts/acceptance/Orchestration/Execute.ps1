@@ -304,10 +304,7 @@ $script:AcceptanceExecutionPhase = {
             }
             Start-Sleep -Milliseconds 100
         }
-        # The client reads the commit of the build this run produced at launch, never at compile time.
-        $savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT
-        if (-not $SkipClientBuild) { $env:RUST_MCBE_BUILD_COMMIT = $repoCommit }
-        try { $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log') } finally { $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit }
+        $savedBuildCommit = $env:RUST_MCBE_BUILD_COMMIT; if (-not $SkipClientBuild) { $env:RUST_MCBE_BUILD_COMMIT = $repoCommit }; try { $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log') } finally { $env:RUST_MCBE_BUILD_COMMIT = $savedBuildCommit }
         $worldReadyMarkerLine = $null
         if ($isModelWitnessGallery) {
             $galleryAnchorMarkerEvidence = Wait-ProcessOutputMarker `
