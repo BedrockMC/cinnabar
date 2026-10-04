@@ -38,7 +38,7 @@ pub(crate) fn advance_local_physics(
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
     mut movement_effects: ResMut<LocalMovementEffectTimeline>,
-    movement_speed: Res<LocalMovementSpeedAuthority>,
+    mut movement_speed: ResMut<LocalMovementSpeedAuthority>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
     mut previous_blocker: Local<Option<String>>,
@@ -95,6 +95,7 @@ pub(crate) fn advance_local_physics(
     }
     let fly_toggle = jump.pressed && locals.fly_tap.press(now);
     if let Some(server) = physics.take_server_control_flags() {
+        movement_speed.adopt_server_sprinting(server.sprinting);
         locals
             .controls
             .adopt_server_flags(server.sprinting, server.sneaking);
@@ -122,7 +123,8 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .and_then(crate::item_use::ItemUseRuntime::movement_modifier),
     );
-    input.movement_speed = movement_speed.current();
+    movement_speed.set_sprinting(input.sprinting);
+    input.movement_speed = movement_speed.prediction_speed();
     let world = sim::PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(stream.network_id_mode()),
@@ -155,6 +157,13 @@ pub(crate) fn advance_local_physics(
         },
         &world,
         &mut *movement_effects,
+    );
+    super::trace_physics_frame(
+        movement_ticker.session_generation,
+        now,
+        input.movement_speed,
+        movement_speed.current(),
+        &frame,
     );
     let blocker = frame.blocked.as_ref().map(ToString::to_string);
     if frame.dropped_ticks != 0 {

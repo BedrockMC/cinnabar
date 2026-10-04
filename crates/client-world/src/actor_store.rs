@@ -527,6 +527,8 @@ pub struct LocalPlayerFeed {
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
     pub first_person: bool,
+    /// View-bobbing preference driving the local player's authored hand animations.
+    pub view_bobbing: bool,
     /// Predicted movement state; overrides the streamed sneak and sprint flags on the local rig.
     pub sneaking: bool,
     pub sprinting: bool,
@@ -574,6 +576,7 @@ pub(crate) struct ActorStore {
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
+    local_view_bobbing: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
@@ -591,6 +594,8 @@ pub(crate) struct ActorStore {
     status_notices: Vec<ActorStatusNotice>,
 }
 
+mod crystal_beam;
+pub use crystal_beam::CrystalBeamView;
 mod dropped;
 mod entities;
 mod hurt;

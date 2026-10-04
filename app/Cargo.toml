@@ -70,6 +70,7 @@ rodio = { version = "=0.20.1", default-features = false }
 acceptance = { path = "../crates/acceptance", features = ["test-support"] }
 client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }
+protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }
 client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline", features = ["publication-test-support"] }

@@ -234,16 +234,21 @@ impl TerrainTextureMap {
             TerrainPaths::Static {
                 path,
                 overlay_color,
+                tint_color: None,
                 has_extra_metadata: false,
                 ..
             } => Some((path, overlay_color.as_deref())),
             TerrainPaths::Variants {
                 paths,
                 overlay_colors,
+                tint_colors,
                 has_extra_metadata: false,
                 ..
             } => {
                 let selected = variant.min(paths.len() - 1);
+                if tint_colors.get(selected)?.is_some() {
+                    return None;
+                }
                 Some((
                     paths.get(selected)?,
                     overlay_colors.get(selected)?.as_deref(),
@@ -274,12 +279,14 @@ pub(super) enum TerrainPaths {
     Static {
         path: Box<str>,
         overlay_color: Option<Box<str>>,
+        tint_color: Option<Value>,
         requires_tint: bool,
         has_extra_metadata: bool,
     },
     Variants {
         paths: Box<[Box<str>]>,
         overlay_colors: Box<[Option<Box<str>>]>,
+        tint_colors: Box<[Option<Value>]>,
         requires_tint: bool,
         has_extra_metadata: bool,
     },
@@ -328,6 +335,7 @@ enum TerrainValue {
     Entry {
         path: String,
         overlay_color: Option<String>,
+        tint_color: Option<Value>,
         #[serde(flatten)]
         extra: BTreeMap<String, Value>,
     },
@@ -341,20 +349,22 @@ enum TerrainVariant {
     Entry {
         path: String,
         overlay_color: Option<String>,
+        tint_color: Option<Value>,
         #[serde(flatten)]
         extra: BTreeMap<String, Value>,
     },
 }
 
 impl TerrainVariant {
-    fn into_path_tint_and_extra(self) -> (String, Option<String>, bool) {
+    fn into_path_tint_and_extra(self) -> (String, Option<String>, Option<Value>, bool) {
         match self {
-            Self::Path(path) => (path, None, false),
+            Self::Path(path) => (path, None, None, false),
             Self::Entry {
                 path,
                 overlay_color,
+                tint_color,
                 extra,
-            } => (path, overlay_color, !extra.is_empty()),
+            } => (path, overlay_color, tint_color, !extra.is_empty()),
         }
     }
 }
@@ -422,6 +432,7 @@ fn collect_terrain_paths(
             Ok(TerrainPaths::Static {
                 path: path.into_boxed_str(),
                 overlay_color: None,
+                tint_color: None,
                 requires_tint: false,
                 has_extra_metadata: entry_has_extra_metadata,
             })
@@ -429,13 +440,15 @@ fn collect_terrain_paths(
         TerrainValue::Entry {
             path,
             overlay_color,
+            tint_color,
             extra,
         } => {
             validate_texture_path(&path)?;
             Ok(TerrainPaths::Static {
                 path: path.into_boxed_str(),
-                requires_tint: overlay_color.is_some(),
+                requires_tint: overlay_color.is_some() || tint_color.is_some(),
                 overlay_color: overlay_color.map(String::into_boxed_str),
+                tint_color,
                 has_extra_metadata: entry_has_extra_metadata || !extra.is_empty(),
             })
         }
@@ -449,15 +462,17 @@ fn collect_terrain_paths(
             }
             let mut paths = Vec::with_capacity(variants.len());
             let mut overlay_colors = Vec::with_capacity(variants.len());
+            let mut tint_colors = Vec::with_capacity(variants.len());
             let mut requires_tint = false;
             let mut has_extra_metadata = entry_has_extra_metadata;
             for variant in variants {
-                let (path, overlay_color, variant_has_extra_metadata) =
+                let (path, overlay_color, tint_color, variant_has_extra_metadata) =
                     variant.into_path_tint_and_extra();
                 validate_texture_path(&path)?;
                 paths.push(path.into_boxed_str());
-                requires_tint |= overlay_color.is_some();
+                requires_tint |= overlay_color.is_some() || tint_color.is_some();
                 overlay_colors.push(overlay_color.map(String::into_boxed_str));
+                tint_colors.push(tint_color);
                 has_extra_metadata |= variant_has_extra_metadata;
             }
             if paths.is_empty() {
@@ -466,6 +481,7 @@ fn collect_terrain_paths(
             Ok(TerrainPaths::Variants {
                 paths: paths.into_boxed_slice(),
                 overlay_colors: overlay_colors.into_boxed_slice(),
+                tint_colors: tint_colors.into_boxed_slice(),
                 requires_tint,
                 has_extra_metadata,
             })

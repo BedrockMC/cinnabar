@@ -167,6 +167,8 @@ struct BoneProbe {
     parent: de::IgnoredAny,
     pivot: de::IgnoredAny,
     rotation: de::IgnoredAny,
+    #[serde(default)]
+    bind_pose_rotation: Option<de::IgnoredAny>,
     mirror: de::IgnoredAny,
     inflate: de::IgnoredAny,
     never_render: de::IgnoredAny,
@@ -207,6 +209,7 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                         parent: _,
                         pivot: _,
                         rotation: _,
+                        bind_pose_rotation: _,
                         mirror: _,
                         inflate: _,
                         never_render: _,

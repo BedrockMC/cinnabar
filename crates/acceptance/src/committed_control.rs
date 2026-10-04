@@ -17,7 +17,9 @@ pub fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::ChangeDimension { resolved, .. }
         | CommittedControlEvent::Respawn { resolved, .. } => resolved,
         CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::WorldClocks { .. }
         | CommittedControlEvent::DaylightCycle { .. }
+        | CommittedControlEvent::WeatherCycle { .. }
         | CommittedControlEvent::Weather { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
@@ -52,4 +54,51 @@ pub fn model_gallery_camera_committed_marker(
         "{CAMERA_COMMITTED} sequence={sequence} position={x:.5},{y:.5},{z:.5} yaw={:.5} pitch={:.5}",
         movement.yaw, movement.pitch
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_clock_and_weather_cycle_controls_leave_mutation_anchor_unchanged() {
+        let mut acceptance = AcceptanceRun::new(Some(1), None, false, false);
+        let anchor = [12, -34];
+        acceptance.set_mutation_surface_anchor(anchor);
+        for control in [
+            CommittedControlEvent::WorldClocks {
+                sequence: 1,
+                update: protocol::WorldClockUpdateEvent::Initialize(
+                    protocol::WorldClockDefinition {
+                        id: protocol::OVERWORLD_CLOCK_ID,
+                        time: 6000,
+                        paused: false,
+                    },
+                ),
+            },
+            CommittedControlEvent::WorldClocks {
+                sequence: 2,
+                update: protocol::WorldClockUpdateEvent::Sync(protocol::WorldClockState {
+                    id: protocol::OVERWORLD_CLOCK_ID,
+                    time: 12000,
+                    paused: true,
+                }),
+            },
+            CommittedControlEvent::WeatherCycle {
+                sequence: 3,
+                enabled: false,
+            },
+            CommittedControlEvent::WeatherCycle {
+                sequence: 4,
+                enabled: true,
+            },
+        ] {
+            assert!(!refresh_mutation_anchor_from_committed_control(
+                &mut acceptance,
+                &control,
+            ));
+            assert_eq!(acceptance.mutation_surface_anchor(), Some(anchor));
+            assert_eq!(model_gallery_camera_committed_marker(true, &control), None);
+        }
+    }
 }

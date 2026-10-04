@@ -4,12 +4,14 @@ use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render::{
-    ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorArtworkLocation, ActorArtworkPages, ActorCullView,
-    ActorRenderFrame, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, default_actor_skin_rgba8,
-    pack_overlay_rgba8,
+    ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
+    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
+    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_bounds_are_visible,
+    actor_rig_submission_is_visible, default_actor_skin_rgba8, pack_overlay_rgba8,
 };
+
+mod admission;
+pub use admission::within_actor_candidate_cube;
 
 /// Damage tint blended over a hurt or dying actor.
 const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
@@ -102,8 +104,7 @@ pub fn rig_may_be_visible(
         return true;
     };
     let camera = view.camera_position.to_array();
-    if matches!(actor.kind, ActorKind::Entity { .. })
-        && (0..3).any(|axis| (feet[axis] - camera[axis]).abs() > ACTOR_CANDIDATE_RADIUS_BLOCKS)
+    if matches!(actor.kind, ActorKind::Entity { .. }) && !within_actor_candidate_cube(feet, camera)
     {
         return false;
     }

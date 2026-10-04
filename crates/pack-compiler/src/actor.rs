@@ -111,7 +111,38 @@ struct DecodedRaster {
     pixels: Vec<u8>,
 }
 
-fn decode_raster(path: &str, bytes: &[u8], binary_alpha: bool) -> Option<DecodedRaster> {
+/// Finds rasters selected by the vanilla crystal's controllers without assuming a texture path.
+fn native_crystal_sources(entities: &CompiledEntityAssets) -> std::collections::BTreeSet<u32> {
+    entities
+        .render
+        .layers
+        .iter()
+        .filter(|layer| {
+            let rig = &entities.rig_bindings[layer.rig as usize];
+            let symbol = &entities.symbols[rig.entity_symbol as usize];
+            symbol.kind == assets::EntityAssetKind::Entity
+                && symbol.identifier.as_ref() == "minecraft:ender_crystal"
+        })
+        .flat_map(|layer| {
+            entities.render.slots[layer.first_slot as usize..][..usize::from(layer.slot_count)]
+                .iter()
+                .flat_map(|slot| {
+                    entities.render.candidates[slot.first_candidate as usize..]
+                        [..usize::from(slot.candidate_count)]
+                        .iter()
+                        .map(|candidate| candidate.source)
+                })
+        })
+        .collect()
+}
+
+/// Decodes actor art, baking the crystal's native point-sampled alpha test when requested.
+fn decode_raster(
+    path: &str,
+    bytes: &[u8],
+    binary_alpha: bool,
+    crystal: bool,
+) -> Option<DecodedRaster> {
     let format = if path.ends_with(".png") {
         ImageFormat::Png
     } else {
@@ -128,9 +159,17 @@ fn decode_raster(path: &str, bytes: &[u8], binary_alpha: bool) -> Option<Decoded
         u16::try_from(image.width()).ok()?,
         u16::try_from(image.height()).ok()?,
     );
-    let pixels = image.into_rgba8().into_raw();
-    // The actor pipeline discards on alpha, so only binary alpha reproduces the raster;
-    // a lenient (server pack) build keeps partial alpha and lets the discard threshold decide.
+    let mut pixels = image.into_rgba8().into_raw();
+    // Vanilla ender_crystal inherits entity_alphatest (entity.material); entity.fragment
+    // discards alpha below 0.5. Baking coverage keeps the binary carrier contract without
+    // rejecting the whole model over the crystal raster's eight alpha-127 texels.
+    if crystal {
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[3] = if pixel[3] >= 128 { 255 } else { 0 };
+        }
+    }
+    // Neutral opacity rasters require binary alpha. A witnessed native material raster,
+    // or a lenient server-pack build, retains every alpha byte instead of quantizing it.
     (!binary_alpha
         || pixels
             .chunks_exact(4)
@@ -156,6 +195,7 @@ fn build_artwork(
     let mut decoded = BTreeMap::<u32, Option<DecodedRaster>>::new();
     let mut table = BTreeMap::<u32, usize>::new();
     let render = &entities.render;
+    let crystal_sources = native_crystal_sources(entities);
     for (rig_index, rig) in entities.rig_bindings.iter().enumerate() {
         let reject = |fallbacks: &mut Vec<ActorFallback>, reason: &str| {
             fallbacks.push(ActorFallback {
@@ -209,7 +249,19 @@ fn build_artwork(
                 }
                 if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                     let path = entities.sources[source as usize].path.as_ref();
-                    slot.insert(decode_raster(path, &read(source)?, !lenient));
+                    let binary_alpha = !lenient
+                        && !assets::native_actor_texture_uses_color_mask(
+                            &entities.sources[source as usize],
+                        )
+                        && !assets::native_actor_texture_uses_multitexture(
+                            &entities.sources[source as usize],
+                        );
+                    slot.insert(decode_raster(
+                        path,
+                        &read(source)?,
+                        binary_alpha,
+                        !lenient && crystal_sources.contains(&source),
+                    ));
                 }
                 let Some(raster) = decoded[&source].as_ref() else {
                     continue;
@@ -274,7 +326,19 @@ fn build_artwork(
             }
             if let std::collections::btree_map::Entry::Vacant(slot) = decoded.entry(source) {
                 let path = entities.sources[source as usize].path.as_ref();
-                slot.insert(decode_raster(path, &read(source)?, !lenient));
+                let binary_alpha = !lenient
+                    && !assets::native_actor_texture_uses_color_mask(
+                        &entities.sources[source as usize],
+                    )
+                    && !assets::native_actor_texture_uses_multitexture(
+                        &entities.sources[source as usize],
+                    );
+                slot.insert(decode_raster(
+                    path,
+                    &read(source)?,
+                    binary_alpha,
+                    !lenient && crystal_sources.contains(&source),
+                ));
             }
             let Some(raster) = decoded[&source].as_ref() else {
                 continue;

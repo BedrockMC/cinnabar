@@ -360,7 +360,12 @@ fn packed_chunk_shader_parses_and_validates() {
     .validate(&module)
     .expect("validate packed chunk WGSL");
 
-    assert_eq!(shader.matches("@group(0) @binding(").count(), 14);
+    assert_eq!(
+        shader.matches("@group(0) @binding(").count(),
+        12 + material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+            + material_shader::CHUNK_SAMPLER_COUNT as usize
+            - 1
+    );
     for binding in 0..=11 {
         assert!(
             shader.contains(&format!("@group(0) @binding({binding})")),
@@ -369,7 +374,10 @@ fn packed_chunk_shader_parses_and_validates() {
     }
     assert!(shader.contains("@group(0) @binding(15)"));
     assert_eq!(shader.matches("textureSample(").count(), 0);
-    assert_eq!(shader.matches("textureSampleGrad(").count(), 2);
+    assert_eq!(
+        shader.matches("textureSampleGrad(").count(),
+        material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+    );
     assert!(shader.contains("fn sample_texture_ref("));
     assert!(shader.contains("texture_ref >> 31u"));
     assert!(shader.contains("texture_ref & 0x7ffu"));
@@ -390,9 +398,14 @@ fn packed_chunk_shader_parses_and_validates() {
     );
     assert!(shader.contains("material_flags & (1u << 8u)"));
     assert!(shader.contains("sampled.a < 0.5"));
-    assert_eq!(shader.matches("discard").count(), 1);
+    assert_eq!(shader.matches("discard").count(), 2);
     assert!(shader.contains("material_flags & 0x30u"));
-    assert!(shader.contains("material_flags & (1u << 6u)"));
+    assert!(shader.contains("fn material_uses_overlay_mask(flags: u32)"));
+    assert!(shader.contains("return (flags & OVERLAY_MASK) != 0u;"));
+    assert!(shader.contains(&format!(
+        "const OVERLAY_MASK: u32 = {}u;",
+        assets::MATERIAL_FLAG_OVERLAY_MASK
+    )));
     assert!(shader.contains("mix(sampled.rgb, tinted, sampled.a)"));
     assert!(shader.contains("in.biome_record,"));
     assert!(shader.contains("if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {"));
@@ -424,18 +437,16 @@ fn packed_chunk_shader_parses_and_validates() {
 }
 
 #[test]
-fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
+fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../src/lighting.wgsl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
-    for shader in [
-        include_str!("../../src/chunk.wgsl"),
-        include_str!("../../src/model.wgsl"),
-        include_str!("../../src/liquid.wgsl"),
+    for (shader, liquid) in [
+        (include_str!("../../src/chunk.wgsl"), false),
+        (include_str!("../../src/model.wgsl"), false),
+        (include_str!("../../src/liquid.wgsl"), true),
     ] {
-        assert!(shader.contains(
-            "#import cinnabar::lighting::{light_ao_factor, light_colour, lit_colour, face_shade}"
-        ));
+        assert!(shader.contains("#import cinnabar::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
         assert!(!shader.contains("fn lit_colour("));
         assert!(shader.contains("lighting: vec3<f32>"));
@@ -457,11 +468,11 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
             naga::ShaderStage::Vertex,
             13
         ));
-        assert!(!entry_points_use_binding(
-            &module,
-            naga::ShaderStage::Vertex,
-            15
-        ));
+        assert_eq!(
+            entry_points_use_binding(&module, naga::ShaderStage::Vertex, 15),
+            liquid,
+            "only liquid vertices read the native opacity-distance atmosphere uniform"
+        );
         assert!(entry_points_use_binding(
             &module,
             naga::ShaderStage::Fragment,
@@ -472,16 +483,26 @@ fn world_shaders_sample_shared_rgb_lightmap_at_vertices() {
             naga::ShaderStage::Vertex,
             "light_colour"
         ));
-        assert!(!entry_points_call_function(
+        assert!(entry_points_call_function(
             &module,
             naga::ShaderStage::Fragment,
             "light_colour"
+        ));
+        assert!(entry_points_call_function(
+            &module,
+            naga::ShaderStage::Fragment,
+            "terrain_light_colour"
+        ));
+        assert!(entry_points_call_function(
+            &module,
+            naga::ShaderStage::Vertex,
+            "terrain_light_levels"
         ));
     }
 }
 
 #[test]
-fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings() {
+fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bindings() {
     let shader = include_str!("../../src/chunk.wgsl");
     assert!(shader.contains("struct ChunkOrigin"));
     assert!(shader.contains("cube_bases: vec4<u32>"));
@@ -492,7 +513,9 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_bindings(
         standalone_world_shader(shader)
             .matches("@group(0) @binding(")
             .count(),
-        14
+        12 + material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS as usize
+            + material_shader::CHUNK_SAMPLER_COUNT as usize
+            - 1
     );
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
@@ -586,8 +609,8 @@ fn greedy_uvs_match_every_face_and_repeat_once_per_block() {
     // Resource-pack PNGs and WGPU both treat v=0 as the top row. Vertical
     // faces must therefore assign v=0 to their upper-Y geometry corners.
     let vertical_standard = [[0.0, 1.0], [16.0, 1.0], [16.0, 0.0], [0.0, 0.0]];
-    let vertical_transposed = [[0.0, 1.0], [0.0, 0.0], [16.0, 0.0], [16.0, 1.0]];
-    let horizontal_standard = [[0.0, 0.0], [16.0, 0.0], [16.0, 1.0], [0.0, 1.0]];
+    let vertical_transposed = [[16.0, 1.0], [16.0, 0.0], [0.0, 0.0], [0.0, 1.0]];
+    let horizontal_standard = [[0.0, 1.0], [16.0, 1.0], [16.0, 0.0], [0.0, 0.0]];
     let horizontal_transposed = [[0.0, 0.0], [0.0, 1.0], [16.0, 1.0], [16.0, 0.0]];
 
     for face in [Face::NegativeX, Face::PositiveZ] {

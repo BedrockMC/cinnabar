@@ -75,3 +75,234 @@ fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
             < 1e-6
     );
 }
+
+/// Supplies simulated local state through presentation's borrowed observation interface.
+struct JumpPhysics(sim::PlayerState);
+
+impl crate::observations::PhysicsObservation for JumpPhysics {
+    /// Returns the last completed simulation state.
+    fn state(&self) -> Option<&sim::PlayerState> {
+        Some(&self.0)
+    }
+
+    /// This fixture keeps both movement modifiers released.
+    fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
+        Some((false, false))
+    }
+
+    /// The synthetic floor does not own a streamed collision identity.
+    fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
+        None
+    }
+
+    /// The fixture always has a current player state.
+    fn is_active(&self) -> bool {
+        true
+    }
+}
+
+/// The local feed carries the current view-bobbing setting into authored hand animation.
+#[test]
+fn local_feed_reads_view_bobbing_toggle() {
+    let physics = JumpPhysics(sim::PlayerState::new(sim::Vec3::ZERO));
+    for enabled in [false, true] {
+        let feed = crate::actor_feed::build_local_player_feed(
+            &physics,
+            bevy::math::Quat::IDENTITY,
+            true,
+            enabled,
+            [1; 16],
+            || {
+                protocol::PlayerSkin::Unavailable(
+                    protocol::PlayerSkinUnavailable::InvalidDimensions,
+                )
+            },
+            client_world::LocalItemUse::Unpredicted,
+        )
+        .unwrap();
+        assert_eq!(feed.view_bobbing, enabled);
+        assert!(feed.first_person);
+    }
+}
+
+struct JumpFloor;
+
+impl sim::CollisionWorld for JumpFloor {
+    /// Supplies a stable floor for the full jumping and landing sequence.
+    fn collision_boxes(
+        &self,
+        query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        let floor = sim::Aabb::new(
+            sim::Vec3::new(-64.0, 0.0, -64.0),
+            sim::Vec3::new(64.0, 1.0, 64.0),
+        );
+        Ok(sim::CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
+    }
+}
+
+/// The shared actor timeline is not the local physics interpolation timeline, especially
+/// after a reset or a frame that completes several movement ticks. The body must still
+/// travel with the camera through the entire jump, retaining its rig's authored axes.
+#[test]
+fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
+    use std::time::Duration;
+
+    use crate::presentation::actors::{local_diagnostic_presentation, select_actor_presentations};
+    use semantic_input::PerspectiveMode;
+
+    const LOCAL_ID: u64 = 1;
+    const REMOTE_ID: u64 = LOCAL_ID + 1;
+    let anchor = [0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
+    let look = bevy::math::Quat::from_rotation_y(0.4);
+    for perspective in [
+        PerspectiveMode::ThirdPersonBack,
+        PerspectiveMode::ThirdPersonFront,
+    ] {
+        let mut physics = JumpPhysics(sim::PlayerState::new(sim::Vec3::new(0.0, 1.0, 0.0)));
+        physics.0.on_ground = true;
+        let simulator = sim::Simulator::default();
+        let mut physics_clock = crate::actor_clock::ActorFrameClock::default();
+        let mut previous_position = physics.0.position;
+        let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: LOCAL_ID,
+            local_player_unique_id: LOCAL_ID as i64,
+            player_position: anchor,
+            world_spawn_position: [0, 1, 0],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let mut actor_clock = crate::actor_clock::ActorFrameClock::default();
+        // Physics can reset independently of the actor clock after a correction.
+        actor_clock.advance(Duration::from_millis(17));
+        let mut relative_origin = None;
+        let mut raw_origin_drifted = false;
+        let mut catch_up = false;
+        let mut rose = false;
+        let mut fell = false;
+        let mut last_height = 1.0;
+        // Interleave tick boundaries, fractional frames and two/three-tick catch-up frames.
+        for (index, millis) in [50, 10, 15, 25, 120, 35, 115, 10, 15, 25, 120, 35, 115]
+            .into_iter()
+            .enumerate()
+        {
+            let elapsed = Duration::from_millis(millis);
+            let frame = physics_clock.advance(elapsed);
+            for tick in 0..frame.ticks {
+                previous_position = physics.0.position;
+                simulator
+                    .tick(
+                        &mut physics.0,
+                        sim::MovementInput {
+                            jumping: index == 0,
+                            jump_pressed: index == 0 && tick == 0,
+                            ..Default::default()
+                        },
+                        &JumpFloor,
+                    )
+                    .unwrap();
+            }
+            catch_up |= frame.ticks > 1;
+            let interpolated = previous_position
+                + (physics.0.position - previous_position) * f64::from(frame.partial_tick);
+            let feet = Vec3::new(
+                interpolated.x as f32,
+                interpolated.y as f32,
+                interpolated.z as f32,
+            );
+            let eye = feet + Vec3::Y * crate::local_player::LOCAL_AVATAR_EYE_HEIGHT_BLOCKS;
+            rose |= feet.y > last_height + 1e-4;
+            fell |= feet.y < last_height - 1e-4;
+            last_height = feet.y;
+            let feed = crate::actor_feed::build_local_player_feed(
+                &physics,
+                look,
+                false,
+                true,
+                [1; 16],
+                || {
+                    protocol::PlayerSkin::Unavailable(
+                        protocol::PlayerSkinUnavailable::InvalidDimensions,
+                    )
+                },
+                client_world::LocalItemUse::Unpredicted,
+            )
+            .unwrap();
+            stream.sync_local_player_pose(&feed);
+            let step = actor_clock.advance(elapsed);
+            stream.advance_actor_interpolation_frame(step.ticks);
+            let actor_feet = stream
+                .actor(LOCAL_ID)
+                .unwrap()
+                .interpolated_position(step.partial_tick)
+                .unwrap();
+            let mut local =
+                local_diagnostic_presentation(1, 0, LOCAL_ID, 1, actor_feet, 27.0, 13.0).unwrap();
+            // Authored nonuniform scale must survive the translation correction.
+            for row in &mut local.submission.world_from_actor {
+                for (value, scale) in row[..3].iter_mut().zip([0.7, 1.2, 0.9]) {
+                    *value *= scale;
+                }
+            }
+            local.authored_scale = 0.7;
+            local.head_over_body = 11.0;
+            let original = local.clone();
+            let camera = crate::camera::perspective_pose(eye, look, perspective);
+            let view_from_world = camera.to_matrix().inverse();
+            let expected_relative = view_from_world.transform_point3(feet);
+            let reference = *relative_origin.get_or_insert(expected_relative);
+            assert!(expected_relative.abs_diff_eq(reference, 1e-5));
+            raw_origin_drifted |= !view_from_world
+                .transform_point3(Vec3::from_array(actor_feet))
+                .abs_diff_eq(reference, 1e-3);
+            super::place_local_actor_at_render_feet(&mut local, feet);
+            let corrected_feet =
+                Vec3::from_array(local.submission.world_from_actor.map(|row| row[3]));
+            assert!(
+                view_from_world
+                    .transform_point3(corrected_feet)
+                    .abs_diff_eq(reference, 1e-5),
+                "{perspective:?} frame {index}"
+            );
+            let mut expected = original.clone();
+            for (row, coordinate) in expected
+                .submission
+                .world_from_actor
+                .iter_mut()
+                .zip(feet.to_array())
+            {
+                row[3] = coordinate;
+            }
+            assert_eq!(local.submission, expected.submission);
+            assert_eq!(local.authored_scale, original.authored_scale);
+            assert_eq!(local.world_yaw_degrees, original.world_yaw_degrees);
+            assert_eq!(local.head_over_body, original.head_over_body);
+            let remote =
+                local_diagnostic_presentation(1, 0, REMOTE_ID, 1, [6.0, 3.0, -4.0], 72.0, 0.0)
+                    .unwrap();
+            let remote_submission = remote.submission.clone();
+            let batch = select_actor_presentations(LOCAL_ID, true, Some(local), [remote]);
+            let selected_remote = batch
+                .submissions
+                .iter()
+                .find(|body| body.input.identity.runtime_id == REMOTE_ID)
+                .unwrap();
+            assert_eq!(
+                selected_remote.world_from_actor,
+                remote_submission.world_from_actor
+            );
+            assert_eq!(selected_remote.input, remote_submission.input);
+        }
+        assert!(
+            catch_up && rose && fell && raw_origin_drifted,
+            "{perspective:?}"
+        );
+    }
+}

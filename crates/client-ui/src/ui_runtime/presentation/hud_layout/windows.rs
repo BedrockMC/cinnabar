@@ -98,7 +98,7 @@ impl Default for Durability {
 #[derive(Clone, Debug, Default)]
 pub struct WindowText {
     pub title: Option<String>,
-    /// The block entity's custom name, which vanilla shows unlocalized.
+    /// The actor or block entity's custom name, which vanilla shows unlocalized.
     pub custom_title: Option<String>,
     /// The open block entity's NBT `id` (`Chest`, `Barrel`, …).
     pub block_entity: Option<String>,

@@ -1,15 +1,96 @@
 use bevy::prelude::Resource;
 
-/// Largest walk speed prediction can simulate: steady sprint velocity reaches
-/// about 2.9x the speed, which must stay inside the collision query extent.
+/// Largest effective speed that stays inside the collision query extent.
 const MAX_SIMULABLE_MOVEMENT_SPEED: f64 = sim::MAX_COLLISION_QUERY_EXTENT / 4.0;
+
+/// Attribute current and the native sprint modifier currently installed on it.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub(crate) struct EffectiveMovementSpeed {
+    current: Option<f64>,
+    sprinting: bool,
+    sprint_modifier: Option<f32>,
+}
+
+impl EffectiveMovementSpeed {
+    pub(crate) fn authoritative(
+        current: f64,
+        sprint_modifier: Option<f32>,
+        sprinting: bool,
+    ) -> Self {
+        Self {
+            current: Some(current),
+            sprinting,
+            sprint_modifier,
+        }
+    }
+
+    /// Metadata changes the actor flag without installing an attribute modifier.
+    fn adopt_server_sprinting(&mut self, sprinting: Option<bool>) {
+        if let Some(sprinting) = sprinting {
+            self.sprinting = sprinting;
+        }
+    }
+
+    /// Native LocalPlayer::setSprinting is edge-triggered; Mob adds/removes only
+    /// its identified modifier. An attribute packet replaces that modifier set.
+    pub(crate) fn set_sprinting(&mut self, sprinting: bool) {
+        if self.sprinting == sprinting {
+            return;
+        }
+        self.sprinting = sprinting;
+        if sprinting {
+            if self.sprint_modifier.is_none() {
+                let factor = sim::SPRINT_SPEED_MULTIPLIER as f32;
+                self.current = self
+                    .current
+                    .map(|current| f64::from(current as f32 * factor));
+                self.sprint_modifier = Some(factor);
+            }
+        } else if let Some(factor) = self.sprint_modifier.take() {
+            self.current = self
+                .current
+                .map(|current| f64::from(current as f32 / factor));
+        }
+    }
+
+    /// The simulator's public input uses pre-sprint speed. Cancel its one fixed
+    /// multiplier so its result reads our effective attribute current exactly once.
+    pub(crate) fn prediction_speed(self) -> Option<f64> {
+        self.current
+            .map(|current| prediction_speed(current, self.sprinting))
+    }
+}
+
+fn prediction_speed(current: f64, sprinting: bool) -> f64 {
+    if sprinting {
+        f64::from(current as f32 / sim::SPRINT_SPEED_MULTIPLIER as f32)
+    } else {
+        current
+    }
+}
+
+/// An authoritative flag or mode rewrite preserves effective current; it does
+/// not create a local sprint modifier edge.
+pub(crate) fn preserve_effective_speed(input: &mut sim::MovementInput, previous_sprinting: bool) {
+    if previous_sprinting == input.sprinting {
+        return;
+    }
+    if let Some(speed) = input.movement_speed {
+        let current = if previous_sprinting {
+            f64::from(speed as f32 * sim::SPRINT_SPEED_MULTIPLIER as f32)
+        } else {
+            speed
+        };
+        input.movement_speed = Some(prediction_speed(current, input.sprinting));
+    }
+}
 
 #[derive(Debug, Default, Resource)]
 pub(crate) struct LocalMovementSpeedAuthority {
     session_id: u64,
     dimension: i32,
     last_sequence: Option<u64>,
-    current: Option<f64>,
+    speed: EffectiveMovementSpeed,
 }
 
 impl LocalMovementSpeedAuthority {
@@ -17,7 +98,7 @@ impl LocalMovementSpeedAuthority {
         self.session_id = session_id;
         self.dimension = dimension;
         self.last_sequence = None;
-        self.current = None;
+        self.speed = EffectiveMovementSpeed::default();
     }
 
     pub(crate) fn replace_dimension(&mut self, session_id: u64, dimension: i32) {
@@ -26,7 +107,7 @@ impl LocalMovementSpeedAuthority {
         }
         self.dimension = dimension;
         self.last_sequence = None;
-        self.current = None;
+        self.speed = EffectiveMovementSpeed::default();
     }
 
     pub(crate) fn apply(
@@ -35,6 +116,7 @@ impl LocalMovementSpeedAuthority {
         sequence: u64,
         dimension: i32,
         current: f64,
+        sprint_modifier: Option<f32>,
     ) -> bool {
         if session_id != self.session_id
             || dimension != self.dimension
@@ -43,55 +125,43 @@ impl LocalMovementSpeedAuthority {
             return false;
         }
         self.last_sequence = Some(sequence);
-        if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&current) {
+        if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&current)
+            || sprint_modifier.is_some_and(|factor| {
+                !factor.is_finite()
+                    || factor <= 0.0
+                    || !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED)
+                        .contains(&f64::from(current as f32 / factor))
+            })
+        {
             super::diagnostics::note_skipped_authority("movement_speed", current);
             return false;
         }
-        self.current = Some(current);
+        self.speed =
+            EffectiveMovementSpeed::authoritative(current, sprint_modifier, self.speed.sprinting);
         true
     }
 
     pub(crate) const fn current(&self) -> Option<f64> {
-        self.current
+        self.speed.current
+    }
+
+    pub(crate) fn prediction_speed(&self) -> Option<f64> {
+        self.speed.prediction_speed()
+    }
+
+    pub(crate) fn set_sprinting(&mut self, sprinting: bool) {
+        self.speed.set_sprinting(sprinting);
+    }
+
+    pub(crate) fn adopt_server_sprinting(&mut self, sprinting: Option<bool>) {
+        self.speed.adopt_server_sprinting(sprinting);
+    }
+
+    pub(crate) fn adopt_replayed_speed(&mut self, speed: EffectiveMovementSpeed) {
+        self.speed = speed;
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::LocalMovementSpeedAuthority;
-
-    #[test]
-    fn authority_obeys_session_fifo_dimension_and_replacement_ordering() {
-        let mut authority = LocalMovementSpeedAuthority::default();
-        authority.begin_session(7, 0);
-        assert!(authority.apply(7, 2, 0, 0.25));
-        assert!(!authority.apply(6, 3, 0, 0.5));
-        assert!(!authority.apply(7, 1, 0, 0.5));
-        assert!(!authority.apply(7, 3, 1, 0.5));
-        assert_eq!(authority.current(), Some(0.25));
-
-        authority.replace_dimension(7, 1);
-        assert_eq!(authority.current(), None);
-        assert!(!authority.apply(7, 1, 0, 0.75));
-        assert!(authority.apply(7, 1, 1, 0.0));
-        assert_eq!(authority.current(), Some(0.0));
-
-        authority.begin_session(8, -1);
-        assert_eq!(authority.current(), None);
-        assert!(!authority.apply(7, 2, -1, 1.0));
-        assert!(authority.apply(8, 1, -1, 0.1));
-    }
-
-    #[test]
-    fn invalid_updates_are_consumed_without_overwriting_last_valid_authority() {
-        let mut authority = LocalMovementSpeedAuthority::default();
-        authority.begin_session(1, 0);
-        assert!(authority.apply(1, 1, 0, 0.2));
-        for (sequence, value) in [(2, f64::NAN), (3, f64::INFINITY), (4, -0.1), (5, 1.0e6)] {
-            assert!(!authority.apply(1, sequence, 0, value));
-            assert_eq!(authority.current(), Some(0.2));
-        }
-        assert!(!authority.apply(1, 5, 0, 0.9));
-        assert_eq!(authority.current(), Some(0.2));
-    }
-}
+#[path = "speed_authority_tests.rs"]
+mod tests;

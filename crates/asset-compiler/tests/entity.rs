@@ -7,6 +7,9 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
+#[path = "entity/legacy_controller_roots.rs"]
+mod legacy_controller_roots;
+
 fn write(root: &Path, relative: &str, bytes: &[u8]) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -40,7 +43,7 @@ fn synthetic_pack() -> TempDir {
         br#"{"format_version":"1.21.0","minecraft:geometry":[{
           "description":{"identifier":"geometry.allay","texture_width":32,"texture_height":64},
           "bones":[
-            {"name":"root","pivot":[0,1,0],"rotation":[0,15,0],"mirror":true,"inflate":0.25,
+            {"name":"root","pivot":[0,1,0],"rotation":[0,15,0],"bind_pose_rotation":[90,0,0],"mirror":true,"inflate":0.25,
              "cubes":[{"origin":[-2.5,5.01,-2.5],"size":[5,5,5],"rotation":[0,0,-2.5],"uv":[0,0]}]},
             {"name":"wing","parent":"root","pivot":[0.5,4,1],
              "cubes":[{"origin":[0.5,-1,1],"size":[0,5,8],"uv":[16,14],"mirror":false,"inflate":-0.2}]}
@@ -96,7 +99,11 @@ fn compiler_enumerates_entity_authority_and_dependencies_deterministically() {
         Some(0.25)
     );
     assert_eq!(geometry.bones[0].rotation.unwrap()[1].get(), 15.0);
+    assert_eq!(geometry.bones[0].bind_pose_rotation.unwrap()[0].get(), 90.0);
+    assert!(geometry.bones[1].bind_pose_rotation.is_none());
     assert_eq!(geometry.bones[0].cubes[0].pivot[0].get(), 0.0);
+    assert_eq!(geometry.bones[0].cubes[0].pivot[1].get(), 7.51);
+    assert_eq!(geometry.bones[0].cubes[0].pivot[2].get(), 0.0);
     assert_eq!(geometry.bones[0].cubes[0].inflate.get(), 0.25);
     assert!(geometry.bones[0].cubes[0].mirror);
     assert_eq!(geometry.bones[1].cubes[0].inflate.get(), -0.2);

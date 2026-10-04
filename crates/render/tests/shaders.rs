@@ -1,3 +1,5 @@
+#[path = "../src/shader_safety.rs"]
+mod shader_safety;
 #[path = "support/shader_source.rs"]
 mod shader_source;
 // Every shader validates, not just parses: naga's parser accepts colliding varying locations
@@ -17,7 +19,12 @@ mod ui_shader;
 
 /// Resolve the vanilla shader for standalone validation.
 fn standalone(source: &str) -> String {
-    shader_source::standalone(source, &[])
+    let shader =
+        shader_safety::from_actor_wgsl(source, "standalone.wgsl", render::ACTOR_GPU_INSTANCE_WORDS);
+    let bevy::shader::Source::Wgsl(source) = shader.source else {
+        panic!("checked constructor must produce WGSL");
+    };
+    shader_source::standalone(&source, &[])
 }
 
 #[test]
@@ -50,6 +57,16 @@ fn every_shader_parses_and_validates() {
             };
             // Validate the tested-glyph specialization; Bevy preprocesses this define at runtime.
             shader_source::standalone(&source, &["NAMETAG_ALPHA_TEST"])
+        } else if matches!(name.as_str(), "actor.wgsl" | "hand_rig.wgsl") {
+            let shader = shader_safety::from_actor_wgsl(
+                &raw,
+                path.to_string_lossy(),
+                render::ACTOR_GPU_INSTANCE_WORDS,
+            );
+            let bevy::shader::Source::Wgsl(source) = shader.source else {
+                panic!("packed actor constructor must produce WGSL");
+            };
+            standalone(&source)
         } else {
             standalone(&raw)
         };
@@ -114,3 +131,9 @@ fn review_render_world_actor_fragments_read_shared_fog() {
         assert!(!info.get_entry_point(fragment)[fog].is_empty());
     }
 }
+#[allow(
+    dead_code,
+    reason = "shared shader adapter uses production material definitions"
+)]
+#[path = "../src/material_shader.rs"]
+mod material_shader;

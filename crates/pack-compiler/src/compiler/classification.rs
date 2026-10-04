@@ -298,7 +298,8 @@ pub(in crate::compiler) const fn is_stair(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
-    is_cross_visual(record)
+    super::visuals::lily_pad::is_record(record)
+        || is_cross_visual(record)
         || is_kelp(record)
         || is_flowerbed(record)
         || is_vine(record)

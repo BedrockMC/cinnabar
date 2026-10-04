@@ -1,6 +1,9 @@
 use crate::chunk::*;
+use meshing::liquid::LIQUID_FACE_INSET;
 mod arena_writes;
 mod lighting;
+#[cfg(test)]
+mod liquid_tests;
 mod model_draw_bases;
 mod publication_removals;
 use arena_writes::ArenaWrites;
@@ -89,7 +92,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
 
     arena.pending_removals.extend(removed_instances.read());
-    prepare_publication_removals(&mut arena, *budget, &gpu_removals, &acknowledgements);
+    let retirement_pressure =
+        prepare_publication_removals(&mut arena, *budget, &gpu_removals, &acknowledgements);
 
     let mut writes = ArenaWrites::default();
     let mut applied_tokens = Vec::new();
@@ -114,6 +118,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
+        let old = arena.allocations.get(&entity).cloned();
+        // Deferred removals already occupy resident GPU ranges. Do not admit
+        // more fresh chunks while completion cannot make retirement room.
+        // Replacements still use their ordinary bounded COW admission below.
+        if retirement_pressure && old.is_none() {
+            continue;
+        }
         let instance_bytes = chunk_instance_upload_byte_len(instance);
         if !validate_partitioned_model_streams(
             &instance.model_refs,
@@ -127,7 +138,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             bevy::log::error!("sub-chunk model streams are not an exact material partition");
             continue;
         }
-        let old = arena.allocations.get(&entity).cloned();
         let required = match u32::try_from(instance.cube_quads.len()) {
             Ok(required) => required,
             Err(_) => {
@@ -571,18 +581,26 @@ pub(in crate::chunk) fn liquid_quad_centroid(
     let origin = quad.origin();
     let heights = quad.heights();
     let average_height = heights.into_iter().map(f32::from).sum::<f32>() / (4.0 * 255.0);
+    let top_inset = if quad.has_top_height_inset() {
+        LIQUID_FACE_INSET
+    } else {
+        0.0
+    };
     let mut centroid = [
         chunk_origin[0] as f32 + f32::from(origin[0]) + 0.5,
         chunk_origin[1] as f32 + f32::from(origin[1]) + average_height,
         chunk_origin[2] as f32 + f32::from(origin[2]) + 0.5,
     ];
     match quad.face() {
-        Face::NegativeX => centroid[0] -= 0.5,
-        Face::PositiveX => centroid[0] += 0.5,
+        Face::NegativeX => centroid[0] -= 0.5 - LIQUID_FACE_INSET,
+        Face::PositiveX => centroid[0] += 0.5 - LIQUID_FACE_INSET,
         Face::NegativeY => centroid[1] = chunk_origin[1] as f32 + f32::from(origin[1]),
-        Face::PositiveY => {}
-        Face::NegativeZ => centroid[2] -= 0.5,
-        Face::PositiveZ => centroid[2] += 0.5,
+        Face::PositiveY => centroid[1] -= top_inset,
+        Face::NegativeZ => centroid[2] -= 0.5 - LIQUID_FACE_INSET,
+        Face::PositiveZ => centroid[2] += 0.5 - LIQUID_FACE_INSET,
+    }
+    if !matches!(quad.face(), Face::NegativeY | Face::PositiveY) {
+        centroid[1] -= top_inset * 0.5;
     }
     centroid
 }

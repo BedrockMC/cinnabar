@@ -18,14 +18,20 @@ fn cloud_pipeline_is_transparent_depth_aware_and_specializes_from_each_view() {
                 .unwrap();
             let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
             assert_eq!(descriptor.multisample.count, msaa.samples());
+            assert_eq!(descriptor.primitive.front_face, FrontFace::Ccw);
+            assert_eq!(descriptor.primitive.cull_mode, Some(Face::Back));
             let depth = descriptor.depth_stencil.as_ref().unwrap();
             assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
-            assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
+            assert_eq!(depth.depth_compare, CompareFunction::Greater);
             assert!(!depth.depth_write_enabled);
             let colour = descriptor.fragment.as_ref().unwrap().targets[0]
                 .as_ref()
                 .unwrap();
             assert_eq!(colour.blend, Some(BlendState::ALPHA_BLENDING));
+            assert_eq!(
+                colour.write_mask,
+                ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE
+            );
             assert_eq!(
                 colour.format,
                 if hdr {

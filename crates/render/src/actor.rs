@@ -528,6 +528,15 @@ impl ActorRenderScene {
             .rejects
             .invalid_geometry
             .saturating_add(invalid_references);
+        for (instance, entry) in Arc::make_mut(&mut rig.instances)
+            .iter_mut()
+            .zip(rig.manifest.iter())
+        {
+            instance.multitexture_layers = assignments
+                .get(&entry.identity)
+                .and_then(|location| location.multitexture)
+                .unwrap_or([u32::MAX; 2]);
+        }
         let instance_pages: Vec<_> = rig
             .manifest
             .iter()

@@ -15,16 +15,15 @@ use bevy::{
 pub use client_presentation::camera::{
     AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
     CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin,
-    CameraSettingsAuthority, CameraSettingsError, DEFAULT_HORIZONTAL_FOV_RADIANS,
-    FirstPersonHandMotion, FlyCamera, FlyCameraUpdateSet, HandSwayState, HeadMedium,
-    LocalHurtEvent, OverlayKind, OverlayLayer, PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER,
-    ScreenEffectFacts, ScreenEffectInputs, ScreenOverlays, ServerCameraSkips, ServerCameraView,
-    THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
-    THIRD_PERSON_RADIUS_BLOCKS, ViewEffect, VisionEffects, WalkBobState, auto_fly_offset,
-    collision_safe_perspective_pose, compute_overlays, horizontal_fov_to_vertical, input_is_active,
-    look_angles, look_at_target, next_perspective, perspective_look_delta, perspective_pose,
-    release_cursor, spawn_fly_camera, unavailable_world_perspective_pose, update_camera_fov,
-    walk_bob_effect,
+    CameraSettingsAuthority, CameraSettingsError, FirstPersonHandMotion, FlyCamera,
+    FlyCameraUpdateSet, HandSwayState, HeadMedium, LocalHurtEvent, OverlayKind, OverlayLayer,
+    PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
+    ScreenOverlays, ServerCameraSkips, ServerCameraView, THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
+    THIRD_PERSON_COLLISION_RADIUS_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS, ViewEffect, VisionEffects,
+    WalkBobState, auto_fly_offset, collision_safe_perspective_pose, compute_overlays,
+    input_is_active, look_angles, look_at_target, next_perspective, perspective_pose,
+    projection_fov_radians, release_cursor, spawn_fly_camera, unavailable_world_perspective_pose,
+    update_camera_fov, walk_bob_effect,
 };
 use client_presentation::camera::{fov, look, overlay_publish};
 mod facts;

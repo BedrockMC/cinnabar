@@ -51,12 +51,23 @@ pub(crate) fn log_world_lighting(
     }
     let eye = player.snapshot().map(|player| player.eye().to_array());
     let solved_eye_light = eye.and_then(|eye| stream.solved_light_at(eye));
+    let below_eye_light = eye.map(|eye| {
+        [1.0, 2.0, 3.0, 4.0, 8.0, 12.0].map(|depth| {
+            let position = [eye[0], eye[1] - depth, eye[2]];
+            (
+                position,
+                stream.camera_medium(position),
+                stream.solved_light_at(position),
+            )
+        })
+    });
     let table = light.0.build();
     bevy::log::info!(
         session_generation = clock.session_generation(),
         dimension = context.dimension,
         ?eye,
         ?solved_eye_light,
+        ?below_eye_light,
         medium = ?frame.camera_medium(),
         sky_kind = ?frame.sky_kind(),
         daylight = frame.daylight(),

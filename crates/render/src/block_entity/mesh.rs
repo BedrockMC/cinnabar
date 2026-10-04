@@ -178,6 +178,17 @@ impl MeshBuilder {
         uvs: [[f32; 2]; 4],
         color: [f32; 4],
     ) {
+        self.quad_uv_colors(layer, corners, uvs, [color; 4]);
+    }
+
+    /// Emits one quad with UVs and colors per corner, preserving effect gradients.
+    pub(super) fn quad_uv_colors(
+        &mut self,
+        layer: Layer,
+        corners: [[f32; 3]; 4],
+        uvs: [[f32; 2]; 4],
+        colors: [[f32; 4]; 4],
+    ) {
         let target = match layer {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
@@ -189,12 +200,6 @@ impl MeshBuilder {
             return;
         }
         let light = self.light;
-        let color = [
-            color[0] * light,
-            color[1] * light,
-            color[2] * light,
-            color[3],
-        ];
         let atlas_size = self.atlas_size;
         let vertex = |corner: usize| BlockEntityVertex {
             position: corners[corner],
@@ -202,7 +207,12 @@ impl MeshBuilder {
                 uvs[corner][0] / atlas_size[0],
                 uvs[corner][1] / atlas_size[1],
             ],
-            color,
+            color: [
+                colors[corner][0] * light,
+                colors[corner][1] * light,
+                colors[corner][2] * light,
+                colors[corner][3],
+            ],
         };
         let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
         target.extend_from_slice(&[second, third, first, first, third, fourth]);

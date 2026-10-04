@@ -1,4 +1,4 @@
-//! A joined server's resource-pack UI textures: any `textures/**` image in the
+//! A joined server's resource-pack UI textures: any pack-relative image in the
 //! pack stack shadows the vanilla carrier's of the same path, and its `*.json`
 //! sidecar shadows the carrier's independently. Each image is read, decoded and
 //! shelf-packs into the reserved 256x256 dynamic pages only when a rendered
@@ -32,9 +32,9 @@ pub(super) const VANILLA_IN_PACKAGE: &str = "resource_packs/vanilla/";
 const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 
-/// A session's server resource-pack UI: each pack's `ui/**/*.json`, lowest
+/// A session's server resource-pack UI: each pack's indexed definitions, lowest
 /// precedence first (each layer merges over the ones below), and where its
-/// `textures/**` files read from.
+/// image files read from.
 #[derive(Clone, Debug, Default)]
 pub struct ServerUiPack {
     pub ui_layers: Vec<Vec<(String, Vec<u8>)>>,
@@ -46,6 +46,18 @@ pub struct ServerUiPack {
 }
 
 impl ServerUiPack {
+    /// Image extensions used by both pack reload tracking and texture loading.
+    pub fn image_extensions() -> &'static [&'static str] {
+        &IMAGE_EXTENSIONS
+    }
+
+    /// Image files JSON-UI can reference anywhere in an admitted pack.
+    pub fn is_image_path(path: &str) -> bool {
+        IMAGE_EXTENSIONS
+            .iter()
+            .any(|extension| path.ends_with(extension))
+    }
+
     /// Resolves pack definitions on the reload worker against the immutable carrier catalog.
     pub fn prepare_catalog(&self, base: &json_ui::Catalog) -> Arc<Self> {
         let mut prepared = self.clone();
@@ -64,7 +76,7 @@ impl ServerUiPack {
 /// Largest texture file read from the pack stack.
 pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
 
-/// The pack stack's `textures/**` images and sidecars by path stem, read lazily.
+/// The pack stack's images and sidecars by path stem, read lazily.
 struct PackTextures {
     view: resource_pack::LayeredPackView,
     images: BTreeMap<String, String>,
@@ -77,14 +89,15 @@ impl PackTextures {
     fn index(view: resource_pack::LayeredPackView) -> Self {
         let mut images = BTreeMap::new();
         let mut sidecars = BTreeMap::new();
-        for path in view.list("textures/") {
+        let paths = view.list("");
+        for &path in &paths {
             if let Some(stem) = path.strip_suffix(".json") {
                 sidecars.insert(stem.to_owned(), path.to_owned());
             }
         }
         // `.png` wins over `.tga` and `.jpg`, so it inserts last.
         for extension in IMAGE_EXTENSIONS.iter().rev() {
-            for path in view.list("textures/") {
+            for &path in &paths {
                 if let Some(stem) = path.strip_suffix(extension) {
                     images.insert(stem.to_owned(), path.to_owned());
                 }
@@ -312,7 +325,6 @@ impl ServerAtlas {
             .iter()
             .filter_map(|(path, bytes)| {
                 let stem = path.strip_suffix(".json")?;
-                stem.starts_with("textures/").then_some(())?;
                 let value = serde_json::from_slice(bytes).ok()?;
                 Some((stem.to_owned(), parse_texture_meta(&value)?))
             })
@@ -325,10 +337,7 @@ impl ServerAtlas {
                 .filter_map(move |(path, bytes)| Some((path.strip_suffix(extension)?, bytes)))
         });
         let sources = ranked
-            .filter_map(|(stem, bytes)| {
-                stem.starts_with("textures/").then_some(())?;
-                Some((stem.to_owned(), source(bytes.as_slice().into())?))
-            })
+            .filter_map(|(stem, bytes)| Some((stem.to_owned(), source(bytes.as_slice().into())?)))
             .collect::<BTreeMap<_, _>>();
         let pack = view.map(PackTextures::index);
         Self {
@@ -696,6 +705,10 @@ fn decode(bytes: &[u8], size: [u32; 2]) -> Option<Vec<u8>> {
     };
     Some(image.into_raw())
 }
+
+#[cfg(test)]
+#[path = "server_pack/external_paths_tests.rs"]
+mod external_paths_tests;
 
 #[cfg(test)]
 mod tests {

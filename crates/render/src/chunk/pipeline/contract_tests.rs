@@ -12,47 +12,50 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                 hdr,
                 enhanced: false,
             };
-            for (variants, shader, source, blended, cull) in [
+            for (variants, shader, source, blended) in [
                 (
                     &mut pipelines.variants,
                     CHUNK_SHADER_HANDLE,
                     include_str!("../../chunk.wgsl"),
                     false,
-                    Some(CullFace::Back),
                 ),
                 (
                     &mut pipelines.model_variants,
                     MODEL_SHADER_HANDLE,
                     include_str!("../../model.wgsl"),
                     false,
-                    None,
                 ),
                 (
                     &mut pipelines.transparent_model_variants,
                     MODEL_SHADER_HANDLE,
                     include_str!("../../model.wgsl"),
                     true,
-                    None,
                 ),
                 (
                     &mut pipelines.liquid_variants,
                     LIQUID_SHADER_HANDLE,
                     include_str!("../../liquid.wgsl"),
                     true,
-                    None,
                 ),
                 (
                     &mut pipelines.depth_liquid_variants,
                     LIQUID_SHADER_HANDLE,
                     include_str!("../../liquid.wgsl"),
                     false,
-                    None,
                 ),
             ] {
                 let id = variants.specialize(&cache, key).unwrap();
                 let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
                 assert_eq!(descriptor.multisample.count, msaa.samples());
-                assert_eq!(descriptor.primitive.cull_mode, cull);
+                assert_eq!(descriptor.primitive.cull_mode, None);
+                assert_eq!(
+                    descriptor.primitive.front_face,
+                    if shader == LIQUID_SHADER_HANDLE {
+                        bevy::render::render_resource::FrontFace::Cw
+                    } else {
+                        bevy::render::render_resource::FrontFace::Ccw
+                    }
+                );
                 assert_eq!(descriptor.vertex.shader, shader);
                 let fragment_state = descriptor.fragment.as_ref().unwrap();
                 assert_eq!(fragment_state.shader, shader);
@@ -86,15 +89,31 @@ fn vanilla_base_pipeline_construction_matches_baseline() {
                     colour.format,
                     if hdr {
                         ViewTarget::TEXTURE_FORMAT_HDR
+                    } else if blended && msaa == Msaa::Off {
+                        TextureFormat::bevy_default().remove_srgb_suffix()
                     } else {
                         TextureFormat::bevy_default()
                     }
                 );
+                assert_eq!(
+                    fragment_state
+                        .shader_defs
+                        .contains(&"NATIVE_GAMMA_BLEND".into()),
+                    blended && !hdr && msaa == Msaa::Off
+                );
                 assert_eq!(colour.blend, blended.then_some(BlendState::ALPHA_BLENDING));
+                assert_eq!(
+                    colour.write_mask,
+                    if blended {
+                        ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE
+                    } else {
+                        ColorWrites::ALL
+                    }
+                );
                 let depth = descriptor.depth_stencil.as_ref().unwrap();
                 assert_eq!(depth.format, CORE_3D_DEPTH_FORMAT);
                 assert_eq!(depth.depth_compare, CompareFunction::GreaterEqual);
-                assert_eq!(depth.depth_write_enabled, !blended);
+                assert!(depth.depth_write_enabled);
                 for definition in descriptor
                     .vertex
                     .shader_defs

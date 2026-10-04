@@ -112,3 +112,57 @@ fn shipped_trial_spawners_follow_all_twelve_state_combinations() {
     }
     assert_eq!(count, 12);
 }
+
+#[test]
+fn shipped_snow_layers_do_not_dampen_light_at_any_height() {
+    let breg = include_bytes!("../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    let mut count = 0;
+    for record in records
+        .iter()
+        .filter(|r| r.name.as_ref() == "minecraft:snow_layer")
+    {
+        let light = lights[record.sequential_id as usize];
+        assert_eq!(light.filter(), 0, "{}", record.canonical_state);
+        assert_eq!(light.emission(), 0, "{}", record.canonical_state);
+        count += 1;
+    }
+    assert_eq!(count, 16, "all eight heights and both covered states");
+}
+
+#[test]
+fn shipped_ice_light_dampening_distinguishes_translucent_from_packed() {
+    let breg = include_bytes!("../data/block-registry-v2193.bin");
+    let protocol = assets::registry_header_protocol(breg).unwrap();
+    let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+    let lights = assets::read_light_registry_for_protocol(
+        include_bytes!("../data/block-light-registry-v2193.bin"),
+        breg,
+        records.len(),
+        protocol,
+    )
+    .unwrap();
+    for (name, filter, expected_count) in [
+        ("minecraft:ice", 3, 1),
+        ("minecraft:frosted_ice", 3, 4),
+        ("minecraft:packed_ice", 15, 1),
+        ("minecraft:blue_ice", 15, 1),
+    ] {
+        let mut count = 0;
+        for record in records.iter().filter(|record| record.name.as_ref() == name) {
+            let light = lights[record.sequential_id as usize];
+            assert_eq!(light.filter(), filter, "{name} {}", record.canonical_state);
+            assert_eq!(light.emission(), 0, "{name} {}", record.canonical_state);
+            count += 1;
+        }
+        assert_eq!(count, expected_count, "{name}");
+    }
+}

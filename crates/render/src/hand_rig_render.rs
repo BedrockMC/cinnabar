@@ -156,7 +156,13 @@ fn install(app: &mut App) {
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<HandRigScene>::default());
-    load_internal_asset!(app, HAND_RIG_SHADER, "hand_rig.wgsl", Shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        HAND_RIG_SHADER,
+        "hand_rig.wgsl",
+        crate::shader_safety::from_actor_wgsl,
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS
+    );
     let render_app = app.sub_app_mut(RenderApp);
     render_app
         .insert_resource(Installed)

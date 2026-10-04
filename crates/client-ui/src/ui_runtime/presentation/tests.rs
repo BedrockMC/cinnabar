@@ -29,6 +29,7 @@ mod paper_doll_tests;
 mod publication_split_tests;
 mod retained_hud_tests;
 mod safe_area_tests;
+mod server_menu_tests;
 mod sign_screen_tests;
 mod texture_pages;
 mod toast_tests;

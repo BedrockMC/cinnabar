@@ -13,6 +13,8 @@ use super::{
     world::ParticleWorld,
 };
 
+mod biome_tinted;
+
 /// Live particles across all emitters; the oldest are dropped past this.
 pub const MAX_LIVE_PARTICLES: usize = 8192;
 pub const MAX_EMITTERS: usize = 768;
