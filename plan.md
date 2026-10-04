@@ -1,3 +1,11 @@
+## Java-style Tab player list
+
+- User-requested HUD extension: hold Tab for the authoritative online roster.
+- Compact centered columns, bounded to 80 players with an explicit overflow count.
+- Roster changes refresh cached JSON-UI; Tab release, focus loss and menus hide it.
+- Input, rendered collection, focus/release, roster refresh and cache tests passed.
+- Incomplete live Windows acceptance: installed-client Tab capture pending.
+
 ## Barrier selection visibility
 
 - User-requested correction: suppress barrier highlights/outlines outside Creative.
@@ -4471,6 +4479,12 @@ dragonfly's generation and mob AI parity gaps are accepted, not chased.
 Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the manifest-pinned container on macOS) for default worlds, dragonfly for Flat worlds; menu create/edit/delete/templates and staged loading are built. Live-verified on macOS through the core's control channel (create, staged open, spawn, server-side teleport and client fall, pause, close with no orphan); the menu click-through and on-screen input were not exercised (locked screen), and the create screen lacks vanilla's Multiplayer, Cheats and pack tabs, so no acceptance gate is closed.
 
 ## Phase 8 — Audio, polish, packaging
+
+**World-drop audio:** successful world-input single and whole-stack drops now
+emit one local `drop.slot` cue through the active pack, without waiting for or
+repeating server replies. Failed and inventory-screen drops stay silent on this
+route. See [the rules and regressions](docs/reference/item-drop-audio.md).
+Matched-version live audio acceptance remains incomplete.
 
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
 positional sounds, music/ambient (asset-availability audit from Phase 2 decides

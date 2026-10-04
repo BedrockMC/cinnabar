@@ -30,6 +30,15 @@ impl UiRuntime {
         &self.known_player_names
     }
 
+    /// Momentary gameplay input; cleared along with the roster at session boundaries.
+    pub fn set_player_list_held(&mut self, held: bool) {
+        self.player_list_held = held;
+    }
+
+    pub fn player_list_held(&self) -> bool {
+        self.player_list_held
+    }
+
     /// Resolves one typed rawtext document against the retained scoreboard
     /// state, the pinned localization catalog, and the local reader
     /// identity. Score owners resolve through the authoritative
