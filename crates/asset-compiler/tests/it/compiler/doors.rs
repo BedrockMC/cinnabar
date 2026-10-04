@@ -492,7 +492,7 @@ fn compiler_selects_the_exact_legacy_door_terrain_variant_for_each_material_fami
         }
     }
     let all = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed registry");
     let mut records = names
@@ -538,7 +538,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_door_and_trapdoor_states_when_r
         return;
     };
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()

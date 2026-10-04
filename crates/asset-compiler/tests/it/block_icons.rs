@@ -1,12 +1,11 @@
-#[path = "support/fixture_input.rs"]
-mod fixture_input;
+use crate::fixture_input;
 
 use assets::*;
 use pack_compiler::{compile_entity_assets, compile_icon_assets, compile_icon_assets_with_blocks};
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 #[path = "block_icons/carried.rs"]
 mod carried;
@@ -116,7 +115,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
         provenance: BlobProvenance {
             source_manifest_sha256: entity.source_manifest_sha256,
             block_registry_sha256: Sha256::digest(include_bytes!(
-                "../../assets/data/block-registry-v2193.bin"
+                "../../../assets/data/block-registry-v2193.bin"
             ))
             .into(),
             light_registry_sha256: [3; 32],

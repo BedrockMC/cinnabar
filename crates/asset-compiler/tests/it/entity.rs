@@ -5,7 +5,7 @@ use pack_compiler::compile_entity_assets;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 #[path = "entity/legacy_controller_roots.rs"]
 mod legacy_controller_roots;
@@ -743,7 +743,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         .iter()
         .find(|source| source.path.as_ref() == "registry/default-sprite-bindings-1.26.50.json")
         .expect("default sprite binding provenance source");
-    let binding_bytes = include_bytes!("../../assets/data/default-sprite-bindings-1.26.50.json");
+    let binding_bytes = include_bytes!("../../../assets/data/default-sprite-bindings-1.26.50.json");
     assert_eq!(binding_source.source_bytes as usize, binding_bytes.len());
     assert_eq!(
         binding_source.source_sha256,

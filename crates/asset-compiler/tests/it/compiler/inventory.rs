@@ -12,7 +12,7 @@ const FULL_CUBE_COLLISION: [CollisionBox; 1] = [CollisionBox {
 
 fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -24,7 +24,7 @@ fn generated_huge_mushroom_records() -> Vec<RegistryRecord> {
 
 fn generated_stained_glass_cube_records() -> Vec<RegistryRecord> {
     read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -38,7 +38,7 @@ fn generated_stained_glass_cube_records() -> Vec<RegistryRecord> {
 
 fn generated_copper_grate_records() -> Vec<RegistryRecord> {
     read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -60,7 +60,7 @@ fn compiled_checked_in_air_preserves_both_runtime_network_identities() {
         "[]",
     );
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -96,7 +96,7 @@ fn air_metadata_does_not_launder_a_custom_identity_into_exact_no_draw() {
         "[]",
     );
     let mut record = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -109,7 +109,7 @@ fn air_metadata_does_not_launder_a_custom_identity_into_exact_no_draw() {
     // A decoy can only compile alongside the true canonical air, exactly as a
     // real registry would carry both identities if it were attacked this way.
     let canonical = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -166,7 +166,7 @@ fn generated_registry_has_exact_copper_grate_inventory() {
 #[test]
 fn generated_registry_has_exact_chiseled_bookshelf_inventory() {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let selected = records
@@ -244,7 +244,7 @@ fn generated_registry_has_exact_bee_housing_inventory() {
 #[test]
 fn generated_registry_has_exact_resin_clump_inventory() {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let selected = records
@@ -281,7 +281,7 @@ fn generated_registry_has_exact_resin_clump_inventory() {
 #[test]
 fn generated_registry_has_exact_cactus_inventory() {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let selected = records
@@ -332,7 +332,7 @@ fn generated_registry_has_exact_cactus_inventory() {
 #[test]
 fn generated_registry_has_exact_cake_inventory() {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let selected = records
@@ -386,7 +386,7 @@ fn generated_registry_has_exact_cake_inventory() {
 #[test]
 fn generated_registry_has_exact_farmland_inventory() {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let selected = records
@@ -446,7 +446,7 @@ const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
 
 fn selector_alias_cube_records() -> Vec<RegistryRecord> {
     read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -890,7 +890,7 @@ fn flowerbed_generated_registry_has_exact_canonical_state_matrix() {
         assert!(output.status.success(), "git show failed: {output:?}");
         output.stdout
     } else {
-        include_bytes!("../../../assets/data/block-registry-v1001.bin").to_vec()
+        include_bytes!("../../../../assets/data/block-registry-v1001.bin").to_vec()
     };
     let records = read_registry(&bytes).expect("decode committed generated registry");
 

@@ -28,7 +28,7 @@ const MINERAL_CUBES: [MineralFixture; 2] = [
 
 fn mineral_cube_records() -> Vec<RegistryRecord> {
     let registry = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed protocol-1001 registry");
     MINERAL_CUBES

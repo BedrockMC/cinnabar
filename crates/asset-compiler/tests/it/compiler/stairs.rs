@@ -76,7 +76,7 @@ fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_f
     let directory = tempfile::tempdir().expect("create asymmetric stair fixture");
     write_asymmetric_stair_pack(directory.path());
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed registry")
     .into_iter()
@@ -203,7 +203,7 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
     let directory = tempfile::tempdir().expect("create stair fixture");
     write_stair_pack(directory.path());
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed registry")
     .into_iter()
@@ -338,7 +338,7 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
 fn compiler_covers_every_breg_stair_state_with_compact_stable_groups() {
     let directory = tempfile::tempdir().expect("create exhaustive stair fixture");
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed registry")
     .into_iter()
@@ -425,7 +425,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_stair_states_when_requested() {
         return;
     };
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");

@@ -544,7 +544,7 @@ fn compiler_real_pinned_pack_admits_all_exact_chiseled_bookshelf_records() {
     let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -879,7 +879,7 @@ fn compiler_real_pinned_pack_preserves_checked_transparent_cubes_with_exact_huge
         return;
     };
     let all = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let huge_mushrooms = all

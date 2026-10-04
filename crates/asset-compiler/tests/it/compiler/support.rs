@@ -340,7 +340,7 @@ pub(super) const MODEL_FLAG_UPPER: u32 = 1 << 7;
 
 pub(super) fn generated_family_records(name: &str, family: ModelFamily) -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -764,7 +764,7 @@ pub(super) fn mip_pixel(
 
 pub(super) fn bee_housing_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -815,7 +815,7 @@ pub(super) fn generated_flowerbed_record(
     orientation: u32,
 ) -> RegistryRecord {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let mut record = records

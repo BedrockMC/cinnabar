@@ -7,7 +7,7 @@ fn generated_slab_record(
     half: u32,
 ) -> RegistryRecord {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let mut record = records
@@ -309,7 +309,7 @@ fn compiler_slab_half_is_typed_fail_closed_and_ignores_collision_only_boxes() {
 fn compiler_covers_all_272_breg_slab_states_with_three_deduplicated_stable_templates() {
     let directory = tempfile::tempdir().expect("create exhaustive slab fixture");
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -392,7 +392,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_slab_states_when_requested() {
         return;
     };
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");

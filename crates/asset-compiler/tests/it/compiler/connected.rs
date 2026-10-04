@@ -2,7 +2,7 @@ use super::support::*;
 
 fn generated_wall_records(name: &str) -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -334,7 +334,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_pane_and_fence_states_when_requ
         return;
     };
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode connected-family registry")
     .into_iter()
@@ -430,7 +430,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_wall_states_when_requested() {
         return;
     };
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
