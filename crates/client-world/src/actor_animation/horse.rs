@@ -56,7 +56,7 @@ impl AnimationState {
             self.random ^= self.random << 17;
             let value = self.random.wrapping_mul(0x2545_f491_4f6c_dd1d);
             if value >= TAIL_CHANCE.wrapping_neg() % TAIL_CHANCE {
-                break value % TAIL_CHANCE == 0;
+                break value.is_multiple_of(TAIL_CHANCE);
             }
         };
         self.advance_observed(standing, start_tail);
