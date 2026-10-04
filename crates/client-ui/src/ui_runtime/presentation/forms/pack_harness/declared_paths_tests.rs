@@ -3,6 +3,31 @@
 use super::{dir_pack, scratch_dir};
 use crate::ui_runtime::presentation::forms::server_pack::ServerAtlas;
 
+// Unix permits colons in names, reproducing the drive-letter split without Windows.
+#[cfg(unix)]
+#[test]
+fn dir_pack_keeps_colons_in_directory_names() {
+    let root = scratch_dir("colon-pack-harness");
+    let lower = root.join("drive:lower");
+    let upper = root.join("drive:upper");
+    for (dir, contents) in [(&lower, b"lower"), (&upper, b"upper")] {
+        std::fs::create_dir_all(dir.join("ui")).unwrap();
+        std::fs::write(dir.join("ui/test.json"), contents).unwrap();
+    }
+
+    let pack = dir_pack([lower, upper]);
+    std::fs::remove_dir_all(root).unwrap();
+    assert_eq!(pack.ui_layers.len(), 2);
+    assert_eq!(
+        pack.ui_layers[0],
+        [("ui/test.json".into(), b"lower".to_vec())]
+    );
+    assert_eq!(
+        pack.ui_layers[1],
+        [("ui/test.json".into(), b"upper".to_vec())]
+    );
+}
+
 #[test]
 fn dir_pack_loads_declared_paths_and_inherits_them_across_layers() {
     let root = scratch_dir("indexed-pack-harness");
@@ -33,7 +58,7 @@ fn dir_pack_loads_declared_paths_and_inherits_them_across_layers() {
     .unwrap();
     std::fs::write(lower.join("custom/unlisted.uidx"), b"unlisted").unwrap();
 
-    let pack = dir_pack(&format!("{}:{}", lower.display(), upper.display()));
+    let pack = dir_pack([lower, upper]);
     std::fs::remove_dir_all(root).unwrap();
     assert_eq!(pack.ui_layers.len(), 2);
     for layer in &pack.ui_layers {
@@ -82,7 +107,7 @@ fn dir_pack_retains_custom_art_and_independent_sidecar_overrides() {
     )
     .unwrap();
 
-    let pack = dir_pack(&format!("{}:{}", lower.display(), upper.display()));
+    let pack = dir_pack([lower, upper]);
     std::fs::remove_dir_all(root).unwrap();
     let atlas = ServerAtlas::new(&pack.textures, None, 1);
     assert!(atlas.has_image("assets/gui/inventory"));
