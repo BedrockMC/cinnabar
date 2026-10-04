@@ -46,6 +46,7 @@ impl ControllerFrame {
             self.sprint_override = Some(input.sprinting);
         }
         input.liquid_contact_height = Some(modes.contact_height());
+        input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
         if let Some(sprinting) = self.sprint_override {
             modes.restore_controls(sprinting, modes.sneaking());

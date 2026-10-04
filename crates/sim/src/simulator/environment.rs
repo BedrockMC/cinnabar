@@ -185,18 +185,10 @@ fn active_surface_response(
 
 /// Tests the native shrunken liquid probe against material cells, independent of surface height.
 fn liquid_contact(player: Aabb, block: [i32; 3], water: bool) -> bool {
-    // Vanilla shrinks these boxes and tests floored cell coordinates.
-    let shrink = if water {
-        [0.001_f32, 0.401, 0.001]
-    } else {
-        [0.1_f32, 0.4, 0.1]
-    };
+    let probe = crate::world::liquid_probe_bounds(player, water);
     (0..3).all(|axis| {
-        let min = player.min[axis] as f32;
-        let max = player.max[axis] as f32;
-        let center = (min + max) * 0.5;
-        let low = (min + shrink[axis]).min(center).floor();
-        let high = (max - shrink[axis]).max(center);
+        let low = (probe.min[axis] as f32).floor();
+        let high = probe.max[axis] as f32;
         let coordinate = block[axis] as f32;
         low <= coordinate && coordinate <= high
     })

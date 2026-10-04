@@ -158,6 +158,24 @@ impl Simulator {
             input.mode.hitbox_height(input.sneaking),
             input.liquid_contact_height,
         )?;
+        if input.mode != MovementMode::Riding
+            && input
+                .liquid_flow_enabled
+                .unwrap_or(input.mode != MovementMode::Flying)
+        {
+            let contact_height = input
+                .liquid_contact_height
+                .unwrap_or_else(|| input.mode.hitbox_height(input.sneaking));
+            let contact = crate::Aabb::player_with_height_at(next.position, contact_height);
+            if let Some(current) = world.liquid_current(contact)? {
+                sampled.identity = sampled.identity.merge(&current.identity)?;
+                next.velocity = Vec3::new(
+                    f64::from(next.velocity.x as f32 + current.value.x as f32),
+                    f64::from(next.velocity.y as f32 + current.value.y as f32),
+                    f64::from(next.velocity.z as f32 + current.value.z as f32),
+                );
+            }
+        }
         let head_in_water = if input.jumping
             && input.mode == MovementMode::Swimming
             && input.liquid_attach_height.is_some()

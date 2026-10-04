@@ -3824,11 +3824,22 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   and retained dry swimming uses ordinary travel. Prediction and correction replay retain
   the native swim blend and previous pose flag, with blend updates before swim triggers and
   transition jump suppression. Standing-space probes use the native box inset.
+  Liquid prediction now derives current vectors from palette liquid depths and native
+  material/face facts, including lower-neighbor gradients and falling-water pull. It
+  uses native cell order, float normalization and water/lava impulses before jump and
+  travel, with the preceding flying flag suppressing flow. Historical world snapshots
+  retain the same current query during correction replay. The integrated client builds;
+  tests and the affected verification suite were skipped at the user's request. The
+  user accepted flight, swimming transitions and flowing-water movement in the rebuilt
+  macOS/Metal client on the local BDS listening on 19132. This manual acceptance covers
+  the reported movement defects; the broader parity boundaries below remain incomplete.
   See `docs/reference/flight-control-corrections.md` and
-  `docs/reference/liquid-movement.md` and `docs/reference/swimming-trigger.md` for identified
+  `docs/reference/liquid-movement.md`, `docs/reference/liquid-currents.md` and
+  `docs/reference/swimming-trigger.md` for identified
   bodies and boundaries. Touch and stalled-entry swim predicates, the seven-tick flight
   trigger versus our wall-time approximation,
-  liquid currents, specialized jump paths, bubble columns, custom movement components and
+  unregistered flow materials and specialized directional/waterlogged flow faces,
+  specialized jump paths, bubble columns, custom movement components and
   complete waterlogged/surface behavior remain open. Controlled live results are recorded
   separately; source-derived regressions alone close no acceptance gate. Wire edges for
   swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.

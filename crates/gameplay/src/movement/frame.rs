@@ -139,7 +139,8 @@ impl LocomotionState {
             movement_effects,
         );
         if let Some(sample) = frame.samples.last() {
-            self.controls.adopt_tick_sprinting(sample.processed.sprinting);
+            self.controls
+                .adopt_tick_sprinting(sample.processed.sprinting);
             movement_speed.set_sprinting(sample.processed.sprinting);
         }
         super::control_trace::trace_physics_frame(

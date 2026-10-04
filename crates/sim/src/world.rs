@@ -7,8 +7,13 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 use crate::{Aabb, Vec3};
 
 mod contracts;
+mod current;
 mod door;
+mod flow;
 pub use contracts::CollisionWorld;
+pub use flow::FlowBlockFacts;
+mod liquid_probe;
+pub(crate) use liquid_probe::liquid_probe_bounds;
 mod primary_lookup;
 mod snapshot;
 pub use snapshot::CollisionSnapshot;
@@ -276,6 +281,7 @@ pub struct CollisionRegistry {
 #[derive(Debug, Clone)]
 struct BlockPhysics {
     door: Option<DoorState>,
+    flow: Option<FlowBlockFacts>,
     shapes: Box<[Aabb]>,
     /// Shapes the interaction ray targets instead of `shapes` (selection boxes).
     pick_shapes: Option<Box<[Aabb]>>,
@@ -423,6 +429,7 @@ impl CollisionRegistry {
             runtime_id,
             BlockPhysics {
                 door: None,
+                flow: None,
                 shapes: shapes.into_boxed_slice(),
                 pick_shapes: None,
                 friction,
@@ -731,6 +738,13 @@ impl<'a> PaletteWorld<'a> {
 }
 
 impl CollisionWorld for PaletteWorld<'_> {
+    fn liquid_current(
+        &self,
+        previous_pose: Aabb,
+    ) -> Result<Option<CollisionQuery<Vec3>>, WorldQueryError> {
+        current::sample(self, previous_pose)
+    }
+
     fn primary_is_air(
         &self,
         block: [i32; 3],
