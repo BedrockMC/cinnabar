@@ -96,22 +96,38 @@ impl LocalPhysicsController {
     }
 
     /// Rewrites the movement speed of retained ticks after an `UpdateAttributes`
-    /// stamped `tick`; returns the tick to replay from when anything changed.
+    /// stamped `tick`, replaying only actual local sprint transitions.
     ///
     /// Live and stale stamps need no rewrite: the live authority already
     /// carries the value into future ticks.
-    pub(crate) fn retime_movement_speed(&mut self, tick: u64, speed: f64) -> Option<u64> {
+    pub(crate) fn retime_movement_speed(
+        &mut self,
+        tick: u64,
+        current: f64,
+        sprint_modifier: Option<f32>,
+    ) -> Option<(
+        Option<u64>,
+        crate::movement::speed_authority::EffectiveMovementSpeed,
+    )> {
         let TimelineSlot::Rewind(tick) = self.timeline_slot(tick) else {
             return None;
         };
+        let sprinting = self.history.input_at(tick)?.sprinting;
+        let mut speed = crate::movement::speed_authority::EffectiveMovementSpeed::authoritative(
+            current,
+            sprint_modifier,
+            sprinting,
+        );
         let mut changed = false;
         for input in self.history.retained_inputs_after_mut(tick) {
-            if input.movement_speed != Some(speed) {
-                input.movement_speed = Some(speed);
+            speed.set_sprinting(input.sprinting);
+            let predicted = speed.prediction_speed();
+            if input.movement_speed != predicted {
+                input.movement_speed = predicted;
                 changed = true;
             }
         }
-        changed.then_some(tick)
+        Some((changed.then_some(tick), speed))
     }
 
     /// Replaces the live velocity, for timeline edits whose replay failed.
@@ -165,7 +181,11 @@ impl LocalPhysicsController {
             let (edited, reached) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
                 |input| input.sprinting == anchor.sprinting && (!sprinting || input.forward > 0.0),
-                |input| input.sprinting = sprinting,
+                |input| {
+                    let previous = input.sprinting;
+                    input.sprinting = sprinting;
+                    crate::movement::speed_authority::preserve_effective_speed(input, previous);
+                },
             );
             changed |= edited;
             present.sprinting = reached.then_some(sprinting);

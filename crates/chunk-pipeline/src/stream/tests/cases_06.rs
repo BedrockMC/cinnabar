@@ -199,7 +199,7 @@ fn movement_attribute(current: f32) -> ActorAttribute {
 }
 
 #[test]
-fn movement_authority_removes_only_identified_sprint_multiplier_once() {
+fn movement_authority_retains_effective_current_and_identifies_only_native_sprint() {
     let modifier = protocol::ActorAttributeModifier {
         id: Arc::from("D208FC00-42AA-4AAD-9276-D5446530DE43"),
         name: Arc::from("unrelated label"),
@@ -210,37 +210,43 @@ fn movement_authority_removes_only_identified_sprint_multiplier_once() {
     };
     let mut stream = riding_stream();
     let mut sequence = 0;
-    let mut submit =
-        |modifiers: Arc<[protocol::ActorAttributeModifier]>, current: f32, expected: f32| {
-            sequence += 1;
-            let mut attribute = movement_attribute(current);
-            attribute.modifiers = modifiers;
-            stream
-                .submit(
-                    sequence,
-                    WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
-                        dimension: 0,
-                        runtime_id: 1,
-                        attributes: Arc::from([attribute]),
-                        tick: sequence,
-                    })),
-                )
-                .unwrap();
-            assert_eq!(stream.local_movement_speed(), Some(f64::from(expected)));
-        };
-    submit(Arc::from([modifier.clone()]), 0.13, 0.13_f32 / 1.3);
-    submit(Arc::from([modifier.clone()]), 0.156, 0.156_f32 / 1.3);
-    submit(Arc::from([modifier.clone()]), 0.0, 0.0);
+    let mut submit = |modifiers: Arc<[protocol::ActorAttributeModifier]>,
+                      current: f32,
+                      expected_modifier: Option<f32>| {
+        sequence += 1;
+        let mut attribute = movement_attribute(current);
+        attribute.modifiers = modifiers;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    attributes: Arc::from([attribute]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+        assert_eq!(stream.local_movement_speed(), Some(f64::from(current)));
+        assert!(matches!(stream.take_committed_controls().as_slice(), [
+                CommittedControlEvent::LocalMovementSpeed { current: value, sprint_modifier, .. }
+            ] if *value == f64::from(current) && *sprint_modifier == expected_modifier));
+    };
+    let factor = Some(1.0 + modifier.amount);
+    submit(Arc::from([modifier.clone()]), 0.13, factor);
+    submit(Arc::from([modifier.clone()]), 0.156, factor);
+    submit(Arc::from([modifier.clone()]), 0.0, factor);
+    submit(Arc::from([]), 0.13, None);
     let mut custom = modifier.clone();
     custom.id = Arc::from("custom-speed");
     custom.name = Arc::from("Sprinting speed boost");
-    submit(Arc::from([custom]), 0.13, 0.13);
+    submit(Arc::from([custom]), 0.13, None);
     let mut different_operation = modifier.clone();
     different_operation.operation = 1;
-    submit(Arc::from([different_operation]), 0.13, 0.13);
+    submit(Arc::from([different_operation]), 0.13, None);
     let mut different_operand = modifier;
     different_operand.operand = 1;
-    submit(Arc::from([different_operand]), 0.13, 0.13);
+    submit(Arc::from([different_operand]), 0.13, None);
 }
 
 #[test]
@@ -323,6 +329,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
                 sequence: 2,
                 dimension: 0,
                 current: 0.0,
+                sprint_modifier: None,
                 tick: 2,
             }
         ]

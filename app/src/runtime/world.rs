@@ -417,20 +417,30 @@ pub(crate) fn reconcile_world_stream_before_physics(
             sequence,
             dimension,
             current,
+            sprint_modifier,
             tick,
         } = control
         {
-            if movement_speed.apply(clock.session_generation(), sequence, dimension, current)
-                && movement.physics_is_authorized()
-                && let Some(rewind) = local_physics.retime_movement_speed(tick, current)
+            if movement_speed.apply(
+                clock.session_generation(),
+                sequence,
+                dimension,
+                current,
+                sprint_modifier,
+            ) && movement.physics_is_authorized()
+                && let Some((rewind, speed)) =
+                    local_physics.retime_movement_speed(tick, current, sprint_modifier)
             {
-                control_apply::replay_timeline_edit(
-                    &mut movement,
-                    &mut local_physics,
-                    stream,
-                    &collisions,
-                    rewind,
-                );
+                movement_speed.adopt_replayed_speed(speed);
+                if let Some(rewind) = rewind {
+                    control_apply::replay_timeline_edit(
+                        &mut movement,
+                        &mut local_physics,
+                        stream,
+                        &collisions,
+                        rewind,
+                    );
+                }
             }
             continue;
         }

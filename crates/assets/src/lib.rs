@@ -96,7 +96,7 @@ pub use biome::{
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
     BLOCK_ENTITY_CARRIER_MAGIC, BLOCK_ENTITY_CARRIER_VERSION, BLOCK_ENTITY_ROUTES,
-    BlockEntityPlacement, BlockEntityRouteKind, MAX_BLOCK_ENTITY_ATLAS_SIDE,
+    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, MAX_BLOCK_ENTITY_ATLAS_SIDE,
     MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_KEY_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
     RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };

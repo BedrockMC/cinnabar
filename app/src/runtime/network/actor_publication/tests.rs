@@ -75,3 +75,165 @@ fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
             < 1e-6
     );
 }
+
+struct JumpFloor;
+
+impl sim::CollisionWorld for JumpFloor {
+    fn collision_boxes(
+        &self,
+        query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        let floor = sim::Aabb::new(
+            sim::Vec3::new(-64.0, 0.0, -64.0),
+            sim::Vec3::new(64.0, 1.0, 64.0),
+        );
+        Ok(sim::CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
+    }
+}
+
+/// The shared actor timeline is not the local physics interpolation timeline, especially
+/// after a reset or a frame that completes several movement ticks. The body must still
+/// travel with the camera through the entire jump, retaining its rig's authored axes.
+#[test]
+fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
+    use std::time::Duration;
+
+    use crate::presentation::actors::{local_diagnostic_presentation, select_actor_presentations};
+    use semantic_input::PerspectiveMode;
+
+    const LOCAL_ID: u64 = 1;
+    const REMOTE_ID: u64 = LOCAL_ID + 1;
+    let anchor = [0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("jump regression");
+    let look = bevy::math::Quat::from_rotation_y(0.4);
+    for perspective in [
+        PerspectiveMode::ThirdPersonBack,
+        PerspectiveMode::ThirdPersonFront,
+    ] {
+        let mut physics = crate::movement::LocalPhysicsController::default();
+        physics.reanchor_network_position(anchor, 0, true);
+        let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: LOCAL_ID,
+            local_player_unique_id: LOCAL_ID as i64,
+            player_position: anchor,
+            world_spawn_position: [0, 1, 0],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let mut actor_clock = super::super::ActorFrameClock::default();
+        // Physics can reset independently of the actor clock after a correction.
+        actor_clock.advance(Duration::from_millis(17));
+        let mut relative_origin = None;
+        let mut raw_origin_drifted = false;
+        let mut catch_up = false;
+        let mut rose = false;
+        let mut fell = false;
+        let mut last_height = 1.0;
+        // Interleave tick boundaries, fractional frames and two/three-tick catch-up frames.
+        for (index, millis) in [50, 10, 15, 25, 120, 35, 115, 10, 15, 25, 120, 35, 115]
+            .into_iter()
+            .enumerate()
+        {
+            let elapsed = Duration::from_millis(millis);
+            let frame = physics.advance(
+                elapsed,
+                sim::MovementInput {
+                    jumping: index == 0,
+                    ..Default::default()
+                },
+                &JumpFloor,
+            );
+            assert!(frame.blocked.is_none());
+            catch_up |= frame.completed_ticks > 1;
+            let feet = Vec3::from_array(physics.render_feet_position().unwrap());
+            let eye = Vec3::from_array(physics.render_eye_position().unwrap());
+            rose |= feet.y > last_height + 1e-4;
+            fell |= feet.y < last_height - 1e-4;
+            last_height = feet.y;
+            let feed = super::build_local_player_feed(
+                &physics,
+                look,
+                false,
+                true,
+                &skin,
+                client_world::LocalItemUse::Unpredicted,
+            )
+            .unwrap();
+            stream.sync_local_player_pose(&feed);
+            let step = actor_clock.advance(elapsed);
+            stream.advance_actor_interpolation_frame(step.ticks);
+            let actor_feet = stream
+                .actor(LOCAL_ID)
+                .unwrap()
+                .interpolated_position(step.partial_tick)
+                .unwrap();
+            let mut local =
+                local_diagnostic_presentation(1, 0, LOCAL_ID, 1, actor_feet, 27.0, 13.0).unwrap();
+            // Authored nonuniform scale must survive the translation correction.
+            for row in &mut local.submission.world_from_actor {
+                for (value, scale) in row[..3].iter_mut().zip([0.7, 1.2, 0.9]) {
+                    *value *= scale;
+                }
+            }
+            local.authored_scale = 0.7;
+            local.head_over_body = 11.0;
+            let original = local.clone();
+            let camera = crate::camera::perspective_pose(eye, look, perspective);
+            let view_from_world = camera.to_matrix().inverse();
+            let expected_relative = view_from_world.transform_point3(feet);
+            let reference = *relative_origin.get_or_insert(expected_relative);
+            assert!(expected_relative.abs_diff_eq(reference, 1e-5));
+            raw_origin_drifted |= !view_from_world
+                .transform_point3(Vec3::from_array(actor_feet))
+                .abs_diff_eq(reference, 1e-3);
+            super::place_local_actor_at_render_feet(&mut local, feet);
+            let corrected_feet =
+                Vec3::from_array(local.submission.world_from_actor.map(|row| row[3]));
+            assert!(
+                view_from_world
+                    .transform_point3(corrected_feet)
+                    .abs_diff_eq(reference, 1e-5),
+                "{perspective:?} frame {index}"
+            );
+            let mut expected = original.clone();
+            for (row, coordinate) in expected
+                .submission
+                .world_from_actor
+                .iter_mut()
+                .zip(feet.to_array())
+            {
+                row[3] = coordinate;
+            }
+            assert_eq!(local.submission, expected.submission);
+            assert_eq!(local.authored_scale, original.authored_scale);
+            assert_eq!(local.world_yaw_degrees, original.world_yaw_degrees);
+            assert_eq!(local.head_over_body, original.head_over_body);
+            let remote =
+                local_diagnostic_presentation(1, 0, REMOTE_ID, 1, [6.0, 3.0, -4.0], 72.0, 0.0)
+                    .unwrap();
+            let remote_submission = remote.submission.clone();
+            let batch = select_actor_presentations(LOCAL_ID, true, Some(local), [remote]);
+            let selected_remote = batch
+                .submissions
+                .iter()
+                .find(|body| body.input.identity.runtime_id == REMOTE_ID)
+                .unwrap();
+            assert_eq!(
+                selected_remote.world_from_actor,
+                remote_submission.world_from_actor
+            );
+            assert_eq!(selected_remote.input, remote_submission.input);
+        }
+        assert!(
+            catch_up && rose && fell && raw_origin_drifted,
+            "{perspective:?}"
+        );
+    }
+}

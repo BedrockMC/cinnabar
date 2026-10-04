@@ -31,6 +31,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        let previous_sprinting = input.sprinting;
         self.grounded_before_tick = state.on_ground;
         self.jump_repeated =
             !self.jump_edge && input.jumping && state.on_ground && state.jump_delay == 0;
@@ -71,6 +72,7 @@ impl ControllerFrame {
         ) {
             input.sprinting = false;
         }
+        crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
         self.ride_delta = None;
         if input.mode == sim::MovementMode::Riding
             && let Some(seat) = self
