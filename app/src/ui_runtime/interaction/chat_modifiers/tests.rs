@@ -17,6 +17,7 @@ impl Harness {
         let clipboard = Arc::new(Mutex::new("pasted 🦀".to_owned()));
         let reads = Arc::new(AtomicUsize::new(0));
         let (text, count) = (clipboard.clone(), reads.clone());
+        let copied = clipboard.clone();
         let mut app = App::new();
         app.add_message::<KeyboardInput>()
             .init_resource::<Time<Real>>()
@@ -30,7 +31,7 @@ impl Harness {
                     count.fetch_add(1, Ordering::Relaxed);
                     Some(text.lock().unwrap().clone())
                 },
-                |_| {},
+                move |text| *copied.lock().unwrap() = text,
             ))
             .add_systems(Update, drive_chat_keyboard_input);
         let window = app
@@ -243,4 +244,95 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
         assert_eq!(h.text(), "v");
         assert_eq!(h.reads.load(Ordering::Relaxed), 0);
     }
+}
+
+#[test]
+fn held_control_or_command_selects_all_then_copies_without_typing_or_sending() {
+    for modifier in [
+        KeyCode::ControlLeft,
+        KeyCode::ControlRight,
+        KeyCode::SuperLeft,
+        KeyCode::SuperRight,
+    ] {
+        let mut h = Harness::new();
+        h.press(KeyCode::KeyT, Some("t"));
+        h.press(KeyCode::KeyX, Some("Zeno 世界 🦀"));
+        h.press(modifier, None);
+        h.app.update();
+        h.press(KeyCode::KeyA, Some("a"));
+        assert_eq!(
+            h.app
+                .world()
+                .resource::<UiRuntime>()
+                .chat_editor()
+                .selection(),
+            Some(0..h.text().len())
+        );
+        h.app.update();
+        h.press(KeyCode::KeyC, Some("c"));
+        assert_eq!(*h.clipboard.lock().unwrap(), "Zeno 世界 🦀");
+        assert_eq!(h.text(), "Zeno 世界 🦀");
+        assert!(
+            h.app
+                .world()
+                .resource::<UiRuntime>()
+                .pending_chat_sends()
+                .is_empty()
+        );
+        h.release(modifier);
+        h.press(KeyCode::KeyX, Some("x"));
+        assert_eq!(
+            h.text(),
+            "x",
+            "select-all replacement covers the whole Unicode text"
+        );
+    }
+}
+
+#[test]
+fn copy_uses_only_unicode_selection_and_no_selection_leaves_clipboard_unchanged() {
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyT, Some("t"));
+    h.press(KeyCode::KeyX, Some("A世界🦀"));
+    h.press(KeyCode::ControlLeft, None);
+    h.press(KeyCode::KeyC, Some("c"));
+    assert_eq!(*h.clipboard.lock().unwrap(), "pasted 🦀");
+    h.release(KeyCode::ControlLeft);
+    h.press(KeyCode::ShiftRight, None);
+    h.press(KeyCode::ArrowLeft, None);
+    h.press(KeyCode::ArrowLeft, None);
+    h.release(KeyCode::ShiftRight);
+    h.press(KeyCode::ControlRight, None);
+    h.app.update();
+    h.press(KeyCode::KeyC, Some("c"));
+    assert_eq!(*h.clipboard.lock().unwrap(), "界🦀");
+    assert_eq!(h.text(), "A世界🦀");
+    assert!(
+        h.app
+            .world()
+            .resource::<UiRuntime>()
+            .pending_chat_sends()
+            .is_empty()
+    );
+}
+
+#[test]
+fn alt_excludes_select_all_and_copy_shortcuts() {
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyT, Some("t"));
+    h.press(KeyCode::KeyX, Some("draft"));
+    h.press(KeyCode::ControlLeft, None);
+    h.press(KeyCode::AltLeft, None);
+    h.press(KeyCode::KeyA, Some("a"));
+    h.press(KeyCode::KeyC, Some("c"));
+    assert!(
+        h.app
+            .world()
+            .resource::<UiRuntime>()
+            .chat_editor()
+            .selection()
+            .is_none()
+    );
+    assert_eq!(*h.clipboard.lock().unwrap(), "pasted 🦀");
+    assert_eq!(h.text(), "draft");
 }
