@@ -5,13 +5,27 @@ pub mod helper;
 mod runtime;
 #[cfg(feature = "execution")]
 pub mod server;
+#[cfg(feature = "execution")]
+mod settings;
 
 #[cfg(feature = "execution")]
-pub use mod_api::{MAX_CAMERA_DELTA_RADIANS, MAX_GAMEPLAY_PLAYERS};
+pub use mod_api::{MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_PLAYERS};
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
     Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
+#[cfg(feature = "execution")]
+pub use runtime::cinnabar::extension::{
+    input::Controls as ControlFrame, panel::Event as ControlEvent,
+};
+
+/// Successfully committed local interaction requests, consumed once per frame.
+#[cfg(feature = "execution")]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct InteractionOutput {
+    pub attack_reach: Option<f32>,
+    pub attack_pulse: bool,
+}
 
 /// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
 #[cfg(feature = "execution")]
@@ -52,6 +66,12 @@ pub struct ModGrants {
     pub players: bool,
     /// Allows bounded, transactional local camera rotation.
     pub camera: bool,
+    /// Allows local key edges, reserved bindings and the retained settings panel.
+    pub controls: bool,
+    /// Allows bounded actor attack range and held-attack press requests.
+    pub interaction: bool,
+    /// Allows the selected component's bounded companion settings file.
+    pub settings: bool,
 }
 
 /// A developer-selected component with transactional reload and trap quarantine.
@@ -62,6 +82,7 @@ pub struct ModHost {
     path: PathBuf,
     attempted: [u8; 32],
     grants: ModGrants,
+    settings_writer: Option<settings::SettingsWriter>,
 }
 
 #[cfg(feature = "execution")]
@@ -78,14 +99,22 @@ impl ModHost {
         config.wasm_component_model(true).consume_fuel(true);
         config.max_wasm_stack(256 * 1024);
         let engine = Engine::new(&config)?;
-        let instance = Instance::new(&engine, &bytes, grants)?;
-        Ok(Self {
+        let instance = Instance::new(&engine, &bytes, grants, read_settings(path, grants)?)?;
+        let settings_writer = if grants.settings {
+            Some(settings::SettingsWriter::new(path).context("start mod settings writer")?)
+        } else {
+            None
+        };
+        let mut host = Self {
             engine,
             instance,
             path: path.to_owned(),
             attempted: Sha256::digest(&bytes).into(),
             grants,
-        })
+            settings_writer,
+        };
+        host.queue_settings();
+        Ok(host)
     }
 
     /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
@@ -99,7 +128,51 @@ impl ModHost {
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
     ) -> Result<()> {
-        self.instance.frame(pressed, snapshot)
+        self.frame_with_controls(pressed, snapshot, empty_controls())
+    }
+
+    /// Receives only bounded host-owned edges, alongside the current gameplay frame.
+    pub fn frame_with_controls(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+        controls: ControlFrame,
+    ) -> Result<()> {
+        self.instance.frame(pressed, snapshot, controls)?;
+        self.queue_settings();
+        Ok(())
+    }
+
+    fn queue_settings(&mut self) {
+        if let Some(writer) = &self.settings_writer
+            && let Some(json) = self.instance.settings_write()
+        {
+            writer.submit(json.to_owned());
+            self.instance.settings_written();
+        }
+    }
+
+    /// Consumes an asynchronous persistence error without quarantining the guest.
+    pub fn take_settings_error(&self) -> Option<String> {
+        self.settings_writer
+            .as_ref()
+            .and_then(settings::SettingsWriter::take_error)
+    }
+
+    pub fn panel(&self) -> Option<&ui::mod_panel::Panel> {
+        self.instance.panel()
+    }
+    pub fn panel_open(&self) -> bool {
+        self.instance.panel_open()
+    }
+    pub fn set_panel_open(&mut self, open: bool) {
+        self.instance.set_panel_open(open);
+    }
+    pub fn reserved_keys(&self) -> &[String] {
+        self.instance.reserved_keys()
+    }
+    pub fn take_interaction(&mut self) -> InteractionOutput {
+        self.instance.take_interaction()
     }
 
     /// Consumes the last successful frame's rotation once, without entering the guest.
@@ -130,11 +203,52 @@ impl ModHost {
             return Ok(false);
         }
         self.attempted = digest;
-        let candidate = Instance::new(&self.engine, &bytes, self.grants)
-            .context("reload rejected; previous mod retained")?;
+        let candidate = Instance::new(
+            &self.engine,
+            &bytes,
+            self.grants,
+            self.instance.settings().to_owned(),
+        )
+        .context("reload rejected; previous mod retained")?;
         self.instance = candidate;
+        self.queue_settings();
         Ok(true)
     }
+}
+
+#[cfg(feature = "execution")]
+pub fn empty_controls() -> ControlFrame {
+    ControlFrame {
+        seconds: 0.0,
+        focused: false,
+        gameplay: false,
+        panel_open: false,
+        keys_pressed: Vec::new(),
+        events: Vec::new(),
+    }
+}
+
+#[cfg(feature = "execution")]
+fn read_settings(path: &Path, grants: ModGrants) -> Result<String> {
+    if !grants.settings {
+        return Ok(String::new());
+    }
+    let path = path.with_extension("settings.json");
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read mod settings {}", path.display()));
+        }
+    };
+    let mut bytes = Vec::new();
+    file.take((mod_api::MAX_SETTINGS_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= mod_api::MAX_SETTINGS_BYTES,
+        "mod settings exceed byte limit"
+    );
+    Ok(String::from_utf8(bytes)?)
 }
 
 /// Bounds file reads even if a writer grows the file between metadata and read.

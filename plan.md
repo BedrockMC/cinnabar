@@ -4480,6 +4480,12 @@ Status: provisional (see `docs/local-worlds.md`): BDS 1.26.52.3 (native, or the 
 
 ## Phase 8 — Audio, polish, packaging
 
+**World-drop audio:** successful world-input single and whole-stack drops now
+emit one local `drop.slot` cue through the active pack, without waiting for or
+repeating server replies. Failed and inventory-screen drops stay silent on this
+route. See [the rules and regressions](docs/reference/item-drop-audio.md).
+Matched-version live audio acceptance remains incomplete.
+
 Scope: audio via bevy_audio/kira — sound events mapped through `sound_definitions.json`,
 positional sounds, music/ambient (asset-availability audit from Phase 2 decides
 bedrock-samples vs. client-assets-import); performance hardening pass against budgets;

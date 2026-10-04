@@ -377,6 +377,7 @@ impl Lines<'_> {
             line_count: u16::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?,
             size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
             ellipsized: self.ellipsized,
+            linear_sampling: self.request.font.linear_sampling(),
         })
     }
 }
