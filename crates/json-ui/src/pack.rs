@@ -1,4 +1,4 @@
-//! Catalogs built from in-memory `ui/*.json` bytes (the compiled carrier) and the
+//! Catalogs built from indexed in-memory JSON definition bytes (the compiled carrier) and the
 //! resource-pack overlay a joined server applies on top. An overlay control with
 //! the same namespace and name as an existing one merges into it: each property
 //! it names replaces the old value, a `controls` array replaces the children, and
@@ -19,6 +19,12 @@ const GLOBALS: &str = "ui/_global_variables.json";
 const UI_DEFS: &str = "ui/_ui_defs.json";
 
 impl Catalog {
+    /// Pack-relative definition paths named by a comment-tolerant `ui/_ui_defs.json` index.
+    /// The index, rather than a directory or extension, selects UI documents.
+    pub fn declared_paths(bytes: &[u8]) -> Result<Vec<String>, LoadError> {
+        parse_ui_defs(Path::new(UI_DEFS), &String::from_utf8_lossy(bytes))
+    }
+
     /// Load a base catalog from `(pack-relative path, bytes)` pairs, honouring the
     /// `ui/_ui_defs.json` load order. Both index files are required.
     pub fn from_files<'a>(
@@ -48,10 +54,7 @@ impl Catalog {
     /// client does, only paths some `_ui_defs.json` lists load, in sorted order;
     /// malformed files are skipped and recorded, never fatal.
     pub fn apply_pack<'a>(&mut self, files: impl IntoIterator<Item = (&'a str, &'a [u8])>) {
-        let files: BTreeMap<&str, &[u8]> = files
-            .into_iter()
-            .filter(|(path, _)| path.starts_with("ui/") && path.ends_with(".json"))
-            .collect();
+        let files: BTreeMap<&str, &[u8]> = files.into_iter().collect();
         if let Some(bytes) = files.get(GLOBALS)
             && let Err(error) =
                 self.load_globals_text(Path::new(GLOBALS), &String::from_utf8_lossy(bytes))
@@ -59,7 +62,7 @@ impl Catalog {
             self.note(format!("pack {GLOBALS}: {error}"));
         }
         if let Some(bytes) = files.get(UI_DEFS) {
-            match parse_ui_defs(Path::new(UI_DEFS), &String::from_utf8_lossy(bytes)) {
+            match Self::declared_paths(bytes) {
                 Ok(entries) => self.list(entries),
                 Err(error) => self.note(format!("pack {UI_DEFS}: {error}")),
             }
@@ -84,11 +87,15 @@ impl Catalog {
         &self,
         files: impl IntoIterator<Item = (&'a str, &'a [u8])>,
     ) -> std::collections::BTreeSet<String> {
+        let files: BTreeMap<&str, &[u8]> = files.into_iter().collect();
+        let declared = files
+            .get(UI_DEFS)
+            .and_then(|bytes| Self::declared_paths(bytes).ok())
+            .unwrap_or_default();
         files
             .into_iter()
             .filter(|(path, _)| {
-                path.starts_with("ui/")
-                    && path.ends_with(".json")
+                (self.lists(path) || declared.iter().any(|entry| entry == path))
                     && *path != GLOBALS
                     && *path != UI_DEFS
             })
@@ -118,6 +125,7 @@ impl Catalog {
                 .unwrap_or(crate::catalog::ROOT_NAMESPACE)
                 .to_owned(),
         };
+        self.remember_file_namespace(entry, &namespace);
         for (key, body) in &object {
             if key == "namespace" {
                 continue;

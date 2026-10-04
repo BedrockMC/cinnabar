@@ -117,6 +117,24 @@ impl LayeredPackView {
         }
         paths.into_iter().collect()
     }
+
+    /// Lists only matching suffixes, recording that filtered namespace as the dependency.
+    #[must_use]
+    pub fn list_with_suffixes(&self, prefix: &str, suffixes: &[&str]) -> Vec<&str> {
+        if let Some(dependencies) = &self.dependencies {
+            dependencies.directory_with_suffixes(prefix, suffixes);
+        }
+        let mut paths = BTreeSet::new();
+        for pack in self.stack.packs() {
+            paths.extend(
+                pack.files_under(prefix)
+                    .iter()
+                    .copied()
+                    .filter(|path| suffixes.iter().any(|suffix| path.ends_with(suffix))),
+            );
+        }
+        paths.into_iter().collect()
+    }
 }
 
 /// A layer read shares the parent view's dependency recorder.

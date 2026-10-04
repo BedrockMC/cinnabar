@@ -470,6 +470,9 @@ fn every_container_screen_draws_through_the_engine() {
             );
             return;
         };
+        if let Some(pack) = super::super::forms::pack_harness::env_pack() {
+            presentation.set_server_ui_pack(&pack);
+        }
         assert!(runtime.inventory_open(), "{name}");
         // Textures publish during the first builds.
         let dpi = DpiScale::new(1.0).unwrap();

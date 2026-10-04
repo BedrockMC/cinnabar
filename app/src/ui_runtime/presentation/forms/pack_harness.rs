@@ -2,7 +2,11 @@
 //! `CINNABAR_FORM_PACK_DIR` names an unpacked server resource pack, its ui overlay.
 //! These checks run when their local fixtures are present and explain missing fixtures.
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Arc,
+};
 
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm, UiEvent};
@@ -147,12 +151,20 @@ pub(crate) fn env_glyphs() -> Option<Arc<super::super::SessionGlyphSheets>> {
 pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
     let mut pack = ServerUiPack::default();
     let mut all = Vec::new();
+    let mut declared = BTreeSet::new();
     for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
         let files = pack_files(Path::new(dir));
+        if let Some((_, bytes)) = files.iter().find(|(path, _)| path == "ui/_ui_defs.json")
+            && let Ok(paths) = json_ui::Catalog::declared_paths(bytes)
+        {
+            declared.extend(paths);
+        }
         pack.ui_layers.push(
             files
                 .iter()
-                .filter(|(path, _)| path.starts_with("ui/") && path.ends_with(".json"))
+                .filter(|(path, _)| {
+                    declared.contains(path) || (path.starts_with("ui/") && path.ends_with(".json"))
+                })
                 .cloned()
                 .collect(),
         );
@@ -160,9 +172,7 @@ pub(crate) fn dir_pack(dirs: &str) -> ServerUiPack {
     }
     let mut textures = BTreeMap::new();
     for (path, bytes) in all {
-        if path.starts_with("textures/") {
-            textures.insert(path, bytes);
-        }
+        textures.insert(path, bytes);
     }
     pack.textures = textures.into_iter().collect();
     pack
