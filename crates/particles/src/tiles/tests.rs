@@ -84,7 +84,7 @@ fn fixture() -> RuntimeAssets {
 #[test]
 fn stone_terrain_tile_uses_the_resolved_block_region() {
     let assets = fixture();
-    let (tile, flags) = resolved_tile(&assets, NetworkIdMode::Sequential, 1).unwrap();
+    let (tile, flags) = terrain_tile(&assets, NetworkIdMode::Sequential, 1).unwrap();
     assert_eq!(tile.key, 1);
     assert_eq!(tile.size, TILE_SIZE);
     assert_eq!(&tile.pixels[..4], &[120, 120, 120, 255]);
@@ -94,7 +94,7 @@ fn stone_terrain_tile_uses_the_resolved_block_region() {
 #[test]
 fn grass_terrain_uses_the_untinted_bottom_texture() {
     let assets = fixture();
-    let (tile, flags) = resolved_tile(&assets, NetworkIdMode::Sequential, 2).unwrap();
+    let (tile, flags) = terrain_tile(&assets, NetworkIdMode::Sequential, 2).unwrap();
     assert_eq!(tile.key, 2);
     assert_eq!(&tile.pixels[..4], &[95, 65, 40, 255]);
     assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, 0);
@@ -105,61 +105,14 @@ fn grass_terrain_uses_the_untinted_bottom_texture() {
 fn terrain_tile_hashes_resolve_the_same_state_and_skip_diagnostics() {
     let assets = fixture();
     for (id, hash) in [(1, 22), (2, 33)] {
-        let sequential = resolved_tile(&assets, NetworkIdMode::Sequential, id).unwrap();
-        let hashed = resolved_tile(&assets, NetworkIdMode::Hashed, hash).unwrap();
+        let sequential = terrain_tile(&assets, NetworkIdMode::Sequential, id).unwrap();
+        let hashed = terrain_tile(&assets, NetworkIdMode::Hashed, hash).unwrap();
         assert_eq!(sequential.0.key, hashed.0.key);
         assert_eq!(sequential.0.pixels, hashed.0.pixels);
         assert_eq!(sequential.1, hashed.1);
     }
-    assert!(resolved_tile(&assets, NetworkIdMode::Sequential, 0).is_none());
-    assert!(resolved_tile(&assets, NetworkIdMode::Hashed, 11).is_none());
-    assert!(resolved_tile(&assets, NetworkIdMode::Hashed, 99).is_none());
-    assert!(resolved_tile(&RuntimeAssets::diagnostic(), NetworkIdMode::Sequential, 1).is_none());
-}
-
-#[test]
-#[ignore = "requires the local compiled vanilla world carrier"]
-fn real_carrier_terrain_tiles_resolve_stone_deepslate_and_grass() {
-    let bytes = std::fs::read(crate::asset_startup::DEFAULT_ASSET_PATH).unwrap();
-    let assets = RuntimeAssets::decode(&bytes).unwrap();
-    let records = assets::read_registry_for_protocol(
-        crate::asset_startup::pinned_block_registry_bytes(),
-        crate::asset_startup::active_content_registry_protocol(),
-    )
-    .unwrap();
-    for name in [
-        "minecraft:stone",
-        "minecraft:deepslate",
-        "minecraft:grass_block",
-    ] {
-        let states = records
-            .iter()
-            .filter(|record| &*record.name == name)
-            .collect::<Vec<_>>();
-        assert!(!states.is_empty(), "pinned registry is missing {name}");
-        for record in states {
-            let (tile, flags) =
-                resolved_tile(&assets, NetworkIdMode::Sequential, record.sequential_id).unwrap();
-            let down = assets.material(
-                assets
-                    .resolve(NetworkIdMode::Sequential, record.sequential_id)
-                    .face(BlockFace::Down)
-                    .material_id(),
-            );
-            assert_eq!(
-                tile.key,
-                (u64::from(down.texture.page()) << 32) | u64::from(down.texture.layer())
-            );
-            assert_ne!(down.texture, TextureRef::DIAGNOSTIC);
-            assert!(
-                !tile
-                    .pixels
-                    .chunks_exact(4)
-                    .any(|rgba| rgba == [255, 0, 255, 255])
-            );
-            if name == "minecraft:grass_block" {
-                assert_eq!(flags & MATERIAL_FLAG_TINT_MASK, 0);
-            }
-        }
-    }
+    assert!(terrain_tile(&assets, NetworkIdMode::Sequential, 0).is_none());
+    assert!(terrain_tile(&assets, NetworkIdMode::Hashed, 11).is_none());
+    assert!(terrain_tile(&assets, NetworkIdMode::Hashed, 99).is_none());
+    assert!(terrain_tile(&RuntimeAssets::diagnostic(), NetworkIdMode::Sequential, 1).is_none());
 }

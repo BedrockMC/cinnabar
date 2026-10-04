@@ -19,6 +19,7 @@ members = [
     "crates/meshing",
     "crates/mod-api",
     "crates/mod-host",
+    "crates/particles",
     "examples/mods/hello",
     "examples/mods/time-changer",
     "crates/protocol",

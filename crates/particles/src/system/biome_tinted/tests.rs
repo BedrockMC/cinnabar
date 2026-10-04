@@ -1,5 +1,5 @@
 use super::*;
-use crate::particles::system::MAX_EMITTERS;
+use crate::system::MAX_EMITTERS;
 
 const TEST_EFFECT: &str = "test:cached_foliage";
 
@@ -62,7 +62,7 @@ fn cached_foliage_reuses_an_empty_manual_emitter_after_its_particles_expire() {
     let mut system = system(3, false);
     let first = system.spawn_biome_tinted(TEST_EFFECT, [0; 3], [1.0; 4]);
     for _ in 0..64 {
-        system.tick(0.25, &crate::particles::world::EmptyWorld);
+        system.tick(0.25, &crate::world::EmptyWorld);
     }
     assert_eq!(system.live_particles(), 0);
     assert_eq!(system.emitter_count(), 1);

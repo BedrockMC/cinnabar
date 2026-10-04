@@ -367,7 +367,7 @@ const _: () = assert!(std::mem::size_of::<ParticleInstance>() == 80);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::particles::{emitter::SpawnRequest, world::EmptyWorld};
+    use crate::{emitter::SpawnRequest, world::EmptyWorld};
 
     fn view() -> ParticleView {
         ParticleView {
