@@ -83,7 +83,7 @@ struct Harness {
     frame_work_times: Vec<Duration>,
     peak_light_jobs: usize,
     terrain: fn(SubChunkKey) -> bool,
-    payloads: HashMap<SubChunkKey, Vec<u8>>,
+    payloads: HashMap<SubChunkKey, Vec<u8>>, // An empty payload answers ChunkNotFound.
     highest: u16,
 }
 
@@ -271,7 +271,9 @@ impl Harness {
                     SubChunkEntryEvent {
                         diagnostics: None,
                         position: [key.x, y, key.z],
-                        result: if let Some(payload) = self.payloads.get(&key) {
+                        result: if self.payloads.get(&key).is_some_and(Vec::is_empty) {
+                            SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
+                        } else if let Some(payload) = self.payloads.get(&key) {
                             SubChunkResult::Success {
                                 payload: payload.clone(),
                             }
@@ -988,3 +990,6 @@ fn mesh_stall_burst_timing() {
 
 #[path = "streaming_harness/bds.rs"]
 mod bds;
+
+#[path = "streaming_harness/hillside.rs"]
+mod hillside;

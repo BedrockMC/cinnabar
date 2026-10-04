@@ -20,6 +20,15 @@
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
 
+## Unfilled sub-chunk slots light as air
+
+- Probable cause of reported dark corners on distant stepped terrain: a requested sub-chunk
+  whose retries ended without data stayed unknown, so the column below lost its sky light.
+- Vanilla leaves such a slot empty and lights it as air; the slot is now known air, and a
+  column settled this way no longer blocks its neighbours' first light.
+- Streaming terrace regressions cover both. Incomplete live visual acceptance: a rendered
+  far-terrain frame is pending, as is a check against the open Lifeboat zero-skylight trace.
+
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
 2026-10-04 F5 head flick correction — **Incomplete visual/native acceptance**:
