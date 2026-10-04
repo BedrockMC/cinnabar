@@ -4349,12 +4349,35 @@ the pinned pack's `particles/block_destruct.json`.
 
 The exact particle parity gate stays open for destruction texture/count overrides,
 weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
-and native ambient lighting. Particles now consume the shared atmosphere daylight
-state rather than deriving a separate sun-angle value.
+and native ambient lighting. The October 4 correction below replaces the separate
+particle brightness approximation with the native RGB lightmap composition.
 Landing and sprint dust are not wired by the current particle adapter. Rain splash
 uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
 defines. Offline tests or previews do not close the target-platform visual gate;
 no live server connection is authorized for this work.
+
+### Dark item/particle correction (2026-10-04, live accepted)
+
+User-authorized offline BDS testing exposed an extra sRGB encoding of dropped-item
+lighting and a separate scalar particle brightness floor. Items now compose gamma
+texture/tint/overlay and the native byte-quantized `/16` RGB lookup before the final
+Bevy linear-output conversion. Lit particles consume that same world lightmap;
+unlit effects keep their bypass. Sources and remaining item shade/AABB, particle
+solid-neighbor and fog boundaries are recorded in
+[item-particle-lighting.md](docs/reference/item-particle-lighting.md).
+
+The user accepted dropped items, particles and survival mining on macOS/Metal,
+Retina 2× with the rebuilt client. During the earlier test, survival was
+incorrectly taking the creative mining route because Instabuild overrode game mode.
+Current mcsrc selects creative destruction from `Actor::isCreative`, not that
+ability; the narrow capability correction and transition regression are recorded in
+[game-mode-updates.md](docs/reference/game-mode-updates.md). This does not close
+broader ability-layer refresh or historical replay parity. The focused particle
+tests (59), client-world tests (198), and native GPU color regression (60 draws in
+one test) passed. The user explicitly requested stopping the queued verification,
+skipping further checks and pushing directly to remote `dev`; the full pre-push
+gate and PR/CI merge gate were waived, not completed. Complete item/particle
+parity remains open.
 
 ### Zeqa correction audit (2026-10-01, incomplete)
 
