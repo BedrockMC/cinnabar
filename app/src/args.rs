@@ -6,8 +6,11 @@ use ui::RenderMode;
 /// The settings screen's GUI-scale step when `--gui-scale` is auto.
 pub const DEFAULT_GUI_SCALE: u8 = 2;
 
-pub const HELP: &str = "\
-bedrock-client — Rust Minecraft Bedrock phase-zero renderer
+pub const HELP: &str = concat!(
+    "\
+bedrock-client — ",
+    launcher::product_name!(),
+    ", a Minecraft: Bedrock Edition client
 
 Usage: bedrock-client [OPTIONS] [PACK.mcpack|PACK.mcaddon|PACK.zip]...
 
@@ -16,7 +19,9 @@ Options:
   --socket-dir <PATH>          Override the platform runtime socket directory
   --import-pack <PATH>        Import an optional global resource pack
   --assets <PATH>              Compiled vanilla asset blob
-  --display-name <NAME>        Offline display name (default: RustMCBE)
+  --display-name <NAME>        Offline display name (default: ",
+    launcher::product_name!(),
+    ")
   --acceptance-seconds <N>     Exit after N seconds and write metrics
   --metrics-out <PATH>         Deterministic JSON metrics output path
   --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
@@ -41,7 +46,8 @@ Options:
                                Bind Phase 3 evidence to Bds, Lunar, Zeqa, Lbsg, or Zeno
   --phase3-candidate-physics  Request fail-closed candidate Physics authority for Phase 3 evidence
   -h, --help                   Print this help
-";
+"
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase3Target {
@@ -132,7 +138,7 @@ impl Default for ClientArgs {
             socket_dir_explicit: false,
             assets: None,
             import_packs: Vec::new(),
-            display_name: "RustMCBE".to_owned(),
+            display_name: launcher::PRODUCT_NAME.to_owned(),
             acceptance_seconds: None,
             metrics_out: None,
             metrics_warmup_seconds: 0,
@@ -475,7 +481,7 @@ mod tests {
         };
         assert_eq!(args.socket_dir, PathBuf::from(".local/run"));
         assert_eq!(args.assets, None);
-        assert_eq!(args.display_name, "RustMCBE");
+        assert_eq!(args.display_name, launcher::PRODUCT_NAME);
         assert_eq!(args.acceptance_seconds, None);
         assert_eq!(args.metrics_warmup_seconds, 0);
         assert_eq!(args.metrics_sample_seconds, None);

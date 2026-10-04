@@ -182,11 +182,12 @@ pub(crate) fn status_title(
 ) -> String {
     let (yaw, pitch, _) = camera.rotation.to_euler(EulerRot::YXZ);
     format!(
-        "Rust MCBE | {fps:.1} FPS | pos {:.2} {:.2} {:.2} | yaw {yaw:.2} pitch {pitch:.2} | chunks {visible_sub_chunks}/{resident_sub_chunks} | {}",
+        "{product} | {fps:.1} FPS | pos {:.2} {:.2} {:.2} | yaw {yaw:.2} pitch {pitch:.2} | chunks {visible_sub_chunks}/{resident_sub_chunks} | {}",
         camera.translation.x,
         camera.translation.y,
         camera.translation.z,
         if captured { "captured" } else { "released" },
+        product = launcher::PRODUCT_NAME,
     )
 }
 
