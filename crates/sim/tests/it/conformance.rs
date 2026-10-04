@@ -389,7 +389,7 @@ fn complete_trace_schema_requires_environment_and_world_identity() {
 fn pinned_bedsim_v0_1_3_walk_sprint_jump_trace_matches() {
     // The historical f64 trace predates native f32 steering.
     let replayed = verify_legacy_trace_jsonl(
-        include_str!("../fixtures/bedsim-v0.1.3-basic.jsonl"),
+        include_str!("../../fixtures/bedsim-v0.1.3-basic.jsonl"),
         initial_state(),
         &Simulator::default(),
         &Floor,
@@ -404,9 +404,9 @@ fn pinned_bedsim_v0_1_3_walk_sprint_jump_trace_matches() {
 
 #[test]
 fn pinned_trace_provenance_binds_module_commit_sum_generator_and_exact_bytes() {
-    let trace = include_bytes!("../fixtures/bedsim-v0.1.3-basic.jsonl");
+    let trace = include_bytes!("../../fixtures/bedsim-v0.1.3-basic.jsonl");
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
-        "../fixtures/bedsim-v0.1.3-basic.provenance.json"
+        "../../fixtures/bedsim-v0.1.3-basic.provenance.json"
     ))
     .unwrap();
 
@@ -474,7 +474,7 @@ fn replay_liquid_script(script: LiquidEvidenceScript) {
 #[test]
 fn pinned_bedsim_v0_1_4_liquid_slice_replays_with_float32_tolerance() {
     let mut scripts = 0;
-    for line in include_str!("../fixtures/bedsim-v0.1.4-liquid.jsonl").lines() {
+    for line in include_str!("../../fixtures/bedsim-v0.1.4-liquid.jsonl").lines() {
         scripts += 1;
         replay_liquid_script(parse_liquid_evidence_script(line).unwrap());
     }
@@ -483,7 +483,7 @@ fn pinned_bedsim_v0_1_4_liquid_slice_replays_with_float32_tolerance() {
 
 #[test]
 fn liquid_fixture_parser_rejects_inverted_and_overlapping_regions() {
-    let line = include_str!("../fixtures/bedsim-v0.1.4-liquid.jsonl")
+    let line = include_str!("../../fixtures/bedsim-v0.1.4-liquid.jsonl")
         .lines()
         .next()
         .unwrap();
@@ -508,9 +508,9 @@ fn liquid_fixture_parser_rejects_inverted_and_overlapping_regions() {
 
 #[test]
 fn pinned_bedsim_v0_1_4_liquid_provenance_binds_module_generator_and_bytes() {
-    let trace = include_bytes!("../fixtures/bedsim-v0.1.4-liquid.jsonl");
+    let trace = include_bytes!("../../fixtures/bedsim-v0.1.4-liquid.jsonl");
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
-        "../fixtures/bedsim-v0.1.4-liquid.provenance.json"
+        "../../fixtures/bedsim-v0.1.4-liquid.provenance.json"
     ))
     .unwrap();
     assert_eq!(provenance["module"], "github.com/oomph-ac/bedsim");
@@ -539,13 +539,13 @@ fn pinned_bedsim_v0_1_4_liquid_provenance_binds_module_generator_and_bytes() {
     ] {
         let source = match path {
             "../../../tools/bedsimtrace-v0.1.4/main.go" => {
-                include_str!("../../../tools/bedsimtrace-v0.1.4/main.go")
+                include_str!("../../../../tools/bedsimtrace-v0.1.4/main.go")
             }
             "../../../tools/bedsimtrace-v0.1.4/go.mod" => {
-                include_str!("../../../tools/bedsimtrace-v0.1.4/go.mod")
+                include_str!("../../../../tools/bedsimtrace-v0.1.4/go.mod")
             }
             "../../../tools/bedsimtrace-v0.1.4/go.sum" => {
-                include_str!("../../../tools/bedsimtrace-v0.1.4/go.sum")
+                include_str!("../../../../tools/bedsimtrace-v0.1.4/go.sum")
             }
             _ => unreachable!("the fixed v0.1.4 provenance file list is exhaustive"),
         }
@@ -561,7 +561,7 @@ fn pinned_bedsim_v0_1_4_liquid_provenance_binds_module_generator_and_bytes() {
 #[test]
 fn pinned_bedsim_v0_1_5_liquid_slice_replays_with_float32_tolerance() {
     let mut scripts = 0;
-    for line in include_str!("../fixtures/bedsim-v0.1.5-liquid.jsonl").lines() {
+    for line in include_str!("../../fixtures/bedsim-v0.1.5-liquid.jsonl").lines() {
         scripts += 1;
         replay_liquid_script(parse_liquid_evidence_script(line).unwrap());
     }
@@ -570,9 +570,9 @@ fn pinned_bedsim_v0_1_5_liquid_slice_replays_with_float32_tolerance() {
 
 #[test]
 fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
-    let trace = include_bytes!("../fixtures/bedsim-v0.1.5-liquid.jsonl");
+    let trace = include_bytes!("../../fixtures/bedsim-v0.1.5-liquid.jsonl");
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
-        "../fixtures/bedsim-v0.1.5-liquid.provenance.json"
+        "../../fixtures/bedsim-v0.1.5-liquid.provenance.json"
     ))
     .unwrap();
     assert_eq!(provenance["module"], "github.com/oomph-ac/bedsim");
@@ -601,13 +601,13 @@ fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
     ] {
         let source = match path {
             "../../../tools/bedsimtrace-v0.1.5/main.go" => {
-                include_str!("../../../tools/bedsimtrace-v0.1.5/main.go")
+                include_str!("../../../../tools/bedsimtrace-v0.1.5/main.go")
             }
             "../../../tools/bedsimtrace-v0.1.5/go.mod" => {
-                include_str!("../../../tools/bedsimtrace-v0.1.5/go.mod")
+                include_str!("../../../../tools/bedsimtrace-v0.1.5/go.mod")
             }
             "../../../tools/bedsimtrace-v0.1.5/go.sum" => {
-                include_str!("../../../tools/bedsimtrace-v0.1.5/go.sum")
+                include_str!("../../../../tools/bedsimtrace-v0.1.5/go.sum")
             }
             _ => unreachable!("the fixed v0.1.5 provenance file list is exhaustive"),
         }
@@ -622,7 +622,7 @@ fn pinned_bedsim_v0_1_5_liquid_provenance_binds_module_generator_and_bytes() {
 
 #[test]
 fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance() {
-    let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
+    let trace = include_str!("../../fixtures/bedsim-v0.1.3-terrain.jsonl");
     // Vanilla's uncapped 0.75 restitution intentionally differs from this old Go capture.
     let divergence = audit_scenario_trace_jsonl(trace, &Simulator::default(), 1.0e-6);
     assert!(
@@ -674,7 +674,7 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
     ));
 
     let provenance: serde_json::Value = serde_json::from_str(include_str!(
-        "../fixtures/bedsim-v0.1.3-terrain.provenance.json"
+        "../../fixtures/bedsim-v0.1.3-terrain.provenance.json"
     ))
     .unwrap();
     assert_eq!(provenance["module"], "github.com/oomph-ac/bedsim");
@@ -695,7 +695,7 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
         format!("{:x}", Sha256::digest(trace.as_bytes())),
         provenance["sha256"].as_str().unwrap()
     );
-    let generator = include_str!("../../../tools/bedsimtrace/main.go").replace("\r\n", "\n");
+    let generator = include_str!("../../../../tools/bedsimtrace/main.go").replace("\r\n", "\n");
     assert_eq!(
         format!("{:x}", Sha256::digest(generator.as_bytes())),
         provenance["generator_source_sha256"].as_str().unwrap()
@@ -703,14 +703,18 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
     assert_eq!(
         format!(
             "{:x}",
-            Sha256::digest(include_str!("../../../tools/bedsimtrace/go.mod").replace("\r\n", "\n"))
+            Sha256::digest(
+                include_str!("../../../../tools/bedsimtrace/go.mod").replace("\r\n", "\n")
+            )
         ),
         provenance["go_mod_sha256"]
     );
     assert_eq!(
         format!(
             "{:x}",
-            Sha256::digest(include_str!("../../../tools/bedsimtrace/go.sum").replace("\r\n", "\n"))
+            Sha256::digest(
+                include_str!("../../../../tools/bedsimtrace/go.sum").replace("\r\n", "\n")
+            )
         ),
         provenance["go_sum_sha256"]
     );
@@ -723,7 +727,7 @@ fn terrain_trace_audits_observed_ticks_without_claiming_unsupported_conformance(
 
 #[test]
 fn terrain_scenario_audit_detects_environment_and_content_identity_mutations() {
-    let trace = include_str!("../fixtures/bedsim-v0.1.3-terrain.jsonl");
+    let trace = include_str!("../../fixtures/bedsim-v0.1.3-terrain.jsonl");
     let mut records = trace
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())

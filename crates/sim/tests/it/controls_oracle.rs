@@ -5,8 +5,8 @@ use sim::{
     WorldQueryError,
 };
 
-const TRACE: &str = include_str!("../fixtures/bedsim-34d11dc5-controls.jsonl");
-const PROVENANCE: &str = include_str!("../fixtures/bedsim-34d11dc5-controls.provenance.json");
+const TRACE: &str = include_str!("../../fixtures/bedsim-34d11dc5-controls.jsonl");
+const PROVENANCE: &str = include_str!("../../fixtures/bedsim-34d11dc5-controls.provenance.json");
 
 struct Empty;
 impl CollisionWorld for Empty {
@@ -45,19 +45,19 @@ fn pinned_newer_control_oracle_has_exact_source_and_fixture_identity() {
     );
     assert_hash(TRACE.as_bytes(), &provenance["sha256"]);
     assert_hash(
-        include_bytes!("../../../tools/bedsimtrace-controls/main.go"),
+        include_bytes!("../../../../tools/bedsimtrace-controls/main.go"),
         &provenance["generator_source_sha256"],
     );
     assert_hash(
-        include_bytes!("../../../tools/bedsimtrace-controls/go.mod"),
+        include_bytes!("../../../../tools/bedsimtrace-controls/go.mod"),
         &provenance["go_mod_sha256"],
     );
     assert_hash(
-        include_bytes!("../../../tools/bedsimtrace-controls/go.sum"),
+        include_bytes!("../../../../tools/bedsimtrace-controls/go.sum"),
         &provenance["go_sum_sha256"],
     );
     assert!(
-        include_str!("../../../tools/bedsimtrace-controls/go.sum")
+        include_str!("../../../../tools/bedsimtrace-controls/go.sum")
             .contains(provenance["module_sum"].as_str().unwrap())
     );
 }
