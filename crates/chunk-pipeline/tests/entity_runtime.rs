@@ -565,6 +565,7 @@ fn dimension_change_drops_rig_palettes_without_stale_publication() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

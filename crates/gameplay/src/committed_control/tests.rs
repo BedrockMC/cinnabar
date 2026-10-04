@@ -44,6 +44,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
         change: protocol::ChangeDimensionEvent {
             dimension: 1,
             position,
+            ..Default::default()
         },
         resolved: ResolvedServerPosition {
             position,
@@ -58,6 +59,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
         speed: &mut speed,
         session_generation: 7,
         dimension: 1,
+        now: std::time::Duration::ZERO,
     }
     .apply(control, &NoQueries, |observation| {
         observations.push(observation)
@@ -74,6 +76,10 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     assert_eq!(speed.current(), None);
     assert_eq!(physics.network_position(), Some(position));
     assert!(movement.physics_is_authorized());
+    assert!(
+        !movement.can_advance_physics_frame(),
+        "dimension transfer freezes prediction until terrain and the handshake are ready"
+    );
 }
 
 #[test]
@@ -93,6 +99,7 @@ fn motion_is_observed_without_a_frame_reset_and_only_updates_authorized_physics(
             speed: &mut speed,
             session_generation: 7,
             dimension: 0,
+            now: std::time::Duration::ZERO,
         }
         .apply(
             CommittedControlEvent::LocalActorMotion {
@@ -146,6 +153,7 @@ fn a_correction_outside_retained_history_keeps_prediction_and_still_resets_the_f
         speed: &mut speed,
         session_generation: 7,
         dimension: 0,
+        now: std::time::Duration::ZERO,
     }
     .apply(control, &NoQueries, |observation| {
         observations.push(observation)
@@ -184,6 +192,7 @@ fn world_clock_and_weather_cycle_controls_stay_with_the_environment_adapter() {
             speed: &mut speed,
             session_generation: 7,
             dimension: 0,
+            now: std::time::Duration::ZERO,
         }
         .apply(control, &NoQueries, |_| {
             panic!("environment control emitted a spatial observation")

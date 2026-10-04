@@ -43,6 +43,7 @@ pub(crate) struct OverlayGaps {
     pub(crate) skipped_cubes: u32,
     pub(crate) truncated_models: u32,
     pub(crate) approximated_materials: u32,
+    pub(crate) incomplete_state_identities: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -93,18 +94,27 @@ pub(super) fn compile_block_overlay(
         ..assets::Material::unvaried()
     });
     for block in blocks.blocks.iter() {
+        let states = block.hashed_states();
+        let identities_complete = states.len() == block.state_count as usize;
+        if !identities_complete {
+            builder.gaps.incomplete_state_identities += 1;
+        }
         if hashed {
-            for state in block.hashed_states() {
+            for state in states {
                 let components =
                     condition::assignment_components(block, &state.values, &mut builder.gaps);
                 builder.push_state(&components);
-                builder.overlay.hashes.push(state.hash);
+                builder.overlay.hashes.push(Some(state.hash));
             }
             continue;
         }
         for state in 0..block.state_count {
             let components = condition::state_components(block, state, &mut builder.gaps);
             builder.push_state(&components);
+            builder
+                .overlay
+                .hashes
+                .push(identities_complete.then(|| states[state as usize].hash));
         }
     }
     if let Some(keys) = vanilla_keys {

@@ -150,6 +150,9 @@ pub enum CommittedControlEvent {
         change: ChangeDimensionEvent,
         resolved: ResolvedServerPosition,
     },
+    DimensionChangeAck {
+        runtime_id: u64,
+    },
     Respawn {
         sequence: u64,
         respawn: RespawnEvent,

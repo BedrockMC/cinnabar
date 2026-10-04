@@ -12,6 +12,7 @@ use crate::runtime::visibility::AppMetrics;
 mod acceptance_helpers;
 mod committed_ui;
 mod control_apply;
+mod dimension_transfer;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
 use committed_ui::refresh_player_list_cache_for_controls;
 #[cfg(test)]
@@ -405,6 +406,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             speed: &mut movement_speed,
             session_generation: clock.session_generation(),
             dimension: stream.current_dimension(),
+            now: time.elapsed(),
         }
         .apply(control, &world, |observation| {
             use gameplay::committed_control::ControlObservation;
@@ -483,6 +485,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
             write_stdout_marker(&mut stdout, &marker);
         }
     }
+    dimension_transfer::flush_dimension_transfer(
+        &mut movement,
+        stream,
+        network.as_deref(),
+        time.elapsed(),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]

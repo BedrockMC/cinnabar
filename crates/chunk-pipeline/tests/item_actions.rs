@@ -661,6 +661,7 @@ fn replacement_remove_and_dimension_reset_drop_lifetime_item_state() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -682,6 +683,7 @@ fn session_item_registry_survives_dimension_actor_state_reset() {
             WorldEvent::ChangeDimension(ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 80.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

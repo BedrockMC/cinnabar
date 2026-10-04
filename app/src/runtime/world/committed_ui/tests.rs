@@ -753,6 +753,7 @@ fn submit_transition(app: &mut App, sequence: u64, dimension: i32) {
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension,
                 position: [0.0, 70.0, 0.0],
+                ..Default::default()
             }),
         )
         .unwrap();

@@ -34,8 +34,8 @@ pub struct BlockOverlay {
     pub animations: Vec<Animation>,
     pub animation_frames: Vec<TextureRef>,
     pub texture: Option<TextureArray>,
-    /// Network hashes parallel to `visuals` for a hashed-id session; empty otherwise.
-    pub hashes: Vec<u32>,
+    /// Canonical network hashes parallel to `visuals`; incomplete state identities are absent.
+    pub hashes: Vec<Option<u32>>,
     pub material_overrides: Vec<MaterialOverride>,
     /// Optional pack-defined tint maps and biome appearance rules.
     pub biomes: Option<crate::CompiledBiomeAssets>,
@@ -242,7 +242,10 @@ impl RuntimeAssets {
         light_properties.extend_from_slice(&overlay.light_properties);
         // A hash the base or an earlier overlay state already owns keeps its owner.
         let mut hashed = self.hashed.to_vec();
-        for (index, &hash) in overlay.hashes.iter().enumerate() {
+        for (index, hash) in overlay.hashes.iter().copied().enumerate() {
+            let Some(hash) = hash else {
+                continue;
+            };
             if self.sequential_id_for_hash(hash).is_none() {
                 hashed.push((hash, first_id + index as u32));
             }
@@ -390,10 +393,10 @@ mod tests {
     fn overlay_hashes_extend_the_hash_table() {
         let base = RuntimeAssets::diagnostic();
         let mut overlay = cube_overlay(page(16));
-        overlay.hashes = vec![0xdead_beef];
+        overlay.hashes = vec![Some(0xdead_beef)];
         let session = base.with_block_overlay(1, &overlay).unwrap();
         assert_eq!(session.sequential_id_for_hash(0xdead_beef), Some(1));
-        overlay.hashes = vec![1, 2];
+        overlay.hashes = vec![Some(1), Some(2)];
         assert!(base.with_block_overlay(1, &overlay).is_err());
     }
 

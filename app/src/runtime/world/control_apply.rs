@@ -57,6 +57,7 @@ pub(crate) fn apply_committed_control(
             resolved
         }
         CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::WorldClocks { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::WeatherCycle { .. }

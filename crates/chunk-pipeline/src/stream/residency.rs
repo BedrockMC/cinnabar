@@ -81,7 +81,7 @@ impl WorldStream {
         let removing_all = changed.len() == self.resident.len();
         let mut biome_dirty = BTreeSet::new();
         for &column in &columns {
-            if let Some(range) = vanilla_dimension_range(column.dimension) {
+            if let Some(range) = self.authority.dimension_range(column.dimension) {
                 for offset in 0..range.sub_chunk_count {
                     let key =
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
@@ -345,7 +345,7 @@ impl WorldStream {
         if self.light_source_is_known(key) {
             return false;
         }
-        let Some(range) = vanilla_dimension_range(key.dimension) else {
+        let Some(range) = self.authority.dimension_range(key.dimension) else {
             return false;
         };
         let end = range

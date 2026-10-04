@@ -132,6 +132,7 @@ fn generator() -> CustomBlock {
                     .map(|value| CustomStateValue::String(value.into()))
                     .into(),
             }]),
+            ..CustomBlockVisuals::default()
         },
     )
 }
@@ -271,6 +272,89 @@ fn overlay_extends_runtime_assets_after_base_ids() {
     assert!(base.with_block_overlay(2, &compiled.overlay).is_err());
 }
 
+#[test]
+fn sequential_overlay_retains_persistent_custom_identities() {
+    let compiled = compiled();
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .unwrap();
+    let mut definitions = vec![("test:lucky", Vec::new(), 1)];
+    for (offset, direction) in ["south", "west", "north", "east"].into_iter().enumerate() {
+        let states = vec![(
+            "minecraft:cardinal_direction",
+            CustomStateValue::String(direction.into()),
+        )];
+        definitions.push(("test:generator", states, 2 + offset as u32));
+    }
+    definitions.push(("test:missing", Vec::new(), 6));
+    for (name, states, expected_id) in definitions {
+        let hash = protocol::block_state_network_hash(
+            name,
+            states.iter().map(|(name, value)| (*name, value)),
+        );
+        assert_eq!(
+            assets.sequential_id_for_hash(hash),
+            Some(expected_id),
+            "persistent identity must use the existing sequential ID for {name}"
+        );
+    }
+    let hash = protocol::block_state_network_hash("test:lucky", std::iter::empty());
+    assert_eq!(assets.sequential_id_for_hash(hash), Some(1));
+    assert_eq!(
+        assets.resolve(NetworkIdMode::Sequential, 1).kind(),
+        VisualKind::Cube
+    );
+}
+
+#[test]
+fn incomplete_state_identity_preserves_neighboring_custom_blocks() {
+    let plain = |name| {
+        block(
+            name,
+            1,
+            CustomBlockVisuals {
+                base: CustomVisualComponents {
+                    geometry: Some("minecraft:geometry.full_block".into()),
+                    materials: materials("lucky"),
+                    ..CustomVisualComponents::default()
+                },
+                ..CustomBlockVisuals::default()
+            },
+        )
+    };
+    let blocks = CustomBlocks {
+        blocks: vec![
+            plain("test:before"),
+            block("test:unnamed_axis", 2, CustomBlockVisuals::default()),
+            plain("test:after"),
+        ]
+        .into(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+    assert_eq!(compiled.gaps.incomplete_state_identities, 1);
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &compiled.overlay)
+        .unwrap();
+    for (name, id) in [("test:before", 1), ("test:after", 4)] {
+        let hash = protocol::block_state_network_hash(name, std::iter::empty());
+        assert_eq!(assets.sequential_id_for_hash(hash), Some(id));
+        assert_eq!(
+            assets.resolve(NetworkIdMode::Sequential, id).kind(),
+            VisualKind::Cube
+        );
+    }
+    let incomplete = protocol::block_state_network_hash("test:unnamed_axis", std::iter::empty());
+    assert_eq!(assets.sequential_id_for_hash(incomplete), None);
+    assert_eq!(compiled.overlay.visuals.len(), 4);
+    for id in [2, 3] {
+        assert_eq!(
+            assets.resolve(NetworkIdMode::Sequential, id).kind(),
+            VisualKind::Diagnostic
+        );
+    }
+}
+
 // Only block_state equality conjunctions evaluate; anything else is unknown, not false.
 #[test]
 fn permutation_conditions_evaluate_only_supported_terms() {
@@ -407,7 +491,7 @@ fn hashed_mode_emits_a_visual_and_hash_per_state() {
     let session = base
         .with_block_overlay(1, &compiled.overlay)
         .expect("session assets");
-    let hash = compiled.overlay.hashes[2];
+    let hash = compiled.overlay.hashes[2].unwrap();
     assert_eq!(session.sequential_id_for_hash(hash), Some(3));
 }
 

@@ -145,6 +145,7 @@ fn live_dimension(dimension: i32) -> protocol::WorldEvent {
     protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
         dimension,
         position: [0.0, 64.0, 0.0],
+        ..Default::default()
     })
 }
 

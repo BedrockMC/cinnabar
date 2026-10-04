@@ -10,8 +10,12 @@ impl WorldAuthority {
         sequence: Option<u64>,
     ) -> Result<(), WorldEvent> {
         match event {
-            // Advertised bounds are diagnostic facts until custom dimension limits are supported.
-            WorldEvent::DimensionHeights(_) => {}
+            WorldEvent::DimensionHeights(heights) => self.apply_dimension_heights(&heights),
+            WorldEvent::DimensionChangeAck { runtime_id } => {
+                self.push_committed_control(CommittedControlEvent::DimensionChangeAck {
+                    runtime_id,
+                });
+            }
             WorldEvent::NetworkStackLatency(creation_time) => {
                 let sequence = sequence.expect("latency probes commit through submit");
                 self.push_committed_control(CommittedControlEvent::NetworkStackLatency {

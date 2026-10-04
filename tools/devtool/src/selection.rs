@@ -107,7 +107,7 @@ fn is_documentation(path: &str) -> bool {
     is_within(path, "docs")
         || matches!(
             path,
-            "README.md" | "AGENTS.md" | "CONTRIBUTING.md" | "LICENSE"
+            "README.md" | "AGENTS.md" | "CONTRIBUTING.md" | "LICENSE" | "plan.md"
         )
 }
 
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn documentation_changes_skip_package_compilation() {
         assert_eq!(
-            select_packages(&["docs/decoder.md", "README.md"], &workspace()),
+            select_packages(&["docs/decoder.md", "README.md", "plan.md"], &workspace()),
             Selection::NoPackages
         );
     }
