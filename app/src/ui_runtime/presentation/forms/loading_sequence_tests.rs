@@ -1,7 +1,7 @@
 //! Runtime pack observation while artwork arrives, is superseded and is cancelled.
 use super::super::{LoadingStage, UiPresentationRuntime};
 use super::{ServerUiPack, pack_harness, snapshot};
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 use std::{
     io::{Cursor, Write},
     sync::Arc,
@@ -144,9 +144,9 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
         );
         return;
     };
-    let side = crate::ui_runtime::oreui_assets::OREUI_PAGE_SIDE as usize;
+    let side = client_ui::ui_runtime::oreui_assets::OREUI_PAGE_SIDE as usize;
     presentation
-        .enable_oreui_originals(crate::ui_runtime::oreui_assets::OreUiImages {
+        .enable_oreui_originals(client_ui::ui_runtime::oreui_assets::OreUiImages {
             rgba: vec![255; side * side * 4],
             sprites: Default::default(),
             loading_frames: Default::default(),

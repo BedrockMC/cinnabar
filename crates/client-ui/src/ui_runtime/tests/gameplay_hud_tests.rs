@@ -436,7 +436,7 @@ fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
             handedness: Some(ActorHandedness::Right),
         },
     );
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(2));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
 
     runtime.retain_local_selected_equipment(
         &mut player_runtime,
@@ -451,7 +451,7 @@ fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
         },
     );
     // The offhand echo landed in the offhand mirror, not the slot echo.
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(2));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
     assert_eq!(
         runtime
             .gameplay_hud()
@@ -515,7 +515,7 @@ fn window_120_is_the_local_armor() {
 }
 
 #[test]
-fn inventory_content_slot_and_forced_selection_mirror_into_the_hotbar() {
+fn inventory_content_slot_and_forced_selection_reach_the_presented_hotbar() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -562,31 +562,26 @@ fn inventory_content_slot_and_forced_selection_mirror_into_the_hotbar() {
             }),
         )
         .unwrap();
-    // Nothing is visible until the frame drain runs.
-    assert!(!runtime.gameplay_hud().hotbar_known());
     runtime.drain_pending_inventory(&mut player_runtime);
 
-    assert!(runtime.gameplay_hud().hotbar_known());
     assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(0)
+        player_runtime
+            .presented_hotbar_stack(0)
             .map(|stack| stack.network_id),
         Some(11)
     );
     assert_eq!(
-        runtime
-            .gameplay_hud()
-            .hotbar_stack(3)
+        player_runtime
+            .presented_hotbar_stack(3)
             .map(|stack| stack.network_id),
         Some(14)
     );
-    assert_eq!(runtime.gameplay_hud().hotbar_stack(1), None);
+    assert_eq!(player_runtime.presented_hotbar_stack(1), None);
     // The server-forced selection replaced the older local prediction.
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(3));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(3));
     assert_eq!(
-        runtime
-            .selected_stack(&player_runtime)
+        player_runtime
+            .selected_stack()
             .map(|stack| stack.network_id),
         Some(14)
     );
@@ -966,12 +961,12 @@ fn the_selected_slot_presents_the_equipment_echo_before_inventory_content() {
     // No inventory content has arrived: the MobEquipment echo is the
     // authoritative selected stack, and only for its own slot.
     assert_eq!(
-        runtime
-            .presented_hotbar_stack(&player_runtime, 2)
+        player_runtime
+            .presented_hotbar_stack(2)
             .map(|stack| stack.network_id),
         Some(41)
     );
-    assert_eq!(runtime.presented_hotbar_stack(&player_runtime, 1), None);
+    assert_eq!(player_runtime.presented_hotbar_stack(1), None);
 }
 
 #[test]
@@ -1003,14 +998,14 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
             storage_item: None,
         }));
 
-    let empty_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+    let empty_snapshot = player_runtime.selected_stack_snapshot().unwrap();
     assert_eq!(empty_snapshot.slot, 2);
     assert_eq!(
         empty_snapshot.state,
         crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
     );
-    assert_eq!(runtime.selected_stack(&player_runtime), None);
-    assert_eq!(runtime.presented_hotbar_stack(&player_runtime, 2), None);
+    assert_eq!(player_runtime.selected_stack(), None);
+    assert_eq!(player_runtime.presented_hotbar_stack(2), None);
 
     runtime
         .inventory_ledger_mut(&mut player_runtime)
@@ -1024,14 +1019,12 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
         }));
 
     assert_eq!(
-        runtime
-            .selected_stack(&player_runtime)
-            .map(|item| item.network_id),
+        player_runtime.selected_stack().map(|item| item.network_id),
         Some(77)
     );
     assert_eq!(
-        runtime
-            .presented_hotbar_stack(&player_runtime, 2)
+        player_runtime
+            .presented_hotbar_stack(2)
             .map(|item| item.network_id),
         Some(77)
     );
@@ -1055,7 +1048,7 @@ fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
             handedness: Some(ActorHandedness::Right),
         },
     );
-    assert_eq!(runtime.selected_stack(&player_runtime), None);
+    assert_eq!(player_runtime.selected_stack(), None);
 
     let mut player_runtime = player_state::PlayerState::new(1);
     let mut equipment_only = UiRuntime::new(1);
@@ -1071,8 +1064,8 @@ fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
             handedness: Some(ActorHandedness::Right),
         },
     );
-    assert_eq!(equipment_only.selected_hotbar_slot(&player_runtime), None);
-    assert_eq!(equipment_only.selected_stack(&player_runtime), None);
+    assert_eq!(player_runtime.selected_hotbar_slot(), None);
+    assert_eq!(player_runtime.selected_stack(), None);
 }
 
 #[test]
@@ -1096,7 +1089,7 @@ fn non_forcing_server_selection_does_not_override_local_prediction() {
 
     runtime.drain_pending_inventory(&mut player_runtime);
 
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(2));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
 }
 
 /// New toasts keep their configured duration and queue behind the preceding toast.

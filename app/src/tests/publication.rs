@@ -40,7 +40,7 @@ use crate::semantic_controls::{
 use crate::session::recover_session_failure;
 use crate::survival_mining::produce_survival_mining;
 use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
-use client_world::{PublicationServiceConfig, WorldMeshChange};
+use chunk_pipeline::{PublicationServiceConfig, WorldMeshChange};
 
 #[test]
 fn production_client_systems_are_members_of_the_behavioral_sets() {
@@ -417,7 +417,7 @@ fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>, label: &
 
 #[derive(bevy::prelude::Resource)]
 struct UnifiedPublicationFixture {
-    stream: client_world::WorldStream,
+    stream: chunk_pipeline::WorldStream,
     mesh: meshing::ChunkMesh,
     next_payload: usize,
     ingestion_frames: usize,
@@ -550,7 +550,7 @@ fn drive_unified_publication_fixture(
     let mut published_bytes = 0_u64;
     while let Some(change) = fixture.stream.pop_mesh_change() {
         match change {
-            client_world::WorldMeshChange::Upsert {
+            chunk_pipeline::WorldMeshChange::Upsert {
                 output_permit: _,
                 key,
                 mesh,
@@ -579,7 +579,7 @@ fn drive_unified_publication_fixture(
                 published_payloads += 1;
                 published_bytes = published_bytes.saturating_add(bytes);
             }
-            client_world::WorldMeshChange::Remove {
+            chunk_pipeline::WorldMeshChange::Remove {
                 key,
                 generation,
                 dirty_since,
@@ -642,7 +642,7 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     const COHORT_ITEMS: usize = 6_951;
     let config = PublicationServiceConfig::PHASE2_GATE;
     let runtime_assets = Arc::new(assets::RuntimeAssets::diagnostic());
-    let stream = client_world::WorldStream::new_with_assets(
+    let stream = chunk_pipeline::WorldStream::new_with_assets(
         WorldBootstrap {
             local_player_unique_id: 1,
             dimension: 0,
@@ -780,7 +780,7 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     assert_eq!(fixture.expected_known_air.len(), 14);
     assert_eq!(
         fixture.stream.publication_fixture_snapshot(),
-        client_world::PublicationFixtureSnapshot {
+        chunk_pipeline::PublicationFixtureSnapshot {
             pending_mesh_jobs: 0,
             in_flight_mesh_jobs: 0,
             pending_mesh_changes: 0,
@@ -873,7 +873,7 @@ fn permitted_removal_crosses_real_extraction_and_physically_frees_an_existing_gp
     let mesh = publication_fixture_mesh(&runtime_assets);
     let biome = PackedBiomeRecord::fallback();
     let bytes = ChunkRenderQueue::upload_byte_len(&mesh, &biome);
-    let allowance = client_world::PublicationAllowance::new(config);
+    let allowance = chunk_pipeline::PublicationAllowance::new(config);
     allowance.begin_frame(
         1,
         1,
@@ -1114,8 +1114,8 @@ fn local_player_pipeline_orders_physics_camera_and_interaction_and_has_one_camer
 fn production_stage_capacities_can_carry_one_literal_maximum_payload_frame() {
     let config = PublicationServiceConfig::PHASE2_GATE;
 
-    assert!(client_world::WORK_RESULT_CAPACITY >= config.maximum_frame_items);
-    assert!(client_world::MAX_PENDING_MESH_CHANGES >= config.maximum_frame_items);
+    assert!(chunk_pipeline::WORK_RESULT_CAPACITY >= config.maximum_frame_items);
+    assert!(chunk_pipeline::MAX_PENDING_MESH_CHANGES >= config.maximum_frame_items);
     assert!(render::ChunkRenderQueueLimits::default().max_items >= config.maximum_frame_items);
 }
 

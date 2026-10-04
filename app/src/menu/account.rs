@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 
-use super::view::MenuProfile;
 use super::*;
+use launcher::menu::view::MenuProfile;
 
 /// Waits for an exiting helper on a thread so the frame never blocks on it; it
 /// stays tracked, so the exit sweep still covers it.

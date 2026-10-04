@@ -1,5 +1,5 @@
 use assets::{BlockFlags, SeasonalFoliageBlock, seasonal_foliage_cell_shelters};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use particles::{Fluid, ParticleWorld};
 use sim::{Aabb, BlockPhysicsFlags, CollisionRegistry, CollisionWorld, PaletteWorld, Vec3};
 use world::SubChunkKey;

@@ -99,7 +99,10 @@ fn seasonal_dry_ticks_melt_and_new_sessions_seed_from_authority() {
     let fresh = stream(0.4);
     assert_eq!(fresh.seasonal_foliage.snow, [0.4]);
     assert_eq!(fresh.seasonal_foliage.tick, 0);
-    assert_ne!(old.actor_session_id(), fresh.actor_session_id());
+    assert_ne!(
+        old.authority().actor_session_id(),
+        fresh.authority().actor_session_id()
+    );
 }
 
 #[test]

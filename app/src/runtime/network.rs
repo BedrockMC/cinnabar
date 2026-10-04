@@ -20,7 +20,8 @@ use bevy::{
     log::{debug, error, info, warn},
     prelude::{Res, ResMut},
 };
-use client_world::{SAFE_SERVER_HEIGHT, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::SAFE_SERVER_HEIGHT;
 use protocol::WorldEvent;
 use render::{ChunkTextureAssets, ChunkUploadAcknowledgements, RuntimeStage, RuntimeStageProfiler};
 
@@ -38,10 +39,10 @@ use crate::{
         world::{AppWorldState, TransferNotice},
     },
     session::quiesce_local_player,
-    ui_runtime::{
-        UiRuntime,
-        inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
-    },
+};
+use client_ui::ui_runtime::{
+    UiRuntime,
+    inventory_router::{EquipmentRoute, EquipmentRouteResult, InventoryRouterError},
 };
 
 pub(crate) use inventory::{
@@ -64,7 +65,8 @@ pub(crate) use session::{
 pub(crate) const NETWORK_INGRESS_BUDGET_PER_FRAME: usize = 32;
 pub(crate) const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
 const _: () = assert!(WORLD_EVENT_CAPACITY >= NETWORK_INGRESS_BUDGET_PER_FRAME);
-const _: () = assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == client_world::MAX_ADMITTED_HEAVY_EVENTS);
+const _: () =
+    assert!(NETWORK_INGRESS_BUDGET_PER_FRAME == chunk_pipeline::MAX_ADMITTED_HEAVY_EVENTS);
 
 #[derive(SystemParam)]
 pub(crate) struct NetworkLocalPlayerState<'w> {
@@ -251,8 +253,8 @@ pub(crate) fn receive_network_events(
                     }
                 }
                 ui_runtime.set_server_lang(None);
-                ui_runtime.clear_block_breaking_mode(&mut player_runtime);
-                ui_runtime.clear_local_abilities(&mut player_runtime);
+                player_runtime.facts.clear_block_breaking_mode();
+                player_runtime.facts.clear_local_abilities();
                 acknowledgements.clear();
                 frame.reset(LocalPlayerFrameReset::Session);
                 interaction.invalidate();
@@ -298,8 +300,7 @@ pub(crate) fn receive_network_events(
                 }
                 resource_pack_admission.replace_for_generation(session_generation, packs.admission);
                 ui_runtime.experiences.marker = packs.extension_marker;
-                ui_runtime.publish_bootstrap_game_modes(
-                    &mut player_runtime,
+                player_runtime.facts.publish_bootstrap_game_modes(
                     player_game_mode,
                     world_default_game_mode,
                     player_game_mode_uses_world_default,
@@ -510,15 +511,13 @@ pub(crate) fn receive_network_events(
                     client_world.fatal_error.is_none(),
                 );
                 crate::audio::publish_server_sounds(packs.server_sounds);
-                ui_runtime.install_block_breaking_mode(
-                    &mut player_runtime,
+                player_runtime.facts.install_block_breaking_mode(
                     session_generation,
                     server_authoritative_block_breaking,
                     client_world.fatal_error.is_none(),
                 );
                 if let Some(stream) = client_world.stream.as_ref() {
-                    ui_runtime.bind_local_abilities(
-                        &mut player_runtime,
+                    player_runtime.facts.bind_local_abilities(
                         session_generation,
                         stream.biome_tint_identity().stream(),
                         bootstrap.local_player_unique_id,
@@ -631,8 +630,8 @@ pub(crate) fn receive_network_events(
             reload.end_session();
         }
         ui_runtime.set_server_lang(None);
-        ui_runtime.clear_block_breaking_mode(&mut player_runtime);
-        ui_runtime.clear_local_abilities(&mut player_runtime);
+        player_runtime.facts.clear_block_breaking_mode();
+        player_runtime.facts.clear_local_abilities();
         // Only a receive-side termination is a remote-initiated close; latch it
         // while the ticker still reports the live session.
         if matches!(
@@ -904,7 +903,6 @@ mod glyph_sheets;
 mod inventory;
 mod item_diagnostics;
 mod item_icons;
-pub(crate) mod prepared_actor_artwork;
 pub(crate) use item_icons::set_vanilla_item_paths;
 #[cfg(test)]
 mod local_pack;

@@ -21,8 +21,8 @@ use crate::{
         world::{ClientWorld, TransferNotice},
     },
     session_cleanup::SessionDirectoryGuard,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 use std::{path::PathBuf, time::Instant};
 

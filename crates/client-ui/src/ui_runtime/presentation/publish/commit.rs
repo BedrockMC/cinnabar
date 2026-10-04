@@ -77,7 +77,7 @@ pub fn refresh_hud_frame(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    stream: Option<&client_world::WorldStream>,
+    stream: Option<&chunk_pipeline::WorldStream>,
     perspective: semantic_input::PerspectiveMode,
     now_millis: u64,
 ) {
