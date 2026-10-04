@@ -978,6 +978,8 @@ mod chat_tests;
 mod container_address_tests;
 mod forms_tests;
 mod gameplay_hud_tests;
+mod inventory_overlay_tests;
+mod inventory_send_tests;
 mod inventory_transaction_tests;
 mod leniency_tests;
 mod mining_mode_tests;

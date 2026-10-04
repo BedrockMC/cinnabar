@@ -17,6 +17,8 @@ mod crafting_tests;
 mod distribute;
 #[cfg(test)]
 mod fixed_window_tests;
+#[cfg(test)]
+mod generic_storage_tests;
 mod gesture;
 #[cfg(test)]
 mod gesture_tests;
@@ -36,6 +38,8 @@ mod personal;
 mod queue;
 mod quick_move;
 mod registry;
+#[cfg(test)]
+mod request_tests;
 mod response;
 mod revisions;
 mod screen_actions;

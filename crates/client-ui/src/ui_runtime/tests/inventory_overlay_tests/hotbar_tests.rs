@@ -3,9 +3,7 @@ use super::*;
 /// Drains one full window-0 content event through the production queue so
 /// both retained stores agree, then selects hotbar slot 0 so slot 3 stays a
 /// nonselected cell for every witness below.
-fn drained_inventory_runtime(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
-) -> UiRuntime {
+fn drained_inventory_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime.publish_inventory_authority(player_runtime, InventoryAuthority::Server);
     let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
@@ -31,7 +29,7 @@ fn drained_inventory_runtime(
 
 /// Publishes one HUD frame and returns its presented hotbar stacks.
 fn presented_hotbar_stacks(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
 ) -> [Option<protocol::NetworkItemStack>; 9] {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
@@ -53,7 +51,7 @@ fn cell_facts(stack: &protocol::NetworkItemStack) -> (u16, i32) {
 
 #[test]
 fn accepted_sparse_corrections_refresh_every_presented_nonselected_hotbar_consumer() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = drained_inventory_runtime(&mut player_runtime);
 
@@ -120,7 +118,7 @@ fn accepted_sparse_corrections_refresh_every_presented_nonselected_hotbar_consum
 
 #[test]
 fn rejected_nonselected_gestures_present_the_pre_gesture_cells_again() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = drained_inventory_runtime(&mut player_runtime);
 
@@ -151,12 +149,13 @@ fn rejected_nonselected_gestures_present_the_pre_gesture_cells_again() {
 
 #[test]
 fn session_reset_presents_no_hotbar_cells_from_either_store() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = drained_inventory_runtime(&mut player_runtime);
     assert!(presented_hotbar_stacks(&player_runtime, &mut runtime)[3].is_some());
 
-    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
 
     let reset = presented_hotbar_stacks(&player_runtime, &mut runtime);
     assert!(
