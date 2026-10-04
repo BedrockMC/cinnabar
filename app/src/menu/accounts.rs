@@ -9,7 +9,7 @@ pub(super) struct Manager {
     pub pending_ready: bool,
     pub skip_control: bool,
     pub work: Option<crossbeam_channel::Receiver<(bool, bool)>>,
-    remember: Option<crossbeam_channel::Receiver<bool>>,
+    pub(super) remember: Option<crossbeam_channel::Receiver<bool>>,
     remember_retry: Option<std::time::Instant>,
 }
 
@@ -22,6 +22,12 @@ pub(super) enum Operation {
 }
 
 impl MenuRuntime {
+    pub(super) fn account_change_pending(&self) -> bool {
+        self.feeds.account_adding
+            || self.accounts.operation.is_some()
+            || self.accounts.work.is_some()
+    }
+
     fn account_store(&self) -> AccountStore {
         AccountStore::new(self.layout.auth_cache())
     }
@@ -131,7 +137,9 @@ impl MenuRuntime {
             return;
         }
         if let Some(receiver) = &self.accounts.remember {
-            if let Ok(success) = receiver.try_recv() {
+            let result = receiver.try_recv();
+            if !matches!(result, Err(crossbeam_channel::TryRecvError::Empty)) {
+                let success = result.unwrap_or(false);
                 self.accounts.remember = None;
                 if !success {
                     self.accounts.remembered = None;
@@ -141,6 +149,9 @@ impl MenuRuntime {
                     self.reload_accounts();
                 }
             }
+        }
+        if self.accounts.operation.is_some() {
+            return;
         }
         if self.feeds.account_adding {
             match self.auth_process.as_ref().map(|p| p.state()) {
@@ -296,6 +307,18 @@ mod tests {
         assert!(matches!(menu.accounts.operation, Some(Operation::Restore)));
         assert!(!menu.sign_out_requested);
         assert_eq!(menu.feeds.account_active_id.as_deref(), Some("41"));
+    }
+
+    #[test]
+    fn joining_waits_until_the_selected_accounts_credentials_are_active() {
+        let mut menu = MenuRuntime::new(true, 2, "First".into());
+        menu.accounts.operation = Some(Operation::Switch("2".into()));
+        menu.request_connect("example.invalid".into());
+        assert!(menu.intents.join.is_none());
+        assert!(!menu.is_connecting());
+        menu.accounts.operation = None;
+        menu.request_connect("example.invalid".into());
+        assert!(menu.intents.join.is_some());
     }
 
     #[test]

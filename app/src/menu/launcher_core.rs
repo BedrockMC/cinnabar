@@ -24,8 +24,6 @@ use crate::{
     runtime::endpoint::bridge_endpoint_exists, session_cleanup::SessionDirectoryGuard,
 };
 
-/// Session generation reserved for the launcher core's directory; sessions start at 1.
-const LAUNCHER_GENERATION: u64 = 0;
 /// How long a join waits for the core to answer `connect.v1`.
 const SELECT_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_PORT: u16 = 19132;
@@ -94,6 +92,7 @@ impl LauncherCoreSlot {
         }
         if idle
             && menu.accounts.operation.is_some()
+            && menu.accounts.remember.is_none()
             && menu
                 .auth_process
                 .as_ref()
@@ -238,7 +237,7 @@ impl LauncherCore {
     ) -> Result<Self> {
         let executable =
             core_executable(layout).ok_or_else(|| anyhow!("bedrock-core executable not found"))?;
-        let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
+        let socket_dir = next_account_socket_dir(layout);
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
@@ -263,6 +262,12 @@ impl LauncherCore {
             attached: false,
         })
     }
+}
+
+fn next_account_socket_dir(layout: &InstallLayout) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    layout.account_socket_dir(std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Waits for the core and selects `target`; blocks, so it runs on the join worker.
@@ -413,7 +418,7 @@ mod tests {
     #[test]
     fn direct_startup_local_world_uses_its_owning_core_after_save_and_quit() {
         let layout = crate::install_layout::scratch("direct-local-world-routing");
-        let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
+        let socket_dir = layout.account_socket_dir(std::process::id(), 0);
         let directory = SessionDirectoryGuard::bind(socket_dir.clone()).unwrap();
         // Readiness only: no game connection or server process is needed to select the route.
         std::fs::write(
