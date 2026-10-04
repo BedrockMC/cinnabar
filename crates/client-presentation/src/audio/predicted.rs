@@ -80,7 +80,7 @@ pub enum LocalBlockCue {
         position: [i32; 3],
         block_runtime_id: i32,
     },
-    /// A block item was placed at `position`; the id is the item's block runtime id.
+    /// A block item was placed at `position`; the id uses the local store palette.
     Place {
         position: [i32; 3],
         block_runtime_id: i32,
