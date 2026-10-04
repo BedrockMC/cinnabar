@@ -19,7 +19,10 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate_focused(&mut self) {
-        let Some(action) = self.focus_actions().get(self.focused).copied() else {
+        let actions = self.focus_actions();
+        // A modal can replace the controls while the old focus index remains.
+        self.focused = self.focused.min(actions.len().saturating_sub(1));
+        let Some(action) = actions.get(self.focused).copied() else {
             return;
         };
         self.activate(action);
@@ -210,17 +213,41 @@ impl MenuRuntime {
                 actions
             }
             MenuScreen::Profile => {
-                let mut actions = nav();
-                actions.push(
-                    if matches!(
-                        self.auth_process.as_ref().map(AuthSupervisor::state),
-                        Some(AuthState::Checking | AuthState::AwaitingCode { .. })
-                    ) {
-                        MenuAction::CancelSignIn
-                    } else {
-                        MenuAction::StartSignIn
-                    },
-                );
+                let mut actions = vec![MenuAction::AddBack];
+                // Match view(): an active helper outranks the core's previous report.
+                let auth = match (
+                    self.auth_process.as_ref().map(AuthSupervisor::state),
+                    self.control_auth.as_ref(),
+                ) {
+                    (Some(state @ (AuthState::Checking | AuthState::AwaitingCode { .. })), _) => {
+                        Some(state)
+                    }
+                    (_, Some(control)) => Some(control),
+                    (supervisor, None) => supervisor,
+                };
+                if matches!(
+                    auth,
+                    Some(AuthState::Checking | AuthState::AwaitingCode { .. })
+                ) {
+                    return vec![MenuAction::CancelSignIn];
+                }
+                if auth == Some(&AuthState::Authenticated) {
+                    if self.feeds.profile.unavailable {
+                        actions.push(MenuAction::RefreshProfile);
+                    } else if self.feeds.profile.loaded {
+                        actions.extend([
+                            MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Overview),
+                            MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Stats),
+                        ]);
+                        if self.profile_tab == launcher::menu::ProfileTab::Overview
+                            && self.feeds.profile.friends.is_some_and(|n| n > 0)
+                        {
+                            actions.push(MenuAction::Navigate(MenuScreen::Friends));
+                        }
+                    }
+                } else {
+                    actions.push(MenuAction::StartSignIn);
+                }
                 actions
             }
             MenuScreen::Settings if !self.settings_focus.is_empty() => self.settings_focus.clone(),
