@@ -1,6 +1,3 @@
-//! Per-actor walk cycle, arm swing, and body rotation that vanilla animations read through
-//! queries. Tuning constants still need
-//! independent measurement against a running vanilla client.
 use super::query::wrap_degrees;
 
 /// Ticks one arm swing takes without haste or fatigue.
