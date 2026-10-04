@@ -166,6 +166,7 @@ jobs:
         run: |
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
           cargo clippy -p bedrock-client --features enhanced,local-mods --locked -- -D warnings
+          cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
       - run: bash scripts/tests/acceptance_test.sh
       # The Windows job above exercises the vanilla-asset fetchers through
       # Windows PowerShell 5.1, where its bash deep legs are conditionally
