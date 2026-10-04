@@ -13,6 +13,19 @@ their revisions changed. An offline capture of the failing column's packet
 mode, palette and contents, or equivalent block/filter and column-light
 diagnostics, is still needed to distinguish a missing sky source from filtering
 above or at the sampled cells. No public server or account was used.
+2026-10-04 fox rendering checkpoint: the pinned adult fox sample now retains
+the native inherited body and tail cube bind rotations. Current MCSRC and its
+matching executable establish the hierarchy lookup and separate cube-bind
+contract; the installed near-version native pack supplies the retained angles.
+The repair is restricted by source path, identifier and digest, preserving baby
+geometry, child pivots and custom sources. The corrected entity/actor/equipment
+carriers and fresh Metal client show normal adult red/arctic bodies and tails;
+the user accepts the live standing gallery, with baby foxes retained. Focused
+pinned-source and mesh regressions passed, including a failing-before mesh
+witness. Formatting, architecture and affected compilation passed; the final
+test run was stopped at the user's explicit request to skip further tests and
+push directly to dev. Extended poses/transitions and exact-version native
+side-by-side acceptance remain incomplete. See `docs/reference/fox-rendering.md`.
 
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
 accumulated work and follow-up fixes are committed through `97dccfb3`, including
