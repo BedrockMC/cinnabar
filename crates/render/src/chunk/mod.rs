@@ -84,7 +84,7 @@ mod draw;
 pub(crate) mod enhanced;
 mod extract;
 mod gpu;
-mod pipeline;
+pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
 mod plugin;
 mod presentation;
