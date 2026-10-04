@@ -1,4 +1,4 @@
-package cinnabar:server-experience@1.1.0;
+package cinnabar:server-experience@1.2.0;
 
 /// Host-owned JSON-UI widgets and the bundle's signed modal screens.
 interface ui {
@@ -25,6 +25,26 @@ interface ui {
     /// Binds one `#binding` name for the whole screen.
     @since(version = 1.1.0)
     set-value: func(name: string, value: value) -> result<_, string>;
+
+    /// The size the open modal lays out in, as the vanilla screens' root does: `width` and
+    /// `height` in GUI units, and `scale`, the window's logical pixels per GUI unit (the GUI
+    /// scale).
+    @since(version = 1.2.0)
+    record gui-size {
+        width: f64,
+        height: f64,
+        scale: f64,
+    }
+
+    /// This bundle's open modal's size, once it has been drawn; `none` while it is closed or not
+    /// drawn yet. `modal-resized` reports each change.
+    @since(version = 1.2.0)
+    modal-size: func() -> option<gui-size>;
+    /// Sets the text of the open modal's edit boxes (`text_edit_box`) whose `text_box_name` is
+    /// `control`, as typing would leave it but cut to the box's `max_length`; it does not deliver
+    /// `text-changed`. The text holds no control characters other than line breaks.
+    @since(version = 1.2.0)
+    set-text: func(control: string, text: string) -> result<_, string>;
 }
 
 /// Named actions, available only while the host grants focus.

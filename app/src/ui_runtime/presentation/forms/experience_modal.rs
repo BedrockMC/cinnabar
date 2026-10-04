@@ -4,10 +4,16 @@
 //! and the vanilla pack. Cinnabar's trusted chrome is a separate catalog drawn afterwards, so
 //! it stays on top and out of reach.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{Catalog, CollectionItem, DataSource, Scalar, ViewState};
-use server_experience::{manifest::template_root, screen};
+use json_ui::{
+    ButtonInput, Catalog, CollectionItem, DataSource, Dispatcher, HitKind, InputMode, PointerInput,
+    Scalar, ScreenEvent, ViewState,
+};
+use server_experience::{
+    manifest::template_root,
+    screen::{self, GuiSize},
+};
 use ui::UiNode;
 
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationRuntime};
@@ -41,6 +47,25 @@ pub(super) struct ModalScreen {
     /// The pointer in virtual pixels; the view sees it only when a control follows it.
     pointer: Option<[f64; 2]>,
     frame: Option<EngineFrame>,
+    /// The vanilla input components' state, which drives the edit boxes.
+    dispatcher: Dispatcher,
+    /// The last drawn root's size in GUI units and the GUI scale.
+    size: Option<GuiSize>,
+    /// The latest `Modal::texts` revision taken into `pending_texts`.
+    texts_applied: u64,
+    /// Host texts for edit boxes, by `text_box_name`, waiting for a drawn frame.
+    pending_texts: Vec<(String, String)>,
+    /// Each edit box's text last reported, by `text_box_name`.
+    reported: BTreeMap<String, String>,
+}
+
+/// What one frame of input did to the modal's edit boxes.
+#[derive(Debug, Default)]
+pub(crate) struct ModalEdits {
+    /// Each edited box's `text_box_name` and new text, once per box.
+    pub(crate) edits: Vec<(String, String)>,
+    /// Escape deselected a box, so it does not close the modal.
+    pub(crate) escape_consumed: bool,
 }
 
 impl UiPresentationRuntime {
@@ -68,6 +93,11 @@ impl UiPresentationRuntime {
                 view: ViewState::default(),
                 pointer: None,
                 frame: None,
+                dispatcher: Dispatcher::default(),
+                size: None,
+                texts_applied: 0,
+                pending_texts: Vec::new(),
+                reported: BTreeMap::new(),
             });
         }
         let screen = slot.as_mut().expect("modal installed");
@@ -75,11 +105,119 @@ impl UiPresentationRuntime {
             screen.template.clone_from(&modal.modal.template);
             screen.view = ViewState::default();
             screen.frame = None;
+            screen.dispatcher = Dispatcher::default();
+            screen.reported.clear();
         }
         if screen.revision != Some(modal.modal.revision) {
             screen.revision = Some(modal.modal.revision);
             screen.data = Arc::new(data_source(modal.modal));
+            let mut texts: Vec<_> = modal
+                .modal
+                .texts
+                .iter()
+                .filter(|(_, (revision, _))| *revision > screen.texts_applied)
+                .collect();
+            texts.sort_by_key(|(_, (revision, _))| *revision);
+            for (control, (revision, text)) in texts {
+                screen.texts_applied = *revision;
+                screen.pending_texts.push((control.clone(), text.clone()));
+            }
         }
+    }
+
+    /// The drawn modal's root size in GUI units and the GUI scale; none while it is not drawn.
+    pub(crate) fn experience_modal_size(&self) -> Option<GuiSize> {
+        let screen = self.form_presentation.experience_modal.as_ref()?;
+        screen.frame.as_ref().and(screen.size)
+    }
+
+    /// Drives the drawn modal's edit boxes as vanilla's `text_edit_box`: a primary press
+    /// (`pressed`, at window-logical `point`) selects a box under it or, through the boxes' global
+    /// mapping, deselects the selected one; `typed` goes to the selected box; Escape deselects
+    /// it. Reports each box whose text changed, by its `text_box_name`.
+    pub(crate) fn edit_experience_modal(
+        &mut self,
+        point: Option<[f32; 2]>,
+        pressed: bool,
+        typed: &[String],
+        escape: bool,
+        now: f64,
+    ) -> ModalEdits {
+        let mut out = ModalEdits::default();
+        let Some(screen) = self.form_presentation.experience_modal.as_mut() else {
+            return out;
+        };
+        let Some(frame) = &screen.frame else {
+            return out;
+        };
+        let hits = &frame.hits;
+        let point = point.map(|point| virtual_point(frame, point));
+        let mut events = Vec::new();
+        let on_box = point.is_some_and(|point| {
+            hits.iter()
+                .any(|region| region.kind == HitKind::EditBox && region.contains(point))
+        });
+        let selected = screen.view.components.selected().is_some();
+        if pressed && (on_box || selected) {
+            // The press answers a box's `pressed` mapping only over the hover chain, which the
+            // dispatcher tracks; the modal's own hover and press stay as its buttons set them.
+            let (hovered, held) = (screen.view.hovered.clone(), screen.view.pressed.clone());
+            let pointer = PointerInput {
+                point,
+                held: false,
+                mode: InputMode::Mouse,
+                now,
+            };
+            screen.dispatcher.pointer(hits, &mut screen.view, pointer);
+            (screen.view.hovered, screen.view.pressed) = (hovered, held);
+            let press = ButtonInput {
+                id: "button.menu_select",
+                down: true,
+                point,
+                mode: InputMode::Mouse,
+                now,
+            };
+            events.extend(
+                screen
+                    .dispatcher
+                    .button(hits, &mut screen.view, press)
+                    .events,
+            );
+        }
+        for text in typed {
+            events.extend(
+                screen
+                    .dispatcher
+                    .text(hits, &mut screen.view, text, None)
+                    .events,
+            );
+        }
+        if escape && screen.view.components.selected().is_some() {
+            for down in [true, false] {
+                let cancel = ButtonInput {
+                    id: "button.menu_cancel",
+                    down,
+                    point,
+                    mode: InputMode::Mouse,
+                    now,
+                };
+                let dispatch = screen.dispatcher.button(hits, &mut screen.view, cancel);
+                out.escape_consumed |= dispatch.consumed;
+                events.extend(dispatch.events);
+            }
+        }
+        for event in events {
+            let ScreenEvent::TextEdit { name, text, .. } = event else {
+                continue;
+            };
+            if name.is_empty() || screen.reported.get(&name) == Some(&text) {
+                continue;
+            }
+            screen.reported.insert(name.clone(), text.clone());
+            out.edits.retain(|(control, _)| *control != name);
+            out.edits.push((name, text));
+        }
+        out
     }
 
     /// Why the modal's templates were refused, which ends the client part.
@@ -253,7 +391,25 @@ impl UiPresentationRuntime {
             )
         });
         match result {
-            Ok(frame) => screen.frame = frame,
+            Ok(frame) => {
+                screen.size = frame.as_ref().map(|frame| GuiSize {
+                    width: f64::from(content[0] / px),
+                    height: f64::from(content[1] / px),
+                    scale: f64::from(frame.scale),
+                });
+                screen.frame = frame;
+                if let Some(frame) = &screen.frame {
+                    for (control, text) in screen.pending_texts.drain(..) {
+                        screen.dispatcher.set_edit_text(
+                            &frame.hits,
+                            &mut screen.view,
+                            &control,
+                            &text,
+                        );
+                        screen.reported.insert(control, text);
+                    }
+                }
+            }
             Err(error) => {
                 nodes.truncate(rollback.0);
                 *next = rollback.1;

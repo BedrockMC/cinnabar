@@ -9,7 +9,7 @@ use server_experience::{
     negotiation::Grant,
     policy::*,
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
-    screen,
+    screen::{self, GuiSize},
     session::Control,
     wire::{self, Envelope, Ingress, RateLimit},
 };
@@ -92,6 +92,8 @@ pub(super) struct Live<H = Helper> {
     epoch: u64,
     /// Counts modal openings across bundles.
     modal_order: u64,
+    /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
+    gui: Option<(GuiSize, String)>,
 }
 
 impl<H: Worker> Live<H> {
@@ -162,6 +164,7 @@ impl<H: Worker> Live<H> {
             ready: false,
             epoch,
             modal_order: 0,
+            gui: None,
         };
         live.initialize()?;
         Ok(live)
@@ -306,7 +309,8 @@ impl<H: Worker> Live<H> {
                         record: serde_json::to_vec(&message.payload)?,
                     };
                     instance.callback = event.callback();
-                    helper.dispatch(Dispatch { event, epoch })?;
+                    let gui = modal::size_for(&self.gui, &instance.owner.bundle);
+                    helper.dispatch(Dispatch { event, epoch, gui })?;
                     instance.busy = true;
                     instance.epoch = epoch;
                 }

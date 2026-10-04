@@ -379,18 +379,23 @@ The component world is `server-bundle` in
 [`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
 `cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
 guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
-`cinnabar:server-experience@1.1.0`, defined in
+`cinnabar:server-experience@1.2.0`, defined in
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
-collection-index)` and `epoch()`. A component built against 1.0.0 still links (its
-1.0.0 imports resolve to the 1.1.0 host by semver) and exports only `init` and
-`dispatch`; the host skips `action` and `epoch` for it.
+collection-index)`, `epoch()`, `modal-resized(size)` and `text-changed(control, text)`.
+A component built against 1.0.0 or 1.1.0 still links (its imports resolve to the 1.2.0
+host by semver): one built against 1.0.0 exports only `init` and `dispatch`, and the host
+skips `action`, `epoch` and 1.2's callbacks for it; one built against 1.1.0 also exports
+`action` and `epoch`, and the host skips 1.2's callbacks for it. Each pair of later
+callbacks is exported both or neither. SP5's planned `items.lookup(id)` (item icons and
+names) is to join 1.2 as an import of its own, which leaves components built against 1.2
+now linking.
 
 | Permission | Host contract | App adapter today |
 | --- | --- | --- |
 | `ui` | Set/remove an owned label by ID | Bounded label preview through JSON-UI |
 | `modal_ui` | Open/switch/close a signed template; bind collections and values | Modal over gameplay through the JSON-UI engine |
-| `input` | Receive a declared action from the focused modal; `pressed` during it | Modal button presses on release |
+| `input` | Receive a declared action or edit box text from the focused modal; `pressed` during an action | Modal button presses on release; edit box text |
 | `messaging` | Send a signed typed channel record | Connected to the existing packet send FIFO |
 | `scene` | Put/remove a declarative quad, mesh or particle object | Validated host contract; renderer adapter denied |
 | `media` | Control an indexed media descriptor | Validated host contract; app adapter denied |
@@ -432,6 +437,23 @@ Data binds through the engine's own `#name` bindings:
 - A button whose `$pressed_button_name` is a declared manifest action delivers
   `action(id, collection-index)` on release, with the row of its nearest collection, if
   the bundle holds `input`; other presses do nothing.
+- `ui.modal-size()` (1.2) returns the drawn modal's root size in GUI units, the units a
+  `"100%"` root panel of the template gets, as the engine lays out vanilla screens
+  (window content over the GUI scale), and `scale`, the window's logical pixels per GUI
+  unit; `none` until it is drawn and while it is closed. `modal-resized(size)` is delivered
+  when the modal is first drawn after opening and on each change (a window resize or a
+  GUI scale change), the latest replacing one still waiting, so a guest can lay out its
+  rows and columns for the space it has.
+- Edit boxes (vanilla `text_edit_box`, an `edit_box` control) work as on vanilla
+  screens, driven by the engine's input components: a press selects one, typing,
+  Backspace, Enter and Ctrl+V edit it within its `max_length`, a press elsewhere, Enter or
+  Escape deselects it, and Escape closes the modal only when no box was selected. A box
+  whose `text_box_name` is a declared manifest action delivers `text-changed(control,
+  text)` (1.2) with its whole text, if the bundle holds `input`; edits coalesce to the
+  latest text per box. `ui.set-text(control, text)` (1.2) sets the boxes named `control`,
+  cut to their `max_length`, without delivering `text-changed`, and the user's later
+  typing stands. Edit text holds at most `MAX_EDIT_TEXT_BYTES` and no control characters
+  but line breaks.
 
 Bound data outlives switching and closing the screen. Limits (`policy.rs`): 32
 templates of at most 256 KiB, 256 texture files of at most 4 MiB, 32 collections of at

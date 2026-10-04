@@ -1,5 +1,6 @@
 use super::*;
 use mod_host::helper::{CallFailure, FailureKind};
+use server_experience::screen::GuiSize;
 use server_experience::{
     manifest::{Manifest, Offer, PackageOffer, Permission, Scope},
     negotiation::{Limits, VerifiedOffer, Wire},
@@ -18,6 +19,8 @@ struct FakeWorker {
     /// Makes each dispatch fail its callback instead of completing it.
     fail: bool,
     dispatched: Vec<Event>,
+    /// The modal size each dispatch carried.
+    sizes: Vec<Option<GuiSize>>,
     owner: Principal,
 }
 
@@ -29,6 +32,7 @@ impl Worker for FakeWorker {
             failure: None,
             fail: false,
             dispatched: Vec::new(),
+            sizes: Vec::new(),
             owner,
         })
     }
@@ -47,6 +51,7 @@ impl Worker for FakeWorker {
     /// Records delivered events and completes them on the next poll, in the dispatch's epoch,
     /// or fails them when the test asks.
     fn dispatch(&mut self, request: Dispatch) -> Result<()> {
+        self.sizes.push(request.gui);
         if self.fail {
             self.failure = Some(CallFailure {
                 bundle: self.owner.bundle.clone(),
@@ -176,6 +181,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         ready: false,
         epoch: 1,
         modal_order: 0,
+        gui: None,
     };
     live.initialize().unwrap();
     live
@@ -691,4 +697,78 @@ fn a_failed_start_stops_the_part() {
         live.text(),
         "Cinnabar: bundle0 client part stopped because it failed to start. F9: disable server code"
     );
+}
+
+/// One bundle, ready, with its modal open.
+fn opened() -> Live<FakeWorker> {
+    let mut live = fixture(1);
+    let owner = live.instances["bundle0"].owner.clone();
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .response = Some(Transaction {
+        owner,
+        epoch: live.epoch,
+        commands: vec![Command::Screen {
+            template: Some(SCREEN.into()),
+        }],
+    });
+    live.poll(1, 0).unwrap();
+    live
+}
+
+fn size(width: f64) -> GuiSize {
+    GuiSize {
+        width,
+        height: 240.0,
+        scale: 2.0,
+    }
+}
+
+/// The open modal's size reaches its bundle as one `modal-resized` per change, the latest
+/// replacing one still waiting, and every dispatch to it carries the size `ui.modal-size` reads.
+#[test]
+fn modal_size_changes_reach_the_open_bundle_once_each() {
+    let mut live = opened();
+    live.set_modal_size(Some(size(320.0)));
+    live.set_modal_size(Some(size(320.0)));
+    live.set_modal_size(Some(size(400.0)));
+    let pending = &live.instances["bundle0"].events;
+    assert_eq!(
+        pending.iter().cloned().collect::<Vec<_>>(),
+        [Event::Resized { size: size(400.0) }]
+    );
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    let helper = live.instances["bundle0"].helper.as_ref().unwrap();
+    assert_eq!(helper.dispatched, [Event::Resized { size: size(400.0) }]);
+    assert_eq!(helper.sizes, [Some(size(400.0))]);
+    // Closed, there is no size and nothing to report.
+    live.close_modal();
+    live.set_modal_size(None);
+    assert!(live.instances["bundle0"].events.is_empty());
+}
+
+/// Edits reach the open bundle only for a declared action's box, latest text per box.
+#[test]
+fn text_edits_reach_the_open_bundle_for_declared_boxes_only() {
+    let mut live = opened();
+    assert!(!live.text_changed("bundle0.other", "iron"));
+    assert!(live.text_changed("bundle0.pick", "iro"));
+    assert!(live.text_changed("bundle0.pick", "iron"));
+    assert_eq!(
+        live.instances["bundle0"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::Text {
+            control: "bundle0.pick".into(),
+            text: "iron".into()
+        }]
+    );
+    live.close_modal();
+    assert!(!live.text_changed("bundle0.pick", "gold"));
 }

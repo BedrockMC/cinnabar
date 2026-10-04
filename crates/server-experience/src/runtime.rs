@@ -46,6 +46,11 @@ pub enum Command {
         name: String,
         value: screen::Value,
     },
+    /// Sets the text of the modal's edit boxes whose `text_box_name` is `control`.
+    Text {
+        control: String,
+        text: String,
+    },
     Send {
         channel: String,
         schema: u16,
@@ -156,6 +161,11 @@ impl Capabilities {
             Command::Value { name, value } => {
                 ensure!(screen::binding_name(name), "invalid binding name");
                 value.validate()?;
+                Permission::ModalUi
+            }
+            Command::Text { control, text } => {
+                ensure!(identifier(control), "invalid edit box name");
+                ensure!(screen::edit_text(text), "invalid edit box text");
                 Permission::ModalUi
             }
             Command::Send {
@@ -274,6 +284,9 @@ impl Contributions {
                 }
                 Command::Value { name, value } => {
                     candidate.modal.set_value(name.clone(), value.clone());
+                }
+                Command::Text { control, text } => {
+                    candidate.modal.set_text(control.clone(), text.clone());
                 }
                 Command::Scene { id, object } => {
                     if let Some(object) = object {

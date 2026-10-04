@@ -39,7 +39,7 @@ pub use forms::{
     FormRespondError, FormTransportError, LocalFormAction, MAX_RETAINED_SERVER_FORMS,
     ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
 };
-pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
+pub(crate) use forms::{drive_server_form_input, flush_server_form_network, typed_text};
 pub(crate) use sign_editor::drive_sign_editor;
 
 pub(crate) use gameplay_authority::{Translator, drain_inventory_authority};

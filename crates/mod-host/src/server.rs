@@ -25,6 +25,8 @@ struct State {
     capabilities: Capabilities,
     /// The declared action this callback delivers, the only one `input.pressed` reports.
     action: Option<String>,
+    /// The open modal's size, which `ui.modal-size` returns.
+    gui: Option<screen::GuiSize>,
     commands: Vec<Command>,
     bytes: usize,
     calls: usize,
@@ -116,6 +118,22 @@ impl cinnabar::server_experience::ui::Host for State {
         };
         self.stage(Command::Value { name, value })
     }
+
+    fn modal_size(&mut self) -> Result<Option<cinnabar::server_experience::ui::GuiSize>> {
+        self.charge()?;
+        Ok(self
+            .gui
+            .map(|size| cinnabar::server_experience::ui::GuiSize {
+                width: size.width,
+                height: size.height,
+                scale: size.scale,
+            }))
+    }
+
+    /// Stages bounded plain text for the open modal's edit boxes named `control`.
+    fn set_text(&mut self, control: String, text: String) -> Result<Result<(), String>> {
+        self.stage(Command::Text { control, text })
+    }
 }
 
 impl cinnabar::server_experience::input::Host for State {
@@ -186,17 +204,21 @@ impl cinnabar::server_experience::media::Host for State {
 struct Exports {
     dispatch: Func,
     events: Option<(Func, Func)>,
+    /// 1.2's `modal-resized` and `text-changed`.
+    editing: Option<(Func, Func)>,
 }
 
 impl Exports {
     /// Type-checks every callback once, before the guest runs.
     fn find(store: &mut Store<State>, instance: &Instance) -> Result<(Func, Self)> {
         let mut find = |name: &str| instance.get_func(&mut *store, name);
-        let (init, dispatch, action, epoch) = (
+        let (init, dispatch, action, epoch, resized, text) = (
             find("init"),
             find("dispatch"),
             find("action"),
             find("epoch"),
+            find("modal-resized"),
+            find("text-changed"),
         );
         let (Some(init), Some(dispatch)) = (init, dispatch) else {
             anyhow::bail!("component lacks init or dispatch");
@@ -212,7 +234,23 @@ impl Exports {
             (None, None) => None,
             _ => anyhow::bail!("component exports only half of action and epoch"),
         };
-        Ok((init, Self { dispatch, events }))
+        let editing = match (resized, text) {
+            (Some(resized), Some(text)) => {
+                resized.typed::<(GuiSize,), ()>(&*store)?;
+                text.typed::<(&str, &str), ()>(&*store)?;
+                Some((resized, text))
+            }
+            (None, None) => None,
+            _ => anyhow::bail!("component exports only half of modal-resized and text-changed"),
+        };
+        Ok((
+            init,
+            Self {
+                dispatch,
+                events,
+                editing,
+            },
+        ))
     }
 }
 
@@ -313,6 +351,7 @@ impl BundleHost {
             epoch,
             capabilities,
             action: None,
+            gui: None,
             commands: Vec::new(),
             bytes: 0,
             calls: 0,
@@ -339,8 +378,11 @@ impl BundleHost {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
         let state = self.store.data_mut();
-        if let Event::Action { id, .. } = event {
+        if let Event::Action { id, .. } | Event::Text { control: id, .. } = event {
             ensure!(state.capabilities.may_deliver(id), "action not granted");
+        }
+        if let Event::Resized { size } = event {
+            state.gui = Some(*size);
         }
         state.action = match event {
             Event::Action { id, .. } => Some(id.clone()),
@@ -357,6 +399,12 @@ impl BundleHost {
             return Err(error);
         }
         Ok(self.take_transaction())
+    }
+
+    /// Sets the open modal's size that `ui.modal-size` returns from the next callback on; none
+    /// while the modal is closed.
+    pub fn set_modal_size(&mut self, size: Option<screen::GuiSize>) {
+        self.store.data_mut().gui = size;
     }
 
     /// The fuel that the last `init` or callback consumed, of the `CALLBACK_FUEL` each gets; a
@@ -411,6 +459,27 @@ impl BundleHost {
                 epoch.post_return(store)
             }
             (Event::Action { .. } | Event::Epoch, None) => Ok(()),
+            (Event::Resized { size }, _) => match &self.exports.editing {
+                Some((resized, _)) => {
+                    let resized = resized.typed::<(GuiSize,), ()>(&*store)?;
+                    let size = GuiSize {
+                        width: size.width,
+                        height: size.height,
+                        scale: size.scale,
+                    };
+                    resized.call(&mut *store, (size,))?;
+                    resized.post_return(store)
+                }
+                None => Ok(()),
+            },
+            (Event::Text { control, text }, _) => match &self.exports.editing {
+                Some((_, changed)) => {
+                    let changed = changed.typed::<(&str, &str), ()>(&*store)?;
+                    changed.call(&mut *store, (control, text))?;
+                    changed.post_return(store)
+                }
+                None => Ok(()),
+            },
         }
     }
 

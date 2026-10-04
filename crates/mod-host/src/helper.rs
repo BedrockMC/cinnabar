@@ -7,6 +7,7 @@ use server_experience::{
     crypto,
     policy::*,
     runtime::{Capabilities, Principal, Transaction},
+    screen::{self, GuiSize},
 };
 use std::{
     io::{Read, Write},
@@ -85,6 +86,11 @@ pub enum Event {
     Action { id: String, index: Option<u32> },
     /// The world epoch changed, to `epoch`; the guest and its state live on.
     Epoch,
+    /// The open modal was first drawn at, or resized to, `size`, to `modal-resized`.
+    Resized { size: GuiSize },
+    /// The text of the modal's edit box `control`, a declared action, changed while the modal had
+    /// focus, to `text-changed`.
+    Text { control: String, text: String },
 }
 
 impl Event {
@@ -97,6 +103,10 @@ impl Event {
             }
             Event::Action { id, .. } => server_experience::manifest::identifier(id),
             Event::Epoch => true,
+            Event::Resized { size } => size.valid(),
+            Event::Text { control, text } => {
+                server_experience::manifest::identifier(control) && screen::edit_text(text)
+            }
         };
         ensure!(valid, "helper event too large or malformed");
         Ok(())
@@ -110,6 +120,8 @@ impl Event {
             Event::Message { .. } => "dispatch",
             Event::Action { .. } => "action",
             Event::Epoch => "epoch",
+            Event::Resized { .. } => "modal-resized",
+            Event::Text { .. } => "text-changed",
         }
     }
 }
@@ -198,6 +210,8 @@ pub struct Dispatch {
     pub event: Event,
     /// The world epoch the callback's output must carry.
     pub epoch: u64,
+    /// The bundle's open modal's size, which `ui.modal-size` returns; none while it is closed.
+    pub gui: Option<GuiSize>,
 }
 
 pub struct Helper {
@@ -377,6 +391,7 @@ pub fn serve_developer() -> Result<()> {
     loop {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
         let callback = request.event.callback();
+        host.set_modal_size(request.gui);
         let reply = match host.dispatch(&request.event, request.epoch) {
             Ok(transaction) => Reply::Committed {
                 transaction,

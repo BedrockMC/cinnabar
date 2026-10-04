@@ -61,6 +61,12 @@ impl Value {
 }
 
 /// A `#name` the JSON-UI engine binds, such as `#item_name` or `#propagateAlpha`.
+/// Text an edit box may hold across the helper boundary: at most `MAX_EDIT_TEXT_BYTES`, with no
+/// control characters but line breaks.
+pub fn edit_text(text: &str) -> bool {
+    text.len() <= MAX_EDIT_TEXT_BYTES && !text.chars().any(|c| c.is_control() && c != '\n')
+}
+
 pub fn binding_name(name: &str) -> bool {
     name.strip_prefix('#').is_some_and(|rest| {
         !rest.is_empty()
@@ -94,6 +100,24 @@ pub fn validate_rows(rows: &[Row]) -> Result<()> {
     Ok(())
 }
 
+/// A modal's layout size in GUI units and the GUI scale, the window's logical pixels per GUI unit.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GuiSize {
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+}
+
+impl GuiSize {
+    /// Whether every dimension is finite and positive.
+    pub fn valid(&self) -> bool {
+        [self.width, self.height, self.scale]
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+    }
+}
+
 /// The modal one bundle draws: its open template and everything bound into it. Bound data
 /// outlives switching or closing the screen, as a widget does.
 #[derive(Clone, Debug, Default)]
@@ -101,6 +125,9 @@ pub struct Modal {
     pub template: Option<String>,
     pub collections: BTreeMap<String, Arc<[Row]>>,
     pub values: BTreeMap<String, Value>,
+    /// The text each edit box was last set to by its `text_box_name`, with the `revision` that
+    /// set it, so a presenter applies each one once and the user's later typing stands.
+    pub texts: BTreeMap<String, (u64, String)>,
     /// Counts every change, so a presenter rebuilds its data source only when it moved.
     pub revision: u64,
 }
@@ -122,6 +149,11 @@ impl Modal {
         self.revision += 1;
     }
 
+    pub fn set_text(&mut self, control: String, text: String) {
+        self.revision += 1;
+        self.texts.insert(control, (self.revision, text));
+    }
+
     /// Bounds the retained data after a transaction applied to a private copy.
     pub fn check(&self) -> Result<()> {
         ensure!(
@@ -129,6 +161,10 @@ impl Modal {
             "collection budget exceeded"
         );
         ensure!(self.values.len() <= MAX_UI_VALUES, "value budget exceeded");
+        ensure!(
+            self.texts.len() <= MAX_UI_VALUES,
+            "edit box budget exceeded"
+        );
         Ok(())
     }
 }

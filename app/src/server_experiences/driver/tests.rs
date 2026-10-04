@@ -322,6 +322,7 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_message::<bevy::input::mouse::MouseWheel>()
+        .add_message::<bevy::input::keyboard::KeyboardInput>()
         .add_message::<bevy::input::mouse::MouseButtonInput>()
         .add_systems(Update, drain_committed_ui_before_authority);
     configure_client_frame_schedule(&mut app);

@@ -63,3 +63,6 @@ pub const MAX_COLLECTION_ROWS: usize = 4096;
 pub const MAX_ROW_FIELDS: usize = 32;
 pub const MAX_UI_VALUES: usize = 256;
 pub const MAX_UI_NUMBERS: usize = 4;
+/// UTF-8 bytes of an edit box's text that crosses the helper boundary either way: `set-text` and
+/// `text-changed`.
+pub const MAX_EDIT_TEXT_BYTES: usize = 512;

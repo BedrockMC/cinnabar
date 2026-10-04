@@ -445,3 +445,68 @@ fn guest_strikes_mirror_the_server_adapter() {
     };
     assert_eq!(window_ms, policy::GUEST_STRIKE_WINDOW_MS);
 }
+
+/// `set-text` stages a bounded, plain text for an edit box by its `text_box_name`; each one the
+/// modal keeps carries its own sequence, so a presenter applies it once and later typing stands.
+#[test]
+fn modal_texts_are_bounded_and_sequenced() {
+    let owner = runtime::Principal {
+        session: crypto::hex(&[1; 32]),
+        bundle: "test:one".into(),
+        generation: policy::INITIAL_BUNDLE_GENERATION,
+    };
+    let capabilities = runtime::Capabilities {
+        scope: manifest::Scope {
+            permissions: BTreeSet::from([manifest::Permission::ModalUi]),
+            origins: BTreeSet::new(),
+            memory_bytes: 0,
+            gpu_bytes: 0,
+        },
+        assets: BTreeSet::new(),
+        templates: BTreeSet::new(),
+        channels: Vec::new(),
+        actions: BTreeSet::new(),
+        max_message_bytes: policy::MAX_MESSAGE_BYTES as u32,
+    };
+    let text = |control: &str, text: &str| runtime::Command::Text {
+        control: control.into(),
+        text: text.into(),
+    };
+    for refused in [
+        text("Search", "iron"),
+        text("search", &"x".repeat(policy::MAX_EDIT_TEXT_BYTES + 1)),
+        text("search", "tab\there"),
+    ] {
+        assert!(capabilities.validate(&refused).is_err(), "{refused:?}");
+    }
+    let mut ui_only = capabilities.clone();
+    ui_only.scope.permissions = BTreeSet::from([manifest::Permission::Ui]);
+    assert!(ui_only.validate(&text("search", "iron")).is_err());
+    let mut contributions = runtime::Contributions::default();
+    let transaction = |commands| runtime::Transaction {
+        owner: owner.clone(),
+        epoch: 1,
+        commands,
+    };
+    contributions
+        .apply(
+            &transaction(vec![text("search", "iron"), text("search", "")]),
+            &owner,
+            1,
+            &capabilities,
+        )
+        .unwrap();
+    let (first, empty) = contributions.modal.texts["search"].clone();
+    assert_eq!(empty, "");
+    contributions
+        .apply(
+            &transaction(vec![text("search", "gold\nbar")]),
+            &owner,
+            1,
+            &capabilities,
+        )
+        .unwrap();
+    let (second, gold) = contributions.modal.texts["search"].clone();
+    assert!(second > first);
+    assert_eq!(gold, "gold\nbar");
+}

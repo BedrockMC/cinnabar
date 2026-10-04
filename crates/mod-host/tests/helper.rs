@@ -105,6 +105,7 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
                 record: b"[]".to_vec(),
             },
             epoch: 1,
+            gui: None,
         })
         .unwrap();
     reply(helper)

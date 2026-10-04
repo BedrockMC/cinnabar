@@ -26,6 +26,7 @@ fn state() -> State {
             max_message_bytes: MAX_MESSAGE_BYTES as u32,
         },
         action: None,
+        gui: None,
         commands: Vec::new(),
         bytes: 0,
         calls: 0,
@@ -94,7 +95,8 @@ fn staged_output_at_the_transaction_boundary_round_trips_through_ipc() {
     assert_eq!(serde_json::to_vec(&transaction).unwrap().len(), state.bytes);
 }
 
-/// The 1.1 test guest, its imports named from the WIT package the host binds.
+/// The 1.1 test guest, as a component built against 1.1.0 imports it: from the package the host
+/// binds, at 1.1.0.
 fn guest_1_1(template: &str) -> String {
     let source =
         include_str!("../../../experience-sdk/wit/client/deps/server-experience/capabilities.wit");
@@ -104,7 +106,8 @@ fn guest_1_1(template: &str) -> String {
         .unwrap()
         .trim_start_matches("package ")
         .trim_end_matches(';');
-    let (name, version) = package.split_once('@').unwrap();
+    let (name, _) = package.split_once('@').unwrap();
+    let version = "1.1.0";
     include_str!("guest_1_1.wat")
         .replace("$UI", &format!("{name}/ui@{version}"))
         .replace("$INPUT", &format!("{name}/input@{version}"))
@@ -213,6 +216,10 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         epoch.commands.as_slice(),
         [Command::Screen { template: None }]
     ));
+    // 1.2's events skip a 1.1 component.
+    for event in [resized(320.0), typed("demo.pick", "iron")] {
+        assert!(host.dispatch(&event, 5).unwrap().commands.is_empty());
+    }
     let malformed = Event::Message {
         channel: "demo.items".into(),
         record: b"[{\"name\":1}]".to_vec(),
@@ -389,4 +396,104 @@ fn the_fuel_each_callback_used_is_reported() {
     assert!(0 < used && used < CALLBACK_FUEL, "{used}");
     host.dispatch(&on("terminal.spin"), 1).unwrap_err();
     assert_eq!(host.last_fuel_used(), CALLBACK_FUEL);
+}
+
+/// A modal size of `width` × 240 GUI units at GUI scale 2.
+fn resized(width: f64) -> Event {
+    Event::Resized {
+        size: screen::GuiSize {
+            width,
+            height: 240.0,
+            scale: 2.0,
+        },
+    }
+}
+
+/// Typed text in the modal's edit box `control`.
+fn typed(control: &str, text: &str) -> Event {
+    Event::Text {
+        control: control.into(),
+        text: text.into(),
+    }
+}
+
+/// The terminal guest with `input` and its search box declared as an action.
+fn searching_terminal() -> BundleHost {
+    let mut capabilities = screen_capabilities(&[Permission::ModalUi, Permission::Input]);
+    capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    capabilities.actions.insert("terminal.search".to_owned());
+    let mut host = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    host.take_transaction();
+    host
+}
+
+/// `modal-resized` gets the modal's size, which `ui.modal-size` reads back in that callback and
+/// in later ones, until the host says the modal closed.
+#[test]
+fn modal_resized_reports_the_size_modal_size_reads() {
+    let mut host = searching_terminal();
+    let size = [320.0, 240.0, 2.0];
+    match host
+        .dispatch(&resized(320.0), 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [
+            Command::Value {
+                name: given,
+                value: screen::Value::Numbers(given_size),
+            },
+            Command::Value {
+                name: read,
+                value: screen::Value::Numbers(read_size),
+            },
+        ] => {
+            assert_eq!((given.as_str(), read.as_str()), ("#size", "#read"));
+            assert_eq!(
+                (given_size.as_slice(), read_size.as_slice()),
+                (&size[..], &size[..])
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    host.set_modal_size(None);
+    match host
+        .dispatch(&on("terminal.size"), 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [
+            Command::Value {
+                name,
+                value: screen::Value::Bool(false),
+            },
+        ] => {
+            assert_eq!(name, "#read");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// `text-changed` delivers a declared edit box's text, and `ui.set-text` stages the guest's
+/// answer for a box; an undeclared box's text is refused before the guest runs.
+#[test]
+fn text_changed_reaches_the_guest_and_set_text_stages_text() {
+    let mut host = searching_terminal();
+    match host
+        .dispatch(&typed("terminal.search", "iron"), 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [Command::Text { control, text }] => {
+            assert_eq!((control.as_str(), text.as_str()), ("terminal.echo", "IRON"));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(host.dispatch(&typed("terminal.other", "iron"), 1).is_err());
+    assert!(typed("terminal.search", "tab\t").check().is_err());
+    let long = "x".repeat(MAX_EDIT_TEXT_BYTES + 1);
+    assert!(typed("terminal.search", &long).check().is_err());
 }

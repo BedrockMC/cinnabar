@@ -9,6 +9,7 @@ mod shape_probe;
 mod store_tests;
 mod values;
 use super::UiRuntime;
+pub(crate) use engine_input::typed_text;
 pub(crate) use interaction::drive_server_form_input;
 pub(crate) use network::flush_server_form_network;
 use protocol::{
