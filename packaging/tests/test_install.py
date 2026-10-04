@@ -241,6 +241,29 @@ esac
         self.assertEqual((self.app / "current").read_text(), f"nightly-{self.digest()[:12]}\n")
         self.assertEqual(len(self.builds()), 2)
 
+    def test_reinstall_repairs_a_build_that_lost_its_app_run(self):
+        self.assertEqual(self.install().returncode, 0)
+        build = f"v1.2.3-{self.digest()[:12]}"
+        (self.app / build / "AppRun").unlink()
+        self.assertNotEqual(self.launch().returncode, 0)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.runtime()), 2)
+        self.assertEqual(self.builds(), [build])
+        self.assertEqual(self.launch("again").returncode, 0)
+        self.assertEqual((self.root / "launch").read_text(), "again\n")
+
+    def test_reinstalling_the_current_build_keeps_the_replaced_one(self):
+        builds = []
+        for tag in ("v1.2.3", "v1.2.4", "v1.2.4"):
+            self.image.write_text(APPIMAGE + f"# {tag}\n")
+            self.write_checksums()
+            result = self.install(FIXTURE_TAG=tag)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            builds.append(f"{tag}-{self.digest()[:12]}")
+        self.assertEqual(self.builds(), sorted(set(builds)))
+        self.assertEqual((self.app / "previous").read_text(), builds[0] + "\n")
+
     def test_launcher_reports_an_incomplete_install(self):
         self.assertEqual(self.install().returncode, 0)
         (self.app / "current").unlink()

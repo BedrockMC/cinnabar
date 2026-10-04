@@ -94,7 +94,7 @@ and adds a launcher, icon and application-menu entry. It uses the user's XDG dat
 `~/.local/bin` by default; `CINNABAR_BIN_DIR` overrides the launcher directory. Failed downloads,
 verification or extraction preserve the current installation. The AppImage is unpacked once, without
 FUSE or `/tmp`, into `<data>/cinnabar/app/<tag>-<digest>`; `app/current` names the build the
-launcher runs, and each install keeps only that build and the one it replaced. Pass
+launcher runs and `app/previous` the one it replaced; each install keeps only those two. Pass
 `--channel nightly` or `--version TAG` when invoking the script directly to test a particular release; these are explicit opt-ins to builds outside the stable channel.
 
 Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
