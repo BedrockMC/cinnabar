@@ -1,9 +1,9 @@
 use client_world::WorldStream;
-use sim::{BlockPhysicsFlags, CollisionWorld};
+use sim::{Aabb, Vec3, sample_actor_liquids};
 
 use crate::observations::CollisionLookup;
 
-/// Samples the world state actor animation queries read: fluids at each actor and the bed
+/// Samples the world state actor animation queries read: body liquid contact and the bed
 /// orientation under each sleeper.
 pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn CollisionLookup) {
     let mode = stream.network_id_mode();
@@ -13,12 +13,14 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         stream.current_dimension(),
     );
     let fluids: Vec<_> = stream
-        .actor_fluid_sample_points()
+        .actor_fluid_probes()
         .into_iter()
-        .filter(|(_, position)| position.iter().all(|axis| axis.is_finite()))
-        .map(|(runtime_id, position)| {
-            let (water, lava) = fluid_at(&world, position);
-            (runtime_id, water, lava)
+        .filter_map(|probe| {
+            let vector = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+            let bounds = Aabb::new(vector(probe.min), vector(probe.max));
+            // Keep the previous sample when a probe crosses unavailable chunk data.
+            let (water, lava) = sample_actor_liquids(&world, bounds).ok()?;
+            Some((probe.runtime_id, water, lava))
         })
         .collect();
     let beds: Vec<_> = stream
@@ -32,26 +34,6 @@ pub fn sample_actor_world_state(stream: &mut WorldStream, collisions: &dyn Colli
         .collect();
     stream.set_actor_fluids(&fluids);
     stream.set_actor_bed_rotations(&beds);
-}
-
-/// `(in_water, in_lava)` at a hair above the feet, so a fish on the bed still samples its water;
-/// an unreadable block reads as dry.
-fn fluid_at(world: &impl CollisionWorld, position: [f32; 3]) -> (bool, bool) {
-    let y = position[1] + 0.1;
-    let block = [
-        position[0].floor() as i32,
-        y.floor() as i32,
-        position[2].floor() as i32,
-    ];
-    let (mut water, mut lava) = (false, false);
-    if let Ok(sample) = world.block_physics(block) {
-        for layer in sample.layers.iter() {
-            let submerged = f64::from(y) < f64::from(block[1]) + layer.fluid_height_blocks;
-            water |= submerged && layer.flags.contains(BlockPhysicsFlags::WATER);
-            lava |= submerged && layer.flags.contains(BlockPhysicsFlags::LAVA);
-        }
-    }
-    (water, lava)
 }
 
 /// Quarter turns of the bed's `direction` state as degrees; the origin needs native measurement.

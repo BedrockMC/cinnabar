@@ -23,8 +23,14 @@ fn all_jump_flags() -> u128 {
         | PlayerInputFlags::START_JUMPING
         | PlayerInputFlags::JUMP_PRESSED_RAW
         | PlayerInputFlags::JUMP_RELEASED_RAW
-        | PlayerInputFlags::JUMPING)
+        | PlayerInputFlags::JUMPING
+        | PlayerInputFlags::WANT_UP)
         .bits()
+}
+
+/// Native processed keyboard jump occupies both Jumping and WantUp lanes.
+fn processed_held_jump_mask() -> u128 {
+    (PlayerInputFlags::JUMPING | PlayerInputFlags::WANT_UP).bits()
 }
 
 /// Floor plus a ceiling low enough that a held jump bonks and settles back
@@ -197,6 +203,7 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
         PlayerInputFlags::START_JUMPING,
         PlayerInputFlags::JUMP_PRESSED_RAW,
         PlayerInputFlags::JUMPING,
+        PlayerInputFlags::WANT_UP,
     ] {
         assert_ne!(
             takeoff_snapshot.flags.bits() & mask.bits(),
@@ -207,7 +214,7 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
 
     let released_snapshot = ticker.pop_pending().expect("release queued").snapshot;
     assert_eq!(
-        released_snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+        released_snapshot.flags.bits() & processed_held_jump_mask(),
         0,
         "Jumping follows the processed button, not the airborne arc"
     );
@@ -244,6 +251,7 @@ fn tap_jump_flag_sequence_releases_jumping_before_landing() {
         PlayerInputFlags::START_JUMPING,
         PlayerInputFlags::JUMP_PRESSED_RAW,
         PlayerInputFlags::JUMPING,
+        PlayerInputFlags::WANT_UP,
     ] {
         assert_ne!(takeoff_flags & mask.bits(), 0);
     }
@@ -252,7 +260,7 @@ fn tap_jump_flag_sequence_releases_jumping_before_landing() {
     let mut landing_seen = false;
     for _ in 0..40 {
         let (flags, sample) = step(&mut harness, jump_input(false));
-        let jumping = flags & PlayerInputFlags::JUMPING.bits();
+        let jumping = flags & processed_held_jump_mask();
         let raw_held = flags & raw_held_jump_mask();
         if !landing_seen {
             if flags & PlayerInputFlags::JUMP_RELEASED_RAW.bits() != 0 {
@@ -290,7 +298,12 @@ fn held_jump_keeps_jumping_asserted_on_landing_and_between_takeoffs() {
     let mut landing_ticks = 0;
     for _ in 0..75 {
         let (flags, sample) = step(&mut harness, jump_input(true));
-        let jumping = flags & PlayerInputFlags::JUMPING.bits();
+        let jumping = flags & processed_held_jump_mask();
+        assert_eq!(
+            jumping,
+            processed_held_jump_mask(),
+            "held jump keeps both processed lanes"
+        );
         if sample.processed.jump_initiated {
             takeoffs += 1;
             assert_ne!(jumping, 0, "an initiation always claims Jumping");
@@ -381,6 +394,7 @@ fn sneak_flags_track_the_simulator_state() {
         PlayerInputFlags::START_SNEAKING,
         PlayerInputFlags::SNEAK_DOWN,
         PlayerInputFlags::SNEAKING,
+        PlayerInputFlags::WANT_DOWN,
     ] {
         assert_ne!(first & mask.bits(), 0);
     }
@@ -388,6 +402,7 @@ fn sneak_flags_track_the_simulator_state() {
         let (held, _) = step(&mut harness, sneak_input(true));
         assert_ne!(held & PlayerInputFlags::SNEAKING.bits(), 0);
         assert_ne!(held & PlayerInputFlags::SNEAK_DOWN.bits(), 0);
+        assert_ne!(held & PlayerInputFlags::WANT_DOWN.bits(), 0);
         assert_eq!(
             held & (PlayerInputFlags::START_SNEAKING | PlayerInputFlags::STOP_SNEAKING).bits(),
             0,
@@ -403,11 +418,13 @@ fn sneak_flags_track_the_simulator_state() {
         "a processed stop without a physical button is no raw release"
     );
     assert_eq!(stop & PlayerInputFlags::SNEAKING.bits(), 0);
+    assert_eq!(stop & PlayerInputFlags::WANT_DOWN.bits(), 0);
     let (settled, _) = step(&mut harness, sneak_input(false));
     assert_eq!(
         settled
             & (PlayerInputFlags::SNEAKING
                 | PlayerInputFlags::SNEAK_DOWN
+                | PlayerInputFlags::WANT_DOWN
                 | PlayerInputFlags::START_SNEAKING
                 | PlayerInputFlags::STOP_SNEAKING)
                 .bits(),
@@ -521,7 +538,7 @@ fn early_landing_correction_closes_the_replayed_jump_arc() {
         .find(|snapshot| snapshot.tick > anchor.tick)
         .expect("replayed remainder exists");
     assert_eq!(
-        after_anchor.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+        after_anchor.flags.bits() & processed_held_jump_mask(),
         0,
         "replay preserves the released jump button"
     );
@@ -603,9 +620,9 @@ fn a_fresh_edge_inside_the_post_jump_cooldown_initiates_nothing() {
     assert!(!sample.processed.jump_arc_active);
     ticker.enqueue_completed_physics(sample).unwrap();
     let snapshot = ticker.pending_snapshots().pop().expect("queued admission");
-    assert_ne!(
-        snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
-        0,
+    assert_eq!(
+        snapshot.flags.bits() & processed_held_jump_mask(),
+        processed_held_jump_mask(),
         "Jumping still describes the held button during cooldown"
     );
     assert_eq!(
@@ -652,9 +669,9 @@ fn an_airborne_tap_opens_no_arc_and_gestates_no_later_initiation() {
         !tap.processed.jump_initiated,
         "an air tap initiates nothing"
     );
-    assert_ne!(
-        tap_flags & PlayerInputFlags::JUMPING.bits(),
-        0,
+    assert_eq!(
+        tap_flags & processed_held_jump_mask(),
+        processed_held_jump_mask(),
         "the airborne tap holds the processed button"
     );
     assert_eq!(tap_flags & PlayerInputFlags::START_JUMPING.bits(), 0);
@@ -673,7 +690,7 @@ fn an_airborne_tap_opens_no_arc_and_gestates_no_later_initiation() {
         if sample.grounded_after_tick {
             landed = true;
             assert_eq!(
-                flags & PlayerInputFlags::JUMPING.bits(),
+                flags & processed_held_jump_mask(),
                 0,
                 "the released jump button remains clear on landing"
             );
@@ -760,7 +777,7 @@ fn grounded_correction_at_the_initiation_tick_outranks_the_retained_initiation()
     );
     for snapshot in &replayed {
         assert_eq!(
-            snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+            snapshot.flags.bits() & processed_held_jump_mask(),
             0,
             "tick {} must keep the released jump button clear",
             snapshot.tick
@@ -809,9 +826,9 @@ fn correction_upstream_of_the_initiation_asserts_no_phantom_arc() {
     );
     for snapshot in &replayed {
         assert_eq!(
-            snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+            snapshot.flags.bits() & processed_held_jump_mask(),
             if snapshot.tick == takeoff.tick {
-                PlayerInputFlags::JUMPING.bits()
+                processed_held_jump_mask()
             } else {
                 0
             },
@@ -879,9 +896,9 @@ fn early_grounded_correction_replays_a_recorded_mid_air_tap() {
     );
     for snapshot in &replayed {
         assert_eq!(
-            snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(),
+            snapshot.flags.bits() & processed_held_jump_mask(),
             if snapshot.tick == tap.tick {
-                PlayerInputFlags::JUMPING.bits()
+                processed_held_jump_mask()
             } else {
                 0
             },
@@ -946,6 +963,7 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
         PlayerInputFlags::START_SNEAKING,
         PlayerInputFlags::SNEAK_DOWN,
         PlayerInputFlags::SNEAKING,
+        PlayerInputFlags::WANT_DOWN,
         PlayerInputFlags::SNEAK_PRESSED_RAW,
         PlayerInputFlags::START_SPRINTING,
         PlayerInputFlags::SPRINT_DOWN,
@@ -977,6 +995,10 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
         narrowed_snapshot.flags.bits() & PlayerInputFlags::STOP_SPRINTING.bits(),
         0
     );
+    assert_eq!(
+        narrowed_snapshot.flags.bits() & PlayerInputFlags::WANT_DOWN.bits(),
+        0
+    );
 
     let still_snapshot = ticker
         .pop_pending()
@@ -996,6 +1018,10 @@ fn processed_sneak_and_sprint_lanes_never_repeat_stop_edges_while_raw_buttons_st
             & (PlayerInputFlags::START_SNEAKING | PlayerInputFlags::START_SPRINTING).bits(),
         0,
         "no fresh start edges exist without a physical change"
+    );
+    assert_eq!(
+        still_snapshot.flags.bits() & PlayerInputFlags::WANT_DOWN.bits(),
+        0
     );
 }
 
@@ -1051,6 +1077,7 @@ fn airborne_jump_press_sends_held_and_raw_flags_without_start_jumping() {
     assert_eq!(flags.bits() & PlayerInputFlags::START_JUMPING.bits(), 0);
     for bit in [
         PlayerInputFlags::JUMPING,
+        PlayerInputFlags::WANT_UP,
         PlayerInputFlags::JUMP_DOWN,
         PlayerInputFlags::JUMP_CURRENT_RAW,
         PlayerInputFlags::JUMP_PRESSED_RAW,

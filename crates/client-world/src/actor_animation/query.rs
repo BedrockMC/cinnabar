@@ -2,6 +2,11 @@ use super::{evaluation::MolangValue, *};
 
 mod wolf;
 
+#[cfg(test)]
+mod fish_tests;
+#[cfg(test)]
+mod tropical_fish_tests;
+
 // Actor flag bits and metadata keys follow gophertunnel v1.61.0
 // `minecraft/protocol/entity_metadata.go` (`EntityDataFlag*` and `EntityDataKey*`, iota from
 // zero); flag bits from 64 live in the overflow flag word.
@@ -276,8 +281,8 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
     }
-    if let Some((_, key)) = INTEGER_QUERIES.iter().find(|(query, _)| *query == name) {
-        return metadata_number(actor, *key).unwrap_or(0.0);
+    if let Some(key) = integer_query_key(name) {
+        return metadata_number(actor, key).unwrap_or(0.0);
     }
     if let Some((_, key, idle)) = FLOAT_QUERIES.iter().find(|(query, ..)| *query == name) {
         return metadata_number(actor, *key).unwrap_or(*idle);
@@ -528,6 +533,42 @@ fn texture_frame_index(actor: &ActorSnapshot) -> f32 {
 
 pub(super) fn has_target(actor: &ActorSnapshot) -> bool {
     matches!(actor.metadata.get(&KEY_TARGET), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
+}
+
+/// The native updater tests the low byte of the Int variant for the base,
+/// and the Int mark variant selects one of six patterns within that base family.
+pub(super) fn tropical_fish_variables(actor: &ActorSnapshot) -> Option<[f32; 2]> {
+    const PATTERNS_PER_FAMILY: i32 = 6;
+    if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:tropicalfish")
+    {
+        return None;
+    }
+    // Unlike the numeric Molang queries, this native updater requires Int metadata.
+    let integer = |name| {
+        integer_query_key(name)
+            .and_then(|key| match actor.metadata.get(&key) {
+                Some(ActorMetadataValue::Int(value)) => Some(*value),
+                _ => None,
+            })
+            .unwrap_or(0)
+    };
+    let base = integer("variant") as u8 != 0;
+    let mark = integer("mark_variant");
+    let pattern = if (0..PATTERNS_PER_FAMILY).contains(&mark) {
+        mark
+    } else {
+        0
+    };
+    Some([
+        truth(base),
+        (pattern + if base { PATTERNS_PER_FAMILY } else { 0 }) as f32,
+    ])
+}
+
+fn integer_query_key(name: &str) -> Option<u32> {
+    INTEGER_QUERIES
+        .iter()
+        .find_map(|(query, key)| (*query == name).then_some(*key))
 }
 
 /// Sampled fluid at the actor when available; otherwise the swimming flag or airborne fish.

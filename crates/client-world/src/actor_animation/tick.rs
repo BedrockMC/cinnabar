@@ -86,6 +86,9 @@ pub(super) fn advance_motion(
         yaw: actor.yaw,
         head_yaw: actor.head_yaw,
     });
+    if is_native_fish(actor) {
+        motion.advance_fish(actor.native_velocity());
+    }
     // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
     // a mob: Actor::getInterpolatedBodyYaw returns 0, while
     // query.target_y_rotation reads the actor's absolute rotation.
@@ -514,6 +517,21 @@ pub(super) fn apply_engine_variables(
         engine.bob_animation,
         f32::from(context.view_bobbing.unwrap_or(true)),
     );
+    if is_native_fish(actor) {
+        // The native updater publishes FishAnimationComponent before pack scripts.
+        let [current, previous] = motion.fish_phase();
+        variables.set(engine.fish_animation_amount, current);
+        variables.set(engine.fish_animation_amount_previous, previous);
+    }
+    if let Some([base, pattern]) = query::tropical_fish_variables(actor) {
+        variables.set(engine.tropical_fish_base, base);
+        variables.set(engine.tropical_fish_pattern, pattern);
+    }
+}
+
+fn is_native_fish(actor: &ActorSnapshot) -> bool {
+    matches!(&actor.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
+        "minecraft:cod" | "minecraft:salmon" | "minecraft:pufferfish" | "minecraft:tropicalfish"))
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.

@@ -70,6 +70,10 @@ pub(super) struct EngineSlots {
     pub(super) left_arm_swim_amount: Option<usize>,
     pub(super) right_arm_swim_amount: Option<usize>,
     pub(super) has_target: Option<usize>,
+    pub(super) fish_animation_amount: Option<usize>,
+    pub(super) fish_animation_amount_previous: Option<usize>,
+    pub(super) tropical_fish_base: Option<usize>,
+    pub(super) tropical_fish_pattern: Option<usize>,
 }
 
 // Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
@@ -152,6 +156,10 @@ impl VariableLayout {
                 left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
                 right_arm_swim_amount: slot("variable.right_arm_swim_amount"),
                 has_target: slot("variable.has_target"),
+                fish_animation_amount: slot("variable.animationamount"),
+                fish_animation_amount_previous: slot("variable.animationamountprev"),
+                tropical_fish_base: slot("variable.tropicalfish.base"),
+                tropical_fish_pattern: slot("variable.tropicalfish.pattern"),
             },
         }
     }
