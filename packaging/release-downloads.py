@@ -25,14 +25,6 @@ def render_installer():
     return template
 
 
-def download_config():
-    config = manifest()
-    config["release_url"] = f'https://github.com/{config["repository"]}/releases/latest'
-    config["download_base"] = config["release_url"] + "/download/"
-    config["install_command"] = f'curl -fsSL {config["website"]}/{config["install_script"]} | sh'
-    return config
-
-
 def checksum(directory):
     config = manifest()
     expected = [name for arches in config["assets"].values() for name in arches.values()]
@@ -57,7 +49,6 @@ def main():
     asset.add_argument("arch")
     install = commands.add_parser("install-script")
     install.add_argument("--output", type=Path, required=True)
-    commands.add_parser("config")
     environment = commands.add_parser("env")
     environment.add_argument("platform", nargs="?")
     environment.add_argument("arch", nargs="?")
@@ -69,8 +60,6 @@ def main():
     args = parser.parse_args()
     if args.command == "asset":
         print(manifest()["assets"][args.platform][args.arch])
-    elif args.command == "config":
-        print(json.dumps(download_config()))
     elif args.command == "env":
         config = manifest()
         for key, field in [("INSTALL_SCRIPT", "install_script"), ("UPDATE_MANIFEST", "update_manifest"),

@@ -1,6 +1,5 @@
 {
   "repository": "bedrock-mc/cinnabar",
-  "website": "https://cinnabar.restartfu.com",
   "checksums": "SHA256SUMS.txt",
   "assets": {
     "linux": {
