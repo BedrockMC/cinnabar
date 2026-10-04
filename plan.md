@@ -1,3 +1,11 @@
+## Java-style Tab player list
+
+- User-requested HUD extension: hold Tab for the authoritative online roster.
+- Compact centered columns, bounded to 80 players with an explicit overflow count.
+- Roster changes refresh cached JSON-UI; Tab release, focus loss and menus hide it.
+- Input, rendered collection, focus/release, roster refresh and cache tests passed.
+- Incomplete live Windows acceptance: installed-client Tab capture pending.
+
 ## Barrier selection visibility
 
 - User-requested correction: suppress barrier highlights/outlines outside Creative.
