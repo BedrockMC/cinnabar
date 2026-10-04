@@ -61,7 +61,10 @@ fn compiled_snow_fixture() -> &'static CompiledSnowFixture {
         fs::write(directory.path().join("blocks.json"), format!(
             r#"{{"snow_layer":{{"textures":{{"down":"slab_down","side":"slab_side","up":"slab_up"}}}},"stone":{{"textures":"cube_all"}},{plant_routes}}}"#
         )).expect("write covered vegetation fixture routing");
-        let compiled = compile_pack(directory.path(), &records).expect("compile snow fixture");
+        let mut lights = vec![assets::LightProperties::default(); records.len()];
+        let mushroom = records.iter().find(|record| record.name.as_ref() == "minecraft:brown_mushroom").unwrap();
+        lights[mushroom.sequential_id as usize] = assets::LightProperties::new(1, 0).unwrap();
+        let compiled = compile_pack_with_lights(directory.path(), &records, &lights).expect("compile snow fixture");
         let blob = encode_blob(&compiled).expect("encode snow fixture");
         CompiledSnowFixture {
             assets: RuntimeAssets::decode(&blob).expect("decode snow fixture"),

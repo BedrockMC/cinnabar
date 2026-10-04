@@ -149,11 +149,17 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                     *row |= visible << u;
                     if visible != 0 {
                         let coordinate = block_coordinate(face, slice, u, v);
+                        let entry = facts.at(coordinate[0], coordinate[1], coordinate[2]);
                         lighting_scratch[v * SIDE + u] = crate::lighting::bake_quad(
                             &lighting,
                             coordinate.map(|value| value as i32),
                             face,
                             crate::lighting::cube_face_positions(face),
+                            visuals
+                                .resolve(network_id_mode, entry.network_value)
+                                .light_properties()
+                                .emission()
+                                > 0,
                         );
                     }
                 }
@@ -318,6 +324,11 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                 [x as i32, y as i32, z as i32],
                                 part_template,
                                 entry.variant & 3,
+                                visuals
+                                    .resolve(network_id_mode, entry.network_value)
+                                    .light_properties()
+                                    .emission()
+                                    > 0,
                             ) else {
                                 continue;
                             };

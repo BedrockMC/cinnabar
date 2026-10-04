@@ -39,6 +39,7 @@ fn native_boundary_model_center_light_uses_the_own_solid_bit() {
             Face::PositiveY,
             [[256, 256, 256]; 4],
             true,
+            false,
         );
         assert_eq!(result.samples()[0] & 15, 7, "outward solid={outward_solid}");
     }
@@ -56,6 +57,7 @@ fn native_boundary_solid_center_and_tangential_light_stay_outward() {
         Face::PositiveY,
         [[256, 256, 256]; 4],
         true,
+        false,
     );
     assert_eq!(result.samples()[0] & 15, 15);
     assert_eq!((result.samples()[0] >> 8) & 7, 1);
@@ -73,6 +75,7 @@ fn native_inset_face_keeps_center_and_tangential_light_in_the_own_plane() {
         Face::PositiveY,
         [[256, 128, 256]; 4],
         true,
+        false,
     );
     assert_eq!(result.samples()[0] & 15, 11);
     assert_eq!((result.samples()[0] >> 8) & 7, 1);
