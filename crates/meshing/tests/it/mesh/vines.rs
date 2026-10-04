@@ -7,7 +7,7 @@ struct CompiledVineFixture {
 
 #[test]
 fn compiled_blank_signs_emit_exact_bounded_model_and_lighting_streams() {
-    let generated = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+    let generated = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
         .expect("decode committed sign registry");
     let air = generated
         .iter()
@@ -145,7 +145,7 @@ fn write_vine_render_pack(root: &Path, cube_name: &str) {
 fn compiled_vine_fixture() -> &'static CompiledVineFixture {
     static FIXTURE: OnceLock<CompiledVineFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let generated = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let generated = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode committed vine registry");
         let air = generated
             .iter()

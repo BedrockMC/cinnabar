@@ -75,7 +75,7 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
 fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
     static FIXTURE: OnceLock<CompiledConnectedFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode connected registry");
         let named = |name: &str| {
             records

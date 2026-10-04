@@ -58,7 +58,7 @@ fn write_chiseled_bookshelf_render_pack(root: &Path, cube_name: &str) {
 fn compiled_chiseled_bookshelf_fixture() -> &'static CompiledChiseledBookshelfFixture {
     static FIXTURE: OnceLock<CompiledChiseledBookshelfFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode bookshelf registry");
         let air = records
             .iter()

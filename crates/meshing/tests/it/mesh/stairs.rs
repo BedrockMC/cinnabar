@@ -10,7 +10,7 @@ include!("stairs/native_state.rs");
 fn compiled_stair_fixture() -> &'static CompiledStairFixture {
     static FIXTURE: OnceLock<CompiledStairFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode stair registry");
         let air = records
             .iter()
