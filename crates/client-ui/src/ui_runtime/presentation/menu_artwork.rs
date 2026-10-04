@@ -348,7 +348,7 @@ fn title() -> Option<&'static Artwork> {
 /// not decoded yet or does not fit is left out.
 fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
     let side = render::UI_ART_PAGE_SIDE;
-    let mut rest: Vec<(String, &Artwork)> = sources(set)
+    let rest: Vec<(String, &Artwork)> = sources(set)
         .iter()
         .filter_map(|source| {
             let key = source.key();
@@ -356,7 +356,7 @@ fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packe
             Some((key.0, art.as_ref()))
         })
         .collect();
-    rest.sort_by(|a, b| b.1.height.cmp(&a.1.height).then(a.0.cmp(&b.0)));
+    // Preserve source priority under page pressure; visible portraits precede larger optional art.
     // The title packs first so later art can never crowd it out.
     let decoded: Vec<(String, &Artwork)> = title()
         .map(|art| (TITLE_KEY.to_owned(), art))
@@ -626,6 +626,37 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_artwork_does_not_crowd_out_a_prioritized_gamerpic() {
+        let mut set = ArtworkSet {
+            paths: vec![("gamerpic".into(), THUMBNAIL_SIDE)],
+            ..Default::default()
+        };
+        set.paths
+            .extend((0..8).map(|index| (format!("large-{index}"), MAX_ARTWORK_SIDE)));
+        let mut cache = DecodeCache::default();
+        for source in sources(&set) {
+            let side = if source.key().0 == "gamerpic" {
+                THUMBNAIL_SIDE
+            } else {
+                MAX_ARTWORK_SIDE
+            };
+            cache.decoded.insert(
+                source.key(),
+                Arc::new(Artwork {
+                    width: side,
+                    height: side,
+                    pixels: vec![90; side as usize * side as usize * 4],
+                }),
+            );
+        }
+        let packed = pack(&set, &cache, 0, true);
+        assert!(
+            packed.refs.contains_key("gamerpic"),
+            "packed atlas must retain a prioritized gamerpic under capacity pressure"
+        );
+    }
 
     #[test]
     fn a_full_server_catalog_does_not_crowd_out_account_pictures() {
