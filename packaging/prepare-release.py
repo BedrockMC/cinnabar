@@ -2,9 +2,10 @@
 """Resolve the package workflow's exact source commit and optional release tag.
 
 Environment: EVENT_NAME=push|workflow_dispatch, DEFAULT_BRANCH (main),
-BUMP=current|patch|minor|major, optional RELEASE_TAG for a tag push, and the
+BUMP=current|patch|minor|major|custom, CUSTOM_VERSION=X.Y.Z, TARGET_BRANCH,
+optional RELEASE_TAG for a tag push, and the
 standard GITHUB_REF, GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GH_TOKEN.
-Dispatch must check out the default branch with full history and tags. Only a
+Dispatch must check out TARGET_BRANCH with full history and tags. Only a
 dispatch writes a release commit/tag; GitHub's token does not trigger another
 tag workflow. Outputs: channel, tag, version, ref, commit. ref is a commit SHA.
 """
@@ -12,6 +13,7 @@ tag workflow. Outputs: channel, tag, version, ref, commit. ref is a commit SHA.
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -25,6 +27,10 @@ class ReleaseError(Exception):
 
 
 def command(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+    executable = shutil.which(args[0])
+    if executable is None:
+        raise ReleaseError(f"required command is unavailable: {args[0]}")
+    args = (executable, *args[1:])
     result = subprocess.run(args, cwd=ROOT, text=True, capture_output=True)
     if check and result.returncode:
         raise ReleaseError(f"{' '.join(args[:3])} failed: {result.stderr.strip()}")
@@ -37,6 +43,8 @@ def git(*args: str, check: bool = True) -> str:
 
 def version(kind: str = "current", dry_run: bool = False) -> str:
     args = [sys.executable, str(ROOT / "packaging/bump-version.py"), kind]
+    if kind == "custom":
+        args.extend(["--version", os.environ.get("CUSTOM_VERSION", "")])
     if dry_run:
         args.append("--dry-run")
     return command(*args).stdout.strip()
@@ -67,17 +75,20 @@ def configure_identity() -> None:
     git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
 
 
-def dispatch(default_branch: str, bump: str) -> tuple[str, str]:
+def dispatch(target_branch: str, bump: str) -> tuple[str, str]:
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ReleaseError("GITHUB_REPOSITORY must identify the release repository")
-    if git("symbolic-ref", "--quiet", "--short", "HEAD") != default_branch:
-        raise ReleaseError("manual releases must check out the repository's default branch")
+    if git("symbolic-ref", "--quiet", "--short", "HEAD") != target_branch:
+        raise ReleaseError("manual releases must check out the selected target branch")
     current = version()
     head = git("rev-parse", "HEAD")
     current_tag = f"v{current}"
     states = tag_state(current_tag)
-    recover = bump != "current" and head in states and not release_exists(repository, current_tag)
+    retry_bump = bump in {"patch", "minor", "major"} or (
+        bump == "custom" and os.environ.get("CUSTOM_VERSION", "") == current
+    )
+    recover = retry_bump and head in states and not release_exists(repository, current_tag)
     if bump == "current" or recover:
         target = current
         tag = current_tag
@@ -104,7 +115,7 @@ def dispatch(default_branch: str, bump: str) -> tuple[str, str]:
         head = git("rev-parse", "HEAD")
         git("tag", "-a", tag, "-m", f"Cinnabar {tag}")
         remote_exists = False
-    refs = [f"HEAD:refs/heads/{default_branch}"]
+    refs = [f"HEAD:refs/heads/{target_branch}"]
     if not remote_exists:
         refs.append(f"refs/tags/{tag}:refs/tags/{tag}")
     git("push", "--atomic", "origin", *refs)
@@ -118,10 +129,12 @@ def prepare() -> dict[str, str]:
     if git("status", "--porcelain"):
         raise ReleaseError("release preparation requires a clean checkout")
     if event == "workflow_dispatch":
+        target_branch = os.environ.get("TARGET_BRANCH", "") or default_branch
+        git("check-ref-format", f"refs/heads/{target_branch}")
         bump = os.environ.get("BUMP", "current")
-        if bump not in {"current", "patch", "minor", "major"}:
-            raise ReleaseError("BUMP must be current, patch, minor, or major")
-        tag, source_version = dispatch(default_branch, bump)
+        if bump not in {"current", "patch", "minor", "major", "custom"}:
+            raise ReleaseError("BUMP must be current, patch, minor, major, or custom")
+        tag, source_version = dispatch(target_branch, bump)
         channel = "stable"
     elif event == "push":
         ref = os.environ.get("GITHUB_REF", "")

@@ -133,6 +133,14 @@ class VersionTests(unittest.TestCase):
             (self.root / "Cargo.toml").write_text(MANIFEST.replace(SOURCE_VERSION, value))
             self.assertNotEqual(self.bump("current", check=False).returncode, 0)
 
+    def test_custom_version_and_invalid_choices(self):
+        original = (self.root / "Cargo.toml").read_text()
+        for value in ["", "1.2.3", "0.9.9", "01.3.0", "2.0.0-beta", "2.0.0\n"]:
+            result = self.bump("custom", "--version", value, check=False)
+            self.assertNotEqual(result.returncode, 0, value)
+            self.assertEqual((self.root / "Cargo.toml").read_text(), original)
+        self.assertEqual(self.bump("custom", "--version", "3.4.5").stdout.strip(), "3.4.5")
+
 
 class PrepareTests(unittest.TestCase):
     def setUp(self):
@@ -153,7 +161,7 @@ class PrepareTests(unittest.TestCase):
         self.initial = self.git("rev-parse", "HEAD")
         binary = self.directory / "bin"
         binary.mkdir()
-        gh = binary / "gh"
+        gh = binary / ("gh.py" if os.name == "nt" else "gh")
         gh.write_text('''#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
@@ -172,6 +180,8 @@ else:
     raise SystemExit(1)
 ''')
         gh.chmod(0o755)
+        if os.name == "nt":
+            (binary / "gh.cmd").write_text(f'@"{sys.executable}" "{gh}" %*\n')
         self.output = self.directory / "github-output"
         self.log = self.directory / "github-log"
         self.env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
@@ -233,6 +243,35 @@ else:
         self.assertEqual(self.outputs()["version"], "1.2.4")
         self.assertEqual(self.git("rev-parse", "HEAD"), current)
         self.assertEqual(self.refs(), before)
+
+    def test_selected_branch_receives_release_instead_of_main(self):
+        self.git("checkout", "-b", "release/candidate")
+        self.git("push", "origin", "release/candidate")
+        self.prepare(BUMP="minor", TARGET_BRANCH="release/candidate")
+        current = self.git("rev-parse", "HEAD")
+        self.assertIn(current + "\trefs/heads/release/candidate", self.refs())
+        self.assertIn(self.initial + "\trefs/heads/main", self.refs())
+        self.assertEqual(self.outputs()["version"], "1.3.0")
+
+    def test_custom_release_recovers_exact_unpublished_version(self):
+        self.prepare(BUMP="custom", CUSTOM_VERSION="3.4.5")
+        current = self.git("rev-parse", "HEAD")
+        before = self.refs()
+        self.prepare(BUMP="custom", CUSTOM_VERSION="3.4.5")
+        self.assertEqual(self.outputs()["version"], "3.4.5")
+        self.assertEqual(self.git("rev-parse", "HEAD"), current)
+        self.assertEqual(self.refs(), before)
+
+    def test_invalid_branch_and_custom_version_do_not_mutate(self):
+        before = self.refs()
+        for changes in [{"TARGET_BRANCH": "bad..branch"},
+                        {"TARGET_BRANCH": "another"},
+                        {"BUMP": "custom", "CUSTOM_VERSION": "2.0.0-beta"}]:
+            result = self.prepare(check=False, **changes)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.git("rev-parse", "HEAD"), self.initial)
+            self.assertEqual(self.refs(), before)
+            self.assert_no_outputs()
 
     def test_existing_current_release_is_rejected_before_mutation(self):
         before = self.refs()
