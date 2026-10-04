@@ -557,7 +557,7 @@ impl CollisionWorld for LiquidExitWorld {
 
 /// Returns the observed vertical velocity for one named v0.1.5 liquid case.
 fn v015_expected_vertical_velocity(scenario: &str) -> f64 {
-    let trace = include_str!("../fixtures/bedsim-v0.1.5-liquid.jsonl")
+    let trace = include_str!("../../fixtures/bedsim-v0.1.5-liquid.jsonl")
         .lines()
         .map(serde_json::from_str::<serde_json::Value>)
         .find_map(|record| {
