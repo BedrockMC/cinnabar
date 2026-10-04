@@ -1,11 +1,11 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
-accumulated work and follow-up fixes are committed through `d17f4a79`, including
+accumulated work and follow-up fixes are committed through `97dccfb3`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
 ownership split and frame diagnostics. Origin/dev `a1c5880d` is integrated
-with the Profile and Marketplace changes; the subsequent `d2a51dac` update is
-being integrated. Final verification and a fresh post-integration live frame
+with the Profile and Marketplace changes; `d2a51dac` is also integrated.
+The subsequent `8d3ca7c5` update is being integrated. Final verification and a fresh post-integration live frame
 remain required. A render binding contract still referenced the old app module
 after its extraction; its assertion now targets the actual render-setup owner.
 The user accepts the rebuilt night snow-layer colour and actor corrections.
@@ -42,8 +42,22 @@ bit, while native `06a07d80`/`06a0b950` read the rendered Block+a4. Cube and mod
 lighting now carry the rendered contributor's admission separately from solved
 physical emission. The failing-before regression covers all snow heights,
 both storage orders, both network modes and direct/cached routes. Covered
-mushroom emission and real emitting-surface shading are retained. Live acceptance
-and final integrated checks for this follow-up are pending; it is not pushed.
+mushroom emission and real emitting-surface shading are retained. The canonical
+integrated client rebuilt and the user accepts the live mushroom correction.
+Final integrated checks remain pending; it is not pushed. The previous final
+gate reached clippy and failed on a test-only unnecessary Vec; that is repaired
+and the complete gate is being rerun, not reported green prematurely.
+The new opaque ice/dark shoreline wedge report has a real carrier witness:
+ice was CUTOUT despite source alpha 190/255. Native IceBlock `071305c0` selects
+layer 3, inherited color is RGBA (1,1,1,1), and `06a07800`/`069e5200` retain
+ordinary cube AO. Reviewed ice/frosted-ice rules now supersede stale fallback
+geometry and alpha metadata; unrelated provisional families are unchanged.
+Real registry identities reproduce wrong CUTOUT and zero transparent mesh faces
+before the fix; compiler and meshing suites now pass. The rebuilt pinned carrier
+has BLEND ice and frosted-ice materials and preserves source alpha. Existing AO,
+transparent depth writes, daytime/nighttime and snow behavior are unchanged.
+Fresh canonical live shoreline acceptance and final integrated checks remain
+open; this does not claim whole-renderer or exact-version gallery parity.
 Separate incomplete partial-face parity: native `06a11a00` bilinearly evaluates
 AO colour at actual face bounds while assigning light records by full corner
 topology. The current midpoint-based corner selection does not close that gate;

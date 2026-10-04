@@ -66,6 +66,12 @@ fn fixture() -> &'static Fixture {
                 ModelFamily::Unknown,
                 ContributorRole::Primary,
             ),
+            (
+                "minecraft:stone",
+                BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+                ModelFamily::Cube,
+                ContributorRole::Primary,
+            ),
         ]
         .into_iter()
         .enumerate()
@@ -89,13 +95,28 @@ fn fixture() -> &'static Fixture {
             },
         )
         .collect::<Vec<_>>();
+        let mut records = records;
+        let ice = records
+            .iter_mut()
+            .find(|record| record.name.as_ref() == "minecraft:ice")
+            .unwrap();
+        let sequential_id = ice.sequential_id;
+        // compile_pack owns the legacy fallback table. Its real ice hash and
+        // canonical state must hit that table; invented hashes hide alpha bugs.
+        *ice = assets::read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
+            .unwrap()
+            .into_iter()
+            .find(|record| record.name.as_ref() == "minecraft:ice")
+            .unwrap();
+        ice.sequential_id = sequential_id;
         let directory = tempfile::tempdir().unwrap();
         fs::create_dir_all(directory.path().join("textures/blocks")).unwrap();
         fs::write(
             directory.path().join("blocks.json"),
             r#"{
             "water":{"textures":{"down":"still","side":"flow","up":"still"}},
-            "ice":{"textures":"ice"}
+            "ice":{"textures":"ice"},
+            "stone":{"textures":"stone"}
         }"#,
         )
         .unwrap();
@@ -107,7 +128,8 @@ fn fixture() -> &'static Fixture {
             "texture_data":{
                 "still":{"textures":"textures/blocks/still"},
                 "flow":{"textures":"textures/blocks/flow"},
-                "ice":{"textures":"textures/blocks/ice"}
+                "ice":{"textures":"textures/blocks/ice"},
+                "stone":{"textures":"textures/blocks/stone"}
             }
         }"#,
         )
@@ -121,6 +143,7 @@ fn fixture() -> &'static Fixture {
             ("still", [90, 90, 90, 120]),
             ("flow", [100, 100, 100, 120]),
             ("ice", [120, 140, 180, 120]),
+            ("stone", [100, 100, 100, 255]),
         ] {
             RgbaImage::from_pixel(16, 16, Rgba(colour))
                 .save(directory.path().join(format!("textures/blocks/{name}.png")))
@@ -191,6 +214,10 @@ fn compiled_ice_over_water_preserves_still_source_and_flat_top() {
         );
         assert_eq!(mesh.model_refs().len(), 1, "ice remains a real cube model");
         assert_eq!(mesh.transparent_model_draw_refs().len(), 6);
+        assert!(
+            mesh.model_draw_refs().is_empty(),
+            "ice must never draw opaque"
+        );
     }
 }
 
@@ -211,6 +238,10 @@ fn transparent_ice_cube_cannot_erase_its_own_underwater_faces() {
         assert_eq!(mesh.model_refs().len(), 1);
         assert_eq!(mesh.model_refs()[0].words()[3], 0b11_1111);
         assert_eq!(mesh.transparent_model_draw_refs().len(), 6);
+        assert!(
+            mesh.model_draw_refs().is_empty(),
+            "ice must never draw opaque"
+        );
         let water_top = top_at(&mesh, [8, 7, 8]);
         assert!(water_top.heights().iter().all(|&height| height < u8::MAX));
     }
