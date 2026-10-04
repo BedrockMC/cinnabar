@@ -329,7 +329,10 @@ mod tests {
     fn wheel_with_presentation(
         player_runtime: &mut crate::player_runtime::PlayerRuntime,
         presentation: client_ui::ui_runtime::presentation::UiPresentationRuntime,
-    ) -> (u8, client_ui::ui_runtime::presentation::UiPresentationRuntime) {
+    ) -> (
+        u8,
+        client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    ) {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
         player_runtime.inventory.set_local_selected_slot(0);

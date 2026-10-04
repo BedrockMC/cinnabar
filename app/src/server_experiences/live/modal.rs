@@ -1,8 +1,8 @@
 //! The modal screen the client parts draw, and the actions its controls deliver.
 
 use super::{Instance, Live, Worker};
-use client_ui::ui_runtime::presentation::ExperienceModal;
 use anyhow::Result;
+use client_ui::ui_runtime::presentation::ExperienceModal;
 use mod_host::helper::{Dispatch, Event};
 use server_experience::{
     runtime::{Command, Transaction},
