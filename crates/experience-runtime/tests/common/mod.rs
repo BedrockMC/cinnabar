@@ -243,12 +243,23 @@ fn target_dir() -> PathBuf {
         .to_owned()
 }
 
+/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
+/// dep-info paths are relative to the workspace, so two worktrees building into one target would
+/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
+/// each worktree's guests its own.
+fn worktree_dir(name: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
+    format!("{name}-{:016x}", hasher.finish())
+}
+
 /// Builds `package` for wasm32 and reads its `.wasm` while holding a cross-process lock. Cargo
 /// may replace its output on another build, so tests cache bytes instead of a mutable path.
 /// The nested target directory avoids the lock held by the running `cargo test` and stays
 /// separate from the Go adapter's guest builds, which do not take this fixture lock.
 fn build_guest(package: &str) -> Vec<u8> {
-    let target = target_dir().join("experience-runtime-guests");
+    let target = target_dir().join(worktree_dir("experience-runtime-guests"));
     fs::create_dir_all(&target).expect("create guest target directory");
     let lock = fs::OpenOptions::new()
         .read(true)

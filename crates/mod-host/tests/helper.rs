@@ -29,7 +29,11 @@ fn developer() {
 /// this test's, and turned into a component.
 fn terminal_component() -> Vec<u8> {
     let exe = std::env::current_exe().unwrap();
-    let target = exe.ancestors().nth(3).unwrap().join("mod-host-guests");
+    let target = exe
+        .ancestors()
+        .nth(3)
+        .unwrap()
+        .join(worktree_dir("mod-host-guests"));
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = std::process::Command::new(cargo)
@@ -196,4 +200,15 @@ fn a_failed_start_answers_with_its_reason() {
         "{}",
         failure.reason
     );
+}
+
+/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
+/// dep-info paths are relative to the workspace, so two worktrees building into one target would
+/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
+/// each worktree's guests its own.
+fn worktree_dir(name: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
+    format!("{name}-{:016x}", hasher.finish())
 }
