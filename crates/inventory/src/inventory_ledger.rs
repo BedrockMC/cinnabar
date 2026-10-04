@@ -41,6 +41,8 @@ mod revisions;
 mod screen_actions;
 #[cfg(test)]
 mod screens_tests;
+#[cfg(test)]
+mod server_menu_tests;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};

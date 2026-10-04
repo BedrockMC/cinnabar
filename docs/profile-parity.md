@@ -126,10 +126,14 @@ Permissions are still not a separate transported facet; privacy/offline error
 classification remains incomplete as recorded in `plan.md`.
 
 Every startup mode owns an account control core, including direct-address
-and external-socket runs. Direct game sessions retain their separate core;
-account sign-in cannot restart that game core. An absent feed worker selects
-unavailable immediately, and a control reply withheld for 60 seconds ends in
-unavailable. This deadline is Cinnabar's local transport safeguard, not a
+and external-socket runs. Direct remote sessions retain their separate game
+core; local worlds use the core that opened them, even after a direct-startup
+session returns Home. Account sign-in cannot restart a core serving a local
+world. Direct-mode account cores omit the shared resource-pack cache lease,
+leaving it to remote game cores; launcher-owned game cores retain their lease.
+An absent feed worker selects unavailable immediately, and a control reply
+withheld for 60 seconds ends in unavailable. This deadline is Cinnabar's local
+transport safeguard, not a
 claimed vanilla timeout. Core diagnostics identify each Profile dependency
 before it runs and report fixed outcomes afterward, without credentials,
 account identifiers, URLs or response bodies. Repeated core facet/outcome
