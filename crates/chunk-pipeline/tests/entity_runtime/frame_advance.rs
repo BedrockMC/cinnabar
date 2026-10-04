@@ -135,6 +135,7 @@ fn scripted_stream() -> WorldStream {
         property: EntityAnimationProperty::Translation,
         first_keyframe: 1,
         keyframe_count: 1,
+        rotation_relative_to_entity: false,
     });
     compiled.animation_channels = channels.into_boxed_slice();
     compiled.animation_keyframes[0].expressions = [Some(calls), Some(delta), Some(elapsed)];
