@@ -1,12 +1,14 @@
 # Bare block stack identity and crafting admission
 
+## Vanilla rules
 
-## Native source chain
-
-Paths in this section are relative to the local reconstruction checkout.
-Current unmapped paths begin `current/1.26.50.26/src/`; named reference paths
-begin `reference/26.30/src/by-owner/i/`.
-
+| Rule | Behaviour |
+| --- | --- |
+| Stack capacity | A descriptor-dependent maximum below two is not stackable; damaged damageable items have additional damage/Unbreakable conditions. |
+| Occupied-stack compatibility | Compare item definition, conditional aux, structural user data, restriction hashes and the additional identity field. Nonzero aux and block identity are not blanket refusals. |
+| Full-stack matching | Allow wildcard aux `0x7fff`; a present left-hand block identity must match the right-hand identity. |
+| Recipe descriptor comparison | Compare item definition and aux/state identity when requested, permitting wildcard aux and resolved block states. |
+| Stack-to-descriptor construction | Handle block-backed and wildcard block-type descriptors before item/aux fallback. |
 
 Native occupied-stack compatibility is not a requirement for zero aux or zero
 block identity:
@@ -27,11 +29,29 @@ block identity:
   data and an empty compound tag can compare equal. Native support is broader
   than admitting only empty serialized data.
 
+The restriction hashes are CanDestroyHash at `+0x68` and CanPlaceOnHash at `+0x48`.
+The extra `+0x70` comparison is retained as an
+identified field, not assigned an unverified semantic name. For ordinary
+occupied stacks, count and server/sparse stack-network IDs are not semantic
+item equality keys; they remain necessary for quantities and request authority.
 
 ## Recipe identity is a separate check
 
+The crafting-input and recipe-select controllers call descriptor comparison with
+aux checking enabled (`sameItemAndAux`). Recipe selection separately calls
+full-stack `matchesItem` when merging items into an occupied grid slot.
 
+The concrete descriptor comparison compares the item
+definition ID. With aux checking enabled, either aux `0x7fff` accepts the
+other aux; otherwise aux/state identity must match. Block-backed descriptors
+can resolve block states before comparison.
 
+Stack-to-descriptor construction explicitly handles a
+non-null block pointer, including a wildcard block-type descriptor, before
+falling back to an item/aux descriptor. None of these ingredient descriptor
+comparisons requires zero block identity or universally zero aux, nor do they
+compare a full stack's serialized NBT. This does not imply every NBT-bearing
+stack is supported by Cinnabar's crafting prediction.
 
 ## Observed failure and scoped correction
 

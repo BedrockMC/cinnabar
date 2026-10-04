@@ -1,8 +1,14 @@
 # Native block placement prediction
 
+## Vanilla rules
 
-## Identified native contracts
-
+| Rule | Behaviour |
+| --- | --- |
+| Placement position | Use the clicked block’s replacement predicate. Offset a nonreplaceable block along its face even when its type matches the held cube; identifier equality is not a blanket veto. |
+| Local prediction | After resolving placement position/state and checks, synchronously set the local block with flags `3`, layer `0`, before local consume/sound/placement effects. Do not wait for server acceptance. |
+| World mutation | Mutate the loaded chunk and notify listeners; missing chunks and out-of-bounds positions fail. |
+| Block identity | Retain all 32 network-ID bits; `-1` is an uninitialized sentinel, not a general negative-hash rejection rule. |
+| Server correction | Failed transactions resend blocks around the clicked and face-neighbor positions along with player/inventory correction. Later authoritative updates replace predictions. |
 
 ## Cinnabar correction and verification
 

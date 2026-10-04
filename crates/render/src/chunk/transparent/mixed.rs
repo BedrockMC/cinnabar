@@ -1,3 +1,7 @@
+//! Ice and water share vanilla terrain-blend layer 3, including its face order.
+//!
+//! Separate GPU encodings remain,
+//! but one phase item emits their combined order with existing pipelines.
 use crate::chunk::*;
 use bevy::render::render_resource::CachedRenderPipelineId;
 

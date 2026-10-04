@@ -1,3 +1,6 @@
+//! Native attachable raster extrusions (TextureMesh::compileQuads).
+//!
+//! Unlike cubes, these meshes start in the image's X/Z plane with Y-down depth.
 
 use assets::{EquipmentTexture, RuntimeEntityAssets};
 use bevy::math::{Mat4, Vec3};

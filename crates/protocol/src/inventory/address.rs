@@ -1,3 +1,25 @@
+//! The one canonical container-address projection.
+//!
+//! The vanilla client routes inventory traffic by two rules.
+//! `InventoryContent`/`InventorySlot` carry a
+//! legacy window id and route by it alone — window 0 fills the player
+//! inventory, the offhand and armor legacy windows their surfaces, and other
+//! windows the open or dynamic container — consulting the packet's
+//! `FullContainerName` only on the dynamic-storage window. `ItemStackResponse`
+//! carries no window, only that `FullContainerName`, so it routes by the
+//! decoded container name. Across both, the `DynamicContainerID` identifies a
+//! generic-storage instance and is a discriminator for that one surface only;
+//! for every fixed surface it is ignored, and a present zero is an ordinary id,
+//! not a sentinel.
+//!
+//! [`project_container_cell`] folds those two rules onto the wire triple
+//! (window id, decoded container-name code, slot index) so a Content event, a
+//! Slot event, and an accepted item stack response describing the same physical
+//! cell resolve to one [`CanonicalCell`] while distinct surfaces stay distinct.
+//! Only identities this layer maps are recognized; anything else — an
+//! unreviewed container name, or a player name arriving on a foreign window —
+//! resolves to `None`, which callers treat as odd but well-formed data: a typed
+//! counted skip, never a mutation and never a disconnect.
 
 use super::ContainerIdentity;
 use super::container_policy::{CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR};

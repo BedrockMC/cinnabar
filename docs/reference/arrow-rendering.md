@@ -1,14 +1,15 @@
 # Native arrow entity rendering
 
-References: the current `1.26.50.26` reconstruction at revision
-`da728f0ce4d7a5ae0be443b8abe03119858d923e`, matching Lens client SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`, the
-vanilla pack pinned by `assets/vanilla-source.json`, and the locally installed
-1.26.50 iOS archive's `vanilla/materials/entity.material`. The implementation
-is our own code from these references, not pasted reconstructed C++.
+The runtime pack is selected by `assets/vanilla-source.json`.
 
 ## Plane geometry and UV defaults
 
+The pack's `geometry.arrow` has two crossed, zero-width shaft planes and one
+zero-depth cap. Their per-face UV objects deliberately omit `uv_size`.
+Native geometry parsing starts with the supplied
+face dimensions, then overrides them only when `uv_size` is present. The face mapping is: north/south use X/Y, east/west use Z/Y, up/down use X/Z.
+These per-face defaults retain fractional dimensions; the separate box-UV
+layout's truncation is not applicable.
 
 The former one-by-one default sampled a single texel-sized region of the
 arrow's sixteen-by-five shaft and five-by-five cap. Runtime geometry now
@@ -18,7 +19,8 @@ production geometry.
 
 ## Two-sided material
 
-The matched IPA defines `arrow:entity_alphatest`; that base inherits
+The locally installed 1.26.50 iOS archive’s `vanilla/materials/entity.material`
+defines `arrow:entity_alphatest`; that base inherits
 `entity_nocull`, whose states disable culling. Both sides of a plane therefore
 sample the authored face, with alpha testing. Our missing-face sentinel
 previously discarded each reverse side even though the pipeline itself did
@@ -34,6 +36,14 @@ classification does not establish custom/server material parity.
 
 ## Actor rotation
 
+`ExpressionQueries::getTargetYRotationBase`
+special-cases the arrow actor type: `target_y_rotation` is absolute actor
+rotation yaw, interpolated by the native frame alpha, not a mob's clamped
+head-minus-body yaw.
+`Actor::getInterpolatedBodyYaw` returns zero for
+the base actor; the data-driven renderer uses that value for
+its actor-root orientation. Arrow orientation is consequently supplied by
+the pack's body animation, not duplicated by the mob body-turn heuristic.
 
 Runtime retains the absolute yaw separately, keeps the arrow's body-root
 yaw zero, and evaluates the pack's arrow animation. The authored body scale,
@@ -41,6 +51,12 @@ pitch, yaw and crossed-plane rotations remain pack data.
 
 ## Impact shake state
 
+Native actor event handling, case `0x27`, assigns
+the packet's signed extra data directly to the actor's shake counter.
+Actor base tick decrements it once only when positive;
+nonpositive values remain unchanged. The Molang query wrapper converts that signed counter to float. Runtime now retains
+this event and state with those exact semantics. There is no invented
+default seven-tick duration or narrowing to an unsigned byte.
 
 The pack's `arrow.entity.json` computes shake power from
 `query.shake_time - query.frame_alpha`; the body animation consumes that

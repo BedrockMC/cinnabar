@@ -1,5 +1,9 @@
 use crate::chunk::*;
 
+/// Vanilla terrain_blend adds blending, not DisableDepthWrite. The exact-current
+/// material parser enables depth writes when that state is absent;
+/// the installed 1.26.51 terrain.material independently preserves this contract.
+/// Bedrock's conventional LessEqual depth maps to GreaterEqual in reverse-Z.
 pub(super) fn apply(descriptor: &mut RenderPipelineDescriptor) {
     let target = descriptor
         .fragment

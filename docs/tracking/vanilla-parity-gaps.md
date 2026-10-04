@@ -1,5 +1,10 @@
 # Vanilla-parity gap tracker
 
+Consolidated 2026-09-28 from a read-only audit against the 26.30 client and
+pinned bedrock-samples. Target: version-matched
+vanilla Bedrock, except the in-game HUD, which targets Java Edition by owner
+decision — chat and scoreboard styling there are intentional and not gaps.
+Values marked *(measure)* may now be taken directly from the client references (owner decision).
 
 ## Fixed
 - Block breaking / interaction: `verified_selection` refused an `Unknown` selected
@@ -73,7 +78,7 @@ profile (OreUI in 26.30, no `ui/*.json` screen) and first-run progress (it compl
 window opens) stay programmatic, and the programmatic launcher remains only for a missing
 carrier or a failed render. Launcher screens sit on the vanilla panorama, a render pass that ray-casts the
 carrier's full-resolution cube faces (FOV 85°, 2°/s turn, 25±5° tilt follow the title-screen
-cube; the reconstruction keeps the real values as unnamed data, so they need measurement).
+cube; the real values remain unresolved and need measurement).
 The Servers tab lists featured servers then gatherings with the vanilla info panel (description,
 news, screenshots, games; artwork up to 512 px, read-more toggles, selected-row highlight,
 RakNet player counts and ping icons with provisional 150/300 ms thresholds); Realms split
@@ -89,6 +94,63 @@ target over `connect.v1` and fall back to a per-session core; opened local world
 closed with their session; respawn sends the client-ready respawn request only (no player
 action, per the reference); a dead launcher core is not detected until a join times out.
 
+## Equipment / attachable rendering (Bedrock 3D target)
+T0 landed (attachable bindings, `.mcbeeqp` carrier). Uncompiled/unmeasured lane work now adds
+(all **incomplete**; no vanilla acceptance gate closes on it):
+- **Carrier v2** carries decoded attachable textures (armor tiers, elytra, ...) beside bindings.
+- **Layers:** extra actor rig instances keyed `(session, dim, runtime, layer)` ride the body's pose
+  and transform; per-instance dye tint word; instance arena 512 (bodies still 128).
+- **Held item (third person, both hands):** flat sprite items only, extruded one texel deep and
+  packed into shared atlas pages, on `rightItem`/`leftItem`. The display placement is a
+  *provisional* placement, not the retail transform (needs native measurement). Block items,
+  bow/crossbow/trident geometry, spyglass/horn poses: not drawn.
+- **Worn armor:** four slots from `MobArmorEquipment` (remote and local), player-variant
+  geometry bound to body bones by name, tier textures, leather dye from `customColor` (default
+  leather colour and colour-space multiply need measurement). No enchant glint/trim/elytra/
+  shield/pumpkin head.
+- **First person:** near-camera rig pass fed with arm-only masking per the pack's first-person
+  part visibility (arm shows for empty hand/map only) plus a drawable held sprite or block cube
+  in a separate camera-space legacy-icon stack (item atlas bound to the pass); cubes and
+  attachables still use the posed `rightItem` bone. The arm follows the 26.30
+  reference: a zero-yaw actor in view space, feet one eye height below the camera, with the
+  target/body/head rotation queries zeroed; `variable.player_arm_height` is the equip progress
+  (its per-tick step and swap height are unresolved in the reference and need measurement).
+  The hand pass has its own fixed FOV and receives view bob, hurt tilt and arm sway.
+  Undrawable items keep the CPU icon viewmodel. Eat/drink/bow-draw
+  poses are neutral: `query.main_hand_item_use_duration` now counts using-item flag ticks, but
+  `max_duration` has no source (no item-use state; only food durations exist in pack data).
+- **Arm swing:** attacks, mining and use swing the local rig when the swing is accepted (the
+  server never echoes the owner's swing); remote swings come from the Animate packet. The pinned
+  pack's first-person attack rotation reads `variable.first_person_item_rotation_factor`, which
+  neither the pack nor the 26.30 client assigns; it provisionally takes the pack's
+  `first_person_rotation_factor`. Haste and fatigue do not yet change the rig's 6-tick swing.
+- **Held item placement:** third-person sprites/tools/cubes follow the 26.30 reference's
+  held-item/default transforms on `rightItem`. Ordinary first-person icons use the current
+  client camera stack and default icon transform.
+  Swing/equip inputs are sampled at fixed ticks and interpolated before nonlinear evaluation;
+  they do not inherit avatar bones or model scale. Provisional: item-use/mirrored-art branches,
+  custom render offsets and native sine-table rounding are missing; the hand-equipped item
+  list mirrors vanilla by identifier, the block
+  mesh origin is assumed centred, and the narrow-aspect first-person offset is not applied.
+  `query.get_default_bone_pivot` now reads the rig's rest pivots.
+- **Block items:** plain opaque cubes in hand (third and first person) and on the head
+  (carved pumpkin); non-cube blocks and mob/player heads are not drawn.
+- **Elytra:** wings posed from the carrier's literal `default`/`sneaking`/`sleeping` clips;
+  gliding and swimming are Molang-driven and fall back to `default`.
+- **Trident and shield:** single-bone attachable geometry at the hand item bone, placed by the
+  carrier's literal wield transforms (shield poses resolved per hand). Attachable origin rule
+  (behavior only): the attachable's model origin is the parent's `rightItem`/`leftItem` bone
+  origin and bones turn about their own pivots; a geometry with only a `rightitem` locator bone
+  (bow, crossbow) draws the extruded item texture there.
+- **Worn heads:** skeleton, wither skeleton, zombie, player, creeper heads reuse the
+  block-entity carrier's skull textures on the head bone; dragon/piglin heads are not drawn.
+- **Item use:** `main_hand_item_max_duration`/`item_remaining_use_duration` read carrier use
+  durations (behavior-pack food, spears, honey; ticks) and the local player's held items feed
+  the animation runtime. Bow, crossbow, trident, potion, shield and spyglass durations are
+  engine-side and unavailable.
+- **Not done:** bow/crossbow pull frames (frame index and charge semantics are engine-side),
+  spyglass/goat-horn poses, enchant glint (needs an additive pass ordered after the base draw),
+  armor trims (per armor x pattern x material composite textures).
 
 ## Local player rendering
 Third-person body (S1) merged: local player routed through the shared animated rig.
@@ -106,7 +168,7 @@ animated rig remotes use. All three below flow from that.
   the shared rig + motion model.
 - First-person hand+item: flat CPU sprite / static `EmptyHandNeutralStaticFallback`; no
   bob/swing/equip/sway/lighting/held item. Implement via first-person render controller +
-  `animation.player.first_person.*` (public samples) + `ItemInHandRenderer` transforms (Lens).
+  `animation.player.first_person.*` (public samples) + `ItemInHandRenderer` transforms.
 - Top-left mini player: no vanilla counterpart → remove if a standalone overlay; keep the
   inventory/menu paperdoll.
 

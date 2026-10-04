@@ -1,6 +1,9 @@
 use super::*;
 use bevy::render::render_resource::DepthBiasState;
 
+// Vanilla environmental text: native constant bias -32.
+// The same override zeros slope/clamp. Native LessEqual uses standard Z;
+// our GreaterEqual reverse-Z comparison reverses the bias sign to retain the toward-eye shift.
 pub(super) const NATIVE_ENVIRONMENTAL_TEXT_DEPTH_BIAS: i32 =
     -crate::nametag::NAMETAG_TEXT_REVERSE_Z_BIAS;
 

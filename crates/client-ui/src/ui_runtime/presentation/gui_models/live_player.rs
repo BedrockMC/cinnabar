@@ -20,7 +20,7 @@ impl UiPresentationRuntime {
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
     pub fn capture_hud_player(
         &mut self,
-        stream: Option<&client_world::WorldStream>,
+        stream: Option<&chunk_pipeline::WorldStream>,
         swimming: bool,
     ) {
         self.capture_hud_player_with_emote(stream, swimming, None);
@@ -29,7 +29,7 @@ impl UiPresentationRuntime {
     /// Projects an optional local render-only emote without changing the world rig or hand.
     pub fn capture_hud_player_with_emote(
         &mut self,
-        stream: Option<&client_world::WorldStream>,
+        stream: Option<&chunk_pipeline::WorldStream>,
         swimming: bool,
         emote: Option<(client_world::CustomEmote, f64)>,
     ) {
@@ -41,7 +41,7 @@ impl UiPresentationRuntime {
             return;
         };
         let id = stream.local_player_runtime_id();
-        let Some(rig) = stream.actor_rig(id) else {
+        let Some(rig) = stream.authority().actor_rig(id) else {
             return;
         };
         let emote_pose = emote.and_then(|(emote, phase)| {
@@ -51,7 +51,7 @@ impl UiPresentationRuntime {
         let Some(pose) = emote_pose
             .as_ref()
             .map(|pose| pose.current.as_ref())
-            .or_else(|| stream.actor_ui_pose(id))
+            .or_else(|| stream.authority().actor_ui_pose(id))
         else {
             return;
         };

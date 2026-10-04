@@ -2,6 +2,8 @@
 
 Sources used on 2026-10-01:
 
+- `V:` is the read-only installed vanilla pack at
+  `~/Downloads/cinnabar/.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/`.
 
 ## Verified user-facing rules
 
@@ -26,21 +28,19 @@ Vanilla disallows changing resource packs while playing a world:
 closed vanilla parity gate. Imports contain user assets stored in the install
 layout, never committed assets.
 
-## Reconstruction checks and limits
+## Vanilla rules
 
+| Rule | Behaviour |
+| --- | --- |
+| Composite stack | Compose separate stacks, a conditional stack and lower fallbacks. |
+| Resource lookup | Resolve the first matching resource, checking its selected subpack before the pack root. |
+| Unchanged global stack | Compare pack identities and avoid applying an unchanged stack. |
+| Manifest | Read UUID, minimum engine version, subpacks and `memory_tier`; serialize and deserialize subpack counts. |
 
-
-Lens current-client source search confirms manifest subpack parsing at
-`L:1.26.50.26:0x1b486b0` (`FUN_141b486b0`, search `subpacks`), subpack count
-serialization/deserialization at `0x4b0abd0` and `0x4b0a110`, and memory-tier parsing
-at `0x1848c40` (search `memory_tier`). Searches for global resources locate
-`0x1be9b60` and `0x1b2fbc0`; they do not by themselves prove stack order. Lens
-`owner_functions(ResourcePackManager)` returned the 26.30 owner/RVAs above.
-Attempts to read current raw functions returned unavailable, and a subsequent
-batched full read returned analysis service unavailable. Therefore current
-stack-order evidence is the shipped current pack's explicit UI description,
-corroborated by the older manager's layering structure, not a claim that the
-current reconstructed force-pack branch has been fully traced.
+Internal vector direction must not be confused with the user-visible bottom-to-top
+labels. Cinnabar's `LayeredPackView` stores low-to-high and looks up in reverse.
+Current force-pack branch behavior remains incompletely verified. The shipped
+pack's explicit UI descriptions establish the current user-visible stack order.
 
 ## Existing subscribers and reload dependencies
 
@@ -65,13 +65,11 @@ stale worker completions after edits, disconnects, or transfers.
 
 ## Font reload evidence
 
-`L:1.26.50.26:0x4c36580` (`FUN_144c36580`, `source_search` for
-`font/default8`) names the default bitmap sheet. Its older counterpart is
-`R:f/Font.cpp:6016`; `R:f/Font.cpp:7677` is the explicit `reloadFontTextures` path.
-`R:b/BitmapFont.cpp:900`–`:951` divides the sheet dimensions by 16, iterates 256
-cells using row `index >> 4` and column `index & 15`, scans alpha for glyph widths,
-and treats space specially. ASCII cells can be supported directly; mapping the
-entire extended range requires the font remapping rules as well.
+The default bitmap sheet is `font/default8`, with an explicit texture reload path.
+Divide sheet dimensions by 16 and iterate 256 cells using row `index >> 4` and
+column `index & 15`. Scan alpha for glyph widths and treat space specially.
+ASCII cells can be supported directly; the extended range also requires font
+remapping rules.
 
 ## Implemented reload boundaries
 
@@ -106,6 +104,9 @@ extended-byte remapping of `default8` remains unimplemented; non-ASCII continues
 to use Unicode sheets and the base font. This does not claim force-Unicode-mode
 parity or arbitrary TrueType/OpenType pack support.
 
+Focused tests cover highest-layer ASCII replacement, Unicode preservation,
+restoration after removal, no duplicate codepoints, right-edge advance with
+leading transparent columns, and malformed-image fallback. Space emits no geometry.
 
 ## Settings host integration
 

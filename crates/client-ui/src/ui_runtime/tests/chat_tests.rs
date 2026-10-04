@@ -19,7 +19,8 @@ fn accepted_chat_send_clears_editor_and_session_replacement_attributes_drops() {
     assert!(runtime.chat_editor().as_str().is_empty());
     assert_eq!(runtime.pending_chat_sends().len(), 1);
 
-    runtime.begin_session(&mut player_runtime, 12);
+    player_runtime.begin_session(12);
+    runtime.begin_session(12);
     assert!(runtime.pending_chat_sends().is_empty());
     assert_eq!(runtime.dropped_unsent_chat_messages(), 1);
 }
@@ -200,7 +201,8 @@ fn session_replacement_discards_the_prior_autocomplete_catalog() {
             ),
         )
         .unwrap();
-    runtime.begin_session(&mut player_runtime, 3);
+    player_runtime.begin_session(3);
+    runtime.begin_session(3);
     runtime.open_chat(&mut player_runtime);
     runtime.insert_chat_text("/g").unwrap();
 
@@ -306,15 +308,23 @@ fn fast_transfer_action_is_exact_and_carries_session_ordinal_identity() {
             packet.header.id as u32, 77,
             "expected CommandRequest packet ID"
         );
-        observed = action.map(|action| action.marker(session, sequence, 1_000_000));
+        observed = action.map(|action| {
+            action.marker(
+                crate::diagnostic_markers::FAST_TRANSFER_ACTION,
+                session,
+                sequence,
+                1_000_000,
+            )
+        });
         Ok::<_, &str>(())
     })
     .unwrap();
     assert_eq!(
-        observed.as_deref(),
-        Some(
-            "RUST_MCBE_FAST_TRANSFER_ACTION={\"action_ordinal\":0,\"command\":\"/transfer sm3\",\"kind\":\"command_sent\",\"schema\":\"rust-mcbe-fast-transfer-action-v1\",\"sent_unix_ms\":1000000,\"session_generation\":7}"
-        )
+        observed,
+        Some(format!(
+            "{}={{\"action_ordinal\":0,\"command\":\"/transfer sm3\",\"kind\":\"command_sent\",\"schema\":\"rust-mcbe-fast-transfer-action-v1\",\"sent_unix_ms\":1000000,\"session_generation\":7}}",
+            crate::diagnostic_markers::FAST_TRANSFER_ACTION,
+        ))
     );
 }
 
@@ -329,7 +339,8 @@ fn session_replacement_clears_editor_autocomplete_and_old_outbox() {
     runtime.insert_chat_text("/draft").unwrap();
     assert!(runtime.take_chat_autocomplete_request().is_some());
 
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
 
     assert!(!runtime.chat_focused());
     assert!(runtime.chat_editor().as_str().is_empty());

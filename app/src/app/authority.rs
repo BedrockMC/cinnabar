@@ -25,12 +25,11 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 }
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
-    app.add_message::<crate::runtime::audio::SequencedAudioEvent>()
+    app.add_plugins(client_presentation::ClientPresentationPlugin)
+        .add_message::<client_presentation::audio_ingress::SequencedAudioEvent>()
         .add_message::<bevy::input::mouse::MouseWheel>()
         .init_resource::<WorldStreamFramePoll>()
-        .init_resource::<crate::runtime::network::ActorFramePartialTick>()
-        .init_resource::<crate::runtime::network::PreparedActorPublication>()
-        .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
+        .init_resource::<client_ui::ui_runtime::presentation::PreparedUiPublication>()
         .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
         .add_systems(
             Update,
@@ -58,7 +57,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 crate::ui_runtime::presentation::apply_gui_scale_setting,
                 crate::menu::persist_video_settings,
                 drive_inventory_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
-                drive_menu_connection,
+                drive_menu_services,
+                drive_session,
                 crate::settings_runtime::apply_window_settings,
                 crate::settings_runtime::apply_render_distance,
                 crate::store::drive_store,

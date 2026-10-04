@@ -76,8 +76,8 @@ impl UiPresentationRuntime {
             named(ledger.target_stack(InventoryTarget::Armor(slot as u8)))
         });
         let held = named(
-            runtime
-                .selected_hotbar_slot(player_runtime)
+            player_runtime
+                .selected_hotbar_slot()
                 .and_then(|slot| ledger.displayed_stack(slot)),
         );
         self.set_player_preview_gear(
@@ -177,7 +177,7 @@ pub enum PreviewView {
     /// `paper_doll_renderer`: a fixed turn (`starting_rotation`) under a camera tilt
     /// (`camera_tilt_degrees`), both in degrees.
     Doll { yaw: f32, tilt: f32 },
-    /// Fixed HUD camera while the actor keeps its live pose.
+    /// Native fixed body yaw while the actor keeps its animated pose and relative head look.
     Hud,
 }
 
@@ -199,7 +199,12 @@ impl PreviewView {
                 [x * 20.0, x * 40.0, y * -20.0, y * -20.0]
             }
             Self::Doll { yaw, tilt } => [yaw, yaw, 0.0, tilt],
-            Self::Hud => [22.5, 22.5, 0.0, 0.0],
+            Self::Hud => {
+                // Vanilla fixes both HUD body-yaw samples.
+                // rotate_y already uses the native yaw direction.
+                let yaw = -22.5;
+                [yaw, yaw, 0.0, 0.0]
+            }
         }
     }
 }
@@ -295,8 +300,9 @@ impl PlayerPreviewPose {
     }
 
     /// The local actor's pose; the default stance off-world.
-    pub fn of_local_player(stream: Option<&client_world::WorldStream>) -> Self {
-        let Some(actor) = stream.and_then(|stream| stream.actor(stream.local_player_runtime_id()))
+    pub fn of_local_player(stream: Option<&chunk_pipeline::WorldStream>) -> Self {
+        let Some(actor) =
+            stream.and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
         else {
             return Self::default();
         };

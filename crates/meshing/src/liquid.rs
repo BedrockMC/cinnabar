@@ -1,4 +1,4 @@
-/// Native liquid face separation from contacting block geometry (06a1b960).
+/// Native liquid face separation from contacting block geometry.
 pub const LIQUID_FACE_INSET: f32 = 0.001;
 /// Word 2 flag: native tessellation admits the opposite winding for this face.
 pub const LIQUID_TWO_SIDED_BIT: u32 = 1 << 29;
@@ -138,6 +138,10 @@ impl LiquidPart {
 #[derive(Clone, Copy)]
 struct OcclusionPart {
     occludes: bool,
+    /// A full cube can block the liquid sampler without hiding a liquid face.
+    /// Native flow reads Material.blocksMotion, while height
+    /// samples exclude cube-shaped neighbours. In particular,
+    /// transparent ice is not an air sample or a downhill opening.
     full_cube: bool,
     /// Bit per face: the primary occludes and that face's material is opaque.
     opaque_faces: u8,
@@ -691,7 +695,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     (addressed, lighting)
 }
 
-/// Classic water (06a1b960, lighting model != deferred) admits side/bottom faces
+/// Classic water (lighting model != deferred) admits side/bottom faces
 /// only beside primary Air, even when a non-Air block has a transparent face.
 /// Other liquids retain the ordinary face mask. Side reverse winding also
 /// requires primary Air, independently of any additional liquid layer.

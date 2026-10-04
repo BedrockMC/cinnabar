@@ -1,50 +1,75 @@
 //! Opt-in component spike. The default client registers no extension runtime.
 
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
-
-use bevy::{prelude::*, window::PrimaryWindow};
-use mod_host::{ModGrants, ModHost};
-
-use crate::environment::VisualTimeOverride;
-
-use crate::{
-    app::ClientFrameSet,
-    menu::MenuRuntime,
-    ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+use bevy::prelude::*;
+#[cfg(feature = "local-mods")]
+use {
+    crate::{app::ClientFrameSet, environment::VisualTimeOverride, menu::MenuRuntime},
+    bevy::window::{CursorOptions, PrimaryWindow},
+    client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    mod_host::{ModGrants, ModHost},
+    std::{
+        path::Path,
+        time::{Duration, Instant},
+    },
 };
 
 const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
+#[cfg(feature = "local-mods")]
+const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
+#[cfg(feature = "local-mods")]
+const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
+#[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
+#[cfg(feature = "local-mods")]
 #[derive(Resource)]
 struct ModRuntime {
     host: ModHost,
     last_reload: Instant,
+    grants: ModGrants,
 }
 
 /// Installs the developer extension only when its component path is explicit.
 pub(crate) fn configure_from_environment(app: &mut App) {
     let path = std::env::var_os(COMPONENT_ENV);
+    #[cfg(feature = "local-mods")]
     configure(app, path.as_deref().map(Path::new));
+    #[cfg(not(feature = "local-mods"))]
+    if path.is_some() {
+        let _ = app;
+        eprintln!("{COMPONENT_ENV} ignored: build bedrock-client with --features local-mods");
+    }
 }
 
 /// Loads one optional component without changing the vanilla schedule on absence.
+#[cfg(feature = "local-mods")]
 fn configure(app: &mut App, path: Option<&Path>) {
+    let grants = ModGrants {
+        environment: true,
+        players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
+        camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
+    };
+    configure_with_grants(app, path, grants);
+}
+
+/// Grants are explicit and apply only to the selected personal component.
+#[cfg(feature = "local-mods")]
+fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) {
     let Some(path) = path else { return };
-    match ModHost::load_with_grants(path, ModGrants { environment: true }) {
+    match ModHost::load_with_grants(path, grants) {
         Ok(host) => {
             app.insert_resource(VisualTimeOverride(host.time_override()))
                 .insert_resource(ModRuntime {
                     host,
                     last_reload: Instant::now(),
+                    grants,
                 })
                 .add_systems(
                     Update,
                     drive_mod
+                        .in_set(crate::camera::ModCameraInputSet)
                         .after(ClientFrameSet::SemanticFinalize)
                         .before(ClientFrameSet::UiPublication)
                         .before(crate::environment::update_atmosphere_frame),
@@ -59,15 +84,17 @@ fn configure(app: &mut App, path: Option<&Path>) {
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
 )]
+#[cfg(feature = "local-mods")]
 fn drive_mod(
     player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
     mut extension: ResMut<ModRuntime>,
     keys: Res<ButtonInput<KeyCode>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
     ui: Res<UiRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationRuntime>,
     mut time_override: ResMut<VisualTimeOverride>,
+    mut gameplay: gameplay::GameplayContext,
 ) {
     if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
@@ -75,20 +102,25 @@ fn drive_mod(
             eprintln!("Cinnabar extension reload rejected: {error:#}");
         }
     }
-    let focused = windows.single().is_ok_and(|window| window.focused);
-    let pressed = keybind_allowed(
-        focused,
-        crate::screen_policy::absorbs_input(
-            &player_runtime,
-            Some(&ui),
-            menu.as_deref(),
-            Some(&presentation),
-        ),
-    ) && keys.just_pressed(DEMO_KEY);
+    let focused = windows.single().is_ok_and(|(window, _)| window.focused);
+    let absorbed = crate::screen_policy::absorbs_input(
+        &player_runtime,
+        Some(&ui),
+        menu.as_deref(),
+        Some(&presentation),
+    );
+    let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
+    let captured = windows.single().is_ok_and(|(window, cursor)| {
+        cursor.is_some_and(|cursor| crate::camera::input_is_active(window, cursor))
+    });
+    let snapshot = gameplay.snapshot(captured && !absorbed, extension.grants);
     if extension.host.is_active()
-        && let Err(error) = extension.host.frame(pressed)
+        && let Err(error) = extension.host.frame_with_gameplay(pressed, snapshot)
     {
         eprintln!("Cinnabar extension callback disabled: {error:#}");
+    }
+    if let Some(delta) = extension.host.take_camera_delta() {
+        gameplay.apply(delta);
     }
     time_override.0 = extension.host.time_override();
     if let Err(error) = presentation.set_mod_label(extension.host.label()) {
@@ -97,11 +129,12 @@ fn drive_mod(
 }
 
 /// A mod keybind is unavailable while another UI or an unfocused window owns input.
+#[cfg(feature = "local-mods")]
 fn keybind_allowed(window_focused: bool, input_absorbed: bool) -> bool {
     window_focused && !input_absorbed
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-mods"))]
 mod tests {
     use super::*;
 
@@ -186,5 +219,8 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "local-mods"))]
 mod time_changer_tests;
+
+#[cfg(feature = "local-mods")]
+mod gameplay;

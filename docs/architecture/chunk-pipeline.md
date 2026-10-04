@@ -25,7 +25,7 @@ the captured session and registry identities, to every decode job. Registry
 provenance logging stays beside remap updates. The pipeline dispatches those jobs
 without keeping a second registry or diagnostic budget. The bounded sampling and
 unknown-ID air fallback retain the behavior and references documented in the
-[Lifeboat investigation](../evidence/lifeboat-offline.md#vanilla-references).
+[Lifeboat investigation](../evidence/lifeboat-offline.md#vanilla-rules).
 
 The coordinator still decides relevance and mutation order. It applies each
 accepted mutation synchronously before invalidating lighting, mesh or block-entity
@@ -84,9 +84,17 @@ when they only need authority. This adapter owns no duplicate state.
 ## References and verification scope
 
 This is an ownership migration, with no new vanilla behavior or parity claim.
-The original behavior and reference comments move with their owners. Scheduling
-and completion roles are consistent with these identified references:
+The original behavior comments move with their owners.
 
+## Vanilla rules
+
+| Rule | Behaviour |
+| --- | --- |
+| Rebuild ownership | Setup and completion run on the main thread, with exclusive in-progress geometry and ordered completion prerequisites. |
+| Dirty work | Loaded subchunks and dirty work are coordinated together. |
+| Retained view | The subscribed view moves its grid when its center changes. |
+
+Pack inputs are recorded in [the pack migration](pack-compiler.md#references-and-parity-scope).
 
 The numeric queue and work budgets remain Cinnabar's existing bounds; this work
 does not claim they are vanilla constants. Moved tests cover ordering, admission,

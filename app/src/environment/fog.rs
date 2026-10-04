@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::{BiomeRule, RuntimeAssets};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use protocol::BiomeDefinitionEvent;
 use render::PRECIPITATION_SAMPLE_OFFSETS;
 
@@ -12,6 +12,7 @@ fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSE
         .map(|offset| std::array::from_fn(|axis| origin[axis] + offset[axis] as f32))
 }
 
+/// Samples the current client's 27-position biome layer.
 pub(crate) fn fog_biome_samples(
     stream: &WorldStream,
     assets: &RuntimeAssets,
@@ -28,8 +29,8 @@ pub(crate) fn fog_biome_samples(
         .collect()
 }
 
-/// Native Biome+0x40 starts true (07332c90) and climate application (0e1a5200)
-/// disables it when the optional downfall is below the PE float epsilon.
+/// Biome precipitation starts enabled, and climate application
+/// disables it when the optional downfall is below the float epsilon.
 /// Unknown/non-finite climate is not assigned a fabricated precipitation flag.
 fn precipitation_eligible(downfall: f32) -> Option<bool> {
     downfall.is_finite().then_some(downfall >= f32::EPSILON)
