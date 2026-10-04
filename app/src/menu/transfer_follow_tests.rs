@@ -14,7 +14,7 @@ use crate::{
         network::{NetworkHandle, ResourcePackAdmissionState},
         world::{ClientWorld, TransferNotice},
     },
-    session::{JoinStage, SessionController, drive_session, follow_server_transfer},
+    session::{SessionController, drive_session, follow_server_transfer},
 };
 use client_ui::ui_runtime::UiRuntime;
 
@@ -224,6 +224,8 @@ fn app_with_core(root: &Path, script: &str) -> App {
 #[cfg(unix)]
 #[test]
 fn cancellation_precedes_a_ready_join_response() {
+    use crate::session::JoinStage;
+
     let root = TempRoot::new();
     let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 0\n");
     let (reply, ready) = crossbeam_channel::bounded(1);

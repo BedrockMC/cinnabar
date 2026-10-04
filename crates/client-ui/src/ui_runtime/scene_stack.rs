@@ -24,6 +24,7 @@ pub enum Scene {
     Bed,
     Container,
     Chat,
+    Emote,
     Loading,
     SignEditor,
     ServerForm,
@@ -192,6 +193,12 @@ impl UiRuntime {
             stack.push(
                 Scene::Chat,
                 json(Some(super::presentation::forms::CHAT_SCREEN)),
+            );
+        }
+        if self.emotes().is_open() {
+            stack.push(
+                Scene::Emote,
+                json(Some(super::presentation::forms::EMOTE_SCREEN)),
             );
         }
         if host.loading && host.menu.is_none() {

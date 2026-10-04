@@ -45,6 +45,9 @@ impl SettingsOptions {
             validated.set_language(language);
         }
         validated.keys = saved.keys;
+        if let Some(slots) = saved.emote_slots {
+            validated.set_emote_slots(slots);
+        }
         if !validated.stored_bindings_valid() {
             validated.keys.clear();
         }

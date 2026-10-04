@@ -813,6 +813,7 @@ fn resolve_rig(
 
 mod attachable;
 mod clock;
+pub(crate) mod custom_emotes;
 mod evaluation;
 mod geometry;
 mod horse;

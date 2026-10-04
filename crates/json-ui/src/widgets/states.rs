@@ -64,7 +64,7 @@ pub(crate) fn state_index(state: &ViewState, key: &str) -> u8 {
 pub(crate) fn has_state_targets(control: &ResolvedControl) -> bool {
     matches!(
         control.control_type.as_deref(),
-        Some("button" | "edit_box" | "toggle" | "dropdown" | "slider")
+        Some("button" | "edit_box" | "toggle" | "dropdown" | "slider" | "selection_wheel")
     )
 }
 
@@ -75,6 +75,15 @@ pub(crate) fn state_targets(
 ) -> Vec<StateTarget<'_>> {
     if !has_state_targets(control) {
         return Vec::new();
+    }
+    if control.control_type.as_deref() == Some("selection_wheel") {
+        return crate::component::wheel_visibility(control)
+            .into_iter()
+            .map(|(control, shown)| StateTarget {
+                control,
+                mask: if shown { u8::MAX } else { 0 },
+            })
+            .collect();
     }
     let mut targets: Vec<StateTarget<'_>> = Vec::new();
     let mut resolved = Vec::new();
@@ -129,6 +138,9 @@ fn writes<'a>(
     ancestor_locked: bool,
     cache: &mut Targets<'a>,
 ) -> Vec<(&'a ResolvedControl, bool)> {
+    if control.control_type.as_deref() == Some("selection_wheel") {
+        return crate::component::wheel_visibility(control);
+    }
     if !matches!(
         control.control_type.as_deref(),
         Some("button" | "edit_box" | "toggle" | "dropdown" | "slider")

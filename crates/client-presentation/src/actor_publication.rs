@@ -1,4 +1,5 @@
 mod commit;
+mod emote_geometry;
 mod hand;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
 #[cfg(test)]
@@ -57,6 +58,7 @@ pub struct ActorFrameInput {
     pub swing_started: Option<i32>,
     pub renders_game: bool,
     pub hide_hand: bool,
+    pub custom_emote: Option<(client_world::CustomEmote, f64)>,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -582,6 +584,14 @@ pub fn prepare_actor_render_frame(
     } else {
         None
     };
+    let local_emote_pose = (!first_person)
+        .then(|| {
+            let stream = client_world.stream.as_ref()?;
+            let rig = stream.authority().actor_rig(local_runtime_id)?;
+            let (emote, elapsed) = input.custom_emote?;
+            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
+        })
+        .flatten();
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -627,6 +637,28 @@ pub fn prepare_actor_render_frame(
         .and_then(|stream| stream.authority().actor(local_runtime_id))
         .and_then(|actor| actor.status.death_progress(step.partial_tick));
     let local = local.map(|mut local| {
+        if let (Some(pose), Some(stream)) = (&local_emote_pose, &client_world.stream)
+            && let (Some(rig), Some(actor)) = (
+                stream.authority().actor_rig(local_runtime_id),
+                stream.authority().actor(local_runtime_id),
+            )
+            && let Some(animated) = crate::presentation::actors::actor_rig_presentation(
+                &pose.snapshot(rig),
+                actor,
+                stream.authority().actor_player_profile(local_runtime_id),
+                step.partial_tick,
+            )
+        {
+            emote_geometry::apply(
+                &pose.snapshot(rig),
+                &mut skin_rigs,
+                equipment.as_deref_mut(),
+                &mut new_geometries,
+                &mut local.submission,
+                animated.submission,
+            );
+        }
+
         local.submission.world_from_actor = crate::presentation::actors::death_tilted(
             local.submission.world_from_actor,
             local_death,
@@ -656,7 +688,17 @@ pub fn prepare_actor_render_frame(
         crate::presentation::cape::apply_capes(
             &mut batch,
             cape,
-            |runtime_id| stream.authority().actor_rig(runtime_id),
+            |runtime_id| {
+                stream.authority().actor_rig(runtime_id).map(|rig| {
+                    if runtime_id == local_runtime_id
+                        && let Some(pose) = &local_emote_pose
+                    {
+                        pose.snapshot(rig)
+                    } else {
+                        rig
+                    }
+                })
+            },
             |runtime_id| stream.authority().actor_player_profile(runtime_id),
         );
     }
@@ -685,7 +727,17 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
-            |runtime_id| stream.authority().actor_rig(runtime_id),
+            |runtime_id| {
+                stream.authority().actor_rig(runtime_id).map(|rig| {
+                    if runtime_id == local_runtime_id
+                        && let Some(pose) = &local_emote_pose
+                    {
+                        pose.snapshot(rig)
+                    } else {
+                        rig
+                    }
+                })
+            },
             artwork,
             &mut layer_poses,
         );
