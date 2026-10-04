@@ -59,7 +59,19 @@ The next owned revision doubles the leg-driven hip excursion, makes the torso
 more upright, adds a small alternating torso twist, and brings the hands toward
 the thighs. Foot centers and head height remain anchored. This is still an
 approximation on the existing rigid limb model, not verified Lunar keyframes
-or an articulated knee rig; live visual acceptance of this revision is pending.
+or an articulated knee rig. The subsequent knee revision below supersedes this
+rigid-leg approximation for supported skins.
+
+Classic cuboid skins now receive a temporary render-only thigh/shin split during
+playback. Side-face UVs are cropped at the knee rather than stretching or repeating
+the whole leg texture; mirrored legs and clothing retain their source mappings.
+A two-segment solve bends the knees forward while keeping foot centers planted.
+The pelvis pulses beneath steady shoulders. Source models, tick-owned poses,
+first-person hands and remote actors keep their original skeletons; stopping the
+emote restores the original mesh and pose. Unsupported rotated/polygon/custom
+limbs retain the rigid approximation. Rigid armor knee articulation and exact
+Lunar animation parity remain incomplete. Live acceptance of the knee revision
+is pending.
 
 Sampling resolves named bones in the player's actual geometry and applies
 channels before skeleton composition. Body, clothing/persona layers and armor
@@ -84,9 +96,11 @@ tests cover saved slots/bindings, skeleton/clothing sampling, native wheel/equip
 rendering and radial hits, GUI player vertices, current-frame cancellation,
 same-frame input consumption, controller opening, session/focus retirement,
 and production actor publication with native hand/remote ownership preserved.
-Eight custom-animation tests pass, including native joint landmarks, foot-center
+Eleven custom-animation tests pass, including native joint landmarks, foot-center
 anchoring, attached arms/head and equivalent flat-biped/clothing retargeting.
 The twist regression also checks level head ownership and planted feet.
+Knee regressions check connected equal-length thigh/shin segments, planted feet,
+steady head height, texture cropping, mirroring, clothing and source immutability.
 Controller regressions also cover equipping/playing the left slot without
 retriggering the wheel opener, and closing-frame inventory consumption followed
 by fresh real drop/book actions.

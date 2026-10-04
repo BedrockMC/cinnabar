@@ -11,6 +11,10 @@ use crate::{
 };
 
 fn fixture() -> World {
+    fixture_with_skin(false)
+}
+
+fn fixture_with_skin(with_skin: bool) -> World {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"entity"},"textures":{"default":"textures/entity/test_player"},"geometry":{"default":"geometry.test_player"},"render_controllers":["controller.render.test_player"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},"bones":[
         {"name":"root","pivot":[0,0,0]},
@@ -19,8 +23,8 @@ fn fixture() -> World {
         {"name":"head","parent":"body","pivot":[0,24,0]},
         {"name":"leftArm","parent":"body","pivot":[5,22,0],"cubes":[{"origin":[4,12,-2],"size":[4,12,4],"uv":[32,48]}]},
         {"name":"rightArm","parent":"body","pivot":[-5,22,0],"cubes":[{"origin":[-8,12,-2],"size":[4,12,4],"uv":[40,16]}]},
-        {"name":"leftLeg","parent":"root","pivot":[2,12,0]},
-        {"name":"rightLeg","parent":"root","pivot":[-2,12,0]}]}]}"#;
+        {"name":"leftLeg","parent":"root","pivot":[2,12,0],"cubes":[{"origin":[0,0,-2],"size":[4,12,4],"uv":[16,48]}]},
+        {"name":"rightLeg","parent":"root","pivot":[-2,12,0],"cubes":[{"origin":[-4,0,-2],"size":[4,12,4],"uv":[0,16]}]}]}]}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test_player":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
     let compiled = pack_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity.to_vec()),
@@ -73,6 +77,34 @@ fn fixture() -> World {
                 })),
             )
             .unwrap();
+    }
+    if with_skin {
+        stream
+            .submit(
+                3,
+                WorldEvent::Actor(ActorEvent::PlayerList(protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [1; 16],
+                        unique_id: 1,
+                        username: "fixture".into(),
+                        verified: true,
+                        skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
+                            width: 64,
+                            height: 64,
+                            rgba8: vec![255; 64 * 64 * 4].into(),
+                            cape: None,
+                            geometry: Some(Arc::new(protocol::SkinGeometrySource {
+                                resource_patch:
+                                    r#"{"geometry":{"default":"geometry.test_player"}}"#.into(),
+                                geometry_data: std::str::from_utf8(geometry).unwrap().into(),
+                                animations: Arc::from([]),
+                            })),
+                        }),
+                    }]),
+                })),
+            )
+            .unwrap();
+        stream.advance_actor_interpolation_ticks(1);
     }
     let mut client = ClientWorld::new_with_entity_assets(assets, entities.clone());
     client.stream = Some(stream);
@@ -164,6 +196,36 @@ fn native_pose(world: &World) -> (u64, Vec<client_world::BoneTransform>) {
     let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
     let rig = stream.actor_rig(1).unwrap();
     (rig.completed_tick, rig.current.to_vec())
+}
+
+#[test]
+fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
+    let mut world = fixture_with_skin(true);
+    perspective(&mut world, PerspectiveMode::ThirdPersonBack, 1);
+    prepare(&mut world, 100);
+    let native = native_pose(&world);
+    let ordinary = body(&world, 1);
+    let remote = body(&world, 2);
+    {
+        let mut ui = world.resource_mut::<UiRuntime>();
+        ui.emotes_mut().open();
+        ui.emotes_mut().activate_slot(0, 100);
+    }
+    prepare(&mut world, 10);
+    let dance = body(&world, 1);
+    assert_ne!(dance.input.rig, ordinary.input.rig);
+    assert_eq!(
+        dance.input.current_bones.len(),
+        ordinary.input.current_bones.len() + 2
+    );
+    assert_eq!(native_pose(&world), native);
+    assert_eq!(body(&world, 2).input, remote.input);
+    world.resource_mut::<UiRuntime>().emotes_mut().stop();
+    prepare(&mut world, 0);
+    let restored = body(&world, 1);
+    assert_eq!(restored.input.rig, ordinary.input.rig);
+    assert_eq!(restored.input.current_bones, ordinary.input.current_bones);
+    assert_eq!(native_pose(&world), native);
 }
 
 #[test]
