@@ -14,6 +14,7 @@ mod entity;
 mod environment_settings;
 mod equipment;
 mod error;
+mod fire;
 mod fog_layers;
 mod fog_transition;
 mod font;
@@ -63,6 +64,10 @@ pub use actor::{
     native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
     native_actor_uses_multitexture, neutral_actor_geometry_uvs_are_supported,
     neutral_actor_material_is_supported, neutral_actor_pose_mode,
+};
+pub use fire::{
+    FIRE_ATTACHMENT_MASK_COUNT, FIRE_SUPPORTED_QUAD_COUNT, FIRE_TEMPLATE_COUNT,
+    fire_attachment_template_offset, fire_template_quad_count,
 };
 pub use fog_layers::resolve_fog_layers;
 pub use fog_transition::FogTransition;
@@ -198,7 +203,7 @@ pub use model::{
     BLOCK_VISUAL_VARIANT_TOP_SNOW, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES, MODEL_QUAD_FLAG_CULL_FACE_MASK,
     MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_LILY_PAD, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER,
     MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
@@ -208,8 +213,8 @@ pub use model::{
 };
 pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
-    MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES, MAX_PARTICLE_EFFECTS,
-    MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
+    ACTOR_FLAME_TEXTURE, MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES,
+    MAX_PARTICLE_EFFECTS, MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
     PARTICLE_CARRIER_MAGIC, PARTICLE_CARRIER_VERSION, ParticleEffectFile, ParticleTexture,
     RuntimeParticleAssets, encode_particle_catalog, strip_json_comments,
 };

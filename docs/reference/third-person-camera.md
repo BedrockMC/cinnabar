@@ -1,5 +1,11 @@
 # Third-person camera position and look
 
+Perspective changes refresh the local rig's draw context on the current frame,
+including frames without an actor tick. First-person and world-space bone poses
+must not interpolate into each other. This refresh keeps motion, status, actor
+ticks and clip time unchanged, and invalidates cached bone conversions. Tests
+cover both directions and switches on/between ticks; Windows acceptance is pending.
+
 ## Shared render position
 
 `CameraAPI::tryGetActorInterpolatedPosition` passes its render

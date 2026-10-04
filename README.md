@@ -140,7 +140,7 @@ stdio MCP server:
 ```json
 { "mcpServers": { "jsonui": {
   "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
-  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-cinnangles-sans-v1.mcbefont"]
 } } }
 ```
 

@@ -68,9 +68,9 @@ pub fn carrier() -> Option<Arc<RuntimeUiAssets>> {
 
 pub fn font() -> Arc<RuntimeFontCatalog> {
     let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
-        "../../../../../../assets/ui-font-source.json"
+        "../../../../../../assets/cinnangles-sans-source.json"
     ));
-    std::fs::read(local("assets/compiled/ui-monocraft-v1.mcbefont"))
+    std::fs::read(local("assets/compiled/ui-cinnangles-sans-v1.mcbefont"))
         .ok()
         .and_then(|bytes| RuntimeFontCatalog::decode(&bytes, manifest).ok())
         .map_or_else(fixture_font, Arc::new)
