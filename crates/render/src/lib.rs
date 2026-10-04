@@ -48,6 +48,7 @@ mod shader_safety;
 #[cfg(test)]
 #[path = "../tests/support/shader_source.rs"]
 mod shader_source;
+mod surface_lifecycle;
 mod ui;
 mod ui_textures;
 
