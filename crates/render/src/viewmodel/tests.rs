@@ -435,6 +435,7 @@ fn fallback_input() -> crate::ui::UiRenderInput {
             style_flags: 0,
             alpha_cutoff: -1.0,
             model_light: 1.0,
+            overlay_color: [0.0; 4],
         })
         .into(),
         indices: Arc::from([0, 1, 2, 0, 2, 3]),

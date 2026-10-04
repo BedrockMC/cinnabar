@@ -548,6 +548,11 @@ pub(crate) fn ui_pipeline_descriptor(
                         offset: std::mem::offset_of!(UiRenderVertex, model_light) as u64,
                         shader_location: 5,
                     },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x4,
+                        offset: std::mem::offset_of!(UiRenderVertex, overlay_color) as u64,
+                        shader_location: 6,
+                    },
                 ],
             }],
             ..default()

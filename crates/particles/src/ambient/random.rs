@@ -60,6 +60,12 @@ impl AmbientRandom {
         if upper == 0 { 0 } else { self.next() % upper }
     }
 
+    /// Current Random::nextFloat converts one unsigned MT word to double,
+    /// multiplies by 2^-32, then rounds once to float.
+    pub(super) fn unit(&mut self) -> f32 {
+        (f64::from(self.next()) / (f64::from(u32::MAX) + 1.0)) as f32
+    }
+
     /// Native calls this distribution Z, Y, X, consuming two words per axis.
     pub(crate) fn gaussian_int(&mut self, radius: u32) -> i32 {
         self.bounded(radius) as i32 - self.bounded(radius) as i32

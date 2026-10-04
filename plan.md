@@ -5008,6 +5008,81 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+### Burning camera and HUD doll (accepted fix; overall parity incomplete)
+
+The camera effect now uses vanilla's open fire cube, down-face sprite,
+point sampling, tint/alpha and render order. The active pinned registry protocol
+selects fire, and admitted pack animation frames share the terrain clock.
+The HUD doll uses its separate native flame atlas, collision-box geometry,
+per-draw animation and controller overlay, including the swimming translation
+and extinguishing fade. References: `docs/reference/camera-fire.md` and
+`docs/reference/hud-paper-doll.md`.
+
+Focused fire, shader, UI adapter and UI renderer tests pass, including a physical
+Metal GPU readback for cube orientation, open top, pixel edges and animation.
+The active-protocol admission regression and architecture/fmt checks pass.
+Affected production-library clippy passes with two existing unrelated terrain
+lint categories exempted; the unmodified all-target baseline also has unrelated
+terrain-test and source-inclusion warnings. No full workspace sweep was run.
+
+On 2026-10-04, the user manually accepted the camera overlay and burning doll in
+the rebuilt ordinary-mode Mac client (Apple M3 Pro/Metal, Retina display,
+1280-by-720 logical content window). This closes the reported haze/missing-doll
+defect. The installed native app is a near-version witness, not an exact-version
+capture; broad rendering, persona and live HUD pack-refresh parity remain open.
+World fire is tracked separately below.
+
+### World fire (accepted geometry and smoke; parity incomplete)
+
+World fire now uses vanilla's eight supported sloped quads, their height,
+both independently phased face textures, side
+attachments and ceiling slopes. Signed world-position parity selects attached
+texture/UV variants. The camera keeps its separate down-face binding. Native
+terrain-layer routing proves double-sided cutout rendering with depth writes,
+white vertices and sampled center-cell light without directional shade or AO.
+Reference: `docs/reference/block-fire.md`.
+
+Eleven focused compiler/admission/carrier tests and four meshing tests pass,
+including malformed topology groups, all attachment masks, negative-position
+UV parity and support across a sub-chunk boundary. Ordinary fire's native
+ambient callback now emits runtime-pack smoke from the existing fixed-tick
+sampler. Its six smoke tests and ten existing ambient tests pass. App unit-test
+compilation required a temporary adapter/import correction in the pre-existing
+movement owner tests; that unrelated file was restored byte-for-byte afterward.
+The client and asset compiler build, updated local carrier compilation,
+formatting and architecture checks pass. Affected production-library clippy
+passes with the two previously recorded app lint-category exemptions.
+
+On 2026-10-04, the rebuilt debug client was inspected on Apple M3 Pro/Metal,
+ordinary vanilla mode, a Retina display and a 1280-by-720 logical content window.
+Front, oblique and different animation frames show the tall eight-plane enclosure
+on netherrack, transparent flame edges, original orange/white texels and rising
+black/gray smoke. A separate live frame confirms blue soul fire on soul sand;
+its lowered model now retains the independently proven native support fact.
+These checks resolve the reported low crossed-plane block-fire defect.
+The fixture fixes noon/clear weather, a flat world and camera eye positions
+`(.5,-58.38,-3)` / `(3,-58.38,-2)` / `(3.5,-58.38,-3)`, with unchanged client FOV.
+An ignored local loopback server supplies those states through the pinned
+protocol; it is a test-data supplier, not a vanilla behavior reference.
+Docker's console API stalled, so the saved BDS world was preserved and this
+fixture supplied final captures. Keyboard focus/input parity was not closed.
+Captures and fixture code remain local and outside git.
+
+The complete support/flammability admission inventory remains incomplete.
+Wool's nonzero catch component, glass and soul-sand support, leaf support rejection
+and partial block orientation have identified references. Ordinary cube support still uses
+a provisional native-default fallback; legacy wood/leaves catch components are
+unadmitted. This does not close attached-fire parity. Fixed-point carrier geometry
+quantizes native float coordinates to 1/256 block. Exact current shader cutoff,
+matched-version live frames, soul-fire smoke and ambient crackle audio remain
+open; none is silently treated as verified.
+
+The user accepted block fire and requested a direct push to `dev` with further
+verification skipped. Integration preserves `dev`'s world ownership and HUD
+emote support; smoke sampling follows its Bevy-free particle owner. The checks
+and live captures above precede that integration. Post-integration builds,
+tests and the affected-verification command were skipped at the user's request.
+
 # Optional cloud texture safety
 
 Optional resource-pack cloud masks outside the current mesher's fixed dimensions

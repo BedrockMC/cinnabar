@@ -10,6 +10,7 @@ use assets::{
 use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
+mod fire;
 use crate::{
     BlockClassifier, Face, SIDE,
     contributors::{PaletteFacts, ResolvedPaletteEntry},
@@ -35,6 +36,15 @@ pub(crate) fn select_model_templates<'a>(
     entry: ResolvedPaletteEntry,
 ) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
+    if flags & assets::MODEL_TEMPLATE_FLAG_FIRE != 0 {
+        return (
+            [
+                fire::select_template(context, facts, neighbour_facts, coordinate, entry),
+                NO_MODEL_TEMPLATE,
+            ],
+            1,
+        );
+    }
     if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
         let mask = connected_model_mask(
             context,

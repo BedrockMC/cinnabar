@@ -1,4 +1,4 @@
-//! Native fixed-tick leaf animation triggers.
+//! Native fixed-tick leaf and fire animation triggers.
 //! Other block animateTick callbacks and unclassified native materials remain unsupported.
 
 use std::time::{Duration, Instant};
@@ -7,7 +7,10 @@ use assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF;
 use chunk_pipeline::WorldStream;
 use particles::{
     ParticleSystem, ParticleView,
-    ambient::{AmbientRandom, LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler, material_allows_leaf},
+    ambient::{
+        AmbientRandom, FIRE_SMOKE_EFFECT, LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler,
+        material_allows_leaf,
+    },
 };
 
 use super::world_adapter::StreamParticleWorld;
@@ -15,6 +18,7 @@ use crate::movement::{MAX_LOCAL_PHYSICS_TICKS_PER_FRAME, PhysicsCollisionRegistr
 
 mod color;
 mod diagnostics;
+mod fire;
 
 #[derive(Default)]
 pub(super) struct AmbientParticles {
@@ -44,14 +48,16 @@ impl AmbientParticles {
         system: &mut ParticleSystem,
     ) {
         let due = self.due_ticks(elapsed);
-        let effect_present = system.has_effect(LEAF_EFFECT);
+        let leaf_effect_present = system.has_effect(LEAF_EFFECT);
+        let fire_effect_present = system.has_effect(FIRE_SMOKE_EFFECT);
+        let effect_present = leaf_effect_present || fire_effect_present;
         let view_valid = valid_view(view);
         self.diagnostics.enabled = bevy::log::tracing::enabled!(
             target: "bedrock_client::ambient_leaves",
             bevy::log::Level::DEBUG
         );
         if due == 0 || !effect_present || !view_valid {
-            self.report(elapsed, due, effect_present, view_valid, system);
+            self.report(elapsed, due, leaf_effect_present, view_valid, system);
             return;
         }
         for _ in 0..due {
@@ -64,11 +70,16 @@ impl AmbientParticles {
                 if self.diagnostics.enabled {
                     self.diagnostics.samples += 1;
                 }
-                self.try_leaf(block, stream, world, collisions, system);
+                if fire_effect_present {
+                    self.try_fire(block, stream, world, collisions, system);
+                }
+                if leaf_effect_present {
+                    self.try_leaf(block, stream, world, collisions, system);
+                }
             }
             self.sampler.finish(view.position, started.elapsed());
         }
-        self.report(elapsed, due, effect_present, view_valid, system);
+        self.report(elapsed, due, leaf_effect_present, view_valid, system);
     }
 
     fn report(

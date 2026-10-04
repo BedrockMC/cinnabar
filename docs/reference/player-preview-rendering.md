@@ -12,7 +12,7 @@ from this extra silhouette/downsampling artifact.
 | Inventory live model | Render actor geometry at the control’s physical framebuffer resolution using the live model scale and pointer-driven pose below. |
 | Cursor coordinates | Measure pointer offset in GUI coordinates. |
 | Paper doll | Use the authored starting rotation and camera tilt with the paper-doll scale below. |
-| UI shading | Force white color/light vectors and clear world overlay/fog values. |
+| UI shading | Set white world-light inputs and clear world fog; retain the actor render-controller overlay, including hurt/fire tint. |
 | Actor dispatch | Set UI-rendering state and dispatch the actual actor geometry. |
 
 Current live rendering takes `min(control_width, control_height)` as the model scale, translates
@@ -27,9 +27,11 @@ UI-rendering state, and dispatches the actual actor geometry. The ordinary paper
 similarly uses its screen context; offscreen capture is a distinct optional request, not a
 mandatory small fixed-resolution inventory image.
 
-When actor render data selects UI rendering, shading forces white color/light vectors and clears
-world overlay/fog values, instead of evaluating the world-light branch. This
-does not justify the old software raster's invented `0.62 + max(dot(N, light), 0) * 0.38` shader.
+UI actor shading sets white world-light inputs and clears world fog. Hurt/fire
+render-controller overlays remain applied to sampled RGB before directional
+lighting, preserving skin texels and alpha. See [HUD paper doll](hud-paper-doll.md)
+for the inherited tint and animation rules. This does not justify the old
+software raster's invented `0.62 + max(dot(N, light), 0) * 0.38` shader.
 
 ## Texture and shader corroboration
 

@@ -158,6 +158,8 @@ fn hud_keeps_evaluated_head_motion_without_turning_the_body() {
             [None; 4],
             [None; 2],
             false,
+            None,
+            [0.0; 4],
         )
         .unwrap()
     };
