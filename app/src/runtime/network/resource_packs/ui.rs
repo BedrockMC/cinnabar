@@ -10,6 +10,7 @@ use super::ServerUiPack;
 const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
 const INDEX: &str = "ui/_ui_defs.json";
 
+/// Collects indexed definitions and records dependencies for lazily loaded artwork.
 pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
     let mut total = 0usize;
     let mut declared = BTreeSet::new();

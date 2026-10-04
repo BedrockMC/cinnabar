@@ -290,6 +290,7 @@ impl Catalog {
         self.file_namespaces.get(entry).map(String::as_str)
     }
 
+    /// Records a document's namespace so later pack layers can inherit it.
     pub(crate) fn remember_file_namespace(&mut self, entry: &str, namespace: &str) {
         self.file_namespaces
             .insert(entry.to_owned(), namespace.to_owned());

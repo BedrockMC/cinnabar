@@ -111,7 +111,7 @@ mod tests {
     fn tests_cannot_open_the_discovered_install_logs() {
         let layout = InstallLayout::discover().expect("development layout");
         assert!(open_core_log(&layout).is_none());
-        let scratch = InstallLayout::scratch("core-log");
+        let scratch = crate::install_layout::scratch("core-log");
         assert!(open_core_log(&scratch).is_some());
         assert!(scratch.log_dir().join("core.log").is_file());
     }

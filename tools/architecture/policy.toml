@@ -103,6 +103,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 [[crates]]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
+test_support_features = ["publication-test-support"]
 allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]
@@ -114,6 +115,27 @@ path = "crates/inventory"
 allowed_dependencies = ["protocol"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
+
+[[crates]]
+name = "player-state"
+path = "crates/player-state"
+allowed_dependencies = ["client-world", "inventory"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "launcher", "client-ui", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
+name = "launcher"
+path = "crates/launcher"
+allowed_dependencies = ["assets", "protocol", "render-api", "resource-pack", "semantic-input", "server-experience", "ui"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
+
+[[crates]]
+name = "client-ui"
+path = "crates/client-ui"
+# The client-world key names chunk-pipeline; render and extension edges support presentation adapters.
+allowed_dependencies = ["assets", "chunk-pipeline", "player-state", "launcher", "inventory", "json-ui", "protocol", "render", "render-api", "resource-pack", "semantic-input", "ui", "world", "mod-host", "server-experience"]
+forbidden_dependencies = ["asset-compiler", "pack-compiler"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-runtime", "gameplay", "client-session"]
+test_support_features = ["test-support"]
 
 [[crates]]
 name = "semantic-input"
@@ -131,6 +153,7 @@ dependency_free = true
 [[crates]]
 name = "render"
 path = "crates/render"
+test_support_features = ["publication-test-support"]
 allowed_dependencies = ["assets", "meshing", "mod-api", "render-api", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
@@ -140,7 +163,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 name = "app"
 path = "app"
 # The client-world dependency key temporarily names the chunk-pipeline compatibility facade.
-allowed_dependencies = ["assets", "chunk-pipeline", "inventory", "json-ui", "meshing", "mod-host", "pack-compiler", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -273,7 +296,7 @@ consumer = "scripts/acceptance/Proofs.ps1"
 [[markers]]
 literal = "RUST_MCBE_FAST_TRANSFER_ACTION"
 kind = "parsed"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/client-ui/src/diagnostic_markers.rs"
 consumer = "scripts/acceptance/FastTransferWitnessValidation.ps1"
 
 [[markers]]
@@ -387,8 +410,8 @@ consumer = "app/src/asset_startup.rs"
 [[markers]]
 literal = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/ui_runtime/use_on_identity_evidence.rs"
+producer = "crates/client-ui/src/diagnostic_markers.rs"
+consumer = "crates/client-ui/src/ui_runtime/use_on_identity_evidence.rs"
 
 [[markers]]
 literal = "RUST_MCBE_AUDIO_WIRE_EVIDENCE"
@@ -399,14 +422,14 @@ consumer = "app/src/session_audio/wire_evidence.rs"
 [[markers]]
 literal = "RUST_MCBE_FORM_SHAPE_PROBE"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/ui_runtime/forms/shape_probe.rs"
+producer = "crates/client-ui/src/diagnostic_markers.rs"
+consumer = "crates/client-ui/src/ui_runtime/forms/shape_probe.rs"
 
 [[markers]]
 literal = "RUST_MCBE_CRAFT_OBSERVATION"
 kind = "environment_variable"
-producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/ui_runtime/crafting_observation.rs"
+producer = "crates/client-ui/src/diagnostic_markers.rs"
+consumer = "crates/client-ui/src/ui_runtime/crafting_observation.rs"
 
 [[markers]]
 literal = "RUST_MCBE_STAGE_PROFILE"
@@ -493,7 +516,7 @@ producer = "app/src/acceptance/markers.rs"
 [[markers]]
 literal = "RUST_MCBE_LOADING_MILESTONE"
 kind = "log_only"
-producer = "app/src/acceptance/markers.rs"
+producer = "crates/client-ui/src/diagnostic_markers.rs"
 
 [[markers]]
 literal = "RUST_MCBE_SHUTDOWN_COMPLETED"
@@ -543,16 +566,32 @@ producer = "scripts/acceptance.ps1"
 # Gameplay receives facts and inventory directly; UI may only borrow authority.
 [[module_boundaries]]
 path = "app/src/movement"
-forbidden_modules = ["ui_runtime", "ui", "UiRuntime"]
+forbidden_modules = ["ui_runtime", "client_ui", "ui", "UiRuntime"]
 
 [[module_boundaries]]
 path = "app/src/ui_runtime"
-forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerRuntime"]
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerState", "PlayerRuntime"]
+
+[[module_boundaries]]
+path = "crates/client-ui/src"
+forbidden_modules = ["bedrock_client"]
+forbidden_crate_modules = ["app", "runtime", "movement", "mining", "item_use", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "block_selection", "block_use", "hotbar", "pick_block", "melee", "survival_mining"]
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerState", "PlayerRuntime"]
 
 [[module_boundaries.ownership_exceptions]]
-path = "app/src/ui_runtime/presentation_snapshot.rs"
+path = "crates/client-ui/src/ui_runtime/presentation_snapshot.rs"
 owner = "PresentationInventory"
 owned_type = "PlayerInventoryLedger"
+
+[[module_boundaries]]
+path = "crates/launcher/src"
+forbidden_modules = ["bedrock_client", "client_ui", "UiRuntime", "PlayerRuntime", "PlayerState", "NetworkHandle"]
+forbidden_crate_modules = ["ui_runtime", "presentation", "runtime", "movement", "acceptance"]
+
+# Fixtures can be shared by tests without becoming callable from production adapters.
+[[module_boundaries]]
+path = "app/src"
+forbidden_modules = ["test_support"]
 
 # Authoritative world state cannot regain mesh scheduling or publication ownership.
 [[module_boundaries]]

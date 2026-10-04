@@ -95,7 +95,7 @@ fn profile_loading_ends_without_a_feed_worker_in_both_startup_modes() {
             launcher,
             Some(2),
             "Fixture".into(),
-            crate::install_layout::InstallLayout::scratch("profile-no-worker"),
+            crate::install_layout::scratch("profile-no-worker"),
             crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
         );
         menu.control_auth = Some(AuthState::Authenticated);
@@ -165,7 +165,7 @@ fn profile_loading_ends_when_endpoint_is_missing() {
 
 #[test]
 fn profile_account_feed_does_not_prevent_cached_validation_in_direct_mode() {
-    let layout = crate::install_layout::InstallLayout::scratch("profile-cached-validation");
+    let layout = crate::install_layout::scratch("profile-cached-validation");
     let auth_path = layout.auth_cache();
     std::fs::create_dir_all(auth_path.parent().unwrap()).unwrap();
     // Presence alone triggers validation. No credentials or real core executable exist here.

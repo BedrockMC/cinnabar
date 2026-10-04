@@ -55,6 +55,9 @@ pub(super) struct CrateRule {
     /// Reject these packages through local dependency paths, including this crate's tests.
     #[serde(default)]
     pub(super) forbidden_transitive_dependencies: Vec<String>,
+    /// Fixture features must stay off defaults and production dependency declarations.
+    #[serde(default)]
+    pub(super) test_support_features: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,6 +83,9 @@ pub(super) struct ModuleBoundary {
     pub(super) path: String,
     #[serde(default)]
     pub(super) forbidden_modules: Vec<String>,
+    /// Root module names forbidden through crate-relative paths, including super paths.
+    #[serde(default)]
+    pub(super) forbidden_crate_modules: Vec<String>,
     #[serde(default)]
     pub(super) forbidden_owned_types: Vec<String>,
     #[serde(default)]

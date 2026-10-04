@@ -10,7 +10,6 @@ use render::{
     actor_rig_submission_is_visible, default_actor_skin_rgba8, pack_overlay_rgba8,
 };
 
-#[path = "actors/admission.rs"]
 mod admission;
 pub(crate) use admission::within_actor_candidate_cube;
 

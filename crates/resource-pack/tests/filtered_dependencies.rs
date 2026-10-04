@@ -6,6 +6,7 @@ use std::{
     io::{Cursor, Write},
 };
 
+/// Builds a tracked pack view containing the requested file names.
 fn view(paths: &[&str]) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000021";
     let manifest = format!(

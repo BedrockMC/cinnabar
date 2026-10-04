@@ -8,19 +8,14 @@ use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 pub(crate) const ACCEPTANCE_RUNTIME_METADATA: &str = "RUST_MCBE_ACCEPTANCE_RUNTIME_METADATA";
 pub(crate) const ANCHOR_PROBE: &str = "RUST_MCBE_ANCHOR_PROBE";
 pub(crate) const ASSETS: &str = "RUST_MCBE_ASSETS";
-pub(crate) const USE_ON_IDENTITY_EVIDENCE: &str = "RUST_MCBE_USE_ON_IDENTITY_EVIDENCE";
 pub(crate) const AUDIO_WIRE_EVIDENCE: &str = "RUST_MCBE_AUDIO_WIRE_EVIDENCE";
-pub(crate) const FORM_SHAPE_PROBE: &str = "RUST_MCBE_FORM_SHAPE_PROBE";
-pub(crate) const CRAFT_OBSERVATION: &str = "RUST_MCBE_CRAFT_OBSERVATION";
 pub(crate) const BUILD_COMMIT: &str = "RUST_MCBE_BUILD_COMMIT";
 pub(crate) const CAMERA_COMMITTED: &str = "RUST_MCBE_CAMERA_COMMITTED";
 pub(crate) const ERROR_COUNTERS: &str = "RUST_MCBE_ERROR_COUNTERS";
-pub(crate) const FAST_TRANSFER_ACTION: &str = "RUST_MCBE_FAST_TRANSFER_ACTION";
 pub(crate) const FAST_TRANSFER_PACKET_TRACE: &str = "RUST_MCBE_FAST_TRANSFER_PACKET_TRACE";
 pub(crate) const FORCED_FULL_VIEW_REMESH_SETTLED: &str =
     "RUST_MCBE_FORCED_FULL_VIEW_REMESH_SETTLED";
 pub(crate) const GALLERY_ANCHOR_READY: &str = "RUST_MCBE_GALLERY_ANCHOR_READY";
-pub(crate) const LOADING_MILESTONE: &str = "RUST_MCBE_LOADING_MILESTONE";
 pub(crate) const MODEL_WITNESS_COMPLETE: &str = "RUST_MCBE_MODEL_WITNESS_COMPLETE";
 pub(crate) const MOVEMENT_TRACE: &str = "RUST_MCBE_MOVEMENT_TRACE";
 pub(crate) const MOVE_PLAYER_INGRESS: &str = "RUST_MCBE_MOVE_PLAYER_INGRESS";
@@ -55,6 +50,12 @@ pub(crate) const TRANSPARENT_WITNESS_STAGE: &str = "RUST_MCBE_TRANSPARENT_WITNES
 pub(crate) const VISIBILITY_SNAPSHOT: &str = "RUST_MCBE_VISIBILITY_SNAPSHOT";
 pub(crate) const WORLD_PUBLICATION_SNAPSHOT: &str = "RUST_MCBE_WORLD_PUBLICATION_SNAPSHOT";
 pub(crate) const WORLD_READY: &str = "RUST_MCBE_WORLD_READY";
+
+#[cfg(test)]
+use client_ui::diagnostic_markers::{
+    CRAFT_OBSERVATION, FAST_TRANSFER_ACTION, FORM_SHAPE_PROBE, LOADING_MILESTONE,
+    USE_ON_IDENTITY_EVIDENCE,
+};
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,7 +262,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    /// Every declared marker has exactly one expectation, including environment inputs.
+    /// Every app or UI marker has one expectation, including environment inputs.
     fn expectation_table_is_unique_and_covers_every_owned_marker() {
         let names = EXPECTATIONS
             .iter()
@@ -269,13 +270,14 @@ mod tests {
             .collect::<BTreeSet<_>>();
         assert_eq!(names.len(), EXPECTATIONS.len());
         let protocol_prefix = concat!("RUST_", "MCBE_");
-        let declarations = include_str!("markers.rs")
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap()
-            .split('"')
-            .filter(|value| value.starts_with(protocol_prefix))
-            .collect::<BTreeSet<_>>();
+        let declarations = [
+            include_str!("markers.rs"),
+            include_str!("../../../crates/client-ui/src/diagnostic_markers.rs"),
+        ]
+        .into_iter()
+        .flat_map(|source| source.split("#[cfg(test)]").next().unwrap().split('"'))
+        .filter(|value| value.starts_with(protocol_prefix))
+        .collect::<BTreeSet<_>>();
         assert_eq!(names, declarations);
         assert!(EXPECTATIONS.contains(&(CRAFT_OBSERVATION, MarkerContract::EnvironmentVariable)));
         assert!(EXPECTATIONS.contains(&(FORM_SHAPE_PROBE, MarkerContract::EnvironmentVariable)));

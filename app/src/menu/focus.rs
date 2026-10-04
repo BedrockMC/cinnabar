@@ -3,19 +3,6 @@
 
 use super::*;
 
-impl MenuAction {
-    /// The text field a press on this control focuses.
-    pub(crate) fn text_field(self) -> Option<MenuField> {
-        match self {
-            Self::AddName => Some(MenuField::Name),
-            Self::AddAddress => Some(MenuField::Address),
-            Self::AddPort => Some(MenuField::Port),
-            Self::LocalWorld(action) => action.field(),
-            _ => None,
-        }
-    }
-}
-
 impl MenuRuntime {
     pub(crate) fn move_focus(&mut self, direction: i32) {
         let actions = self.focus_actions();
@@ -249,10 +236,10 @@ impl MenuRuntime {
                         actions.push(MenuAction::RefreshProfile);
                     } else if self.feeds.profile.loaded {
                         actions.extend([
-                            MenuAction::SelectProfileTab(ui::ProfileTab::Overview),
-                            MenuAction::SelectProfileTab(ui::ProfileTab::Stats),
+                            MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Overview),
+                            MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Stats),
                         ]);
-                        if self.profile_tab == ui::ProfileTab::Overview
+                        if self.profile_tab == launcher::menu::ProfileTab::Overview
                             && self.feeds.profile.friends.is_some_and(|n| n > 0)
                         {
                             actions.push(MenuAction::Navigate(MenuScreen::Friends));

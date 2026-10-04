@@ -1,6 +1,7 @@
 //! Disk inventory and deletion boundary regressions.
 
 use super::*;
+use std::path::PathBuf;
 
 /// Gives each test a private, canonical data directory.
 fn fixture() -> PathBuf {
@@ -57,7 +58,7 @@ fn linked_roots_and_entries_are_never_deleted_or_counted() {
 #[test]
 fn confirmed_screenshot_delete_only_removes_saved_pngs() {
     let root = fixture();
-    let mut layout = InstallLayout::scratch("screenshots");
+    let mut layout = crate::install_layout::scratch("screenshots");
     layout.user_data_root = root.clone();
     fs::create_dir_all(layout.screenshots_dir()).unwrap();
     fs::create_dir_all(layout.resource_pack_cache_dir()).unwrap();

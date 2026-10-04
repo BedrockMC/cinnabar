@@ -23,6 +23,7 @@ pub use enhanced::{
     ENHANCED_RENDERING_ENABLED, EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES,
 };
 mod dropped_item_render;
+pub mod equipment;
 mod hand_rig_render;
 mod item_geometry;
 mod lightning;

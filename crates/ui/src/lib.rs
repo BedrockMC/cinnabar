@@ -4,8 +4,8 @@ mod action;
 mod chat;
 mod geometry;
 mod hud;
+mod icon;
 mod model;
-mod profile;
 mod scoreboard;
 mod settings;
 mod text;
@@ -27,14 +27,12 @@ pub use hud::{
     MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
     TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
 };
+pub use icon::IconRef;
 pub use model::{
     FocusState, FocusTransition, TextEffects, TextShadow, UI_STYLE_BILINEAR, UI_STYLE_GLINT,
     UI_STYLE_GRAYSCALE, UiBlendMode, UiDrawBatch, UiDrawList, UiError, UiFrame, UiMesh,
     UiMeshBatch, UiMeshError, UiMeshVertex, UiNode, UiNodeId, UiTree, UiVertex, UiVisual,
     UiWorldProjection,
-};
-pub use profile::{
-    ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use scoreboard::{
     BossAction, BossBarDiagnostics, BossBarEvent, BossBarStore, BossBarView, BossColor,

@@ -13,6 +13,7 @@ use super::*;
 const MENU_WINDOW: i32 = 1;
 const MENU_CELLS: usize = 45;
 
+/// Creates one occupied menu cell with the supplied stack identity.
 fn stack(id: i32) -> NetworkItemStack {
     NetworkItemStack {
         network_id: 6,
@@ -22,6 +23,7 @@ fn stack(id: i32) -> NetworkItemStack {
     }
 }
 
+/// Opens a server-authoritative window for descriptor admission tests.
 fn open(window_type: i8) -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
@@ -35,6 +37,7 @@ fn open(window_type: i8) -> PlayerInventoryLedger {
     ledger
 }
 
+/// Addresses the fixture window with the supplied wire descriptor.
 fn descriptor(name: Option<u8>, dynamic_id: Option<u32>) -> ContainerIdentity {
     ContainerIdentity {
         window_id: Some(MENU_WINDOW),
@@ -43,6 +46,7 @@ fn descriptor(name: Option<u8>, dynamic_id: Option<u32>) -> ContainerIdentity {
     }
 }
 
+/// Populates the last cell so row bounds and identity can be checked together.
 fn content(container: ContainerIdentity) -> InventoryEvent {
     let mut slots = vec![NetworkItemStack::default(); MENU_CELLS];
     slots[MENU_CELLS - 1] = stack(100);
@@ -53,6 +57,7 @@ fn content(container: ContainerIdentity) -> InventoryEvent {
     })
 }
 
+/// Updates one cell without replacing the rest of the menu contents.
 fn slot(container: ContainerIdentity, at: u16, id: i32) -> InventoryEvent {
     InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
