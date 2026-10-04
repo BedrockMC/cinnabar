@@ -3,9 +3,12 @@ use std::{mem::size_of, sync::Arc};
 use bevy::math::{Mat4, Vec3};
 use render::{
     ActorCullView, ActorGpuInstance, ActorRenderIdentity, ActorRenderScene, ActorRigFrameBuilder,
-    ActorRigGeometry, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, EntityRigId,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, MAX_RENDER_BONES_PER_ACTOR,
-    MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES, pack_overlay_rgba8,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, MAX_ACTOR_BONE_ARENA_BYTES,
+    MAX_ACTOR_RENDER_INSTANCES, pack_overlay_rgba8,
+};
+use render_model::{
+    ActorRigGeometry, EntityRigId, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS,
+    RenderBoneTransform, STANDARD_SKIN_BYTES,
 };
 
 fn identity(runtime_id: u64, spawn_revision: u64) -> ActorRenderIdentity {
@@ -26,7 +29,7 @@ fn bone(translation: [f32; 3]) -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 
@@ -226,14 +229,18 @@ fn same_layer_keeps_only_the_newest_identity_per_actor() {
 fn inserted_geometry_republishes_the_catalog_and_resolves_by_rig_id() {
     let mut builder = ActorRigFrameBuilder::new([geometry()]).unwrap();
     let before = builder.build(0.0, None, []).geometry_revision;
-    let mesh =
-        ActorRigGeometry::synthetic_cuboid(render::item_mesh_rig_id(0), [0.0; 3], [1.0; 3], 1)
-            .unwrap();
+    let mesh = ActorRigGeometry::synthetic_cuboid(
+        render_model::item_mesh_rig_id(0),
+        [0.0; 3],
+        [1.0; 3],
+        1,
+    )
+    .unwrap();
     builder.insert_geometry(mesh).unwrap();
-    assert!(builder.contains_geometry(render::item_mesh_rig_id(0)));
+    assert!(builder.contains_geometry(render_model::item_mesh_rig_id(0)));
 
     let mut item = submission(1, 1);
-    item.input.rig = render::item_mesh_rig_id(0);
+    item.input.rig = render_model::item_mesh_rig_id(0);
     item.input.previous_bones = Arc::from([bone([0.0; 3])]);
     item.input.current_bones = Arc::from([bone([0.0; 3])]);
     let frame = builder.build(0.0, None, [item]);

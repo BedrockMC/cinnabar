@@ -2,12 +2,12 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use render::UiTexturePage;
+use render_model::UiTexturePage;
 use sha2::{Digest, Sha256};
 
 use super::super::{IconRef, UiPresentationError};
 
-const SIDE: usize = render::UI_MODEL_ATLAS_SIDE as usize;
+const SIDE: usize = render_model::UI_MODEL_ATLAS_SIDE as usize;
 const GUTTER: usize = 1;
 
 pub(super) type TextureKey = ([u16; 2], [u8; 32]);

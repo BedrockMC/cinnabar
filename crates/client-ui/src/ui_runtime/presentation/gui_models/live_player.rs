@@ -2,7 +2,7 @@
 
 use super::super::UiPresentationRuntime;
 use bevy::math::{Affine3A, Quat, Vec3, Vec4};
-use render::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
+use render_model::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 
 type GeometryIdentity = (u32, Option<[u8; 32]>, Option<[u8; 32]>);
 
@@ -112,10 +112,10 @@ impl UiPresentationRuntime {
         );
         if live.source != Some(source) {
             live.geometry = if let Some(skin) = rig.skin_geometry {
-                render::skin_geometry(skin, EntityRigId(rig.rig.0)).ok()
+                render_model::skin_geometry(skin, EntityRigId(rig.rig.0)).ok()
             } else {
                 catalog.and_then(|(assets, geometry)| {
-                    render::entity_geometry(assets, geometry, EntityRigId(rig.rig.0)).ok()
+                    render_model::entity_geometry(assets, geometry, EntityRigId(rig.rig.0)).ok()
                 })
             };
             live.source = Some(source);

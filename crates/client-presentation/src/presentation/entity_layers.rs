@@ -4,9 +4,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use client_world::{ActorRigSnapshot, BoneTransform, RenderTextureLayer};
 use render::{
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission, EntityRigId,
-    RenderBoneTransform, layer_geometry_rig_id, pack_overlay_rgba8,
+    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigSubmission,
+    pack_overlay_rgba8,
 };
+use render_model::{EntityRigId, RenderBoneTransform, layer_geometry_rig_id};
 
 use super::actors::ActorPresentationBatch;
 

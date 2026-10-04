@@ -159,47 +159,47 @@ fn mixed_scenes_build_static_models_once_and_preserve_every_draw_layer() {
 }
 
 #[test]
-fn reordered_removed_and_changed_submissions_rebuild_only_the_affected_slots() {
+fn reordered_removed_and_changed_submissions_rebuild_only_the_changed_models() {
     let mut scene = scene();
     let mut submissions = vec![chest(0, 1.0), portal(1), chest(2, 0.5)];
     assert_matches_reference(&mut scene, 0.0, &[], &submissions);
     assert_eq!(scene.static_rebuilds, 2);
+    // Walking reorders the scan; moved models replay their geometry.
     submissions.swap(0, 2);
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 4);
+    assert_eq!(scene.static_rebuilds, 2);
     submissions[0].light = 0.75.into();
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 5);
+    assert_eq!(scene.static_rebuilds, 3);
     let BlockEntityKind::Chest(model) = &mut submissions[2].kind else {
         panic!("expected authored chest");
     };
     model.lid = 0.5;
     assert_matches_reference(&mut scene, 3.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 6);
+    assert_eq!(scene.static_rebuilds, 4);
     submissions.remove(0);
     assert_matches_reference(&mut scene, 4.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 7);
-    assert_eq!(scene.cached_submissions.len(), 2);
+    assert_eq!(scene.static_rebuilds, 4);
+    assert_eq!(scene.cached_submissions.len(), 1);
     assert_matches_reference(&mut scene, 5.0, &[], &[]);
     assert!(scene.cached_submissions.is_empty());
 }
 
 #[test]
-fn changed_prefix_vertex_counts_invalidate_later_static_fragments() {
+fn changed_prefix_vertex_counts_keep_later_static_fragments_that_still_fit() {
     let mut scene = scene();
     let mut submissions = [portal(0), chest(1, 1.0)];
     assert_matches_reference(&mut scene, 0.0, &[], &submissions);
     assert_eq!(scene.static_rebuilds, 1);
     submissions[0].kind = BlockEntityKind::EndGateway;
     assert_matches_reference(&mut scene, 1.0, &[], &submissions);
-    // The gateway gets its own static fragment, and the changed prefix rebuilds the chest.
-    assert_eq!(scene.static_rebuilds, 3);
+    // Only the gateway builds a fragment; the chest replays at its new offsets.
+    assert_eq!(scene.static_rebuilds, 2);
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.static_rebuilds, 3);
+    assert_eq!(scene.static_rebuilds, 2);
     submissions[0].kind = BlockEntityKind::EndPortal;
     assert_matches_reference(&mut scene, 3.0, &[], &submissions);
-    // Returning to the animated portal rebuilds only the chest's static fragment.
-    assert_eq!(scene.static_rebuilds, 4);
+    assert_eq!(scene.static_rebuilds, 2);
 }
 
 #[test]
@@ -232,6 +232,66 @@ fn dynamic_atlas_updates_keep_static_meshes_and_asset_installs_invalidate_them()
     assert_ne!(scene.frame.solid, first.solid);
 }
 
+/// Vanilla shows every sign's text: more distinct texts than one page grow the canvas strip,
+/// and an unchanged frame rasterizes and uploads nothing.
+#[test]
+fn every_distinct_sign_text_keeps_its_own_canvas_and_an_unchanged_frame_rasterizes_nothing() {
+    const SIGNS: u64 = 160;
+    let canvas = |key: u64| {
+        [key as u8, (key >> 8) as u8, 7, 255]
+            .into_iter()
+            .cycle()
+            .take(96 * 48 * 4)
+            .collect::<Vec<u8>>()
+    };
+    let sign = |key: u64, rect: AtlasRect| BlockEntitySubmission {
+        block: [key as i32 % 40, 64, key as i32 / 40],
+        light: 1.0.into(),
+        kind: BlockEntityKind::Sign(SignModel {
+            mount: SignMount::Wall(Facing::North),
+            front: Some(SignFace {
+                rect,
+                glowing: false,
+            }),
+            back: None,
+        }),
+    };
+    let mut scene = scene();
+    let rects: Vec<_> = (0..SIGNS)
+        .map(|key| {
+            scene
+                .text_rect(key, || canvas(key))
+                .expect("every sign gets a canvas")
+        })
+        .collect();
+    let submissions: Vec<_> = (0..SIGNS)
+        .map(|key| sign(key, rects[key as usize]))
+        .collect();
+    assert_matches_reference(&mut scene, 0.0, &[], &submissions);
+    let first = scene.frame.clone();
+    let image = first.atlas.as_ref().unwrap();
+    assert!(image.size[1] > scene.atlas.as_ref().unwrap().static_height());
+    for (key, rect) in rects.iter().enumerate() {
+        let row = rect.y as usize - image.static_height as usize;
+        let start = (row * image.size[0] as usize + rect.x as usize) * 4;
+        assert_eq!(
+            &first.dynamic_rgba8[start..start + 4],
+            &canvas(key as u64)[..4],
+            "sign {key} shows another sign's text"
+        );
+    }
+    let again: Vec<_> = (0..SIGNS)
+        .map(|key| scene.text_rect(key, || panic!("an unchanged sign must not rasterize")))
+        .collect();
+    assert_eq!(
+        again.into_iter().map(Option::unwrap).collect::<Vec<_>>(),
+        rects
+    );
+    let second = scene.update(SceneClock { ticks: 1.0 }, &[], &submissions);
+    assert_eq!(second.revision, first.revision);
+    assert_eq!(second.dynamic_revision, first.dynamic_revision);
+}
+
 #[test]
 fn cached_fragments_preserve_vertex_limits_and_rejected_quad_counts() {
     let mut scene = scene();
@@ -246,7 +306,8 @@ fn cached_fragments_preserve_vertex_limits_and_rejected_quad_counts() {
     submissions.remove(0);
     submissions.push(portal(0));
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    assert_eq!(scene.cached_submissions.len(), submissions.len());
+    // Every chest keeps a fragment; the clock-driven portal never does.
+    assert_eq!(scene.cached_submissions.len(), submissions.len() - 1);
     assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
 }
 
@@ -372,4 +433,118 @@ fn review_render_atlas_snapshot_does_not_block_mob_installation() {
         "installation must invalidate cached models even with a retained atlas"
     );
     assert!(!Arc::ptr_eq(&snapshot, scene.atlas().unwrap()));
+}
+
+/// A busy lobby's per-frame scene cost through the installed carrier; prints with
+/// `CINNABAR_LOBBY_BENCH=1`.
+#[test]
+fn lobby_block_entity_frame_cost() {
+    use crate::block_entity::{
+        banner::{BannerLayer, BannerModel, BannerMount},
+        skull::{SkullKind, SkullModel, SkullMount},
+    };
+    if std::env::var_os("CINNABAR_LOBBY_BENCH").is_none() {
+        eprintln!("LOBBY_BLOCK_ENTITIES skipped: set CINNABAR_LOBBY_BENCH=1");
+        return;
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.local/assets/compiled/vanilla-v1.mcbeben");
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("LOBBY_BLOCK_ENTITIES skipped: missing {}", path.display());
+        return;
+    };
+    let assets = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
+    for (signs, banners, walking) in [
+        (80, 0, false),
+        (80, 24, false),
+        (160, 24, false),
+        (80, 0, true),
+    ] {
+        let mut scene = BlockEntityScene::default();
+        scene.install_assets(&assets);
+        let mut samples = Vec::new();
+        let mut uploads = 0usize;
+        let mut last_revision = 0;
+        for frame in 0..=300u32 {
+            let started = std::time::Instant::now();
+            let mut submissions = Vec::new();
+            for index in 0..signs {
+                let rect = scene.text_rect(index as u64, || vec![255; 96 * 48 * 4]);
+                submissions.push(BlockEntitySubmission {
+                    block: [index % 40, 65, index / 40],
+                    light: 1.0.into(),
+                    kind: BlockEntityKind::Sign(SignModel {
+                        mount: SignMount::Wall(Facing::South),
+                        front: rect.map(|rect| SignFace {
+                            rect,
+                            glowing: false,
+                        }),
+                        back: None,
+                    }),
+                });
+            }
+            for index in 0..60 {
+                submissions.push(BlockEntitySubmission {
+                    block: [index % 30, 66, 10 + index / 30],
+                    light: 1.0.into(),
+                    kind: BlockEntityKind::Skull(SkullModel {
+                        kind: if index % 3 == 0 {
+                            SkullKind::Skeleton
+                        } else {
+                            SkullKind::Player
+                        },
+                        mount: SkullMount::Floor {
+                            rotation_degrees: 0.0,
+                        },
+                    }),
+                });
+            }
+            for index in 0..40 {
+                submissions.push(chest(index + 400, 1.0));
+            }
+            for index in 0..banners {
+                submissions.push(BlockEntitySubmission {
+                    block: [index, 67, 20],
+                    light: 1.0.into(),
+                    kind: BlockEntityKind::Banner(BannerModel {
+                        mount: BannerMount::Wall(Facing::North),
+                        base: [0.2, 0.3, 0.8],
+                        layers: vec![
+                            BannerLayer {
+                                pattern: "border",
+                                color: [1.0; 3],
+                            },
+                            BannerLayer {
+                                pattern: "stripe_bottom",
+                                color: [0.9, 0.1, 0.1],
+                            },
+                        ],
+                    }),
+                });
+            }
+            if walking {
+                // Walking brings one entity into range at the front of the scan every few frames.
+                let entering = (frame / 4) as usize % submissions.len();
+                submissions.rotate_left(entering);
+            }
+            let clock = SceneClock {
+                ticks: f64::from(frame) / 3.0,
+            };
+            let revision = scene.update(clock, &[], &submissions).revision;
+            if frame > 0 {
+                samples.push(started.elapsed());
+                uploads += usize::from(revision != last_revision);
+            }
+            last_revision = revision;
+        }
+        samples.sort_unstable();
+        let mean = samples.iter().sum::<std::time::Duration>() / samples.len() as u32;
+        eprintln!(
+            "LOBBY_BLOCK_ENTITIES signs={signs} banners={banners} walking={walking} solid_vertices={} mean_ms={:.3} p99_ms={:.3} rebuilt_frames={uploads}/{}",
+            scene.frame.solid.len(),
+            mean.as_secs_f64() * 1e3,
+            samples[(samples.len() - 1) * 99 / 100].as_secs_f64() * 1e3,
+            samples.len()
+        );
+    }
 }

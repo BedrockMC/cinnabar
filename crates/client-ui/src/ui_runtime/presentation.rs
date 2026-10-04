@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::prelude::Resource;
-use render::{UiRenderInput, UiRenderTextureArray};
+use render_model::{UiRenderInput, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
@@ -89,7 +89,7 @@ pub enum UiPresentationError {
     Text(ui::TextError),
     Tree(ui::UiError),
     Adapter(super::render_adapter::UiRenderAdapterError),
-    Render(render::UiRenderReject),
+    Render(render_model::UiRenderReject),
 }
 
 impl fmt::Display for UiPresentationError {
@@ -107,7 +107,7 @@ pub struct UiPresentationRuntime {
     base_font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
-    blank_dynamic_page: render::UiTexturePage,
+    blank_dynamic_page: render_model::UiTexturePage,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,
     icon_catalog: Option<Arc<RuntimeIconCatalog>>,
@@ -116,8 +116,10 @@ pub struct UiPresentationRuntime {
     obfuscation: ObfuscationGlyphs, // same-width pools for the per-frame §k swap
     revision: u64,
     last_input: Option<UiRenderInput>, // last built frame; see `stabilize_revision`
-    /// What the last menu frame was built from, while time cannot change its output.
-    last_menu: Option<BuiltMenu>,
+    /// What the last frame was built from, while time cannot change its output.
+    last_frame: Option<BuiltFrame>,
+    #[cfg(test)]
+    tree_builds: usize,
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
@@ -241,7 +243,9 @@ impl UiPresentationRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             revision: 0,
             last_input: None,
-            last_menu: None,
+            last_frame: None,
+            #[cfg(test)]
+            tree_builds: 0,
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
@@ -303,7 +307,7 @@ impl UiPresentationRuntime {
         skin: Option<&[u8]>,
         pose: player_preview::PlayerPreviewPose,
     ) {
-        let default_skin = render::default_actor_skin_rgba8();
+        let default_skin = render_model::default_actor_skin_rgba8();
         let skin = skin
             .filter(|pixels| {
                 let side = (pixels.len() / 4).isqrt();
@@ -439,7 +443,7 @@ impl UiPresentationRuntime {
     }
 
     /// The world-space tag quads for this frame's anchors.
-    pub fn nametag_scene(&mut self) -> render::NametagScene {
+    pub fn nametag_scene(&mut self) -> render_model::NametagScene {
         let palette = self.formatting_palette().copied().unwrap_or_default();
         self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);
@@ -533,7 +537,6 @@ impl UiPresentationRuntime {
         let content_height = (logical_height - safe_area.top() - safe_area.bottom()).max(0.0);
         let mut nodes = Vec::new();
         let mut next_id = 1u32;
-        let menu_visible = self.menu_view.is_some();
         let content = [content_width, content_height];
         let host = SceneHost {
             menu: self.menu_view.as_ref().map(|view| view.screen),
@@ -703,24 +706,24 @@ impl UiPresentationRuntime {
         // Every screen has painted: retire animation state nothing touched.
         self.end_animation_frame();
         self.apply_gui_models(&mut nodes);
-        // An unchanged menu builds the same frame unless §k text re-rolls its glyphs.
-        let built = menu_visible.then(|| BuiltMenu {
-            nodes: Vec::new(),
-            frame: (physical_size, dpi_scale.get(), safe_area),
-            textures: Arc::clone(&self.textures),
-        });
-        if let (Some(last), Some(now), Some(input)) = (&self.last_menu, &built, &self.last_input)
-            && last.same(now, &nodes)
+        // Unchanged nodes build the same frame unless §k text re-rolls its glyphs, so tree,
+        // layout and draw-list construction are skipped.
+        let frame = (physical_size, dpi_scale.get(), safe_area);
+        if let (Some(last), Some(input)) = (&self.last_frame, &self.last_input)
+            && last.same(frame, &self.textures, &nodes)
         {
             self.menu_hit_targets = menu_hit_targets;
             return Ok(input.clone());
         }
-        self.last_menu = built
-            .filter(|_| !obfuscated(&nodes))
-            .map(|built| BuiltMenu {
-                nodes: nodes.clone(),
-                ..built
-            });
+        self.last_frame = (!obfuscated(&nodes)).then(|| BuiltFrame {
+            nodes: nodes.clone(),
+            frame,
+            textures: Arc::clone(&self.textures),
+        });
+        #[cfg(test)]
+        {
+            self.tree_builds += 1;
+        }
         let mut tree = UiTree::new(nodes).map_err(UiPresentationError::Tree)?;
         tree.layout(viewport, UiScale::default(), safe_area)
             .map_err(UiPresentationError::Tree)?;
@@ -747,16 +750,21 @@ impl UiPresentationRuntime {
     }
 }
 
-/// A menu frame's inputs: its nodes, viewport and texture array.
-struct BuiltMenu {
+/// A frame's inputs: its nodes, viewport and texture array.
+struct BuiltFrame {
     nodes: Vec<UiNode>,
     frame: ([u32; 2], f32, SafeArea),
     textures: Arc<UiRenderTextureArray>,
 }
 
-impl BuiltMenu {
-    fn same(&self, now: &Self, nodes: &[UiNode]) -> bool {
-        self.frame == now.frame && Arc::ptr_eq(&self.textures, &now.textures) && self.nodes == nodes
+impl BuiltFrame {
+    fn same(
+        &self,
+        frame: ([u32; 2], f32, SafeArea),
+        textures: &Arc<UiRenderTextureArray>,
+        nodes: &[UiNode],
+    ) -> bool {
+        self.frame == frame && Arc::ptr_eq(&self.textures, textures) && self.nodes == nodes
     }
 }
 

@@ -79,13 +79,32 @@ fn new_crates_accept_the_domain_and_presentation_dependency_direction() {
     set_dependencies(
         root,
         "client-ui",
-        "[dependencies]\nlauncher={path='../launcher'}\nplayer-state={path='../player-state'}\nrender={path='../render'}\nclient-world={package='chunk-pipeline',path='../chunk-pipeline'}\n[dev-dependencies]\npack-compiler={path='../pack-compiler'}",
+        "[dependencies]\nlauncher={path='../launcher'}\nplayer-state={path='../player-state'}\nrender-model={path='../render-model'}\nclient-world={package='chunk-pipeline',path='../chunk-pipeline'}\n[dev-dependencies]\npack-compiler={path='../pack-compiler'}",
     );
     write(
         &root.join("app/Cargo.toml"),
         "[package]\nname='bedrock-client'\nversion='0.1.0'\n[dependencies]\nclient-ui={path='../crates/client-ui'}\nlauncher={path='../crates/launcher'}\nplayer-state={path='../crates/player-state'}\n",
     );
     assert_eq!(diagnostics(root), Vec::<String>::new());
+}
+
+/// Presentation takes render data from render-model so it never waits on the GPU renderer.
+#[test]
+fn client_ui_rejects_the_render_crate() {
+    let temp = fixture();
+    let root = temp.path();
+    set_dependencies(
+        root,
+        "client-ui",
+        "[dependencies]\nrender={path='../render'}",
+    );
+    let found = diagnostics(root);
+    assert!(
+        found
+            .iter()
+            .any(|line| line == "client-ui: forbidden dependency path `client-ui -> render`"),
+        "{found:?}"
+    );
 }
 
 #[test]

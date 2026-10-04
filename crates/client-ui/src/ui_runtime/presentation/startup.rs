@@ -1,6 +1,6 @@
 use std::fmt;
 
-use render::VisibilityDiagnosticSnapshot;
+use render_model::VisibilityDiagnosticSnapshot;
 
 pub const MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION: usize = 1_024;
 
@@ -195,7 +195,7 @@ impl StartupPresentationState {
 
 #[cfg(test)]
 mod tests {
-    use render::{VisibilityDiagnosticSnapshot, VisibilityKeyDigest};
+    use render_model::{VisibilityDiagnosticSnapshot, VisibilityKeyDigest};
 
     use super::{
         MIN_VISIBLE_TERRAIN_BEFORE_PRESENTATION, StartupPresentationState, StartupReadinessInput,

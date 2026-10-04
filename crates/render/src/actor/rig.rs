@@ -13,31 +13,21 @@ mod catalog;
 mod pack;
 pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
-#[path = "rig/ids.rs"]
-mod ids;
-use ids::DIAGNOSTIC_RIG_ID;
-pub use ids::{
-    equipment_rig_id, item_mesh_rig_id, layer_geometry_rig_id, pack_equipment_rig_id, pack_rig_id,
-    skin_rig_id,
-};
-pub(crate) use ids::{
-    is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,
-    layer_geometries,
+use render_model::{
+    ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, DIAGNOSTIC_RIG_ID, EntityRigId,
+    MAX_ACTOR_RIG_VERTICES, MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    diagnostic_geometry, equipment_rig_id, geometry_from_geometry_index,
+    geometry_from_runtime_assets, is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
 
-use super::{
-    ActorCullView, MAX_RENDERED_PLAYERS,
-    asset_geometry::{geometry_from_geometry_index, geometry_from_runtime_assets},
-};
+use super::ActorCullView;
 
-pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_SKIN_GEOMETRY_BONES;
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
 /// Existing body/equipment allowance plus every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
     MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize =
     MAX_ACTOR_RENDER_INSTANCES * MAX_RENDER_BONES_PER_ACTOR * 2 * ACTOR_BONE_MATRIX_BYTES;
-pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
@@ -64,59 +54,6 @@ impl ActorRenderIdentity {
             && self.spawn_revision != 0
             && self.ingress_sequence != 0
             && self.pose_generation != 0
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct EntityRigId(pub u32);
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
-pub struct RenderBoneTransform {
-    pub rotation: [f32; 4],
-    pub translation_scale: [f32; 4],
-    /// Per-axis scale in the bone's own frame, applied with the uniform scale; `w` is unused.
-    pub axis_scale: [f32; 4],
-}
-
-/// Per-axis scale of a bone that scales only uniformly.
-pub const UNIT_AXIS_SCALE: [f32; 4] = [1.0; 4];
-
-impl RenderBoneTransform {
-    /// Whether every component is finite. A zero scale is valid: vanilla hides bones with it.
-    #[must_use]
-    pub fn is_finite(self) -> bool {
-        self.rotation
-            .iter()
-            .chain(self.translation_scale.iter())
-            .chain(self.axis_scale.iter())
-            .all(|value| value.is_finite())
-    }
-
-    #[must_use]
-    pub fn from_model_space(rotation: [f32; 4], translation_scale: [f32; 4]) -> Option<Self> {
-        Self::from_model_space_scaled(rotation, translation_scale, [1.0; 3])
-    }
-
-    /// Converts a pixel-space pose that also scales per axis in the bone's frame.
-    #[must_use]
-    pub fn from_model_space_scaled(
-        rotation: [f32; 4],
-        translation_scale: [f32; 4],
-        axis_scale: [f32; 3],
-    ) -> Option<Self> {
-        let converted = Self {
-            rotation,
-            translation_scale: [
-                translation_scale[0] / 16.0,
-                translation_scale[1] / 16.0,
-                translation_scale[2] / 16.0,
-                translation_scale[3],
-            ],
-            axis_scale: [axis_scale[0], axis_scale[1], axis_scale[2], 1.0],
-        };
-        converted.is_finite().then_some(converted)
     }
 }
 
@@ -210,116 +147,10 @@ pub fn pack_overlay_rgba8(rgba: [f32; 4]) -> u32 {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
-pub struct ActorRigVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub uv: [f32; 2],
-    pub back_uv: [f32; 2],
-    pub bone_index: u32,
-}
-
-const _: () = assert!(std::mem::size_of::<ActorRigVertex>() == 44);
-
-#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Pod, Zeroable)]
 pub struct ActorRigGeometrySpan {
     pub first_vertex: u32,
     pub vertex_count: u32,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ActorRigGeometry {
-    pub id: EntityRigId,
-    pub vertices: Arc<[ActorRigVertex]>,
-    pub bone_pivots: Arc<[[f32; 3]]>,
-    /// One past the highest bone any vertex uses; a pose needs at least this many bones.
-    bones_used: usize,
-}
-
-impl ActorRigGeometry {
-    pub fn new(
-        id: EntityRigId,
-        vertices: impl Into<Arc<[ActorRigVertex]>>,
-        bone_pivots: impl Into<Arc<[[f32; 3]]>>,
-    ) -> Result<Self, ActorRigGeometryError> {
-        let vertices = vertices.into();
-        let bone_pivots = bone_pivots.into();
-        if vertices.is_empty() || vertices.len() > MAX_ACTOR_RIG_VERTICES {
-            return Err(ActorRigGeometryError::VertexCount);
-        }
-        if bone_pivots.is_empty() || bone_pivots.len() > MAX_RENDER_BONES_PER_ACTOR {
-            return Err(ActorRigGeometryError::BoneCount);
-        }
-        if vertices.iter().any(|vertex| {
-            vertex
-                .position
-                .iter()
-                .chain(vertex.normal.iter())
-                .chain(vertex.uv.iter())
-                .chain(vertex.back_uv.iter())
-                .any(|value| !value.is_finite())
-                || vertex.bone_index as usize >= bone_pivots.len()
-        }) || bone_pivots.iter().flatten().any(|value| !value.is_finite())
-        {
-            return Err(ActorRigGeometryError::InvalidVertex);
-        }
-        let bones_used = vertices
-            .iter()
-            .map(|vertex| vertex.bone_index as usize + 1)
-            .max()
-            .unwrap_or(0);
-        Ok(Self {
-            id,
-            vertices,
-            bone_pivots,
-            bones_used,
-        })
-    }
-
-    /// Rechecks public vertex data and its bone requirement before catalog admission.
-    fn revalidate(&mut self) -> Result<(), ActorRigGeometryError> {
-        *self = Self::new(
-            self.id,
-            Arc::clone(&self.vertices),
-            Arc::clone(&self.bone_pivots),
-        )?;
-        Ok(())
-    }
-
-    pub fn synthetic_cuboid(
-        id: EntityRigId,
-        min: [f32; 3],
-        max: [f32; 3],
-        bone_count: usize,
-    ) -> Result<Self, ActorRigGeometryError> {
-        if min.iter().chain(max.iter()).any(|value| !value.is_finite())
-            || min
-                .iter()
-                .zip(max)
-                .any(|(minimum, maximum)| *minimum >= maximum)
-            || bone_count == 0
-            || bone_count > MAX_RENDER_BONES_PER_ACTOR
-        {
-            return Err(ActorRigGeometryError::InvalidVertex);
-        }
-        let vertices = super::geometry::cuboid_vertices(min, max, 0);
-        Self::new(
-            id,
-            Arc::from(vertices),
-            Arc::from(vec![[0.0; 3]; bone_count]),
-        )
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ActorRigGeometryError {
-    VertexCount,
-    BoneCount,
-    InvalidVertex,
-    DuplicateRig,
-    CatalogCapacity,
-    InvalidAssetGeometry,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -674,7 +505,7 @@ impl ActorRigFrameBuilder {
                 continue;
             };
             // Construction already bounds every vertex bone by the pivots.
-            if geometry.bones_used > previous.len() {
+            if geometry.bones_used() > previous.len() {
                 rejects.invalid_geometry = rejects.invalid_geometry.saturating_add(1);
                 continue;
             }
@@ -889,37 +720,4 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
             translation[axis],
         ]
     }))
-}
-
-fn diagnostic_geometry() -> ActorRigGeometry {
-    let mut vertices = super::standard_biped_vertices()
-        .into_iter()
-        .map(|vertex| ActorRigVertex {
-            position: vertex.position,
-            normal: [0.0, 1.0, 0.0],
-            uv: vertex.uv,
-            back_uv: vertex.uv,
-            bone_index: vertex.part,
-        })
-        .collect::<Vec<_>>();
-    for triangle in vertices.chunks_exact_mut(3) {
-        let normal = super::geometry::triangle_normal(
-            triangle[0].position,
-            triangle[1].position,
-            triangle[2].position,
-        );
-        for vertex in triangle {
-            vertex.normal = normal;
-        }
-    }
-    let pivots = [
-        [0.0, 1.5, 0.0],
-        [0.0, 1.5, 0.0],
-        [-0.3125, 1.375, 0.0],
-        [-0.11875, 0.75, 0.0],
-        [0.3125, 1.375, 0.0],
-        [0.11875, 0.75, 0.0],
-    ];
-    ActorRigGeometry::new(DIAGNOSTIC_RIG_ID, Arc::from(vertices), Arc::from(pivots))
-        .expect("authored diagnostic actor geometry is finite and bounded")
 }

@@ -209,7 +209,8 @@ fn prepare_resources(
         .atlas
         .as_ref()
         .unwrap_or_else(|| super::selection::fallback_atlas());
-    if gpu.atlas_identity != atlas.identity || gpu.texture.is_none() {
+    if gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size || gpu.texture.is_none()
+    {
         let texture = render_device.create_texture(&TextureDescriptor {
             label: Some("block-entity atlas"),
             size: Extent3d {
