@@ -24,6 +24,7 @@ pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
 mod pack_catalog;
+mod rounded;
 pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod host_edit;
 pub(super) mod screen_cache;
@@ -612,6 +613,9 @@ impl Painter<'_> {
             return None;
         }
         match renderer {
+            "cinnabar_rounded_rectangle" => {
+                Some((self.rounded_rectangle(data, dest, &alpha)?, dest))
+            }
             "inventory_item_renderer" => {
                 let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;
                 Some((icon.visual(alpha([255; 4])), dest))

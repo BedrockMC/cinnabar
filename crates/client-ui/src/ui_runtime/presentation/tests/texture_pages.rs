@@ -565,6 +565,61 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     );
 }
 
+#[test]
+fn startup_named_font_survives_session_alias_updates_without_changing_default_metrics() {
+    let base = independent_font(&[64]);
+    let private = independent_font(&[32]);
+    let startup = Arc::new(
+        base.with_named_font(ui::mod_panel::FONT_NAME, &private)
+            .unwrap(),
+    );
+    let mut presentation = UiPresentationRuntime::new(Arc::clone(&startup)).unwrap();
+    let original = *presentation.font.glyph('A').unwrap();
+    let alias = *presentation
+        .font
+        .font_named(ui::mod_panel::FONT_NAME)
+        .glyph('A')
+        .unwrap();
+    assert_eq!(alias.page, 1);
+    let textures = Arc::clone(&presentation.textures);
+    let cell = assets::CellGlyph {
+        codepoint: 'A',
+        size: [1, 1],
+        rgba8: vec![128; 4].into(),
+        bearing: [0, 0],
+        advance_64: 64,
+        draw_size_64: [64, 64],
+    };
+    let sheets = Arc::new(SessionGlyphSheets::with_named(
+        Vec::new(),
+        std::collections::BTreeMap::from([(ui::mod_panel::FONT_NAME.into(), vec![cell])]),
+    ));
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    assert_eq!(presentation.font.glyph('A'), Some(&original));
+    assert_eq!(
+        presentation
+            .font
+            .font_named(ui::mod_panel::FONT_NAME)
+            .glyph('A'),
+        Some(&alias)
+    );
+    assert_eq!(presentation.textures.pages()[1], textures.pages()[1]);
+    let count = presentation.textures.pages().len();
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    assert_eq!(presentation.textures.pages().len(), count);
+    session_glyphs::observe(&mut presentation, None);
+    assert_eq!(presentation.font.glyph('A'), Some(&original));
+    assert_eq!(
+        presentation
+            .font
+            .font_named(ui::mod_panel::FONT_NAME)
+            .glyph('A'),
+        Some(&alias)
+    );
+    assert!(Arc::ptr_eq(&presentation.font, &startup));
+    assert_eq!(presentation.textures.pages().len(), count);
+}
+
 /// Asserts `identifier` resolves to an icon whose UV rect is opaque on its uploaded page.
 fn assert_icon_drawable(presentation: &UiPresentationRuntime, identifier: &str) {
     let icon = presentation

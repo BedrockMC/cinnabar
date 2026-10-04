@@ -4,6 +4,7 @@ pub mod ambient;
 mod bank;
 pub mod echo;
 pub mod engine;
+pub mod inventory;
 pub mod local;
 #[allow(
     dead_code,

@@ -16,6 +16,7 @@ pub(crate) fn observe_mount_jump_input(
 ) {
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
+    runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
 }
 
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
