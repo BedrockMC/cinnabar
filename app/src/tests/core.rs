@@ -249,7 +249,7 @@ fn runtime_metadata_marker_records_build_presentation_and_adapter_identity() {
         AcceptanceRuntimeConfig {
             build_profile: "release",
         },
-        &render::GraphicsAdapterMetadata {
+        &render_model::GraphicsAdapterMetadata {
             backend: "Dx12".to_owned(),
             adapter: "Test Adapter".to_owned(),
             driver: "test-driver".to_owned(),

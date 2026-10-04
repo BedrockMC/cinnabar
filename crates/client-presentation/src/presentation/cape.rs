@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex};
 use assets::RuntimeEntityAssets;
 use client_world::{ActorRigSnapshot, PlayerProfile};
 use protocol::{PlayerSkin, SkinRgba8};
-use render::{
-    ACTOR_LAYER_BODY, ActorRigGeometry, ActorRigRoute, ActorRigSubmission, EntityRigId,
-    MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE,
-    entity_geometry, equipment_rig_id, find_geometry_index, geometry_bone_names,
+use render::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
+use render_model::{
+    ActorRigGeometry, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES,
+    STANDARD_SKIN_SIDE, entity_geometry, equipment_rig_id, find_geometry_index,
+    geometry_bone_names,
 };
 
 use super::actors::ActorPresentationBatch;
@@ -112,7 +113,7 @@ fn cape_pose(
                 None => RenderBoneTransform {
                     rotation: [0.0, 0.0, 0.0, 1.0],
                     translation_scale: [0.0; 4],
-                    axis_scale: render::UNIT_AXIS_SCALE,
+                    axis_scale: render_model::UNIT_AXIS_SCALE,
                 },
             }
         })
@@ -205,10 +206,10 @@ mod tests {
         let mut cape = vec![0u8; 64 * 32 * 4];
         cape[..4].copy_from_slice(&[9, 8, 7, 255]);
         let layer = cape_layer(64, 32, &cape).unwrap();
-        assert_eq!(layer.len(), render::STANDARD_SKIN_BYTES);
+        assert_eq!(layer.len(), render_model::STANDARD_SKIN_BYTES);
         assert_eq!(&layer[..4], &[9, 8, 7, 255]);
-        let row = render::STANDARD_SKIN_SIDE * 4;
-        let rows_per_source = render::STANDARD_SKIN_SIDE / 32;
+        let row = render_model::STANDARD_SKIN_SIDE * 4;
+        let rows_per_source = render_model::STANDARD_SKIN_SIDE / 32;
         assert_eq!(&layer[row..row + 4], &[9, 8, 7, 255]);
         let next = rows_per_source * row;
         assert_eq!(&layer[next..next + 4], &[0, 0, 0, 0]);

@@ -298,7 +298,7 @@ pub fn key_manifest_identity(
     publisher_epoch: u64,
     required_cohort_count: usize,
     required_cohort_hash: u64,
-    digest: Option<render::VisibilityKeyDigest>,
+    digest: Option<render_model::VisibilityKeyDigest>,
 ) -> CohortManifestIdentity {
     digest.map_or(
         CohortManifestIdentity {
@@ -357,7 +357,7 @@ pub fn sha256_identity_from_hex_or_text(value: &str) -> [u8; 32] {
     Sha256::digest(value.as_bytes()).into()
 }
 
-pub fn graphics_identity_sha256(graphics: &render::GraphicsAdapterMetadata) -> [u8; 32] {
+pub fn graphics_identity_sha256(graphics: &render_model::GraphicsAdapterMetadata) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for part in [
         graphics.backend.as_str(),

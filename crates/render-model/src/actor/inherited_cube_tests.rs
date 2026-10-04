@@ -1,4 +1,5 @@
 use super::*;
+use assets::EntityGeometryUv;
 
 fn bounded_bone(name: &str, count: usize) -> EntityGeometryBone {
     let model = assets::parse_skin_geometry(

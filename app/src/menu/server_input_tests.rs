@@ -20,7 +20,7 @@ use client_ui::ui_runtime::{
 };
 
 #[derive(Resource)]
-struct Frame(render::UiRenderInput);
+struct Frame(render_model::UiRenderInput);
 
 #[derive(Resource, Default)]
 struct FrameTime(u64);

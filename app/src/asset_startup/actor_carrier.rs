@@ -25,7 +25,7 @@ pub(crate) fn require_actor_artwork(
 ) -> Result<render::ActorArtworkPages, AssetStartupError> {
     let catalog = require_actor_assets(world, entities)?;
     if let Some(skin) = default_player_skin(&catalog, entities.runtime()) {
-        render::install_default_player_skin(skin);
+        render_model::install_default_player_skin(skin);
     }
     let artwork = render::ActorArtworkPages::new(&catalog);
     eprintln!(
@@ -55,7 +55,9 @@ fn default_player_skin(
                 && entities
                     .sources()
                     .get(texture.source as usize)
-                    .is_some_and(|source| source.path.as_ref() == render::DEFAULT_PLAYER_SKIN_PATH)
+                    .is_some_and(|source| {
+                        source.path.as_ref() == render_model::DEFAULT_PLAYER_SKIN_PATH
+                    })
         })
         .map(|texture| std::sync::Arc::clone(&texture.rgba8))
 }

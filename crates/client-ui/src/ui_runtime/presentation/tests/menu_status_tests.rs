@@ -250,7 +250,7 @@ fn presented_message(
     physical_size: [u32; 2],
     safe_area: SafeArea,
     reason: &str,
-) -> (render::UiRenderInput, usize) {
+) -> (render_model::UiRenderInput, usize) {
     let runtime = UiRuntime::new(1);
     let mut menu = crate::menu::MenuView::new(true, "Player".to_owned());
     menu.screen = MenuScreen::Play;

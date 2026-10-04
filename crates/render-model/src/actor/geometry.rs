@@ -1,7 +1,7 @@
 use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryUv};
-use bevy::math::Vec3;
+use glam::Vec3;
 
-use super::rig::{ActorRigGeometryError, ActorRigVertex};
+use super::{ActorRigGeometryError, ActorRigVertex};
 
 /// Face corners as `[top-left, top-right, bottom-right, bottom-left]` seen from outside, in
 /// authored geometry space where the model faces -Z and its right side is -X.
@@ -16,7 +16,7 @@ const ENTITY_FACES: [[usize; 4]; 6] = [
 
 /// Emits a cube in the rig frame: authored X is mirrored so the model's right side is +X,
 /// matching the renderer's right-handed actor space.
-pub(super) fn append_entity_cube_vertices(
+pub fn append_entity_cube_vertices(
     vertices: &mut Vec<ActorRigVertex>,
     cube: &EntityGeometryCube,
     bone_index: u32,
@@ -202,7 +202,7 @@ fn append_cube_vertices(
 }
 
 /// Back UV of a plane with one textured face; the shaders discard its back side.
-pub(crate) const ONE_SIDED_BACK_UV: [f32; 2] = [-1.0e9, -1.0e9];
+pub const ONE_SIDED_BACK_UV: [f32; 2] = [-1.0e9, -1.0e9];
 
 /// Corner-index bit that selects the max-X corner of a cuboid.
 const REFLECT_X_BIT: usize = 1;
@@ -330,7 +330,7 @@ fn rotate_euler_around(point: [f32; 3], pivot: [f32; 3], degrees: [f32; 3]) -> O
     Some(std::array::from_fn(|axis| value[axis] + pivot[axis]))
 }
 
-pub(super) fn cuboid_vertices(
+pub(crate) fn cuboid_vertices(
     min: [f32; 3],
     max: [f32; 3],
     bone_index: u32,
@@ -363,7 +363,7 @@ pub(super) fn cuboid_vertices(
         .collect()
 }
 
-pub(super) fn triangle_normal(first: [f32; 3], second: [f32; 3], third: [f32; 3]) -> [f32; 3] {
+pub(crate) fn triangle_normal(first: [f32; 3], second: [f32; 3], third: [f32; 3]) -> [f32; 3] {
     let left = Vec3::from_array(second) - Vec3::from_array(first);
     let right = Vec3::from_array(third) - Vec3::from_array(first);
     left.cross(right).normalize_or_zero().to_array()

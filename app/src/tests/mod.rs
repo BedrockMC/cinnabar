@@ -15,9 +15,10 @@ use protocol::{
 };
 use render::{
     ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadPriority,
-    GraphicsAdapterMetadata, OpaqueDrawMode, PresentedFrameAck, RenderViewCohort,
-    TargetRenderExpectation, VisibilityDiagnosticSnapshot, VisibilityDiagnosticsInput,
-    VisibilityKeyDigest,
+    PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
+};
+use render_model::{
+    GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityKeyDigest,
 };
 use std::{
     path::Path,

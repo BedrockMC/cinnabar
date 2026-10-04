@@ -352,7 +352,7 @@ fn phase2_warmup_frames_are_excluded_from_the_report_histogram() {
 
 #[test]
 fn render_transparent_sort_snapshot_conversion_is_exact() {
-    let source = render::TransparentSortMetricsSnapshot {
+    let source = render_model::TransparentSortMetricsSnapshot {
         request_generation: 31,
         result_generation: 30,
         committed_generation: 29,

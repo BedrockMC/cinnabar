@@ -2,16 +2,10 @@
 //! block cubes, with UVs mapped into a caller-chosen region of its texture layer.
 //!
 //! Each slab face shows the sprite unmirrored to a viewer on that face's side, so an item reads
-//! correctly from either side.
+//! correctly from either side. Vertices sit on rig bone 0; `back_uv` is what a viewer behind the
+//! triangle sees.
 
-/// One vertex; `back_uv` is what a viewer behind the triangle sees.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ItemVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub uv: [f32; 2],
-    pub back_uv: [f32; 2],
-}
+use crate::ActorRigVertex;
 
 /// Extrudes an RGBA8 sprite into a slab centred on the origin: the longer side spans one unit,
 /// the slab is one texel thick, and each edge quad samples its own texel. `uv_rect` is the
@@ -23,7 +17,7 @@ pub fn extruded_sprite_vertices(
     height: usize,
     rgba8: &[u8],
     uv_rect: [f32; 4],
-) -> Option<Vec<ItemVertex>> {
+) -> Option<Vec<ActorRigVertex>> {
     if width == 0 || height == 0 || rgba8.len() != width.checked_mul(height)?.checked_mul(4)? {
         return None;
     }
@@ -120,7 +114,7 @@ pub fn held_sprite_vertices(
     height: usize,
     rgba8: &[u8],
     uv_rect: [f32; 4],
-) -> Option<Vec<ItemVertex>> {
+) -> Option<Vec<ActorRigVertex>> {
     let texel = 1.0 / width.max(height) as f32;
     let offset = [
         width as f32 * texel * 0.5,
@@ -208,7 +202,7 @@ const CUBE_FACES: [([[f32; 3]; 4], [f32; 3]); 6] = [
 /// A unit cube centred on the origin, six vertices per face in `CUBE_FACES` order. Face `f`
 /// shows its upright tile from `face_rects[f]` (`[u0, v0, u1, v1]`) to a viewer outside it.
 #[must_use]
-pub fn cube_vertices(face_rects: [[f32; 4]; 6]) -> Vec<ItemVertex> {
+pub fn textured_cube_vertices(face_rects: [[f32; 4]; 6]) -> Vec<ActorRigVertex> {
     let mut vertices = Vec::with_capacity(36);
     for ((corners, normal), rect) in CUBE_FACES.into_iter().zip(face_rects) {
         let uvs = [
@@ -223,7 +217,7 @@ pub fn cube_vertices(face_rects: [[f32; 4]; 6]) -> Vec<ItemVertex> {
 }
 
 fn push_quad(
-    vertices: &mut Vec<ItemVertex>,
+    vertices: &mut Vec<ActorRigVertex>,
     corners: [[f32; 3]; 4],
     uvs: [[f32; 2]; 4],
     back_uvs: [[f32; 2]; 4],
@@ -243,11 +237,12 @@ fn push_quad(
         [0, 2, 1, 0, 3, 2]
     };
     for index in order {
-        vertices.push(ItemVertex {
+        vertices.push(ActorRigVertex {
             position: corners[index],
             normal,
             uv: uvs[index],
             back_uv: back_uvs[index],
+            bone_index: 0,
         });
     }
 }
@@ -332,7 +327,7 @@ mod tests {
             let x = face as f32 * 0.1;
             [x, 0.0, x + 0.1, 0.5]
         });
-        let vertices = super::cube_vertices(rects);
+        let vertices = super::textured_cube_vertices(rects);
         assert_eq!(vertices.len(), 36);
         for (index, triangle) in vertices.chunks_exact(3).enumerate() {
             let rect = rects[index / 2];
