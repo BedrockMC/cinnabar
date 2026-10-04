@@ -927,7 +927,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ));
     app.add_plugins(render::PanoramaRenderPlugin);
     if let Some(particle_assets) = &particle_assets {
-        app.insert_resource(render::ParticleSystem::from_assets(particle_assets));
+        app.insert_resource(render::ParticleSimulation(
+            particles::ParticleSystem::from_assets(particle_assets),
+        ));
     }
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);

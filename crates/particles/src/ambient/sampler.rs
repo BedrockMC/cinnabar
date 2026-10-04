@@ -19,8 +19,8 @@ const CENTER_SHIFT_SCALE: f32 = 8.0;
 const RADIUS_GROWTH_SCALE: f32 = 4.0;
 const NORMALIZE_EPSILON: f32 = 0.0001;
 
-pub(super) struct Sampler {
-    pub(super) sample_count: u32,
+pub struct Sampler {
+    pub sample_count: u32,
     previous_position: [f32; 3],
 }
 
@@ -35,14 +35,14 @@ impl Default for Sampler {
     }
 }
 
-pub(super) struct SamplePlan {
-    pub(super) center: [i32; 3],
-    pub(super) near_radius: u32,
-    pub(super) sample_count: u32,
+pub struct SamplePlan {
+    pub(crate) center: [i32; 3],
+    pub(crate) near_radius: u32,
+    pub sample_count: u32,
 }
 
 impl Sampler {
-    pub(super) fn plan(&self, position: [f32; 3], forward: [f32; 3]) -> SamplePlan {
+    pub fn plan(&self, position: [f32; 3], forward: [f32; 3]) -> SamplePlan {
         let mut center = position.map(|component| component.floor() as i32);
         let mut near_radius = NEAR_RADIUS;
         let delta: [f32; 3] =
@@ -81,7 +81,7 @@ impl Sampler {
         }
     }
 
-    pub(super) fn finish(&mut self, position: [f32; 3], elapsed: Duration) {
+    pub fn finish(&mut self, position: [f32; 3], elapsed: Duration) {
         let elapsed_ms = elapsed.as_secs_f32() * 1000.0;
         self.sample_count = if elapsed_ms > 0.0 {
             (SAMPLE_BUDGET_MILLISECONDS / (elapsed_ms / self.sample_count as f32)).ceil() as u32
@@ -94,7 +94,7 @@ impl Sampler {
 }
 
 impl SamplePlan {
-    pub(super) fn sample(&self, index: u32, random: &mut AmbientRandom) -> Option<[i32; 3]> {
+    pub fn sample(&self, index: u32, random: &mut AmbientRandom) -> Option<[i32; 3]> {
         let radius = if index < NEAR_SAMPLES {
             self.near_radius
         } else {

@@ -538,7 +538,7 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::particles::{atlas::ParticleAtlas, def::parse_effect};
+    use crate::{atlas::ParticleAtlas, def::parse_effect};
 
     pub(crate) fn effect(json: &str) -> Arc<EffectDef> {
         Arc::new(parse_effect(json.as_bytes()).expect("test effect parses"))

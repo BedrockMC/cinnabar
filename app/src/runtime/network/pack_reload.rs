@@ -249,7 +249,7 @@ pub(crate) fn reload_resource_packs(
     presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
     environment_base: Option<Res<EnvironmentBase>>,
     mut atmosphere: Option<ResMut<render::AtmosphereTextureAssets>>,
-    mut particles: Option<ResMut<render::ParticleSystem>>,
+    mut particles: Option<ResMut<render::ParticleSimulation>>,
     mut entity_artwork: Option<ResMut<render::ActorArtworkPages>>,
     gpu_reload: Option<Res<render::ChunkTextureReload>>,
     mut chunks: Query<&mut render::ChunkRenderInstance>,
@@ -368,7 +368,7 @@ pub(crate) fn reload_resource_packs(
                     if let (Some(particles), Some(next)) =
                         (particles.as_mut(), environment.particles)
                     {
-                        **particles = next;
+                        particles.0 = next;
                     }
                 }
                 let packs = prepared.application;
