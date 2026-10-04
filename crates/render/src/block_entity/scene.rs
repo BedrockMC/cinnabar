@@ -132,13 +132,24 @@ pub struct BlockEntityFrame {
     pub additive: Arc<[BlockEntityVertex]>,
 }
 
-/// Static atlas pixels plus dimensions for GPU upload.
+/// Static atlas pixels plus dimensions for GPU upload; a new size means a new texture.
 #[derive(Debug)]
 pub struct BlockEntityAtlasImage {
     pub identity: [u8; 32],
     pub size: [u32; 2],
     pub static_height: u32,
     pub static_rgba8: Arc<[u8]>,
+}
+
+impl BlockEntityAtlasImage {
+    fn of(atlas: &BlockEntityAtlas) -> Self {
+        Self {
+            identity: atlas.identity(),
+            size: atlas.size(),
+            static_height: atlas.static_height(),
+            static_rgba8: Arc::clone(atlas.static_rgba8()),
+        }
+    }
 }
 
 #[derive(Debug, Default, Resource)]
@@ -161,12 +172,7 @@ pub struct BlockEntityScene {
 impl BlockEntityScene {
     pub fn install_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) {
         let atlas = BlockEntityAtlas::from_assets(assets);
-        self.image = Some(Arc::new(BlockEntityAtlasImage {
-            identity: atlas.identity(),
-            size: atlas.size(),
-            static_height: atlas.static_height(),
-            static_rgba8: Arc::clone(atlas.static_rgba8()),
-        }));
+        self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.text = Some(DynamicCells::new(atlas.size()[0]));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame::default();
@@ -198,7 +204,17 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.text_slot(key, make)?;
+        let text = self.text.as_mut()?;
+        let slot = text.text_slot(key, make)?;
+        let pages = text.text_pages();
+        let atlas = self.atlas.as_mut()?;
+        if atlas.text_pages() != pages {
+            // A taller atlas renormalizes every UV, so no cached geometry survives.
+            Arc::make_mut(atlas).set_text_pages(pages);
+            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
+            self.reusable = None;
+            self.cached_submissions.clear();
+        }
         self.atlas.as_ref()?.text_cell(slot)
     }
 
@@ -220,12 +236,7 @@ impl BlockEntityScene {
             return;
         };
         atlas.append_textures(mobs.textures());
-        self.image = Some(Arc::new(BlockEntityAtlasImage {
-            identity: atlas.identity(),
-            size: atlas.size(),
-            static_height: atlas.static_height(),
-            static_rgba8: Arc::clone(atlas.static_rgba8()),
-        }));
+        self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
         self.mobs = mobs;
         self.reusable = None;
         self.cached_submissions.clear();
