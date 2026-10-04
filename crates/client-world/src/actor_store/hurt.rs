@@ -60,6 +60,7 @@ pub struct ActorStatus {
     pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
+    pub(super) fire: super::fire::FireAnimation,
     pub pickup: Option<ActorPickup>,
     /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
@@ -86,6 +87,7 @@ impl ActorStatus {
 
     pub(super) fn tick(&mut self) {
         self.age_ticks = self.age_ticks.saturating_add(1);
+        self.fire.tick(self.age_ticks);
         if let Some(pickup) = &mut self.pickup {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }

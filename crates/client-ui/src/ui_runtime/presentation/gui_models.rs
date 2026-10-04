@@ -9,8 +9,12 @@ use ui::{UiMesh, UiNode, UiVisual};
 use super::{IconRef, UiPresentationError, UiPresentationRuntime, item_gui, player_preview};
 
 mod atlas;
+mod fire;
 mod held;
 mod live_player;
+mod sources;
+use sources::modulated;
+pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 #[cfg(test)]
@@ -35,6 +39,7 @@ pub(super) struct GuiModels {
     models: BTreeMap<IconKey, Arc<UiMesh>>,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, player_preview::PreviewHeldModel>,
+    fire: fire::FireAtlas,
 }
 
 impl UiPresentationRuntime {
@@ -146,6 +151,8 @@ impl UiPresentationRuntime {
         self.gui_models.models = models;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
+        self.gui_models.fire.pages_start = None;
+        self.install_gui_fire()?;
         self.gui_models.enabled = true;
         self.rebuild_dynamic_textures();
         Ok(())
@@ -267,46 +274,12 @@ impl UiPresentationRuntime {
             armor,
             held,
             true, // Current desktop default is the native Fancy material group.
+            self.gui_fire_frame(),
+            if self.player_preview_view == player_preview::PreviewView::Hud {
+                self.gui_models.live_player.overlay_color
+            } else {
+                [0.0; 4]
+            },
         )
     }
-}
-
-/// Special translucent GUI tessellators (for example beacon) are not ordinary cubes.
-pub(super) fn ordinary_cube_sheet(rgba8: &[u8]) -> bool {
-    rgba8.chunks_exact(4).all(|pixel| pixel[3] == 255)
-}
-
-pub(super) fn sheet_faces(icon: IconRef) -> [IconRef; 6] {
-    let side = assets::BLOCK_ITEM_FACE_SIDE;
-    let columns = usize::from(assets::BLOCK_ITEM_SHEET_GRID[0]);
-    std::array::from_fn(|face| {
-        let left = icon.uv[0] + (face % columns) as u16 * side;
-        let top = icon.uv[1] + (face / columns) as u16 * side;
-        IconRef {
-            uv: [left, top, left + side, top + side],
-            ..icon
-        }
-    })
-}
-
-fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Option<Arc<UiMesh>> {
-    if color == [255; 4] && !glint {
-        return Some(Arc::clone(mesh));
-    }
-    let mut vertices = mesh.vertices().to_vec();
-    for vertex in &mut vertices {
-        for (channel, factor) in vertex.color.iter_mut().zip(color) {
-            *channel = (u16::from(*channel) * u16::from(factor) / 255) as u8;
-        }
-        if glint {
-            vertex.style_flags |= ui::UI_STYLE_GLINT;
-        }
-    }
-    UiMesh::new(
-        vertices.into(),
-        mesh.indices().into(),
-        mesh.batches().into(),
-    )
-    .ok()
-    .map(Arc::new)
 }

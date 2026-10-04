@@ -24,6 +24,7 @@ struct UiVertexOutput {
     @location(3) @interpolate(flat) style_flags: u32,
     @location(4) @interpolate(flat) alpha_cutoff: f32,
     @location(5) model_light: f32,
+    @location(6) overlay_color: vec4<f32>,
 };
 
 @vertex
@@ -34,6 +35,7 @@ fn ui_vertex(
     @location(3) style_flags: u32,
     @location(4) alpha_cutoff: f32,
     @location(5) model_light: f32,
+    @location(6) overlay_color: vec4<f32>,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
     let ndc = vec2<f32>(
@@ -50,6 +52,7 @@ fn ui_vertex(
     output.style_flags = style_flags;
     output.alpha_cutoff = alpha_cutoff;
     output.model_light = model_light;
+    output.overlay_color = overlay_color;
     return output;
 }
 
@@ -97,12 +100,17 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         discard;
     }
     var straight_color = input.color;
+    // Mix the render-controller overlay into sampled RGB before lighting.
+    // Sampled and node alpha remain unchanged.
+    var model_rgb = mix(sample.rgb * straight_color.rgb, input.overlay_color.rgb, input.overlay_color.a);
     if direct {
         sample = vec4<f32>(srgb_to_linear(sample.rgb), sample.a);
         straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
+        model_rgb = mix(sample.rgb * straight_color.rgb,
+            srgb_to_linear(input.overlay_color.rgb), input.overlay_color.a);
     }
     let alpha = sample.a * straight_color.a;
-    var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a * input.model_light;
+    var premultiplied_rgb = model_rgb * sample.a * straight_color.a * input.model_light;
     if (input.style_flags & STYLE_GLINT) != 0u {
         // Vanilla scales glint RGB without changing alpha.
         premultiplied_rgb += glint(input.clip_position.xy) * viewport.glint_strength * alpha;
