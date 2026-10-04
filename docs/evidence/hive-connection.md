@@ -1,6 +1,7 @@
 # Hive connection and dimension transfer
 
-An authenticated Hive hub join reproduced five independent failures. All 24
+An authenticated Hive hub join exposed failures in pack admission, terrain
+decoding and dimension transfer. All 24
 required packs carried display labels as selected subpack names, although their
 manifests declared no subpacks. Admission rejected the entire required stack.
 After admitting root resources, persistent block palettes decoded as air. After
@@ -20,6 +21,10 @@ such as `hive:cream_brick` and `hive:stone_herring_bone_bricks`; their existing
 solid collision shapes never reached the world. Custom overlays now retain
 complete identities in either wire mode, preserving visual and collision slots
 when an individual definition cannot provide a complete identity.
+
+Offline replay additionally exposed early decode snapshots taken before the
+asynchronous custom artwork finished. Custom identities belong to the session
+world registry and must be available independently of that artwork.
 
 The captured definition named `minecraft:overworld`, with minimum Y 0, height
 256 and numeric dimension type 3. StartGame and LevelChunk used dimension 0.
@@ -54,8 +59,8 @@ The live checks used macOS Metal on Apple M3 Pro, a 1280×752 logical window at
 2× display scale, vanilla render mode and a debug build. Hive hub walking,
 jumping and the compass game-selector menu worked. SkyWars transferred to the
 destination and supported movement after the acknowledgement fix, but later
-disconnected. A subsequent movement-only run ended with a six-day "Unfair
-Advantage" ban. Live connections stopped. That opaque server verdict does not
+disconnected. A subsequent movement-only run ended with an "Unfair Advantage"
+ban showing expiry `6d 23h`. Live connections stopped. That opaque server verdict does not
 establish its cause; final live acceptance after the custom identity correction
 remains blocked.
 

@@ -22,6 +22,7 @@ mod access;
 mod actors;
 mod biomes;
 mod block_events;
+mod block_identities;
 mod commits;
 mod contracts;
 mod dimension_ranges;
@@ -64,6 +65,7 @@ pub struct WorldAuthority {
     air_block_id: u32,
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
+    custom_block_identities: Arc<std::collections::HashMap<u32, u32>>,
     id_remap: Arc<assets::SequentialIdRemap>,
     decode_diagnostics: Arc<crate::ingestion::DecodeDiagnostics>,
     biome_definitions: Arc<[BiomeDefinitionEvent]>,
@@ -141,6 +143,7 @@ impl WorldAuthority {
             air_block_id,
             runtime_assets,
             custom_block_ids: 0..0,
+            custom_block_identities: Arc::default(),
             id_remap: Arc::default(),
             decode_diagnostics: Arc::default(),
             biome_definitions: Arc::from([]),
