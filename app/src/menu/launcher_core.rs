@@ -1,7 +1,7 @@
 //! The launcher's long-lived core: one `-control-status` core serves account,
 //! catalog, connect and local-world control for the whole launcher run. Joins
 //! pick their target over `connect.v1` and dial this core's game socket, so it
-//! restarts only when the validated sign-in changes (sign-in or sign-out).
+//! restarts when the validated sign-in changes or its child exits unexpectedly.
 
 use std::{
     path::{Path, PathBuf},
@@ -73,6 +73,11 @@ impl LauncherCoreSlot {
         upstream_client_cache: bool,
         mut worlds: Option<&mut LocalWorlds>,
     ) {
+        if self.core.as_mut().is_some_and(|core| core._guard.exited()) {
+            bevy::log::warn!("launcher core exited; reconnecting its control clients when idle");
+            self.retire(commands, menu, worlds.as_deref_mut());
+            self.failed = None;
+        }
         if self.core.is_none() && std::mem::take(&mut menu.feeds.profile_refresh_requested) {
             self.failed = None;
         }
@@ -81,14 +86,7 @@ impl LauncherCoreSlot {
             let wanted = auth_cache.is_some();
             let current = self.core.as_ref().map(|core| core.authenticated);
             if current != Some(wanted) && self.failed != Some(wanted) {
-                if let Some(old) = self.core.take() {
-                    drop(old);
-                    commands.remove_resource::<LauncherAccount>();
-                    if let Some(worlds) = worlds.as_deref_mut() {
-                        worlds.detach();
-                    }
-                    menu.control_auth = None;
-                }
+                self.retire(commands, menu, worlds.as_deref_mut());
                 match LauncherCore::spawn(
                     &menu.layout,
                     auth_cache.as_deref(),
@@ -117,6 +115,22 @@ impl LauncherCoreSlot {
             {
                 bevy::log::warn!("local worlds unavailable: {error}");
             }
+        }
+    }
+
+    fn retire(
+        &mut self,
+        commands: &mut Commands,
+        menu: &mut MenuRuntime,
+        worlds: Option<&mut LocalWorlds>,
+    ) {
+        if let Some(old) = self.core.take() {
+            drop(old);
+            commands.remove_resource::<LauncherAccount>();
+            if let Some(worlds) = worlds {
+                worlds.detach();
+            }
+            menu.control_auth = None;
         }
     }
 
@@ -316,6 +330,9 @@ impl MenuRuntime {
         )
     }
 }
+
+#[cfg(test)]
+mod dead_child_tests;
 
 #[cfg(test)]
 mod tests {

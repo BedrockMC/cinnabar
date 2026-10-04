@@ -48,11 +48,11 @@ Anisotropy remains one because WebGPU requires linear magnification whenever
 anisotropy is greater than one; a future quality profile may offer that tradeoff
 without silently changing the vanilla-pixel presentation.
 
-The user-facing default FOV is 120 degrees horizontally. Bevy stores vertical
-FOV, so the camera converts 120 degrees from the primary window's current aspect
-ratio and updates the projection after an aspect change. At 16:9 this is about
-88.51 degrees vertically, rather than the heavily distorted 120-degree vertical
-projection (about 144 degrees horizontally) used by the earlier build.
+The original texture slice interpreted its 120-degree FOV as a horizontal
+angle and converted it to about 88.51 degrees vertically at 16:9. The later
+[native camera audit](reference/camera-fov.md) establishes that Bedrock's
+full-window setting specifies the vertical angle directly. The current camera
+uses that contract and applies viewport aspect separately in the projection.
 
 The original texture slice recorded by this report was deliberately limited to
 opaque, axis-aligned full cubes. Cutout and blended blocks, most non-cube models, biome tint, animation,

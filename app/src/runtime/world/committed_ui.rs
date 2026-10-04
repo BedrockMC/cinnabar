@@ -139,16 +139,24 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 server_tick,
                 attributes,
-            } => ui_runtime.apply_local_attributes(
-                &mut player_runtime,
-                SequencedLocalAttributes {
-                    session_id: clock.session_generation(),
-                    fifo_sequence: sequence,
-                    local_millis,
+            } => {
+                crate::movement::trace_local_attributes(
+                    clock.session_generation(),
+                    sequence,
                     server_tick,
-                    attributes,
-                },
-            ),
+                    &attributes,
+                );
+                ui_runtime.apply_local_attributes(
+                    &mut player_runtime,
+                    SequencedLocalAttributes {
+                        session_id: clock.session_generation(),
+                        fifo_sequence: sequence,
+                        local_millis,
+                        server_tick,
+                        attributes,
+                    },
+                )
+            }
             CommittedUiEvent::LocalMetadata {
                 sequence, metadata, ..
             } => ui_runtime.apply_local_metadata(

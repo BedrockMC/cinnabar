@@ -86,11 +86,14 @@ fn delayed_movement_speed_rewinds_to_its_tick_and_matches_on_time_delivery() {
     run_tick_with(&mut on_time, faster);
 
     let (mut delayed, mut ticker) = walked_physics(4);
-    assert_eq!(delayed.retime_movement_speed(102, 0.2), Some(102));
+    assert_eq!(
+        delayed.retime_movement_speed(102, 0.2, None).unwrap().0,
+        Some(102)
+    );
     reconcile_timeline_rewind(&mut ticker, &mut delayed, 102, &VersionedFloor(1)).unwrap();
     assert_eq!(delayed.state(), on_time.state());
     assert_eq!(
-        delayed.retime_movement_speed(102, 0.2),
+        delayed.retime_movement_speed(102, 0.2, None).unwrap().0,
         None,
         "a repeated value changes nothing and needs no replay"
     );
@@ -99,9 +102,55 @@ fn delayed_movement_speed_rewinds_to_its_tick_and_matches_on_time_delivery() {
 #[test]
 fn live_and_stale_movement_speed_stamps_leave_retained_inputs_alone() {
     let (mut physics, _) = walked_physics(3);
-    assert_eq!(physics.retime_movement_speed(0, 0.2), None);
-    assert_eq!(physics.retime_movement_speed(103, 0.2), None);
-    assert_eq!(physics.retime_movement_speed(50, 0.2), None);
+    assert_eq!(physics.retime_movement_speed(0, 0.2, None), None);
+    assert_eq!(physics.retime_movement_speed(103, 0.2, None), None);
+    assert_eq!(physics.retime_movement_speed(50, 0.2, None), None);
+}
+
+#[test]
+fn empty_modifier_server_sprint_runs_at_one_boost_and_custom_speed_survives() {
+    fn ground_speed(current: f32, sprinting: bool) -> f64 {
+        let (mut physics, _) = walked_physics(0);
+        let mut authority =
+            crate::movement::speed_authority::LocalMovementSpeedAuthority::default();
+        authority.begin_session(7, 0);
+        assert!(authority.apply(7, 1, 0, f64::from(current), None));
+        authority.adopt_server_sprinting(Some(sprinting));
+        let mut speed = 0.0;
+        for _ in 0..40 {
+            authority.set_sprinting(sprinting);
+            let input = MovementInput {
+                sprinting,
+                movement_speed: authority.prediction_speed(),
+                ..forward_physics_input()
+            };
+            let before = physics.state().unwrap().position;
+            run_tick_with(&mut physics, input);
+            let movement = physics.state().unwrap().position - before;
+            speed = movement.x.hypot(movement.z) * f64::from(sim::TICKS_PER_SECOND);
+        }
+        speed
+    }
+    let walking = ground_speed(0.1, false);
+    let sprinting = ground_speed(0.13, true);
+    assert!((walking - 4.3173).abs() < 0.001, "{walking}");
+    assert!((sprinting - 5.6125).abs() < 0.001, "{sprinting}");
+    assert!((sprinting / walking - sim::SPRINT_SPEED_MULTIPLIER).abs() < 0.0001);
+    let custom = ground_speed(0.12, false);
+    assert!((custom / walking - f64::from(0.12_f32 / 0.1_f32)).abs() < 0.0001);
+}
+
+#[test]
+fn delayed_effective_speed_replays_only_sprint_edges_after_its_stamp() {
+    let (mut physics, _) = walked_physics(0);
+    for sprinting in [true, true, false, false, true] {
+        run_tick_with(&mut physics, sprinting_input(sprinting));
+    }
+    let (_, speed) = physics
+        .retime_movement_speed(101, f64::from(0.13_f32), None)
+        .unwrap();
+    // No packet modifier exists to remove at the first stop; re-entry adds one.
+    assert_eq!(speed.prediction_speed(), Some(f64::from(0.13_f32)));
 }
 
 fn sprinting_input(sprinting: bool) -> MovementInput {
@@ -111,7 +160,9 @@ fn sprinting_input(sprinting: bool) -> MovementInput {
     }
 }
 
-fn flags(update: impl FnOnce(&mut client_world::MovementFlagUpdate)) -> client_world::MovementFlagUpdate {
+fn flags(
+    update: impl FnOnce(&mut client_world::MovementFlagUpdate),
+) -> client_world::MovementFlagUpdate {
     let mut flags = client_world::MovementFlagUpdate::default();
     update(&mut flags);
     flags
@@ -126,8 +177,14 @@ fn delayed_sprint_stop_rewinds_to_its_tick_and_is_adopted_live() {
     }
     let (mut delayed, mut ticker) = walked_physics(0);
     for _ in 0..4 {
-        let frame = delayed.advance(Duration::from_millis(50), sprinting_input(true), &VersionedFloor(1));
-        ticker.enqueue_completed_physics(frame.samples[0].clone()).unwrap();
+        let frame = delayed.advance(
+            Duration::from_millis(50),
+            sprinting_input(true),
+            &VersionedFloor(1),
+        );
+        ticker
+            .enqueue_completed_physics(frame.samples[0].clone())
+            .unwrap();
     }
     let stop = flags(|flags| flags.sprinting = Some(false));
     assert_eq!(delayed.apply_server_movement_flags(102, stop), Some(102));
@@ -186,7 +243,12 @@ fn a_server_glide_clear_ends_the_retained_glide_and_the_live_mode() {
             jumping,
             ..MovementInput::default()
         };
-        let frame = physics.advance_with_context(Duration::from_millis(50), input, context, &VersionedFloor(1));
+        let frame = physics.advance_with_context(
+            Duration::from_millis(50),
+            input,
+            context,
+            &VersionedFloor(1),
+        );
         assert_eq!(frame.completed_ticks, 1);
     }
     assert_eq!(physics.mode(), sim::MovementMode::Gliding);
@@ -201,7 +263,9 @@ fn an_unstamped_flag_update_applies_live() {
     let stop = flags(|flags| flags.sprinting = Some(false));
     assert_eq!(physics.apply_server_movement_flags(0, stop), None);
     assert_eq!(
-        physics.take_server_control_flags().and_then(|flags| flags.sprinting),
+        physics
+            .take_server_control_flags()
+            .and_then(|flags| flags.sprinting),
         Some(false)
     );
 }
@@ -298,7 +362,12 @@ fn an_item_use_modifier_slows_the_simulated_walk() {
         run_tick_with(&mut slowed, drawing);
     }
     let travel = |physics: &LocalPhysicsController| physics.state().unwrap().position.z.abs();
-    assert!(travel(&slowed) < travel(&plain) * 0.5, "{} vs {}", travel(&slowed), travel(&plain));
+    assert!(
+        travel(&slowed) < travel(&plain) * 0.5,
+        "{} vs {}",
+        travel(&slowed),
+        travel(&plain)
+    );
 }
 
 /// An oversized finite motion is skipped instead of pushing the next sweep past the query extent.
@@ -312,10 +381,17 @@ fn an_unsimulable_server_motion_is_skipped_and_prediction_keeps_running() {
         forward_physics_input(),
         &VersionedFloor(1),
     );
-    assert!(failed.blocked.is_some(), "the raw value would stop prediction");
+    assert!(
+        failed.blocked.is_some(),
+        "the raw value would stop prediction"
+    );
     let before = physics.state().unwrap().velocity;
     assert_eq!(physics.queue_server_motion([1.0e6, 0.0, 0.0], 0), None);
     assert_eq!(physics.state().unwrap().velocity, before);
-    let frame = physics.advance(Duration::from_millis(50), forward_physics_input(), &VersionedFloor(1));
+    let frame = physics.advance(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        &VersionedFloor(1),
+    );
     assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
 }
