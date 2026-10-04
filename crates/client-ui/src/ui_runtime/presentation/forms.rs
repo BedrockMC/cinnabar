@@ -38,6 +38,7 @@ pub mod panorama;
 #[cfg(test)]
 pub mod regression_snapshots;
 pub use panorama::{built_in_faces, launcher_view};
+mod accounts;
 pub mod enhanced_setting;
 pub mod graphics_expander;
 #[cfg(test)]
@@ -47,7 +48,6 @@ pub mod recipe_book;
 pub mod remote_images;
 pub mod scene_policy;
 pub mod server_pack;
-mod accounts;
 pub mod settings_account;
 pub mod settings_chat;
 pub mod settings_controls;
