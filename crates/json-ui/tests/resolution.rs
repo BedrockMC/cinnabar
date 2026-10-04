@@ -30,6 +30,31 @@ fn root_text(control: &str) -> Value {
     text(&root(&format!(r#""root":{control}"#)))
 }
 
+#[test]
+fn empty_namespace_references_use_the_declaring_namespace() {
+    let mut catalog = catalog(
+        r#""root@.base":{"controls":[{"help@.header":{}},{"external@other.header":{}}]},
+           "base":{"type":"panel","size":[120,30]},
+           "header":{"type":"label","text":"Help"}"#,
+    );
+    catalog.overlay_text(
+        "ui/other.json",
+        r#"{"namespace":"other","header":{"type":"label","text":"External"}}"#,
+    );
+    let tree = json_ui::resolve(&catalog, "a.root", &Context::empty())
+        .control
+        .expect("relative base resolves");
+    assert_eq!(tree.properties.get("size"), Some(&json!([120, 30])));
+    assert_eq!(
+        text(tree.child("help").expect("relative header")),
+        json!("Help")
+    );
+    assert_eq!(
+        text(tree.child("external").expect("qualified header")),
+        json!("External")
+    );
+}
+
 // A nearer `|default` beats an outer one; a block's default never beats a concrete value.
 #[test]
 fn defaults_resolve_after_every_concrete_scope() {
