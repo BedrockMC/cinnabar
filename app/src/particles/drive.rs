@@ -6,7 +6,8 @@ use bevy::prelude::{
     App, IntoScheduleConfigs, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform,
     Update, With,
 };
-use client_world::{ActorStatusNotice, CommittedParticleEvent, WorldStream};
+use chunk_pipeline::WorldStream;
+use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
     LevelParticle, ParticleSystem, SpawnRequest, block_break_request, block_crack_request,
     burst_requests, classify_level_event, crack_cadence_due, critical_hit_request, face_toward,
@@ -111,7 +112,7 @@ fn spawn_spawn_packet(
     let mut bound = None;
     if let Some(unique_id) = event.actor_unique_id {
         // The position is relative to the attached actor, which the emitter then follows.
-        let Some(actor) = stream.actor_by_unique_id(unique_id) else {
+        let Some(actor) = stream.authority().actor_by_unique_id(unique_id) else {
             return;
         };
         bound = Some((actor.runtime_id, event.position));
@@ -194,7 +195,7 @@ fn spawn_item_icon_by_id(
     aux: i32,
     position: [f32; 3],
 ) {
-    if let Some(identifier) = routing.stream.item_identifier(network_id) {
+    if let Some(identifier) = routing.stream.authority().item_identifier(network_id) {
         spawn_item_icon(system, routing, &identifier, aux, position);
     }
 }
@@ -322,7 +323,7 @@ fn spawn_mining_cracks(
 /// Moves actor-bound emitters with their actors; an emitter whose actor vanished stops.
 fn follow_bound_emitters(system: &mut ParticleSystem, stream: &WorldStream) {
     system.update_bound_emitters(|runtime_id, offset| {
-        let actor = stream.actor(runtime_id)?;
+        let actor = stream.authority().actor(runtime_id)?;
         let position = std::array::from_fn(|i| actor.position[i] + offset[i]);
         Some((position, IDENTITY_BASIS))
     });
@@ -359,7 +360,10 @@ fn drive_particles(
     let Ok((transform, projection)) = cameras.single() else {
         return;
     };
-    let identity = (stream.actor_session_id(), stream.current_dimension());
+    let identity = (
+        stream.authority().actor_session_id(),
+        stream.current_dimension(),
+    );
     if *session != identity {
         *session = identity;
         *break_echoes = crate::audio::EchoLedger::default();
@@ -472,7 +476,7 @@ fn route_critical(
     magic: bool,
     particle_count: f32,
 ) {
-    let Some(actor) = stream.actor(runtime_id) else {
+    let Some(actor) = stream.authority().actor(runtime_id) else {
         return;
     };
     let height = actor

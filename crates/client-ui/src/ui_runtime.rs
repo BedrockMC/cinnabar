@@ -22,7 +22,6 @@ pub use inventory::inventory_ledger;
 pub use inventory::inventory_router;
 pub mod item_facts;
 pub mod json_ui_assets;
-pub mod local_abilities;
 pub mod oreui_assets;
 pub mod platform_clipboard;
 pub mod presentation;
@@ -559,13 +558,13 @@ impl UiRuntime {
         true
     }
 
-    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+    pub fn project_block_cracks(&mut self, snapshot: chunk_pipeline::BlockCrackSnapshot) {
         self.block_cracks.project(snapshot);
         self.block_cracks
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+    pub fn block_crack_snapshot(&self) -> Option<&chunk_pipeline::BlockCrackSnapshot> {
         self.block_cracks.snapshot()
     }
 

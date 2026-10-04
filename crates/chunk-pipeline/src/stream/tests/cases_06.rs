@@ -142,7 +142,7 @@ fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
         )
         .unwrap();
 
-    assert!(stream.actor(42).is_none());
+    assert!(stream.authority().actor(42).is_none());
     assert_eq!(
         stream.take_committed_ui(),
         vec![CommittedUiEvent::LocalAttributes {
@@ -1089,8 +1089,11 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
         )
         .unwrap();
 
-    assert_eq!(stream.actor_count(), 1);
-    assert_eq!(stream.actor(8).unwrap().position, [1.0, 2.0, 3.0]);
+    assert_eq!(stream.authority().actor_count(), 1);
+    assert_eq!(
+        stream.authority().actor(8).unwrap().position,
+        [1.0, 2.0, 3.0]
+    );
     assert!(stream.take_mesh_changes().is_empty());
     let after = stream.stats();
     assert_eq!(after.pending_mesh_jobs, before.pending_mesh_jobs);
@@ -1145,7 +1148,10 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
         )
         .unwrap();
     stream.advance_actor_interpolation_ticks(3);
-    assert_eq!(stream.actor(8).unwrap().position, [1.0, 64.0, 2.0]);
+    assert_eq!(
+        stream.authority().actor(8).unwrap().position,
+        [1.0, 64.0, 2.0]
+    );
 
     stream
         .submit(
@@ -1165,7 +1171,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
             })),
         )
         .unwrap();
-    let actor = stream.actor(8).unwrap();
+    let actor = stream.authority().actor(8).unwrap();
     assert_eq!(actor.previous_pose.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.received_pose.position, [1.0, 64.0, 2.0]);

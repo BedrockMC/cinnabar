@@ -2,7 +2,7 @@
 //! Height/regional climate eligibility still uses the shared, incomplete biome gate.
 
 use assets::BIOME_TINT_FLAG_SEASONAL_FOLIAGE;
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use particles::tiles::{column_exposed, seasonal_tint};
 
 use super::super::{tiles::biome_tint, world_adapter::StreamParticleWorld};

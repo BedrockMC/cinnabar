@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF;
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use particles::{
     ParticleSystem, ParticleView,
     ambient::{AmbientRandom, LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler, material_allows_leaf},

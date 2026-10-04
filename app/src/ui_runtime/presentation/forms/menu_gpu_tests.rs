@@ -168,10 +168,9 @@ fn menu_frames_on_native_gpu() {
             let preview_done = Instant::now();
             if matches!(name, "paper-doll" | "inventory") {
                 presentation.set_menu_view(None);
-                runtime.publish_player_game_mode(
-                    &mut player_runtime,
-                    protocol::PlayerGameMode::Survival,
-                );
+                player_runtime
+                    .facts
+                    .publish_player_game_mode(protocol::PlayerGameMode::Survival);
                 presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
                 presentation.hud_frame_mut().paper_doll_visible = true;
             }

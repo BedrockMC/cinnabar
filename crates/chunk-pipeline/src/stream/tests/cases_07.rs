@@ -17,7 +17,7 @@ fn publisher_radius_classifier_is_policy_not_universal_wire_geometry() {
     assert_eq!(radius_120.radius, 8);
     assert_eq!(
         radius_120.publisher_geometry,
-        Some(super::PublisherViewGeometry {
+        Some(client_world::PublisherViewGeometry {
             center_blocks: [-1350, 1634],
             radius_blocks: 120,
         })
@@ -406,7 +406,10 @@ fn publisher_identity_and_dimension_changes_reset_required_membership_epoch() {
         air_network_id: 12_530,
         block_network_ids_are_hashes: false,
     });
-    assert_ne!(other_session.actor_session_id(), first.session_generation);
+    assert_ne!(
+        other_session.authority().actor_session_id(),
+        first.session_generation
+    );
 }
 
 #[test]

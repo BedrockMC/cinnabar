@@ -33,7 +33,6 @@ mod settings_values;
 #[cfg(test)]
 mod transfer_follow_tests;
 mod video_settings;
-mod view;
 mod worlds_tab;
 
 use auth::{AuthState, AuthSupervisor};
@@ -42,15 +41,15 @@ use ui::RenderMode;
 pub(crate) use core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
 use core_process::{auth_cache_path, core_executable};
 pub(crate) use input::{MenuClipboard, drive_menu_input};
+use launcher::menu::view::{CatalogFile, MenuFeeds};
+#[cfg(test)]
+pub(crate) use launcher::menu::view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
+pub(crate) use launcher::menu::view::{
+    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
+};
 pub(crate) use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub(crate) use video_settings::persist_video_settings;
-use view::{CatalogFile, MenuFeeds};
-#[cfg(test)]
-pub(crate) use view::{InboxItem, JoinKind, JoinProgress, JoinStage, MenuHome};
-pub(crate) use view::{
-    LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, MenuView, SavedServer,
-};
 pub(crate) use worlds_tab::LocalWorldAction;
 
 use std::{
@@ -65,8 +64,8 @@ use crate::{
     install_layout::InstallLayout,
     runtime::world::ClientWorld,
     session::{JoinIntent, SessionStatus},
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 const MAX_SERVER_NAME_BYTES: usize = 64;
 const MAX_SERVER_ADDRESS_BYTES: usize = 128;
@@ -151,7 +150,7 @@ pub(crate) struct MenuRuntime {
     pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
     pub(crate) global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
     /// The Marketplace's presented state while its screen is up.
-    store_snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
     settings_options: std::sync::Arc<settings_options::SettingsOptions>,
     storage: std::sync::Arc<settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
@@ -321,7 +320,7 @@ impl MenuRuntime {
     /// Publish (or clear) the Marketplace's presented state.
     pub(crate) fn set_store_snapshot(
         &mut self,
-        snapshot: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+        snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
     ) {
         self.store_snapshot = snapshot;
     }
@@ -437,7 +436,8 @@ impl MenuRuntime {
 
     /// Resets the join progress screen for a join to `address`.
     pub(crate) fn begin_join_progress(&mut self, address: &str, local_world: bool) {
-        self.feeds.join = view::JoinProgress::new(launcher_core::join_kind(address, local_world));
+        self.feeds.join =
+            launcher::menu::view::JoinProgress::new(launcher_core::join_kind(address, local_world));
     }
 
     /// Returns the session back to the launcher after a fatal session error.

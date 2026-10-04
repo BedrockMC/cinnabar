@@ -5,16 +5,14 @@ use protocol::{
     ItemRegistryEvent, ItemRegistryVersion, NetworkItemStack, WorldBootstrap, WorldEvent,
 };
 
-use crate::{
-    runtime::network::{
-        BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
-        publish_bootstrap_inventory, publish_equipment_identity, route_equipment_ingress,
-        route_inventory_ingress, route_item_registry_ingress, session::SequencedWorldEvent,
-    },
-    ui_runtime::{
-        InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime,
-        inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT},
-    },
+use crate::runtime::network::{
+    BootstrapGenerationDisposition, EquipmentIngress, classify_bootstrap_generation,
+    publish_bootstrap_inventory, publish_equipment_identity, route_equipment_ingress,
+    route_inventory_ingress, route_item_registry_ingress, session::SequencedWorldEvent,
+};
+use client_ui::ui_runtime::{
+    InventoryAuthorityEvent, MAX_PENDING_INVENTORY_EVENTS, UiRuntime,
+    inventory_ledger::{PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT},
 };
 
 fn equipment(actor_runtime_id: u64, selected_slot: u8) -> EquipmentEvent {
@@ -199,7 +197,7 @@ fn consumed_local_equipment_commits_its_global_fifo_slot() {
         panic!("local equipment must produce a FIFO commit marker")
     };
 
-    let mut stream = client_world::WorldStream::new(WorldBootstrap {
+    let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
@@ -294,7 +292,7 @@ fn inventory_ingress_is_retained_while_global_fifo_advances() {
         },
     )
     .unwrap();
-    let mut stream = client_world::WorldStream::new(WorldBootstrap {
+    let mut stream = chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
@@ -399,7 +397,7 @@ fn stale_equipment_envelope_is_rejected_instead_of_relabelled() {
 
     assert!(matches!(
         error,
-        crate::ui_runtime::inventory_router::InventoryRouterError::WrongSession {
+        client_ui::ui_runtime::inventory_router::InventoryRouterError::WrongSession {
             expected: 8,
             actual: 7,
         }

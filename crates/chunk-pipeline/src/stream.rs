@@ -18,9 +18,9 @@ use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
 };
 use client_world::ingestion::{
-    ActorHandedness, BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange,
-    LevelChunkEvent, LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
-    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange, LevelChunkEvent,
+    LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, WorldBootstrap,
+    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap as FastHashMap;
@@ -35,10 +35,8 @@ use world::{
     solve_light,
 };
 
-use super::{ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use client_world::LocalPlayerFeed;
 use client_world::ResolvedServerPosition;
-use client_world::{ActorAnimationStats, ActorRigSnapshot};
-use client_world::{ActorSnapshot, LocalPlayerFeed, PlayerProfile};
 use client_world::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
@@ -249,14 +247,11 @@ use model::{
 pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
-pub use block_events::BlockEventCue;
-pub use map_data::MapImage;
 pub use model::{
     ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, ViewCohortStatus,
     WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
     WorldStreamStats,
 };
-pub use sign_edit::SignEditRequest;
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {
@@ -314,11 +309,7 @@ pub struct WorldStream {
 #[cfg(test)]
 mod tests;
 
-pub use client_world::{
-    COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
-};
-
-pub use client_world::{
+use client_world::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
-    CommittedUiEvent, PublisherViewGeometry, ViewCohort,
+    CommittedUiEvent, ViewCohort,
 };

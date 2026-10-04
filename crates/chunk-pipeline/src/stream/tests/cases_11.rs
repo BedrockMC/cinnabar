@@ -88,7 +88,7 @@ fn confirmed_player_grid_admits_inline_column_after_publisher_shrinks() {
         .expect("publisher shrink commits a cohort identity");
     assert_eq!(
         target.publisher_geometry,
-        Some(super::PublisherViewGeometry {
+        Some(client_world::PublisherViewGeometry {
             center_blocks: [-512, -512],
             radius_blocks: 32,
         })

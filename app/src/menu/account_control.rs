@@ -2,8 +2,8 @@
 //! sign-in screens never see the transport. Without a launcher core the
 //! account catalog and the auth supervisor keep feeding the menu.
 
-use super::view::{JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
+use launcher::menu::view::{JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails};
 
 /// Control method names the implementation calls.
 #[allow(dead_code, reason = "named for the core-relay control clients")]
@@ -245,7 +245,7 @@ mod tests {
     // and a failed join's Disconnect lands on the disconnect screen in vanilla's words.
     #[test]
     fn join_progress_follows_the_core_until_handoff() {
-        use super::super::view::{JoinKind, JoinProgress};
+        use launcher::menu::view::{JoinKind, JoinProgress};
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
         menu.observe_session(crate::session::SessionStatus {
             connecting: true,

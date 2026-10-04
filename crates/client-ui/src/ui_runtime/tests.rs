@@ -71,12 +71,14 @@ fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
 
     let mut runtime = UiRuntime::new(1);
     // Survival game mode defaults the highlight to slot 0.
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(0));
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(0));
 
     // A local selection (number key / scroll) is predicted immediately and wins.
     player_runtime.inventory.set_local_selected_slot(4);
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(4));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(4));
 
     // A later server equipment event for the local player does not override the local prediction.
     runtime.retain_local_selected_equipment(
@@ -91,12 +93,12 @@ fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
             handedness: None,
         },
     );
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(4));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(4));
 
     // A new session clears the local prediction (and every other per-session field).
     player_runtime.begin_session(2);
     runtime.begin_session(2);
-    assert_eq!(runtime.selected_hotbar_slot(&player_runtime), None);
+    assert_eq!(player_runtime.selected_hotbar_slot(), None);
 }
 
 #[test]

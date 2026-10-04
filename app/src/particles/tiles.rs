@@ -1,5 +1,5 @@
 use assets::{MATERIAL_FLAG_TINT_MASK, NetworkIdMode};
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use particles::{TileRequest, tiles::material_tint};
 
 /// A block-textured particle tile with its gamma-space biome tint.
