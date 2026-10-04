@@ -79,3 +79,31 @@ Bevy, app evidence or transport composition stay in app. No live server is neede
 
 
 See [local rebuild measurements](../evidence/gameplay-session-build-timings.md).
+
+## Local verification
+
+All Cargo commands ran through the required `scratchpad/cslot` limiter with
+`RUSTC_WRAPPER=`. The final affected test run passed 3,145 tests across 76 test
+targets, including doctests; 33 existing manual or opt-in tests remained ignored.
+The app suite passed 1,176 tests, gameplay passed 349, and client-session passed 67.
+The same-tick transaction/PlayerAuthInput regression and all 65 architecture tests
+passed. No original app test names were lost during relocation.
+
+Checks completed:
+
+- `cargo test --offline --locked --workspace --no-run` compiled all workspace test targets.
+- `cargo test --offline --locked --no-fail-fast -p bedrock-client -p client-session -p gameplay -p protocol -p resource-pack -p client-ui -p launcher -p architecture` ran the affected tests and doctests.
+- `cargo clippy --offline --locked --all-targets` for the same eight packages passed with `-- -D warnings`.
+- `cargo fmt --all -- --check`, `git diff --check`, and `architecture check --root . --policy tools/architecture/policy.toml` passed.
+
+The `verify-affected --base origin/dev --dry-run` plan selects the full workspace
+because members and the lockfile changed. Local execution used the requested
+workspace compilation and affected tests; the full test matrix remains for CI.
+Three loopback fixture tests initially hit sandbox permission errors and passed
+when rerun with local socket access. No live game server was used. Tests in the
+new domains require no `.local` installation; existing optional carrier fixtures
+retain their absence checks.
+
+Local logs are `/private/tmp/cinnabar-step4-workspace-test-build.log`,
+`/private/tmp/cinnabar-step4-affected-tests-final.log`, and
+`/private/tmp/cinnabar-step4-clippy.log`.
