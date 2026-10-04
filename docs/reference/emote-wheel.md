@@ -49,6 +49,12 @@ revision. A follow-up requested faster playback and more vertical
 pelvis movement. The shared catalog now selects a shorter loop, and the planted
 knee solve permits a larger vertical hip pulse while retaining steady shoulders.
 This follow-up awaits user verification.
+The foot-planting follow-up adds temporary ankle joints and solves thigh/shin
+lengths to a fixed ankle position. Each foot keeps its rest orientation, so all
+four sole corners stay fixed on the floor throughout the faster vertical pulse.
+Foot and clothing UVs are cropped at the ankle; ordinary playback retirement
+still restores the original skeleton. The whole-sole regression runs every loop
+phase, including both vertical hip extremes.
 
 Sampling resolves named bones in the player's actual geometry and applies
 channels before skeleton composition. Body, clothing/persona layers and armor

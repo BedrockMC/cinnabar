@@ -48,6 +48,7 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
         let Some(leg) = leg else { continue };
         let pivot = source.bones[leg].pivot?;
         let height = pivot[1].get();
+        let foot_height = height / 6.0;
         if !(8.0..=16.0).contains(&height)
             || bone
                 .rotation
@@ -62,13 +63,16 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
         }
         let mut upper = Vec::new();
         let mut lower = Vec::new();
+        let mut feet = Vec::new();
         for cube in &bone.cubes {
             if cube.rotation.iter().any(|v| v.get() != 0.0) {
                 return None;
             }
             let (top, bottom) = split(cube, height * 0.5)?;
+            let (bottom, foot) = split(&bottom, foot_height)?;
             upper.push(top);
             lower.push(bottom);
+            feet.push(foot);
         }
         if index == leg && lower.is_empty() {
             return None;
@@ -86,7 +90,17 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
         });
         shin.pivot = Some([pivot[0], Scalar::new(height * 0.5)?, pivot[2]]);
         shin.cubes = lower.into();
+        let mut foot = shin.clone();
+        foot.name = format!("{}.cinnabar_ankle", bone.name).into();
+        foot.parent = Some(if index == leg {
+            shin.name.clone()
+        } else {
+            format!("{}.cinnabar_ankle", source.bones[leg].name).into()
+        });
+        foot.pivot = Some([pivot[0], Scalar::new(foot_height)?, pivot[2]]);
+        foot.cubes = feet.into();
         added.push(shin);
+        added.push(foot);
     }
     bones.extend(added);
     if bones.len() > assets::MAX_SKIN_GEOMETRY_BONES {
@@ -96,7 +110,7 @@ fn build(source: &SkinGeometry) -> Option<SkinGeometry> {
     model.bones = bones.into();
     let mut digest = Sha256::new();
     digest.update(source.digest);
-    digest.update(b"cinnabar:render-only-knees:v1");
+    digest.update(b"cinnabar:render-only-knees-and-ankles:v2");
     model.digest = digest.finalize().into();
     Some(model)
 }

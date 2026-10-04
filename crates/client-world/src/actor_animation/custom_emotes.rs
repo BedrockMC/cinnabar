@@ -221,27 +221,39 @@ fn bent_knee_targets(
             .position(|part| part.as_ref() == format!("{name}.cinnabar_knee"))
             .unwrap();
         let x = rest[leg].translation_scale[0];
+        let ankle = names
+            .iter()
+            .position(|part| part.as_ref() == format!("{name}.cinnabar_ankle"))
+            .unwrap();
+        let foot_height = rest[ankle].translation_scale[1];
+        let thigh_length = height - rest[knee].translation_scale[1];
+        let shin_length = rest[knee].translation_scale[1] - foot_height;
         let hip = [x, hip_y, hip_z];
-        let foot = [x + x.signum() * height * 0.16, 0.0, 0.0];
+        let foot = [x + x.signum() * height * 0.16, foot_height, 0.0];
         let delta: [f32; 3] = std::array::from_fn(|axis| foot[axis] - hip[axis]);
         let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
         let direction = delta.map(|v| v / distance);
-        // Two equal rigid segments: choose the forward-facing knee solution.
+        // Solve thigh/shin to the ankle; the separate foot keeps its sole level.
         let perpendicular = [
             direction[0] * direction[2],
             direction[1] * direction[2],
             -1.0 + direction[2] * direction[2],
         ];
         let length = perpendicular.iter().map(|v| v * v).sum::<f32>().sqrt();
-        let bend = (height * height * 0.25 - distance * distance * 0.25)
+        let along = (thigh_length * thigh_length - shin_length * shin_length + distance * distance)
+            / (2.0 * distance);
+        let bend = (thigh_length * thigh_length - along * along)
             .max(0.0)
             .sqrt();
         let joint: [f32; 3] = std::array::from_fn(|axis| {
-            hip[axis] + delta[axis] * 0.5 + perpendicular[axis] * bend / length
+            hip[axis] + direction[axis] * along + perpendicular[axis] * bend / length
         });
-        for (index, from, to) in [(leg, hip, joint), (knee, joint, foot)] {
+        for (index, from, to, segment_length) in [
+            (leg, hip, joint, thigh_length),
+            (knee, joint, foot, shin_length),
+        ] {
             let direction: [f32; 3] =
-                std::array::from_fn(|axis| (to[axis] - from[axis]) / (height * 0.5));
+                std::array::from_fn(|axis| (to[axis] - from[axis]) / segment_length);
             let quaternion = [-direction[2], 0.0, direction[0], 1.0 - direction[1]];
             let length = quaternion.iter().map(|v| v * v).sum::<f32>().sqrt();
             let mut target = rest[index];
@@ -249,6 +261,10 @@ fn bent_knee_targets(
             target.translation_scale[..3].copy_from_slice(&from);
             targets[index] = Some(target);
         }
+        let mut target = rest[ankle];
+        target.rotation = [0.0, 0.0, 0.0, 1.0];
+        target.translation_scale[..3].copy_from_slice(&foot);
+        targets[ankle] = Some(target);
     }
     targets
 }

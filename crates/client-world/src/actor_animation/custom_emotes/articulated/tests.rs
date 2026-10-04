@@ -25,13 +25,13 @@ fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
     assert_eq!(*source, original);
     assert_ne!(model.digest, source.digest);
     assert!(Arc::ptr_eq(&model, &super::model(&source).unwrap()));
-    assert_eq!(model.bones.len(), source.bones.len() + 3);
+    assert_eq!(model.bones.len(), source.bones.len() + 6);
     let upper = &model.bones[6].cubes[0];
     let lower = &model.bones[9].cubes[0];
     assert_eq!(upper.origin[1].get(), 6.0);
     assert_eq!(upper.size[1].get(), 6.0);
-    assert_eq!(lower.origin[1].get(), 0.0);
-    assert_eq!(lower.size[1].get(), 6.0);
+    assert_eq!(lower.origin[1].get(), 2.0);
+    assert_eq!(lower.size[1].get(), 4.0);
     let EntityGeometryUv::Faces(upper) = &upper.uv else {
         panic!("explicit UV crop")
     };
@@ -61,12 +61,23 @@ fn owned_custom_emote_knee_mesh_preserves_skin_uvs_clothing_and_native_model() {
         "a knee must not acquire a boot sole"
     );
     assert_eq!(upper.down, lower.up);
-    assert!(model.bones[10].cubes[0].mirror);
+    let find = |name: &str| {
+        model
+            .bones
+            .iter()
+            .find(|bone| bone.name.eq_ignore_ascii_case(name))
+            .unwrap()
+    };
+    assert!(find("rightleg.cinnabar_ankle").cubes[0].mirror);
     assert_eq!(
-        model.bones[11].parent.as_deref(),
+        find("pants.cinnabar_knee").parent.as_deref(),
         Some("leftLeg.cinnabar_knee")
     );
-    assert_eq!(model.bones[11].cubes[0].inflate.get(), 0.25);
+    assert_eq!(find("pants.cinnabar_ankle").cubes[0].inflate.get(), 0.25);
+    assert_eq!(
+        find("pants.cinnabar_ankle").parent.as_deref(),
+        Some("leftLeg.cinnabar_ankle")
+    );
 }
 
 #[test]
@@ -116,15 +127,46 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
             let thigh = snapshot.current[index(name)];
             let shin = snapshot.current[index(&format!("{name}.cinnabar_knee"))];
             near(point(thigh, [0.0, -6.0, 0.0]), point(shin, [0.0; 3]));
-            let foot = point(shin, [0.0, -6.0, 0.0]);
-            assert!(foot[1].abs() < 1e-4 && foot[2].abs() < 1e-4);
-            assert!(foot[0].abs() > 3.0);
+            let ankle = index(&format!("{name}.cinnabar_ankle"));
+            let foot = snapshot.current[ankle];
+            near(point(shin, [0.0, -4.0, 0.0]), point(foot, [0.0; 3]));
+            assert_eq!(
+                foot.rotation,
+                [0.0, 0.0, 0.0, 1.0],
+                "soles must remain level"
+            );
+            let cube = &snapshot.skin_geometry.unwrap().bones[ankle].cubes[0];
+            let origin = cube.origin.map(Scalar::get);
+            let size = cube.size.map(Scalar::get);
+            let pivot = snapshot.rest[ankle].translation_scale;
+            for (x, z) in [
+                (0.0, 0.0),
+                (size[0], 0.0),
+                (0.0, size[2]),
+                (size[0], size[2]),
+            ] {
+                let corner = point(
+                    foot,
+                    [
+                        -origin[0] - x - pivot[0],
+                        origin[1] - pivot[1],
+                        origin[2] + z - pivot[2],
+                    ],
+                );
+                assert!(
+                    corner[1].abs() < 1e-4,
+                    "the whole sole must stay on the floor: {corner:?}"
+                );
+                feet.push(corner);
+            }
             let thigh_axis = super::super::rotate_vector(thigh.rotation, [0.0, -1.0, 0.0]);
             let shin_axis = super::super::rotate_vector(shin.rotation, [0.0, -1.0, 0.0]);
             let dot: f32 = (0..3).map(|axis| thigh_axis[axis] * shin_axis[axis]).sum();
             assert!(dot < 0.55, "knees must visibly bend: {dot}");
-            assert!(shin_axis[1] < -0.8, "shins must remain mostly upright");
-            feet.push(foot);
+            assert!(
+                shin_axis[1] < -0.5,
+                "shins must remain above the planted feet"
+            );
         }
         if let Some(first) = &first_feet {
             for (a, b) in feet.iter().zip(first) {

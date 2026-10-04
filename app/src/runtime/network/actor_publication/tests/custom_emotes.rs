@@ -216,7 +216,7 @@ fn custom_emote_knees_use_matching_mesh_and_retire_with_playback() {
     assert_ne!(dance.input.rig, ordinary.input.rig);
     assert_eq!(
         dance.input.current_bones.len(),
-        ordinary.input.current_bones.len() + 2
+        ordinary.input.current_bones.len() + 4
     );
     assert_eq!(native_pose(&world), native);
     assert_eq!(body(&world, 2).input, remote.input);
