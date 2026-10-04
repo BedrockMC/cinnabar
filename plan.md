@@ -77,7 +77,7 @@ The user requests latest-dev integration, no further tests and direct publicatio
 to dev. The final cadence change and integration have no new test-green claim.
 All local test services started for this feature are stopped.
 
-2026-10-04 Lifeboat session palette repair (live acceptance in progress): a fresh
+2026-10-04 Lifeboat session palette repair (compatibility acceptance passed): a fresh
 join reproduces gray terrain and blocked movement with coherent carriers. The
 remote palette must omit vanilla data-driven definitions absent from StartGame;
 the full carrier admitted 98 extra types and shifted wire air by 1,181 states.
@@ -86,6 +86,10 @@ block interactions back to wire IDs. Inventory, falling-block visuals and block
 sounds resolve retained wire identities at their consumers. Regression coverage
 includes partial/full admission, custom insertion, session replacement and raw
 descriptor preservation. See [the session evidence](docs/evidence/lifeboat-offline.md).
+The optimized macOS/Metal client passed a 300-second lobby run with walking,
+strafing and jumping. A second join opened and answered the Navigator menu,
+completed `/transfer sm3`, walked/jumped in Survival Mode and opened its book
+menu. Neither run disconnected or reported decode errors.
 This does not close broader native timing or rendering parity gates.
 
 2026-10-04 Lifeboat skylight investigation (historical, superseded for this session): the supplied session

@@ -51,10 +51,17 @@ A fresh macOS/Metal run of build `04d6e1e0` stayed connected for the complete
 errors, outbound drops or authority stalls. Walking advanced 16.5 blocks down
 the lobby steps; strafing advanced another 8.7 blocks and jumping was exercised.
 Rendered frames show the lobby terrain, signs and actors instead of gray air.
-The window used 1280x720 content pixels at scale 2. Lifeboat reported
+The window used 1280x720 logical content size (2560x1440 physical, scale 2). Lifeboat reported
 PocketMine-MP 4.23.3+dev and the connection resolved to `135.148.32.47:19132`.
 
-Interaction and transfer acceptance remains in progress. The supplied native
-lobby screenshot is a near-version visual witness, not an identical-version
-parity or performance qualification. Some carrier blocks still use diagnostic
-art; this repair does not close those separate visual support gates.
+A second join opened the compass Navigator and selected the Mini Game Selector,
+confirming both request and form-response paths. `/transfer sm3` completed the
+server's fast-transfer path: Survival Mode terrain and its HUD appeared, a
+three-second walk/jump advanced 10 blocks and climbed two blocks, and the held
+book opened the Survival Mode menu. The second connection resolved to
+`15.204.237.170:19132`. No server disconnect or decoding failure occurred.
+
+The supplied native lobby screenshot is a near-version visual witness, not an
+identical-version parity or performance qualification. Some carrier blocks
+still use diagnostic art; this repair does not close those separate visual
+support gates.
