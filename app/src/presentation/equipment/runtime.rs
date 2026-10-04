@@ -76,14 +76,7 @@ fn kind_index(kind: SkullKind) -> u8 {
 
 /// The head an item identifier wears as, for the heads with a packed texture.
 pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
-    Some(match identifier.strip_prefix("minecraft:")? {
-        "skeleton_skull" => SkullKind::Skeleton,
-        "wither_skeleton_skull" => SkullKind::WitherSkeleton,
-        "zombie_head" => SkullKind::Zombie,
-        "player_head" => SkullKind::Player,
-        "creeper_head" => SkullKind::Creeper,
-        _ => return None,
-    })
+    SkullKind::from_block_identifier(identifier).filter(|kind| SKULL_KINDS.contains(kind))
 }
 
 /// Generated item meshes kept resident; further distinct items draw nothing.

@@ -166,6 +166,7 @@ fn quad(output: &mut Vec<BlockEntityVertex>, corners: [Vec3; 4], color: [f32; 4]
         position: corners[index].to_array(),
         uv: UNTEXTURED_UV,
         color,
+        ..Default::default()
     }));
 }
 
