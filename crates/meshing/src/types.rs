@@ -662,6 +662,7 @@ pub struct ChunkMesh {
 pub(crate) struct CubeStreams {
     pub(crate) cube_quads: Box<[PackedQuad]>,
     pub(crate) cube_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) layout: crate::CubeQuadLayout,
     pub(crate) diagnostic_geometry: DiagnosticGeometrySummary,
 }
 
@@ -753,6 +754,7 @@ impl ChunkMesh {
             cube_streams: Box::new(CubeStreams {
                 cube_quads: cube_quads.into_boxed_slice(),
                 cube_lighting: cube_lighting.into_boxed_slice(),
+                layout: crate::CubeQuadLayout::default(),
                 diagnostic_geometry: DiagnosticGeometrySummary::default(),
             }),
             model_refs: model_refs.into_boxed_slice(),
@@ -781,6 +783,11 @@ impl ChunkMesh {
     #[must_use]
     pub fn cube_lighting(&self) -> &[PackedQuadLighting] {
         &self.cube_streams.cube_lighting
+    }
+
+    #[must_use]
+    pub const fn cube_layout(&self) -> crate::CubeQuadLayout {
+        self.cube_streams.layout
     }
 
     #[must_use]
