@@ -56,7 +56,11 @@ impl UiPresentationRuntime {
         let id = stream.local_player_runtime_id();
         live.fire_size = stream.authority().actor(id).and_then(|actor| {
             live.fire.observe(
-                (stream.authority().actor_session_id(), id, actor.spawn_revision),
+                (
+                    stream.authority().actor_session_id(),
+                    id,
+                    actor.spawn_revision,
+                ),
                 actor.is_on_fire(),
                 fire_frames,
             );
