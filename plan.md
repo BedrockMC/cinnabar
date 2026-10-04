@@ -653,6 +653,12 @@ the top of their grid because the client answers no `#get_grid_size` (absent
 from the 1.26.50 binary), so whatever pads them is unidentified; `size`
 animations scale draws at paint time instead of relaying out each tick.
 
+2026-10-04 chat editing: physical modifiers survive input suppression, and
+select-all/copy/paste use the shared editor. Selected text now reaches the
+existing inversion painter through the authored edit target and clipping panel.
+Provisional, labeled incomplete: exact Windows Bedrock selection tint/blend
+parity remains unverified; visible selection alone does not close that gate.
+
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
 axes and scale, clip direction none by default with pixel-perfect snapping),

@@ -21,6 +21,104 @@ fn native_chat_presentation() -> Option<UiPresentationRuntime> {
     Some(presentation)
 }
 
+#[test]
+fn selected_chat_text_draws_the_native_inversion_over_only_the_selected_glyphs() {
+    for native in [false, true] {
+        let Some(mut presentation) = (if native {
+            native_chat_presentation()
+        } else {
+            engine_presentation_with(super::super::forms::pack_harness::font())
+        }) else {
+            eprintln!("chat selection fixture unavailable; requires installed local carriers");
+            return;
+        };
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = gameplay_runtime(&mut player);
+        runtime.open_chat(&mut player);
+        runtime.insert_chat_text("A世界🦀B").unwrap();
+        // Discover the focused edit box from the real carrier's first frame.
+        build(&player, &mut presentation, &runtime, 0);
+        runtime.move_chat_cursor_left();
+        runtime.mutate_chat_editor(ui::ChatEditor::select_left);
+        runtime.mutate_chat_editor(ui::ChatEditor::select_left);
+        let nodes = chat_visual_nodes(&mut presentation, &runtime, 0);
+        let highlighted = nodes
+            .iter()
+            .find(|node| matches!(node.visual(), ui::UiVisual::InvertedSprite { .. }))
+            .expect("chat's selected glyphs must emit native inversion geometry");
+        let text = nodes.iter().find(|node| {
+            matches!(node.visual(), ui::UiVisual::Text { layout, .. }
+                if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "A世界🦀B")
+        }).expect("selected draft stays visible with no inserted caret");
+        assert!(highlighted.bounds().width() > 0.0);
+        assert!(highlighted.bounds().width() < text.bounds().width());
+        assert!(highlighted.bounds().min().x() > text.bounds().min().x());
+        assert!(highlighted.bounds().max().x() < text.bounds().max().x());
+        assert_eq!(highlighted.parent(), text.parent());
+        let input = presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        assert!(
+            input
+                .batches
+                .iter()
+                .any(|batch| batch.blend_mode == render::UI_BLEND_INVERT)
+        );
+        super::super::forms::snapshot::write(
+            &input,
+            if native {
+                "chat_selection_native"
+            } else {
+                "chat_selection_java"
+            },
+        );
+
+        runtime.mutate_chat_editor(|editor| {
+            editor.move_home(false);
+            editor.move_end(true);
+        });
+        let all = chat_visual_nodes(&mut presentation, &runtime, 0);
+        let all = all
+            .iter()
+            .find(|node| matches!(node.visual(), ui::UiVisual::InvertedSprite { .. }))
+            .unwrap();
+        assert!(all.bounds().width() > highlighted.bounds().width());
+        runtime.move_chat_cursor_right();
+        let plain = chat_visual_nodes(&mut presentation, &runtime, 0);
+        assert!(
+            !plain
+                .iter()
+                .any(|node| matches!(node.visual(), ui::UiVisual::InvertedSprite { .. }))
+        );
+        assert!(texts(presentation.chat_draw_nodes()).contains(&"A世界🦀B|"));
+    }
+}
+
+fn chat_visual_nodes(
+    presentation: &mut UiPresentationRuntime,
+    runtime: &UiRuntime,
+    now: u64,
+) -> Vec<ui::UiNode> {
+    let (mut nodes, mut next) = (Vec::new(), 1);
+    presentation
+        .append_chat_screen(
+            runtime,
+            &mut nodes,
+            &mut next,
+            TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None),
+            [1280.0, 720.0],
+            now,
+        )
+        .unwrap();
+    nodes
+}
+
 /// Visible text in a rendered screen.
 fn texts(nodes: &[DrawNode]) -> Vec<&str> {
     nodes
