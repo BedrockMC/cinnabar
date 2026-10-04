@@ -44,7 +44,12 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices =
             settings_options::SettingsOptions::language_choices(&layout.resource_root);
-        let initial = MenuView::new(visible, display_name);
+        let mut initial = MenuView::new(visible, display_name);
+        if layout.auth_cache().is_file() {
+            let store = launcher::accounts::AccountStore::new(layout.auth_cache());
+            initial.feeds.accounts = store.list().unwrap_or_default();
+            initial.feeds.account_active_id = store.active_id().ok().flatten();
+        }
         Self {
             // The launcher owns the session lifecycle only when the client
             // started on the menu. `--address` keeps the historical behaviour
@@ -113,6 +118,7 @@ impl MenuRuntime {
             control_auth: None,
             sign_in_page_code: None,
             sign_out_requested: false,
+            accounts: Default::default(),
             store_actions: Vec::new(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,

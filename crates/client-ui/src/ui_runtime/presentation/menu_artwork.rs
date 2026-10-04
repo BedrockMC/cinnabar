@@ -19,7 +19,7 @@ use image::{ImageReader, Limits, imageops::FilterType};
 
 use super::IconRef;
 
-const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+use launcher::accounts::MAX_ARTWORK_BYTES as MAX_SOURCE_BYTES;
 /// Largest source side, as a desktop texture allows; `MAX_DECODE_ALLOC` bounds memory.
 const MAX_SOURCE_SIDE: u32 = 16_384;
 const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
@@ -348,7 +348,7 @@ fn title() -> Option<&'static Artwork> {
 /// not decoded yet or does not fit is left out.
 fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
     let side = render_model::UI_ART_PAGE_SIDE;
-    let mut rest: Vec<(String, &Artwork)> = sources(set)
+    let rest: Vec<(String, &Artwork)> = sources(set)
         .iter()
         .filter_map(|source| {
             let key = source.key();
@@ -356,7 +356,7 @@ fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packe
             Some((key.0, art.as_ref()))
         })
         .collect();
-    rest.sort_by(|a, b| b.1.height.cmp(&a.1.height).then(a.0.cmp(&b.0)));
+    // Preserve source priority under page pressure; visible portraits precede larger optional art.
     // The title packs first so later art can never crowd it out.
     let decoded: Vec<(String, &Artwork)> = title()
         .map(|art| (TITLE_KEY.to_owned(), art))
@@ -528,13 +528,23 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .nth(index)
         })
         .and_then(|server| view.feeds.details.get(&server.address));
+    let portraits = std::iter::once(view.feeds.profile.picture_path.clone())
+        .chain(
+            view.feeds
+                .accounts
+                .iter()
+                .filter(|account| {
+                    view.dialog == Some(crate::menu::MenuDialog::Accounts)
+                        || view.feeds.account_active_id.as_deref() == Some(account.id.as_str())
+                })
+                .filter_map(|account| account.picture_path.clone()),
+        )
+        .map(|path| (path, THUMBNAIL_SIDE));
     let thumbnails = view
         .featured
         .iter()
         .chain(view.gatherings.iter())
-        .map(|server| server.image_path.clone())
-        .chain(std::iter::once(view.feeds.profile.picture_path.clone()))
-        .map(|path| (path, THUMBNAIL_SIDE));
+        .map(|server| (server.image_path.clone(), THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
         .chain(std::iter::once(view.feeds.profile.avatar_path.clone()))
@@ -555,11 +565,14 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
                 .unwrap_or_default(),
         )
         .map(|path| (path, MAX_ARTWORK_SIDE));
-    view.global_resources
-        .icons
-        .values()
-        .cloned()
-        .map(|path| (path, THUMBNAIL_SIDE))
+    portraits
+        .chain(
+            view.global_resources
+                .icons
+                .values()
+                .cloned()
+                .map(|path| (path, THUMBNAIL_SIDE)),
+        )
         .chain(thumbnails)
         .chain(full)
         .filter(|(path, _)| !path.is_empty())
@@ -613,6 +626,89 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_artwork_does_not_crowd_out_a_prioritized_gamerpic() {
+        let mut set = ArtworkSet {
+            paths: vec![("gamerpic".into(), THUMBNAIL_SIDE)],
+            ..Default::default()
+        };
+        set.paths
+            .extend((0..8).map(|index| (format!("large-{index}"), MAX_ARTWORK_SIDE)));
+        let mut cache = DecodeCache::default();
+        for source in sources(&set) {
+            let side = if source.key().0 == "gamerpic" {
+                THUMBNAIL_SIDE
+            } else {
+                MAX_ARTWORK_SIDE
+            };
+            cache.decoded.insert(
+                source.key(),
+                Arc::new(Artwork {
+                    width: side,
+                    height: side,
+                    pixels: vec![90; side as usize * side as usize * 4],
+                }),
+            );
+        }
+        let packed = pack(&set, &cache, 0, true);
+        assert!(
+            packed.refs.contains_key("gamerpic"),
+            "packed atlas must retain a prioritized gamerpic under capacity pressure"
+        );
+    }
+
+    #[test]
+    fn a_full_server_catalog_does_not_crowd_out_account_pictures() {
+        let mut view = crate::menu::MenuView::new(true, "Player".into());
+        view.feeds.account_active_id = Some("player".into());
+        view.feeds.accounts = vec![launcher::accounts::AccountProfile {
+            id: "player".into(),
+            gamertag: "Player".into(),
+            picture_path: Some("gamerpic.png".into()),
+        }];
+        view.featured = (0..MAX_ARTWORKS)
+            .map(|index| crate::menu::MenuServerCard {
+                name: index.to_string(),
+                address: index.to_string(),
+                caption: String::new(),
+                image_path: format!("server-{index}.png"),
+                icon: None,
+            })
+            .collect();
+        let set = ArtworkSet {
+            paths: view_paths(&view),
+            ..Default::default()
+        };
+        assert!(
+            sources(&set)
+                .iter()
+                .any(|source| source.key().0 == "gamerpic.png"),
+            "bounded atlas must retain the visible account picture"
+        );
+    }
+
+    #[test]
+    fn account_pictures_are_queued_when_the_picker_opens() {
+        let mut view = crate::menu::MenuView::new(true, "First".into());
+        view.feeds.account_active_id = Some("first".into());
+        view.feeds.accounts = ["first", "second"]
+            .map(|id| launcher::accounts::AccountProfile {
+                id: id.into(),
+                gamertag: id.into(),
+                picture_path: Some(format!("{id}.png")),
+            })
+            .into();
+        let paths = view_paths(&view);
+        assert!(paths.iter().any(|(path, _)| path == "first.png"));
+        assert!(!paths.iter().any(|(path, _)| path == "second.png"));
+        view.dialog = Some(crate::menu::MenuDialog::Accounts);
+        assert!(
+            view_paths(&view)
+                .iter()
+                .any(|(path, _)| path == "second.png")
+        );
+    }
 
     #[test]
     fn profile_replacement_atlas_preserves_the_portrait_fallback() {
