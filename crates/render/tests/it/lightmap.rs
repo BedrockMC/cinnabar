@@ -1,6 +1,6 @@
 #[path = "../../src/lightmap.rs"]
-mod lightmap;
-use lightmap::{LightmapInputs, darkness_pulse};
+mod lightmap_src;
+use lightmap_src::{LightmapInputs, darkness_pulse};
 
 /// Compares independently calculated RGB fixtures without display encoding.
 fn close(actual: [f32; 3], expected: [f32; 3]) {

@@ -1,7 +1,7 @@
 #[path = "../../src/environment_settings.rs"]
-mod environment_settings;
+mod environment_settings_src;
 
-use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
+use environment_settings_src::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 
 #[test]
 fn environment_quality_rejects_numeric_surrogates() {
