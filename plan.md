@@ -869,6 +869,19 @@ ordinary actor Molang still evaluates on fixed ticks and interpolates completed 
 poses, whereas vanilla samples interpolated motion queries during render evaluation;
 start/loop delays and shared-clip instance identity remain unported.
 
+2026-10-04 sneaking head rotation: the compiler now retains the vanilla bone
+`relative_to.rotation` setting, and pose composition keeps the pivot parented while
+using the entity frame for the bone's rotation and scale. The player head no longer
+inherits the root's crouch tilt. Entity, artwork and equipment carriers were rebuilt;
+the user manually tested the macOS Metal client in the existing offline BDS world
+and accepted the fix. Compiler/carrier, transform and player-animation regressions
+passed before integration; the affected core crates passed strict Clippy and the
+architecture gate passed. App-inclusive Clippy encountered two pre-existing renderer
+warnings. Latest `dev` was integrated, and further tests and the normal PR/CI gate
+were skipped at the user's explicit request to push directly to `dev`.
+[Rotation-frame behavior](docs/reference/actor-rotation-frames.md) records the fix.
+The broader actor-animation parity gate remains incomplete.
+
 2026-09-28 actor animation: remote players and mobs animate through the vanilla
 controllers with full Molang evaluation; not visually accepted (facing, box-UV
 side faces and limb swing need a native capture). Provisional, labeled
@@ -876,7 +889,7 @@ incomplete: motion-model constants, the 6-tick swing, the look clamp, gliding
 divisor, seeded variables and Molang math tolerances need
 independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
 variables read 0; non-uniform parent scale over rotated children is approximated
-without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
+without shear; `->`/`for_each` take their empty path; blend
 transitions and per-axis rotation objects are missing; queries without retained data read idle values; held items and most mob
 artwork are deferred. A first-person held item with no drawable layer shows the
 bare swinging arm instead (vanilla always draws the item).
@@ -2266,6 +2279,11 @@ Scope: block registry + block-state → model/texture mapping (generated export 
     face-specific lighting, a shared bounded/no-cull direct+MDI GPU path, and an
     exhaustive hash-bound gallery; assets 112, render 102, world 51, client 187,
     acceptance, strict Clippy, and final independent re-review are green.
+    Wheat's later farmland reproduction exposed the generic cross as incorrect:
+    its eight stages now use four native quarter-position rows with a -1/16 Y
+    offset and their original pinned sprites. Compiler and subchunk-boundary
+    regressions pass; see `docs/reference/farmland-rendering.md`. This does not
+    establish native geometry parity for the other generic Crop families.
   - [x] Mesh animated, biome-tinted water from the shared bounded palette
     snapshot. Task 12 preserves all 16 water depth/falling states, vanilla-like
     weighted four-corner surfaces, diagonal and cross-subchunk influence,
@@ -2638,8 +2656,9 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         GPU-completed model-stream witnesses with stable generation/ref counts
         and zero contamination counters.
     - [x] Exact farmland family implementation: all eight canonical
-      `minecraft:farmland` states (sequential IDs 6,122-6,129) now require the
-      complete exact `moisturized_amount:int 0..7` product, formula IDs,
+      `minecraft:farmland` states now require the
+      complete exact `moisturized_amount:int 0..7` product and unique identities
+      from the target registry (see `docs/reference/farmland-rendering.md`),
       Primary/Cuboid ownership, empty flags/coverage, exact shape-43 collision,
       and literal untinted side/top routes. Native 1.26.33.1 evidence binds
       amount zero to dry terrain-array index 1 and amounts one through seven to
@@ -2653,6 +2672,8 @@ Scope: block registry + block-state → model/texture mapping (generated export 
         1, and 7 native viewpoints in Cinnabar and require two consecutive
         exact GPU-completed model-stream witnesses with stable generation/ref
         counts and zero contamination counters.
+        The October 4 macOS Metal manual check confirms that farmland and the
+        corrected wheat model render correctly; the user approved this fix.
     - [ ] Slab/stair native and packed-GPU live acceptance: capture all five
       fixed Cinnabar poses through native `%TEMP%` screenshots and require two
       consecutive exact GPU-completed model-stream witnesses. Automated gallery
@@ -3807,12 +3828,44 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
   **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
-  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
-  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
-  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
-  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
-  against a native client. Flight, swim and glide follow the public movement-physics notes'
-  BedSim candidates (still unvalidated for 1.26.30). Honey jump/slide, soul speed and depth
+  options, forced sneak and crawl under low ceilings, mode entry/exit timing, elytra
+  gliding, the double-tap window and scaffolding descent still need native measurement.
+  **Flight and liquid correction (2026-10-04, full parity gate remains incomplete):**
+  the current mcsrc client and matching PE identify independent flight vertical drag,
+  creative hover before movement, sprint water drag, independent water vertical drag,
+  held liquid ascent/descent and swimming pitch steering. The simulator now implements
+  those ordinary-player paths with source-derived float regressions. Keyboard input now
+  carries the missing processed `WantUp`/`WantDown` lanes read by the current server
+  movement handler; in-session position snaps preserve the locomotion tracker. Swimming
+  upward steering samples the primary liquid material at the tick-captured pose eye anchor.
+  Desktop swim entry now checks head water and view direction; continuation follows the
+  native input, hunger, surface and standing-space conditions rather than requiring sprint
+  or forward input. Body sensing uses the current position and previous pose. Liquid ledge
+  escape uses the resolved pose box for swimming as well as ordinary water/lava travel,
+  and retained dry swimming uses ordinary travel. Prediction and correction replay retain
+  the native swim blend and previous pose flag, with blend updates before swim triggers and
+  transition jump suppression. Standing-space probes use the native box inset.
+  Liquid prediction now derives current vectors from palette liquid depths and native
+  material/face facts, including lower-neighbor gradients and falling-water pull. It
+  uses native cell order, float normalization and water/lava impulses before jump and
+  travel, with the preceding flying flag suppressing flow. Historical world snapshots
+  retain the same current query during correction replay. The integrated client builds;
+  tests and the affected verification suite were skipped at the user's request. The
+  user accepted flight, swimming transitions and flowing-water movement in the rebuilt
+  macOS/Metal client on the local BDS listening on 19132. This manual acceptance covers
+  the reported movement defects; the broader parity boundaries below remain incomplete.
+  See `docs/reference/flight-control-corrections.md` and
+  `docs/reference/liquid-movement.md`, `docs/reference/liquid-currents.md` and
+  `docs/reference/swimming-trigger.md` for identified
+  bodies and boundaries. Touch and stalled-entry swim predicates, the seven-tick flight
+  trigger versus our wall-time approximation,
+  unregistered flow materials and specialized directional/waterlogged flow faces,
+  specialized jump paths, bubble columns, custom movement components and
+  complete waterlogged/surface behavior remain open. Controlled live results are recorded
+  separately; source-derived regressions alone close no acceptance gate. Wire edges for
+  swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
+  Glide retains the public movement-physics notes' provisional BedSim equations.
+  Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
   following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire

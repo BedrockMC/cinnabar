@@ -10,6 +10,70 @@ use tempfile::TempDir;
 const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
 
 #[test]
+fn entity_rotation_frames_survive_position_only_and_frame_only_bones() {
+    let pack = animation_pack(false);
+    let original = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert!(
+        original
+            .animation_channels
+            .iter()
+            .all(|channel| !channel.rotation_relative_to_entity)
+    );
+    let path = pack.path().join("animations/test.animation.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let root = &mut value["animations"]["animation.test.walk"]["bones"]["root"];
+    root["relative_to"] = serde_json::json!({"rotation":"entity"});
+    // No angle channel: the translated bone still switches to entity axes.
+    let compiled = compile_entity_assets_after_write(pack.path(), &path, &value);
+    let root_channels: Vec<_> = compiled
+        .animation_channels
+        .iter()
+        .filter(|channel| channel.bone == 0)
+        .collect();
+    assert!(
+        root_channels
+            .iter()
+            .any(|channel| channel.property == EntityAnimationProperty::Translation)
+    );
+    assert!(
+        root_channels
+            .iter()
+            .all(|channel| channel.rotation_relative_to_entity)
+    );
+    assert!(
+        compiled
+            .animation_channels
+            .iter()
+            .filter(|channel| channel.bone != 0)
+            .all(|channel| !channel.rotation_relative_to_entity)
+    );
+    value["animations"]["animation.test.walk"]["bones"]["root"] =
+        serde_json::json!({"relative_to":{"rotation":"entity"}});
+    let compiled = compile_entity_assets_after_write(pack.path(), &path, &value);
+    let frame = compiled
+        .animation_channels
+        .iter()
+        .find(|channel| channel.bone == 0)
+        .unwrap();
+    assert!(frame.rotation_relative_to_entity);
+    let runtime =
+        assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+    assert_eq!(
+        runtime.animation_channels(),
+        compiled.animation_channels.as_ref()
+    );
+}
+
+fn compile_entity_assets_after_write(
+    root: &Path,
+    path: &Path,
+    value: &serde_json::Value,
+) -> assets::CompiledEntityAssets {
+    fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
+    compile_entity_assets(root, MANIFEST).unwrap()
+}
+
+#[test]
 fn modern_player_scripts_activate_only_animate_roots_and_compile_rig_scripts() {
     let pack = animation_pack(false);
     let path = pack.path().join("entity/test.entity.json");

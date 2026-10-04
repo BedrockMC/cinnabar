@@ -45,7 +45,12 @@ impl ControllerFrame {
         if input.sprinting != self.input.sprinting {
             self.sprint_override = Some(input.sprinting);
         }
+        input.liquid_contact_height = Some(modes.contact_height());
+        input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
+        if let Some(sprinting) = self.sprint_override {
+            modes.restore_controls(sprinting, modes.sneaking());
+        }
         let choice = modes.select(
             self.intent,
             self.fly_toggle,
@@ -56,13 +61,21 @@ impl ControllerFrame {
                 in_water: environment.in_water,
                 in_lava: environment.in_lava,
                 sprinting: input.sprinting,
-                moving_forward: input.forward > 0.0,
+                move_sideways: input.strafe as f32,
+                move_forward: input.forward as f32,
+                sneaking: self.requested_sneak,
+                pitch: input.pitch_degrees as f32,
+                yaw: input.yaw_degrees as f32,
+                liquid_attach_height: input
+                    .liquid_attach_height
+                    .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
                 jumping: input.jumping,
                 jump_edge: self.jump_edge,
             },
             world,
         )?;
         input.mode = self.mode_override.unwrap_or(choice.mode);
+        input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
         self.forced_sneak = choice.forced_sneak;
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
@@ -72,7 +85,10 @@ impl ControllerFrame {
         ) {
             input.sprinting = false;
         }
-        crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
+        modes.restore_controls(input.sprinting, input.sneaking);
+        if self.sprint_override.is_some() || self.mode_override.is_some() {
+            crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
+        }
         self.ride_delta = None;
         if input.mode == sim::MovementMode::Riding
             && let Some(seat) = self

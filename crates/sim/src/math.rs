@@ -82,6 +82,17 @@ pub(crate) fn minecraft_cos(value: f64) -> f64 {
     sine_table((value as f32 * TRIG_INDEX_SCALE + 16_384.0) as i32)
 }
 
+pub fn view_direction(pitch_degrees: f32, yaw_degrees: f32) -> Vec3 {
+    let pitch = -pitch_degrees.to_radians();
+    let yaw = -yaw_degrees.to_radians() - std::f32::consts::PI;
+    let horizontal = -(minecraft_cos(f64::from(pitch)) as f32);
+    Vec3::new(
+        f64::from(minecraft_sin(f64::from(yaw)) as f32 * horizontal),
+        minecraft_sin(f64::from(pitch)),
+        f64::from(minecraft_cos(f64::from(yaw)) as f32 * horizontal),
+    )
+}
+
 impl Add for Vec3 {
     type Output = Self;
 
