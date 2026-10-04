@@ -183,8 +183,8 @@ fn lobby_ui_publication_cost() {
             distance: 4.0 + index as f32,
         })
         .collect();
-    let mut scene = render::UiRenderScene::default();
-    let stats = render::UiRenderStats::default();
+    let mut scene = render_model::UiRenderScene::default();
+    let stats = render_model::UiRenderStats::default();
     let samples = std::env::var("CINNABAR_LOBBY_SAMPLES")
         .ok()
         .and_then(|value| value.parse().ok())

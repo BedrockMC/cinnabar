@@ -313,23 +313,23 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod pack_report;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod equipment_report;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod render_report;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "reports"))]
 mod lobby_bench;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod scene_report;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod projectile_report;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod mob_motion_report;

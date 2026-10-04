@@ -1,8 +1,8 @@
 use super::{
-    AssetMetrics, DiagnosticQuadTracker, ExactFullViewProof, GpuPassMeasurement, GpuPassSample,
-    MetricsCollector, MetricsReport, ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot,
-    PipelineMetricsSnapshot, TeleportProof, TransparentSortMetricsSnapshot,
-    deterministic_manifest_hash, pair_gpu_pass_sample, percentile,
+    AssetMetrics, DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, ExactFullViewProof,
+    GpuPassMeasurement, GpuPassSample, MetricsCollector, MetricsReport, ModelWorkloadCountSnapshot,
+    ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot, TeleportProof,
+    TransparentSortMetricsSnapshot, deterministic_manifest_hash, pair_gpu_pass_sample, percentile,
 };
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use std::{fs, time::Duration};
@@ -803,4 +803,90 @@ fn review_warmup_crossing_time_counts_toward_the_sample_limit() {
     );
     empty.record_frame(Duration::from_millis(100));
     assert_eq!(empty.frame_count(), 0);
+}
+
+#[test]
+fn diagnostic_quad_tracker_keeps_the_current_resident_total() {
+    let first = world::SubChunkKey::new(0, 1, 2, 3);
+    let second = world::SubChunkKey::new(0, 4, 5, 6);
+    let mut tracker = DiagnosticQuadTracker::default();
+
+    tracker.upsert(
+        first,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(Some(54), 54, 9)]),
+    );
+    tracker.upsert(
+        second,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(0),
+            973_836_165,
+            4,
+        )]),
+    );
+    assert_eq!(tracker.total(), 13);
+
+    tracker.upsert(
+        first,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(0),
+            973_836_165,
+            2,
+        )]),
+    );
+    assert_eq!(tracker.total(), 6);
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.top[0].sequential_id, Some(0));
+    assert_eq!(snapshot.top[0].network_id, 973_836_165);
+    assert_eq!(snapshot.top[0].name, "minecraft:cyan_terracotta");
+    assert_eq!(snapshot.top[0].quad_count, 6);
+
+    tracker.remove(second);
+    assert_eq!(tracker.total(), 2);
+
+    tracker.upsert(first, DiagnosticGeometrySummary::default());
+    assert_eq!(tracker.total(), 0);
+    tracker.remove(first);
+    assert_eq!(tracker.total(), 0);
+}
+
+#[test]
+fn diagnostic_tracker_reports_hashed_identity_with_canonical_name() {
+    let key = world::SubChunkKey::new(0, 1, 2, 3);
+    let mut tracker = DiagnosticQuadTracker::default();
+    tracker.upsert(
+        key,
+        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            Some(54),
+            537_536_753,
+            6,
+        )]),
+    );
+
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.total_quad_count, 6);
+    assert_eq!(snapshot.top.len(), 1);
+    assert_eq!(snapshot.top[0].sequential_id, Some(54));
+    assert_eq!(snapshot.top[0].network_id, 537_536_753);
+    assert_eq!(snapshot.top[0].name, "minecraft:leaf_litter");
+}
+
+#[test]
+fn diagnostic_top_reporting_is_bounded_and_deterministic() {
+    let counts = (0..DIAGNOSTIC_TOP_LIMIT + 3)
+        .rev()
+        .map(|id| DiagnosticGeometryCount::new(Some(id as u32), id as u32, 1));
+    let summary = DiagnosticGeometrySummary::from_counts(counts);
+    let mut tracker = DiagnosticQuadTracker::default();
+    tracker.upsert(world::SubChunkKey::new(0, 0, 0, 0), summary);
+
+    let snapshot = tracker.snapshot();
+    assert_eq!(snapshot.top.len(), DIAGNOSTIC_TOP_LIMIT);
+    assert_eq!(snapshot.omitted_identity_count, 3);
+    assert_eq!(snapshot.omitted_quad_count, 3);
+    assert!(
+        snapshot
+            .top
+            .windows(2)
+            .all(|pair| pair[0].sequential_id < pair[1].sequential_id)
+    );
 }
