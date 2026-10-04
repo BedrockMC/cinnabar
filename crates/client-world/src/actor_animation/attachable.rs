@@ -230,6 +230,7 @@ impl AttachablesRuntime {
         .ok()?;
         state.variables = evaluated.variables;
         state.controllers = evaluated.controllers;
+        state.clip_clocks = evaluated.clip_clocks;
         state.current = evaluated.pose;
         state.scale = evaluated.scale;
         state.render = evaluated.render?;

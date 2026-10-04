@@ -36,6 +36,11 @@ pub(super) fn compile_clip_for_geometry(
         keyframes,
         molang,
     } = outputs;
+    let anim_time_update = definition
+        .get("anim_time_update")
+        .map(|value| compile_time_update(value, molang))
+        .transpose()
+        .map_err(ClipCompileError::Invalid)?;
     let mut dropped = 0;
     let mut uncompiled = 0;
     let mut bone_indices = BTreeMap::<Box<str>, u32>::new();
@@ -139,8 +144,26 @@ pub(super) fn compile_clip_for_geometry(
             .and_then(Value::as_bool)
             .unwrap_or(false),
         geometry: Some(geometry),
+        anim_time_update,
     });
     Ok((clip, dropped + uncompiled))
+}
+
+fn compile_time_update(value: &Value, molang: &mut MolangCompiler) -> Result<u32, AssetError> {
+    let expression = match value {
+        Value::String(text) => text.clone(),
+        Value::Number(_) => parse_number(value)?.to_string(),
+        _ => {
+            return Err(invalid(
+                "animation anim_time_update must be a Molang string or number",
+            ));
+        }
+    };
+    molang.compile(&expression).map_err(|error| {
+        invalid(format!(
+            "invalid animation anim_time_update expression: {error}"
+        ))
+    })
 }
 
 enum ChannelError {

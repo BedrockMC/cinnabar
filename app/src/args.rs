@@ -78,6 +78,14 @@ impl Phase3Target {
     }
 }
 
+#[cfg(feature = "acceptance")]
+impl acceptance::phase3_evidence::Phase3TargetLabel for Phase3Target {
+    /// Publishes the argument's stable label to the optional evidence consumer.
+    fn evidence_label(self) -> &'static str {
+        self.as_str()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
     /// Optional upstream address for the fast direct-connect path. Without it
@@ -156,6 +164,11 @@ pub enum ParseOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ArgsError {
+    #[error(
+        "acceptance and evidence options require the app's `acceptance` feature; rebuild without --no-default-features or enable --features acceptance"
+    )]
+    AcceptanceFeatureRequired,
+
     #[error("unknown argument {0:?}\n\n{HELP}")]
     Unknown(OsString),
 
@@ -207,6 +220,22 @@ pub enum ArgsError {
 }
 
 impl ClientArgs {
+    /// Rejects evidence options before first-run setup when this build omits the optional plugin.
+    pub(crate) fn validate_acceptance_support(&self, available: bool) -> Result<(), ArgsError> {
+        let requested = self.acceptance_seconds.is_some()
+            || self.metrics_out.is_some()
+            || self.full_view_teleport_gate
+            || self.require_transparent_presentation
+            || self.transparent_witness_request.is_some()
+            || self.model_witness_request.is_some()
+            || self.phase3_evidence_target.is_some()
+            || self.phase3_candidate_physics;
+        if !available && requested {
+            return Err(ArgsError::AcceptanceFeatureRequired);
+        }
+        Ok(())
+    }
+
     pub fn parse_env() -> Result<ParseOutcome, ArgsError> {
         Self::parse_from(std::env::args_os())
     }
@@ -394,6 +423,7 @@ impl ClientArgs {
         {
             return Err(ArgsError::Phase3EvidenceRequiresAttributableRun);
         }
+        parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 

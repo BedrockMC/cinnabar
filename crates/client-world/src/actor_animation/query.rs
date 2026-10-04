@@ -130,6 +130,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) input: &'a ActorTickInput,
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
+    pub(super) anim_time: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -246,6 +247,11 @@ fn default_bone_pivot(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) ->
 
 fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> f32 {
     let (actor, input, context) = (evaluator.actor, evaluator.input, evaluator.context);
+    if name == "anim_time"
+        && let Some(time) = evaluator.anim_time
+    {
+        return time;
+    }
     if let Some(attachable) = context.attachable {
         let remaining = attachable.use_elapsed_ticks.map_or(0, |elapsed| {
             attachable.max_use_ticks.saturating_sub(elapsed)
