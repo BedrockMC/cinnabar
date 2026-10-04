@@ -25,6 +25,8 @@ exact Lunar/native parity remains incomplete.
 The user accepted the installed knee revision; the next local adjustment speeds
 up playback and increases vertical pelvis travel while keeping shoulders/head
 steady and foot centers planted. It awaits installation and user verification.
+The accompanying foot correction adds emote-only ankle joints, keeps the entire
+sole level, and anchors all four sole corners rather than only the foot center.
 Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, eleven
 animation tests, eleven emote UI tests and twenty-five app emote checks. The
 1280x720 software-rendered wheel/equip frames were inspected for readable text
