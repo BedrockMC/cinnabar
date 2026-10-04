@@ -9,7 +9,7 @@ Cinnabar is a Rust Bedrock client plus a Go core. Every system (UI, rendering, c
 
 ## Performance: as fast as we can make it
 
-Parity covers what the player sees and how the game behaves, never how we compute it. Choose every implementation, including CPU vs GPU, data layout, parallelism and caching, for the best performance achievable, not just better than vanilla. The bar is a world that streams in faster than the player can see, so flying at any speed shows no loading edge or pop-in, frames stay smooth with no stutter, and joins are near-instant. "Vanilla does it this way" never justifies a slower design. Measure before and after any performance claim.
+Parity covers what the player sees and how the game behaves, never how we compute it. Choose every implementation, including CPU vs GPU, data layout, parallelism and caching, for the best performance achievable, not just better than vanilla. The bar is a world that streams in faster than the player can see, so flying at any speed shows no loading edge or pop-in, frames stay smooth with no stutter, and joins are near-instant. "Vanilla does it this way" never justifies a slower design. Measure before and after any performance claim. Any frame our code makes miss 1.5× the refresh interval is a hitch and a bug, including during joins and chunk loading: attribute it and fix it. CI asserts deterministic work (no allocations, rebuilds or uploads for unchanged input), never milliseconds; frame, streaming and join budgets are checked in hardware captures against `docs/agents/live-testing.md`.
 
 ## Parity sources
 
