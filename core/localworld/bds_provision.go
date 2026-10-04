@@ -1,10 +1,7 @@
 package localworld
 
 import (
-	"archive/zip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -26,9 +22,7 @@ const (
 	linksAPI        = "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links"
 	directURLFormat = "https://www.minecraft.net/bedrockdedicatedserver/bin-%s/bedrock-server-%s.zip"
 	// userAgent names the downloader; minecraft.net resets requests carrying Go's default agent.
-	userAgent      = "Cinnabar-local-worlds"
-	maxZipBytes    = 1 << 30
-	maxUnpackBytes = 4 << 30
+	userAgent = "Cinnabar-local-worlds"
 )
 
 var zipVersion = regexp.MustCompile(`bedrock-server-(\d+(?:\.\d+)+)\.zip$`)
@@ -97,15 +91,17 @@ type Provisioner struct {
 	Log           *slog.Logger
 
 	// test hooks
-	linksURL  string
-	goos      string
-	goarch    string
-	allowHost func(*url.URL) bool
+	stallTimeout time.Duration
+	linksURL     string
+	goos         string
+	goarch       string
+	allowHost    func(*url.URL) bool
 
 	runtime     string // set by SetRuntime; empty derives from the platform
 	reason      string
 	unavailable string
 	detect      func(context.Context) RuntimeInfo // used by Redetect
+	probing     int                               // background detections in flight
 
 	ensureMu sync.Mutex
 	mu       sync.Mutex
@@ -170,6 +166,29 @@ func (p *Provisioner) Redetect(ctx context.Context) RuntimeInfo {
 	info := detect(ctx)
 	p.SetRuntime(info)
 	return info
+}
+
+// DetectInBackground assumes the given runtime until the detector's result lands, then passes it to done.
+// Status reports checking_runtime meanwhile.
+func (p *Provisioner) DetectInBackground(assume RuntimeInfo, done func(RuntimeInfo)) {
+	p.mu.Lock()
+	p.runtime, p.reason, p.unavailable = assume.Kind, assume.Reason, assume.Unavailable
+	p.probing++
+	detect := p.detect
+	p.mu.Unlock()
+	go func() {
+		info := assume
+		if detect != nil {
+			info = detect(context.Background())
+		}
+		p.mu.Lock()
+		p.probing--
+		p.runtime, p.reason, p.unavailable = info.Kind, info.Reason, info.Unavailable
+		p.mu.Unlock()
+		if done != nil {
+			done(info)
+		}
+	}()
 }
 
 func (p *Provisioner) runtimeInfo() (kind, reason, unavailable string) {
@@ -267,7 +286,7 @@ func (p *Provisioner) Status() SetupStatus {
 	kind, reason, unavailable := p.runtimeInfo()
 	accepted := p.eulaAccepted()
 	p.mu.Lock()
-	op, done, total, layers, version, lastErr := p.op, p.done, p.total, p.layers, p.version, p.lastErr
+	op, done, total, layers, version, lastErr, probing := p.op, p.done, p.total, p.layers, p.version, p.lastErr, p.probing > 0
 	p.mu.Unlock()
 	status := SetupStatus{Version: version, BytesDone: done, BytesTotal: total, LayersDone: layers[0], LayersTotal: layers[1],
 		EULAAccepted: accepted, Runtime: kind, Reason: reason, UnavailableReason: unavailable}
@@ -276,6 +295,8 @@ func (p *Provisioner) Status() SetupStatus {
 		status.State = SetupUnsupported
 	case op != "":
 		status.State = op
+	case probing:
+		status.State = SetupCheckingRuntime
 	default:
 		if _, v, ok := p.installed(); ok {
 			status.State, status.Version = SetupReady, v
@@ -340,12 +361,13 @@ func (p *Provisioner) Ensure(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", p.fail(err)
 	}
-	defer os.Remove(zipPath)
+	defer os.Remove(zipPath) // kept only on a failed download, to resume
 	p.setOp(SetupUnpacking, version, size, size)
 	bin, err := p.unpack(zipPath, version, link, sum, size)
 	if err != nil {
 		return "", p.fail(err)
 	}
+	p.pruneOldInstalls(version)
 	p.setOp("", version, size, size)
 	return bin, nil
 }
@@ -373,7 +395,8 @@ func (p *Provisioner) client() *http.Client {
 
 var _ Setup = (*Provisioner)(nil)
 
-func (p *Provisioner) get(ctx context.Context, rawURL string) (*http.Response, error) {
+// get fetches rawURL from byte from onwards; a ranged request also accepts 206 and 416.
+func (p *Provisioner) get(ctx context.Context, rawURL string, from int64) (*http.Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || !p.hostAllowed(u) {
 		return nil, fmt.Errorf("localworld: refusing non-official download URL %q", rawURL)
@@ -383,11 +406,15 @@ func (p *Provisioner) get(ctx context.Context, rawURL string) (*http.Response, e
 		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
+	if from > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", from))
+	}
 	resp, err := p.client().Do(req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
+	ranged := from > 0 && (resp.StatusCode == http.StatusPartialContent || resp.StatusCode == http.StatusRequestedRangeNotSatisfiable)
+	if resp.StatusCode != http.StatusOK && !ranged {
 		resp.Body.Close()
 		return nil, fmt.Errorf("localworld: download %s: %s", u.Host, resp.Status)
 	}
@@ -414,7 +441,7 @@ func (p *Provisioner) resolve(ctx context.Context) (version, link string, err er
 	if api == "" {
 		api = linksAPI
 	}
-	resp, err := p.get(ctx, api)
+	resp, err := p.get(ctx, api, 0)
 	if err != nil {
 		return "", "", err
 	}
@@ -446,142 +473,6 @@ func (p *Provisioner) resolve(ctx context.Context) (version, link string, err er
 	return "", "", errors.New("localworld: no dedicated server download listed for this platform")
 }
 
-type progressWriter struct {
-	p     *Provisioner
-	ver   string
-	total int64
-	done  int64
-	hash  io.Writer
-	out   io.Writer
-}
-
-func (w *progressWriter) Write(b []byte) (int, error) {
-	n, err := w.out.Write(b)
-	_, _ = w.hash.Write(b[:n])
-	w.done += int64(n)
-	w.p.setOp(SetupDownloading, w.ver, w.done, w.total)
-	if w.done > maxZipBytes {
-		return n, errors.New("localworld: dedicated server download exceeds size limit")
-	}
-	return n, err
-}
-
-func (p *Provisioner) download(ctx context.Context, version, link string) (path, sum string, size int64, err error) {
-	p.setOp(SetupDownloading, version, 0, 0)
-	resp, err := p.get(ctx, link)
-	if err != nil {
-		return "", "", 0, err
-	}
-	defer resp.Body.Close()
-	dir := filepath.Join(p.Root, "downloads")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", "", 0, err
-	}
-	file, err := os.CreateTemp(dir, "bedrock-server-*.zip.part")
-	if err != nil {
-		return "", "", 0, err
-	}
-	hash := sha256.New()
-	w := &progressWriter{p: p, ver: version, total: resp.ContentLength, hash: hash, out: file}
-	_, copyErr := io.Copy(w, resp.Body)
-	closeErr := file.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
-		os.Remove(file.Name())
-		return "", "", 0, fmt.Errorf("localworld: download dedicated server: %w", err)
-	}
-	if resp.ContentLength > 0 && w.done != resp.ContentLength {
-		os.Remove(file.Name())
-		return "", "", 0, errors.New("localworld: dedicated server download was truncated")
-	}
-	return file.Name(), hex.EncodeToString(hash.Sum(nil)), w.done, nil
-}
-
-func (p *Provisioner) unpack(zipPath, version, link, sum string, size int64) (string, error) {
-	reader, err := zip.OpenReader(zipPath)
-	if err != nil {
-		return "", fmt.Errorf("localworld: dedicated server archive is corrupt: %w", err)
-	}
-	defer reader.Close()
-	final := filepath.Join(p.Root, version)
-	partial := final + ".partial"
-	if err := os.RemoveAll(partial); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(partial, 0o700); err != nil {
-		return "", err
-	}
-	var written int64
-	for _, entry := range reader.File {
-		n, err := extractEntry(partial, entry, maxUnpackBytes-written)
-		if err != nil {
-			os.RemoveAll(partial)
-			return "", err
-		}
-		written += n
-	}
-	if _, err := os.Stat(filepath.Join(partial, p.binaryName())); err != nil {
-		os.RemoveAll(partial)
-		return "", errors.New("localworld: dedicated server archive has no server binary")
-	}
-	_ = os.Chmod(filepath.Join(partial, p.binaryName()), 0o755)
-	goos, arch := p.platform()
-	raw, _ := json.MarshalIndent(manifest{
-		Version: version, URL: link, ZipSHA256: sum, ZipBytes: size, Platform: goos + "/" + arch,
-		DownloadedAt: time.Now().Unix(), ClientVersion: p.prefix(),
-	}, "", "  ")
-	if err := os.WriteFile(filepath.Join(partial, "manifest.json"), raw, 0o600); err != nil {
-		os.RemoveAll(partial)
-		return "", err
-	}
-	if err := os.RemoveAll(final); err != nil {
-		return "", err
-	}
-	if err := os.Rename(partial, final); err != nil {
-		return "", err
-	}
-	return filepath.Join(final, p.binaryName()), nil
-}
-
-// extractEntry unpacks one archive entry under root, rejecting paths that escape it; symlinks are skipped.
-func extractEntry(root string, entry *zip.File, budget int64) (int64, error) {
-	name := filepath.FromSlash(entry.Name)
-	if filepath.IsAbs(name) || strings.HasPrefix(entry.Name, "/") {
-		return 0, fmt.Errorf("localworld: archive entry %q is absolute", entry.Name)
-	}
-	target := filepath.Join(root, name)
-	if rel, err := filepath.Rel(root, target); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return 0, fmt.Errorf("localworld: archive entry %q escapes the install directory", entry.Name)
-	}
-	mode := entry.Mode()
-	switch {
-	case mode.IsDir():
-		return 0, os.MkdirAll(target, 0o700)
-	case !mode.IsRegular():
-		return 0, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return 0, err
-	}
-	in, err := entry.Open()
-	if err != nil {
-		return 0, err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600|(mode.Perm()&0o100))
-	if err != nil {
-		return 0, err
-	}
-	n, copyErr := io.Copy(out, io.LimitReader(in, budget+1))
-	closeErr := out.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
-		return n, err
-	}
-	if n > budget {
-		return n, errors.New("localworld: dedicated server archive exceeds size limit")
-	}
-	return n, nil
-}
-
 // RuntimeInfo is the detected way to run BDS.
 type RuntimeInfo struct {
 	Kind, Reason string
@@ -601,14 +492,12 @@ func detectRuntime(ctx context.Context, goos, arch, docker string, env []string)
 	if docker == "" {
 		docker = "docker"
 	}
-	if _, err := exec.LookPath(docker); err != nil {
+	if _, found := lookupDocker(docker); !found {
 		return RuntimeInfo{RuntimeNone, "no native Bedrock Dedicated Server for this platform and Docker is not installed; new worlds use dragonfly", "docker_missing"}
 	}
 	probe, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(probe, docker, "info")
-	cmd.Env = append(os.Environ(), env...)
-	if err := cmd.Run(); err == nil {
+	if err := dockerCommand(probe, docker, env, "info").Run(); err == nil {
 		return RuntimeInfo{Kind: RuntimeContainer, Reason: "no native Bedrock Dedicated Server for this platform; running the Linux build in a container"}
 	}
 	return RuntimeInfo{RuntimeNone, "no native Bedrock Dedicated Server for this platform and Docker is not running; new worlds use dragonfly", "docker_not_running"}

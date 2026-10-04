@@ -33,6 +33,14 @@ func detectRuntime(ctx context.Context, opts options) localworld.RuntimeInfo {
 	return localworld.DetectRuntime(ctx, opts.docker)
 }
 
+// startupRuntime is the runtime known without waiting on Docker; pending means a background probe must settle it.
+func startupRuntime(opts options) (info localworld.RuntimeInfo, pending bool) {
+	if opts.localBackend == "dragonfly" || localworld.PlatformSupportsBDS() {
+		return detectRuntime(context.Background(), opts), false
+	}
+	return localworld.RuntimeInfo{Kind: localworld.RuntimeContainer, Reason: "checking Docker"}, true
+}
+
 // defaultBackend resolves -local-backend; auto picks BDS when it can run natively or in a container.
 func defaultBackend(flag string, info localworld.RuntimeInfo) string {
 	if flag == "auto" || flag == "" {
@@ -44,7 +52,7 @@ func defaultBackend(flag string, info localworld.RuntimeInfo) string {
 // openLocalWorlds builds the manager with a dragonfly runner (when its binary exists) and a BDS runner.
 // The dragonfly binary is required, and its absence fatal, only when it is the default backend.
 func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, error) {
-	runtimeInfo := detectRuntime(context.Background(), opts)
+	runtimeInfo, pending := startupRuntime(opts)
 	backend := defaultBackend(opts.localBackend, runtimeInfo)
 	binary := opts.localServerBin
 	if binary == "" {
@@ -79,5 +87,15 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 	manager.SetSetup(provisioner)
 	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")
 	logger.Info("local worlds enabled", "dir", opts.localWorldsDir, "default_backend", backend, "bds_runtime", runtimeInfo.Kind, "reason", runtimeInfo.Reason)
+	if pending {
+		_, hasDragonfly := runners[localworld.BackendDragonfly]
+		provisioner.DetectInBackground(runtimeInfo, func(info localworld.RuntimeInfo) {
+			manager.RuntimeDetected(info)
+			logger.Info("local world runtime detected", "bds_runtime", info.Kind, "reason", info.Reason)
+			if !hasDragonfly && localworld.DefaultBackend(info) == localworld.BackendDragonfly {
+				logger.Error("local world server binary not found; flat worlds are unavailable", "path", binary)
+			}
+		})
+	}
 	return manager, nil
 }

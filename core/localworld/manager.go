@@ -115,15 +115,19 @@ func (m *Manager) AcceptEULA() error {
 // A re-probe only changes the default backend of worlds created afterwards; saved worlds keep theirs.
 func (m *Manager) Prefs(ctx context.Context, update PrefsUpdate) (Prefs, error) {
 	if update.Redetect && m.setup != nil {
-		info := m.setup.Redetect(ctx)
-		if m.autoBackend {
-			m.store.SetDefaultBackend(DefaultBackend(info))
-		}
+		m.RuntimeDetected(m.setup.Redetect(ctx))
 	}
 	if update.DockerPromptDismissed == nil {
 		return m.store.Prefs(), nil
 	}
 	return m.store.UpdatePrefs(update)
+}
+
+// RuntimeDetected points the default backend at a fresh probe's result, unless the operator forced one.
+func (m *Manager) RuntimeDetected(info RuntimeInfo) {
+	if m.autoBackend {
+		m.store.SetDefaultBackend(DefaultBackend(info))
+	}
 }
 
 // Runners routes a world to the runner of its backend.
