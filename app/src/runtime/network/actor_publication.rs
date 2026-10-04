@@ -319,6 +319,7 @@ pub(crate) fn prepare_actor_render_frame(
         &local_physics,
         view.rotation(),
         first_person,
+        settings.feel().view_bobbing,
         &local_skin,
         local_use,
     );
@@ -886,6 +887,7 @@ fn build_local_player_feed(
     physics: &crate::movement::LocalPhysicsController,
     look: bevy::math::Quat,
     first_person: bool,
+    view_bobbing: bool,
     local_skin: &crate::player_skin::LocalPlayerSkin,
     item_use: LocalItemUse,
 ) -> Option<LocalPlayerFeed> {
@@ -928,6 +930,7 @@ fn build_local_player_feed(
         off_hand: None,
         teleported: false,
         first_person,
+        view_bobbing,
         sneaking,
         sprinting,
         item_use,
