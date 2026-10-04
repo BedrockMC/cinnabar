@@ -110,6 +110,25 @@ pub(crate) struct MenuProfile {
     pub(crate) statistics: Option<protocol::launcher_control::ProfileStatistics>,
 }
 
+impl MenuProfile {
+    /// Finishes every loading input when the account feed cannot provide a profile.
+    pub(super) fn unavailable() -> Self {
+        Self {
+            loaded: true,
+            unavailable: true,
+            avatar_loaded: true,
+            avatar_error: true,
+            featured_screenshot_loaded: true,
+            featured_screenshot_error: true,
+            statistics_loaded: true,
+            statistics_error: true,
+            achievements_loaded: true,
+            achievements_error: true,
+            ..Self::default()
+        }
+    }
+}
+
 /// Service feed data beyond the catalog cards: featured-server details keyed
 /// by address, the profile, and the featured server the info panel shows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
