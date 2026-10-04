@@ -491,7 +491,7 @@ fn session_reset_discards_every_retained_overlay() {
             .is_some()
     );
 
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
     assert_eq!(
         runtime.inventory_ledger(&player_runtime).slot_overlay(0),

@@ -485,7 +485,7 @@ fn exercise_server_fields(dpi: f32) {
         .app
         .world_mut()
         .resource_mut::<MenuRuntime>()
-        .take_pending_connect()
+        .take_join_intent()
         .expect("Play queues connection");
     assert_eq!(pending.address, "localhost:19134");
     let menu = h.app.world().resource::<MenuRuntime>();

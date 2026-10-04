@@ -529,7 +529,7 @@ mod tests {
             .inventory
             .queue_local_hotbar_selection(5, game_mode);
 
-        runtime.begin_session(&mut player_runtime, 2);
+        crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
         assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
     }
