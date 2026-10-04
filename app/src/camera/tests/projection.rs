@@ -36,7 +36,7 @@ fn projection(app: &mut App) -> PerspectiveProjection {
 
 #[test]
 fn native_full_viewport_fov_sets_vertical_angle_and_aspect_only_scales_horizontal_axis() {
-    // Lens 26.30: getFov uses normalized viewport fractions; bx::mtxProjRh
+    // Vanilla getFov uses normalized viewport fractions; bx::mtxProjRh
     // stores cot(FOV/2) on Y and cot(FOV/2)/aspect on X.
     for degrees in [30.0_f32, 60.0, 90.0, 110.0, 120.0] {
         for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0, 9.0 / 16.0] {

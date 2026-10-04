@@ -3,6 +3,7 @@
 use crate::Packet;
 use valentine::bedrock::version::v1_26_51::RequestChunkRadiusPacket;
 
+// Vanilla advertises a supported chunk radius within these bounds.
 const MIN_ADVERTISED_CHUNK_RADIUS: u8 = 5;
 const MAX_ADVERTISED_CHUNK_RADIUS: u8 = 28;
 

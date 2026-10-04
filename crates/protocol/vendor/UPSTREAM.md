@@ -75,6 +75,11 @@ The shared codec inlines its per-item capacity check and keeps rare capacity
 growth out of line. Collection storage still grows fallibly, with the same
 allocation limits and errors; generated codecs are unchanged.
 
+Jolyne's StartGame handoff also retains the first decoded `ItemRegistry` and its
+shield ID. This matches the one-time initialization guard in the native
+1.26.50 `ItemRegistry::matchServerItemIds`; later empty or
+custom-only packets must not replace the startup table. The Cinnabar play
+ingress wire-decodes these repeats but does not publish replacement events.
 
 Jolyne's StartGame handoff also records whether a publisher update, level chunk or
 sub-chunk preceded PlayerSpawn (`terrain_before_spawn`): servers such as Dragonfly

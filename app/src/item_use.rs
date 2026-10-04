@@ -469,6 +469,8 @@ impl ItemUseRuntime {
     }
 }
 
+/// RangedWeaponItem::getAnimationFrame: the icon follows
+/// the quadratic draw-power curve, independently of the attachable's charge pose.
 fn ranged_animation_frame(elapsed: Option<u32>) -> u32 {
     let Some(elapsed) = elapsed else {
         return 0;

@@ -97,8 +97,8 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
     } else if previous.jumping {
         flags |= PlayerInputFlags::JUMP_RELEASED_RAW;
     }
-    // 1.26.50.26: 0x07108cc0 -> 0x070fcfd0 maps held jump to Jumping.
-    // 0x0a5db340 -> 0x0435a250 maps actual takeoff to StartJumping.
+    // Vanilla maps held jump to Jumping.
+    // It maps actual takeoff to StartJumping.
     if sample.processed.jump_initiated {
         flags |= PlayerInputFlags::START_JUMPING;
     }

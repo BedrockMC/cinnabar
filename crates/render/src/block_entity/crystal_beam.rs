@@ -7,12 +7,12 @@ use super::{
     mesh::{Layer, MeshBuilder},
 };
 
-// R:DataDrivenRenderer_tempComponent_EnderCrystalAdditionalRendering:158-226.
-// Lens tessellateCrystalBeam resolves these globals to .75, .2, 1/8 and .0001.
+// Vanilla beam constants are .75, .2, 1/8 and .0001.
 const SIDES: usize = 8;
 const CRYSTAL_RADIUS: f32 = 0.75;
 const TARGET_RADIUS_RATIO: f32 = 0.2;
 const NORMALIZE_EPSILON: f32 = 0.0001;
+// Beam UVs scroll by .01 per tick.
 const UV_SCROLL_PER_TICK: f32 = 0.01;
 
 /// A tapered, textured beam from the target block to the interpolated crystal origin.

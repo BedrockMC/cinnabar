@@ -1,4 +1,4 @@
-/// Client ticks from correction to sync (Lens 1.26.50.26 0x36c44c0).
+/// Client ticks from correction to sync.
 const SYNC_DELAY_TICKS: u16 = 200;
 
 #[derive(Debug, Clone, Default)]

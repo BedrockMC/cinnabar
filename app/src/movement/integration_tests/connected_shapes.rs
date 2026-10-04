@@ -76,7 +76,7 @@ fn registry_stair_corners_and_halves_have_native_piece_geometry() {
     let protocol = crate::asset_startup::active_content_registry_protocol();
     let records = read_registry_for_protocol(breg, protocol).unwrap();
     let registries = PhysicsCollisionRegistries::from_assets(breg, &records, &synthetic_preg(breg, &records), protocol).unwrap();
-    // Lens step/inner functions 0xa5b5090 and 0xa5b5460; bits are x + 2*z quadrants.
+    // Step and inner-piece bits are x + 2*z quadrants.
     let quadrants = [[10, 11, 14, 2, 8], [5, 13, 7, 4, 1], [12, 14, 13, 8, 4], [3, 7, 11, 1, 2]];
     let mut states = 0;
     for record in records.iter().filter(|record| record.name.as_ref() == "minecraft:oak_stairs") {

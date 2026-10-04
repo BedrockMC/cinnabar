@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, Vec3, WorldQueryError};
 
+/// Current Player constructor's SneakingHeightChangeVersion value.
 const SNEAK_HEIGHT: f64 = 1.49_f32 as f64;
 /// Swimming, crawling and gliding hitbox height. Public wiki value.
 const LOW_POSE_HEIGHT: f64 = 0.6;

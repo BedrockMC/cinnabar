@@ -7,6 +7,8 @@ use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 
 use crate::celestial::unit;
 
+/// Rain level change per second while the server target moves.
+/// Weather::tick approaches its targets by this amount.
 pub const PRECIPITATION_LEVEL_PER_TICK: f32 = 0.01;
 pub const PRECIPITATION_LEVEL_PER_SECOND: f32 =
     PRECIPITATION_LEVEL_PER_TICK * world::TICKS_PER_SECOND as f32;

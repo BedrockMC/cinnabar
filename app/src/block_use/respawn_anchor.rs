@@ -4,12 +4,12 @@ use super::UseSurroundings;
 
 /// Glowstone always uses the anchor: below full charge it charges; at full charge
 /// it activates. A charged anchor also accepts other items or an empty hand.
-/// R:RespawnAnchorBlock:137–189,520–525. Charging works in every dimension; charged
-/// activation sets the Nether spawn or explodes elsewhere (189–207,345–499).
+/// Charging works in every dimension; charged
+/// activation sets the Nether spawn or explodes elsewhere.
 /// Those effects, including consuming glowstone, run only on the server, so this
-/// successful interaction predicts no block or inventory change (145–149).
+/// successful interaction predicts no block or inventory change.
 /// The Nether's non-glowstone retry at an already-selected spawn needs spawn
-/// authority that the client does not yet retain (189–195); the server resolves it.
+/// authority that the client does not yet retain; the server resolves it.
 pub(super) fn uses_block(surroundings: &UseSurroundings) -> bool {
     if surroundings.held_block_identifier.as_deref() == Some("minecraft:glowstone") {
         return true;

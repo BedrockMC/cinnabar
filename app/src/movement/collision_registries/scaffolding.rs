@@ -8,7 +8,7 @@ pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<Aabb>> {
     }
     let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
     let stability = state.get("stability")?.get("value")?.as_u64()?;
-    // Lens 0x8eff050 rejects stability 7; 0x8eff210 translates the unit cube.
+    // Vanilla rejects stability 7; other states translate the unit cube.
     Some(if stability == 7 {
         Vec::new()
     } else {

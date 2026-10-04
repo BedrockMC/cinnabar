@@ -31,6 +31,19 @@ source or carrier is absent. Scratch output remains outside the installed pack.
 This changes ownership only and closes no vanilla behavior or visual parity gate.
 The existing compilation behavior and its source comments are retained.
 
+## Vanilla rules
+
+| Rule | Behaviour |
+| --- | --- |
+| Resource lookup | Load a resource from the selected pack stack. |
+| Atlas metadata | Load atlas metadata and read its `texture_data` entries. |
+
+These input roles are not a new current-version parity claim.
+
+- The installed vanilla pack was read through the worktree's `.local` symlink:
+  `.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/textures/terrain_texture.json:3`
+  identifies `vanilla`, `atlas.terrain`, and the `texture_data` table. No pack
+  source files were copied into the repository or modified.
 
 The dependency and module restrictions for this step are registered in
 `tools/architecture/policy.toml`; the shared architecture gate checks them during

@@ -23,6 +23,8 @@ pub const MAX_SPAWN_DISTANCE: f32 = 128.0;
 /// Longest single simulation step; larger frame gaps are split.
 const MAX_STEP: f32 = 1.0 / 30.0;
 const MAX_FRAME_SECONDS: f32 = 0.25;
+/// `_addTerrainEffect` checks the selected effect's
+/// existing emitter/particle totals, with strict `>` comparisons before spawn.
 const TERRAIN_EMITTER_LIMIT: usize = 20;
 const TERRAIN_PARTICLE_LIMIT: usize = 500;
 const TILE_VARIABLE_NAMES: [(&str, &str); 5] = [

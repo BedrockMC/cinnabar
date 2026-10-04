@@ -1,8 +1,20 @@
 # Native sparse inventory prediction
 
+## Vanilla rules
 
-## Identified native functions
-
+| Rule | Behaviour |
+| --- | --- |
+| `SparseContainer::getItem` | Return the absolute sparse item when the cell is predicted; otherwise return its backing item. |
+| `SparseContainer::setItem` | Save the new sparse item and invoke the set listener. |
+| `SparseContainerSetListenerClient::postSetItem` | Stamp every changed item with the current typed request id, including an emptied item, and register its container with the request. |
+| `SparseContainerClient::_networkUpdateItem` | Update the backing container without rebasing or subtracting an active prediction. |
+| `ItemStackRequestActionHandler::_validateRequestSlot` | Resolve odd-negative request references through request-id, container-runtime-id, and requested-slot assignments. A request id is not a globally unique item identity. |
+| `ItemStackNetManagerClient::handleItemStackResponse` | Find the issued request across retained screens; skip unknown ids. Process each answer immediately. |
+| `SparseContainerClient::tryPushSlotPrediction` | Requested slot locates the sparse item; actual slot receives the correction. Validate amount/net-id pairing. A later owner selects the historic path. A missing sparse cell is skipped. |
+| `SparseContainerClient::_pushHistoricPredictionItem` | Correct backing using the request's historic item without removing the newer active prediction. |
+| `SparseContainerClient::clearAllPredictions` | Remove remaining active cells whose stamp is the answered request, not older or later owners. |
+| `ItemStackNetManagerClient::_clearPredictiveContainerRequest` | Remove the answered historic snapshot and clear that request's active sparse cells. |
+| `ItemStackNetManagerBase::onContainerScreenClose` | Retire the oldest retained screen after close acknowledgement. Its late replies no longer own a retained screen. |
 
 The slot field formerly called `hotbar_slot` in our normalized response is the
 wire `requested_slot`; it is not a second hotbar address. Both addresses use the
@@ -38,7 +50,7 @@ unrelated gesture.
 
 ## Verification and remaining gates
 
-Focused source-contract tests cover drop push ordering, request-id/slot chaining,
+Focused behavior-contract tests cover drop push ordering, request-id/slot chaining,
 split halves, sparse empty ownership, historic replies, missing active cells,
 requested-to-actual slot remapping, backing replacement, invalid count/id pairs,
 and the offhand sequence. Existing inventory tests were migrated from the old
@@ -46,8 +58,7 @@ proxy delta contracts to the identified native contracts.
 
 Live acceptance on 2026-10-02 UTC used the canonical macOS/Metal build at
 Retina scale 2, offline loopback vanilla BDS (the server version pinned in
-`assets/bedrock-target.json`). Client executable SHA-256:
-`b51eb853c4b7f04ba555c0dd0b76e5667addcbbae2ab40711483afce5f75e25f`.
+`assets/bedrock-target.json`).
 At 00:58:46–49, shield offhand Take, cursor Place into inventory 13, Take back,
 Place into offhand, grass Take, and Place into inventory 9 all received Accepted
 answers (-7, -9, -11, -13, -15, -17). The offhand-empty content push preceded

@@ -177,7 +177,7 @@ fn active_surface_response(
 
 /// Tests the native shrunken liquid probe against material cells, independent of surface height.
 fn liquid_contact(player: Aabb, block: [i32; 3], water: bool) -> bool {
-    // Lens 0xa5d5c40 shrinks these boxes; 0xa5dd330 tests floored cell coordinates.
+    // Vanilla shrinks these boxes and tests floored cell coordinates.
     let shrink = if water {
         [0.001_f32, 0.401, 0.001]
     } else {

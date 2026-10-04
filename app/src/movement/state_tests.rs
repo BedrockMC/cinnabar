@@ -1,3 +1,4 @@
+//! Wire flags follow the vanilla client input and jump-action lanes.
 
 use std::time::Duration;
 

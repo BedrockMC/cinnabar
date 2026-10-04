@@ -68,6 +68,11 @@ command opens the launcher; the existing offline adapter and snapshot commands
 also accept this component. The dedicated offline cycle/no-packets test is
 `configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set.
 
+Vanilla time uses six presets, preset-table lookup and modulo 24000, including
+celestial time wrapping. The vanilla 1.26.50.4 pack's
+`texts/en_US.lang:3665–3671` identifies the time preset labels;
+`:1993–1995` describes freezing the daylight cycle. Existing atmosphere math remains
+subject to its current parity limits; this mod adds no native acceptance claim.
 
 ## Contract and implementation
 

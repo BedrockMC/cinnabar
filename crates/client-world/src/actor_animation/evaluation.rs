@@ -72,8 +72,7 @@ pub(super) struct EngineSlots {
     pub(super) has_target: Option<usize>,
 }
 
-// Client-owned variables seeded on construction, observed in a client reconstruction and
-// needing independent measurement; remote third-person actors keep these values because
+// Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
 // only first-person, HUD, and paper-doll renderers change them.
 const SEEDED_VARIABLES: [(&str, f32); 20] = [
     ("variable.animation_frames_128x128", 1.0),

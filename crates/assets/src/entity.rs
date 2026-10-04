@@ -166,6 +166,9 @@ pub struct EntityGeometryCube {
 }
 
 impl EntityGeometryCube {
+    /// Native Geometry cube rotations use the uninflated box center when no pivot is authored.
+    /// Geometry::_parseBones and the geometry 1.21 schema agree.
+    #[must_use]
     pub fn default_rotation_pivot(
         origin: [EntityGeometryScalar; 3],
         size: [EntityGeometryScalar; 3],

@@ -422,7 +422,7 @@ fn drive_particles(
         &mut system,
     );
 
-    // R:CommonGameModeMessenger--e7656654e901:65 emits local destruction before a server echo.
+    // CommonGameModeMessenger emits local destruction before a server echo.
     // The cue carries the destroyed id because the world already predicts air.
     for cue in block_cues.read() {
         if let crate::audio::LocalBlockCue::Break {

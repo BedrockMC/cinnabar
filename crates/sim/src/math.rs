@@ -62,7 +62,7 @@ const TRIG_INDEX_SCALE: f32 = 10_430.378;
 
 /// Samples the native float table, including float division during initialization.
 fn sine_table(index: i32) -> f64 {
-    // Lens 1.26.50.26 0x296ccd0; the divisor is also the lookup's index multiplier.
+    // The divisor is also the lookup's index multiplier.
     static TABLE: OnceLock<Box<[f32]>> = OnceLock::new();
     let table = TABLE.get_or_init(|| {
         (0..=u16::MAX)

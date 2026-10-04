@@ -1,3 +1,8 @@
+//! Crossbow's client-owned loaded pose, layered over untouched server stacks.
+//!
+//! Vanilla `releaseUsing` stores the selected projectile in
+//! `chargedItem`, including on duration depletion. `use` fires it and removes that compound. Keeping just
+//! that state here avoids inventing inventory identities or outgoing NBT.
 
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 
@@ -129,7 +134,7 @@ pub(super) const fn is_crossbow(air_use: Option<AirUse>) -> bool {
 }
 
 /// `releaseUsing` checks the offhand for either projectile first, then inventory
-/// arrows, and synthesizes an arrow only in creative (09a157e0).
+/// arrows, and synthesizes an arrow only in creative.
 pub(super) fn loading_projectile(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &client_world::WorldStream,

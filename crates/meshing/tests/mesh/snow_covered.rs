@@ -1,3 +1,7 @@
+/// TopSnow renders its cuboid on the snow pass and the block it covers on that
+/// block's own pass (tessellateTopSnowInWorld). A crossed
+/// plant is not a conflicting solid and must not become a diagnostic cube.
+#[test]
 fn covered_snow_keeps_all_five_observed_plant_families_on_every_height() {
     let fixture = compiled_snow_fixture();
     for (height, &snow) in fixture.covered_layers.iter().enumerate() {

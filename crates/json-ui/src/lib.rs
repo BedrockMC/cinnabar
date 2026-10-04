@@ -127,6 +127,8 @@ impl Context {
             .with_flag("touch", false)
     }
 
+    /// The desktop context plus the globals a retail, full-game, non-edu desktop
+    /// client computes in code, false ones included.
     pub fn retail(macos: bool) -> Self {
         let platform: &[(&str, bool)] = &[
             ("win10_edition", !macos),

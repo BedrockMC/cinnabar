@@ -303,6 +303,9 @@ fn text_menu_model(object: &serde_json::Map<String, serde_json::Value>) -> Serve
             return unsupported(UnsupportedForm::Controls);
         }
         let mut image = None;
+        // ServerFormBindingInformation::createBindingData
+        // normalizes both representations through the same image value. Absent
+        // and null images both mean a text-only button.
         if let Some(value) = button.get("image").filter(|value| !value.is_null()) {
             let Some(object) = value.as_object() else {
                 return unsupported(UnsupportedForm::Controls);

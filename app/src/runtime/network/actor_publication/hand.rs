@@ -20,6 +20,8 @@ pub(super) fn hand_camera_from_rig(scale: f32, motion: Mat4) -> [[f32; 4]; 3] {
         [rows[0][2], rows[1][2], rows[2][2], 0.0],
         [rows[0][3], rows[1][3], rows[2][3], 1.0],
     ]);
+    // The native first-person ActorRenderer root retains its 1/128-model-unit lift
+    // after the player model scale.
     camera_space_rows(motion * placement * Mat4::from_translation(bevy::math::Vec3::Y / 128.0))
 }
 

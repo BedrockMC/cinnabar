@@ -2,6 +2,14 @@
 use super::EntityGeometryBone;
 
 impl EntityGeometryBone {
+    /// A same-name child appends cubes to its inherited part; only explicit `reset: true`
+    /// removes the inherited cubes. Bone properties are resolved separately by each caller.
+    ///
+    /// Reset rewinds
+    /// the cube vector's end, then authored cubes append at its existing end. The pinned
+    /// vanilla adult sheep uses this contract for the face beneath its wool overlay.
+    /// `maximum` is the caller's remaining cube budget for this bone, including its existing
+    /// cubes. Returns the new count, or `None` without mutation or allocation on overflow.
     pub fn append_inherited_cubes(&mut self, child: &Self, maximum: usize) -> Option<usize> {
         let inherited = if child.reset == Some(true) {
             0

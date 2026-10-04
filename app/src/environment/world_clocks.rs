@@ -1,3 +1,11 @@
+//! The atmosphere's bounded consumer of the native named clock registry.
+//!
+//! Vanilla registry initialization and synchronization. Sync skips unknown IDs and independently applies time and pause;
+//! WorldClock::tick and RegistryClient::tick respectively
+//! gate advancement on the clock's pause state and global doDaylightCycle.
+//! Level::getTime's lookup uses its canonical pre-registered hash
+//! directly: a different server ID carrying the same string is not that clock.
+//! Unrelated clocks and marker callbacks have no current Cinnabar consumer.
 
 use protocol::{OVERWORLD_CLOCK_ID, WorldClockState, WorldClockUpdateEvent};
 
@@ -5,6 +13,7 @@ use super::{WorldClock, numeric::finite_nonnegative, visual_world_time};
 
 pub(super) fn apply_legacy_time(clock: &mut WorldClock, time: i32, elapsed_seconds: f64) {
     let elapsed_seconds = finite_nonnegative(elapsed_seconds);
+    // Legacy handler compares Level::getTime before calling Level::setTime; identical integer times are not re-anchored.
     if clock.server_time.is_none()
         || visual_world_time(*clock, elapsed_seconds).floor() != f64::from(time)
     {

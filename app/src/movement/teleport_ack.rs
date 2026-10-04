@@ -1,7 +1,7 @@
 //! Acknowledges local MovePlayer teleports on the next transmitted input.
 //!
-//! Bedrock 1.26.50.26 Player::handleMovePlayerPacket (0x00215860), mode 2,
-//! sets the action that setFromComponent (0x0435a250) maps to HandledTeleport.
+//! Vanilla Player::handleMovePlayerPacket, mode 2,
+//! sets the action that setFromComponent maps to HandledTeleport.
 //! Correction-snap and respawn routes remain provisional and require the
 //! opt-in marker [`markers::TELEPORT_ACK`] with value exactly `1`.
 //!

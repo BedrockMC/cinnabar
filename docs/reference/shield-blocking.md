@@ -1,8 +1,13 @@
 # Shield blocking query and owner equipment
 
+The runtime pack is selected by `assets/vanilla-source.json`.
 
 ## Rendering contract
 
+`query.blocking` reads `ActorDataFlagComponent` (type hash `0xc67426f3`),
+byte 9 bit 0, which is actor flag 72, and returns a boolean script argument.
+It does **not** call `Player::isBlocking`, derive blocking from the processed
+sneak state, or apply a local five-tick timer.
 
 The pinned Shield attachable's pre-animation scripts require both owner hands.
 The main-hand blocking predicate is `query.blocking`, no Shield in the offhand,
@@ -18,7 +23,21 @@ lost offhand priority and the main-hand Bow predicate for an offhand Shield.
 
 ## Gameplay and authoritative state
 
+`ServerPlayer::normalTick`
+sets flag 72. Its eligibility checks include cooldown, sneak/using state,
+vehicle/swimming state and the actor's scaffolding flags 69/70.
+The distinct Shield-blocked flags are 74/75. None of those metadata flags
+are additional PlayerAuthInput bits.
+Current `SneakTriggerSystem::doActionTick` updates the
+processed sneak/swim/crawl flags but does not set blocking 72.
 
+The separate damage-blocking predicate `Player::isBlocking` requires flag 72, an active Shield
+(offhand preferred), and level tick minus stack blocking timestamp greater
+than four. `ShieldItem::inventoryTick` maintains that
+timestamp on the server only. `readUserData`/`writeUserData` transmit its trailing signed 64-bit value.
+`ShieldItem::use` is a no-op: starting ordinary ranged-item
+use is not Shield blocking. These gameplay references corroborate authority;
+they are not substitutes for a version-matched gameplay acceptance gate.
 
 Local player movement exclusion does not exclude authoritative metadata.
 The regression publishes an actual `ActorEvent::Metadata` update, then

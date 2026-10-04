@@ -3,9 +3,12 @@
 use protocol::PLAYER_NETWORK_OFFSET;
 use sim::MovementMode;
 
+// VanillaOffsetSystem dispatcher selects the
+// current-game-version 0x3eb33333 drop. The older-version branch is not our target.
 const CROUCH_EYE_DROP: f32 = 0.35;
+// Horizontal poses use this eye height on each client tick.
 const HORIZONTAL_POSE_EYE_HEIGHT: f32 = 0.4;
-// The same native tick uses DAT_14fec3380 for every axis; not render-frame damping.
+// The same native tick uses a 0.5 blend for every axis; not render-frame damping.
 const OFFSET_TICK_BLEND: f32 = 0.5;
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -27,8 +30,9 @@ impl LocalEyeOffset {
         self.current += (target - self.current) * OFFSET_TICK_BLEND;
     }
 
+    /// Native camera getter subtracts the interpolated offset.
     pub(super) fn height(&self, alpha: f32) -> f32 {
-        // Native camera anchor DAT_14ffab6b0 is the same 1.62001002 float
+        // Native camera anchor is the same 1.62001002 float
         // already retained as the player protocol offset, not rounded 1.62.
         PLAYER_NETWORK_OFFSET
             - (self.previous + (self.current - self.previous) * alpha.clamp(0.0, 1.0))

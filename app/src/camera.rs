@@ -256,6 +256,8 @@ pub fn perspective_pose(
             }
         }
         PerspectiveMode::ThirdPersonFront => {
+            // The reverse orbit setup retains the full
+            // player look vector; look-at keeps global Y as up.
             let translation = subject_translation + forward * THIRD_PERSON_RADIUS_BLOCKS;
             Transform::from_translation(translation).looking_at(subject_translation, Vec3::Y)
         }
@@ -820,9 +822,9 @@ fn update_look(
         menu.as_ref()
             .map_or(0.0, |menu| menu.spyglass_damping(mode)),
     );
-    // LocalViewPose stores actor rotation. Lens 26.30 CameraAttachSystem::_handleLookInput
-    // (0x10c316a00) inverts the front preset's polar input in camera space;
-    // UpdatePlayerFromCameraSystemUtil::_updatePlayer (0x1007fdb40) reverses the
+    // LocalViewPose stores actor rotation. CameraAttachSystem::_handleLookInput
+    // inverts the front preset's polar input in camera space;
+    // UpdatePlayerFromCameraSystemUtil::_updatePlayer reverses the
     // rendered forward vector back into actor space. Neither reverses actor yaw.
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));

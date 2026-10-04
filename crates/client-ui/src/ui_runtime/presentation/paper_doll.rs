@@ -1,3 +1,4 @@
+//! HUD visibility follows HudPlayerRenderer::update.
 
 /// Observed state, independent of the user's visibility settings.
 #[derive(Clone, Copy, Debug, Default)]

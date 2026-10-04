@@ -48,6 +48,7 @@ pub fn analog_frame_scale(mode: InputMode, delta_seconds: f32) -> f32 {
 
 /// Scales scoped turns using the held item's damping and the selected input mode's option.
 pub(super) fn spyglass_turn_delta(delta: Vec2, scoping: bool, damping: f32) -> Vec2 {
+    // Spyglass turns use the held item’s damping floor.
     const ITEM_DAMPING: f32 = 0.05;
     if scoping && damping > ITEM_DAMPING {
         delta * (ITEM_DAMPING / damping)

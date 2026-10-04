@@ -1,5 +1,5 @@
 //! Per-actor walk cycle, arm swing, and body rotation that vanilla animations read through
-//! queries. Tuning constants were observed in a client reconstruction and still need
+//! queries. Tuning constants still need
 //! independent measurement against a running vanilla client.
 use super::query::wrap_degrees;
 
