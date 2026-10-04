@@ -7,6 +7,20 @@ mod runtime;
 pub mod server;
 
 #[cfg(feature = "execution")]
+pub use mod_api::{MAX_CAMERA_DELTA_RADIANS, MAX_GAMEPLAY_PLAYERS};
+#[cfg(feature = "execution")]
+pub use runtime::cinnabar::extension::gameplay::{
+    Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+};
+
+/// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
+#[cfg(feature = "execution")]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CameraDelta {
+    pub yaw: f32,
+    pub pitch: f32,
+}
+#[cfg(feature = "execution")]
 use {
     anyhow::{Context, Result, ensure},
     runtime::Instance,
@@ -28,12 +42,16 @@ pub(crate) const FRAME_FUEL: u64 = 100_000;
 #[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
-/// Explicit per-instance authority; environment access is denied by default.
+/// Explicit per-instance authority; optional capabilities are denied by default.
 #[cfg(feature = "execution")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ModGrants {
     /// Allows this instance to replace visual time only.
     pub environment: bool,
+    /// Allows current-frame remote player and camera pose reads.
+    pub players: bool,
+    /// Allows bounded, transactional local camera rotation.
+    pub camera: bool,
 }
 
 /// A developer-selected component with transactional reload and trap quarantine.
@@ -48,7 +66,7 @@ pub struct ModHost {
 
 #[cfg(feature = "execution")]
 impl ModHost {
-    /// Loads a local component with HUD and input, denying environment writes.
+    /// Loads a local component with HUD and demo input, denying optional capabilities.
     pub fn load(path: &Path) -> Result<Self> {
         Self::load_with_grants(path, ModGrants::default())
     }
@@ -72,7 +90,21 @@ impl ModHost {
 
     /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
-        self.instance.frame(pressed)
+        self.frame_with_gameplay(pressed, None)
+    }
+
+    /// Runs a callback with a validated snapshot belonging only to this frame.
+    pub fn frame_with_gameplay(
+        &mut self,
+        pressed: bool,
+        snapshot: Option<GameplaySnapshot>,
+    ) -> Result<()> {
+        self.instance.frame(pressed, snapshot)
+    }
+
+    /// Consumes the last successful frame's rotation once, without entering the guest.
+    pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
+        self.instance.take_camera_delta()
     }
 
     /// Returns only the last successfully committed plain-text label.
