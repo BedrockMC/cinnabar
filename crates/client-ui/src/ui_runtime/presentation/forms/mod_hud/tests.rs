@@ -1,6 +1,6 @@
 use super::super::{ServerUiPack, pack_harness, snapshot, tests::mini_engine_presentation};
 use super::*;
-use render::UiRenderInput;
+use render_model::UiRenderInput;
 use ui::DpiScale;
 
 const SAMPLE_COMPONENT_ENV: &str = "CINNABAR_MOD_SNAPSHOT_COMPONENT";

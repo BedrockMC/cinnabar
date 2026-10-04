@@ -2,7 +2,7 @@
 
 use std::{ops::Range, sync::Arc};
 
-use crate::{UiRenderInput, UiRenderVertex};
+use render_model::{UiRenderInput, UiRenderVertex};
 
 #[derive(Default)]
 pub(super) struct BufferUploads {

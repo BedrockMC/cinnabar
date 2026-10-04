@@ -17,7 +17,7 @@ mod skin;
 pub use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
-use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 pub use skin::local_preview_skin;
 
 impl UiPresentationRuntime {

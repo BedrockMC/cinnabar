@@ -4,8 +4,10 @@
 use std::time::{Duration, Instant};
 
 use render::{
-    ActorRigFrameBuilder, ActorRigGeometry, ActorRigVertex, ActorSkinPixels, BlockEntityKind,
-    BlockEntityScene, BlockEntitySubmission, SceneClock, normalize_actor_skin,
+    ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
+};
+use render_model::{
+    ActorRigGeometry, ActorRigVertex, ActorSkinPixels, normalize_actor_skin,
     normalize_actor_skin_cached, skin_rig_id,
 };
 
@@ -58,7 +60,7 @@ fn frame_cost_bench_geometry_registration_30_models() {
         ActorRigGeometry::new(id, vec![ActorRigVertex::default(); 500], vec![[0.0; 3]; 4]).unwrap()
     };
     let catalog = || {
-        ActorRigFrameBuilder::new((0..224).map(|index| geometry(render::EntityRigId(index))))
+        ActorRigFrameBuilder::new((0..224).map(|index| geometry(render_model::EntityRigId(index))))
             .unwrap()
     };
     let models = || {
@@ -163,7 +165,7 @@ fn frame_cost_bench_sound_decode() {
 #[ignore = "benchmark"]
 fn frame_cost_bench_skin_packing_128_players() {
     let skins: Vec<std::sync::Arc<[u8]>> = (0..128)
-        .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
+        .map(|player| vec![player as u8; render_model::STANDARD_SKIN_BYTES].into())
         .collect();
     let mut previous: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
     let old = per_frame(FRAMES, |_| {
@@ -188,8 +190,8 @@ fn frame_cost_bench_skin_packing_128_players() {
 #[test]
 #[ignore = "benchmark"]
 fn frame_cost_bench_skin_packing_shared_layers() {
-    let skins: Vec<std::sync::Arc<[u8]>> = (0..render::MAX_RENDERED_PLAYERS)
-        .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
+    let skins: Vec<std::sync::Arc<[u8]>> = (0..render_model::MAX_RENDERED_PLAYERS)
+        .map(|player| vec![player as u8; render_model::STANDARD_SKIN_BYTES].into())
         .collect();
     let mut pack = crate::presentation::actors::SkinLayerPack::default();
     let started = Instant::now();

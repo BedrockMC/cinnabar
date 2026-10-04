@@ -3,7 +3,7 @@
 
 use assets::RuntimeUiAssets;
 use image::{ImageFormat, ImageReader, Limits};
-use render::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
+use render_model::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 use std::{
     f32::consts::{PI, TAU},
     io::Cursor,

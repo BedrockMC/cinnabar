@@ -147,7 +147,7 @@ struct SessionGeometryReady {
 fn apply_session_geometry(
     scene: &mut ActorRenderScene,
     pack: Option<&crate::session_assets::SessionEntityPack>,
-    geometries: Vec<render::ActorRigGeometry>,
+    geometries: Vec<render_model::ActorRigGeometry>,
     ready: &mut SessionGeometryReady,
     profiler: Option<&RuntimeStageProfiler>,
 ) {
@@ -840,7 +840,7 @@ fn animation_view(
 fn register_geometries(
     hand: &mut ActorRigFrameBuilder,
     scene: &mut ActorRenderScene,
-    geometries: Vec<render::ActorRigGeometry>,
+    geometries: Vec<render_model::ActorRigGeometry>,
 ) {
     if geometries.is_empty() {
         return;

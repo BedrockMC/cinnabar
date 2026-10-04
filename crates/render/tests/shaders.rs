@@ -5,14 +5,7 @@ mod shader_safety;
 mod shader_source;
 // Every shader validates, not just parses: naga's parser accepts colliding varying locations
 // and reserved identifiers that fail pipeline creation at runtime and silently skip the pass.
-use render as ui;
 
-#[path = "../src/nametag.rs"]
-#[allow(
-    dead_code,
-    reason = "shader adapter shares record definitions; depth state is tested by pipeline tests"
-)]
-pub mod nametag;
 #[path = "../src/nametag_render/shader.rs"]
 mod nametag_shader;
 #[path = "../src/ui_render/shader.rs"]

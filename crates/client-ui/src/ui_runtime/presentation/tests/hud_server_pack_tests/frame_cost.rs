@@ -21,8 +21,8 @@ fn offline_server_hud_publication_cost() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = session(&mut player, "Zeqa lobby");
     runtime.set_session_glyphs(pack_harness::env_glyphs());
-    let mut scene = render::UiRenderScene::default();
-    let stats = render::UiRenderStats::default();
+    let mut scene = render_model::UiRenderScene::default();
+    let stats = render_model::UiRenderStats::default();
     for changing in [false, true] {
         let mut samples = Vec::with_capacity(SAMPLES);
         let before = presentation.hud_passes();

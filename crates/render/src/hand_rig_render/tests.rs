@@ -1,5 +1,6 @@
 use super::*;
-use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigVertex};
+use crate::{ActorGpuInstance, ActorRigGeometrySpan};
+use render_model::ActorRigVertex;
 
 fn single_instance_frame() -> ActorRigRenderFrame {
     ActorRigRenderFrame {
@@ -22,7 +23,7 @@ fn single_instance_frame() -> ActorRigRenderFrame {
 }
 
 fn skin() -> Arc<[u8]> {
-    Arc::from(vec![0u8; crate::STANDARD_SKIN_BYTES])
+    Arc::from(vec![0u8; render_model::STANDARD_SKIN_BYTES])
 }
 
 fn light() -> HandRigLight {

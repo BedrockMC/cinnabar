@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use assets::{CellGlyph, pack_cells};
-use render::UiTexturePage;
+use render_model::UiTexturePage;
 
 use super::{UiPresentationRuntime, dynamic_textures};
 use dynamic_textures::FIRST_GLYPH_PAGE;
 
-use render::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
+use render_model::UI_DYNAMIC_PAGE_SIDE as PAGE_SIDE;
 
 /// The session's glyph cells, cropped from the winning sheets.
 #[derive(Debug, Default)]

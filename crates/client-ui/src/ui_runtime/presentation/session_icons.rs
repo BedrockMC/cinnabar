@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use render::UiTexturePage;
+use render_model::UiTexturePage;
 use ui::UiMesh;
 
 use super::{
@@ -16,7 +16,7 @@ use super::{
 
 /// Largest icon side kept as-is; larger sources are reduced to fit.
 pub const MAX_SESSION_ICON_SIDE: u32 = 64;
-const MIN_PAGE_SIDE: u32 = render::UI_DYNAMIC_PAGE_SIDE;
+const MIN_PAGE_SIDE: u32 = render_model::UI_DYNAMIC_PAGE_SIDE;
 type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
@@ -321,10 +321,10 @@ fn page_side<'a>(icons: impl Iterator<Item = &'a SessionIcon> + Clone) -> u32 {
             x += width;
             row = row.max(height);
         }
-        if y + row <= side || side == render::MAX_UI_TEXTURE_SIDE {
+        if y + row <= side || side == render_model::MAX_UI_TEXTURE_SIDE {
             return side;
         }
-        side = (side * 2).min(render::MAX_UI_TEXTURE_SIDE);
+        side = (side * 2).min(render_model::MAX_UI_TEXTURE_SIDE);
     }
 }
 

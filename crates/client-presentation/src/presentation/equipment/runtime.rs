@@ -8,11 +8,13 @@ use assets::{
 };
 use bevy::prelude::Resource;
 use render::{
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, BlockEntityAtlas, EntityRigId,
-    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, find_geometry_index,
+    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind, skull_geometry,
+};
+use render_model::{
+    ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
     geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, item_mesh_rig_id,
-    skull_geometry, textured_cube_vertices,
+    textured_cube_vertices,
 };
 
 mod diagnostics;

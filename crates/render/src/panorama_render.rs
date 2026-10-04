@@ -429,12 +429,12 @@ mod review_tests {
         app.world_mut()
             .resource_mut::<PanoramaScene>()
             .set_faces(Some(std::sync::Arc::new(
-                crate::PanoramaFaces::new(1, std::array::from_fn(|_| vec![255; 4])).unwrap(),
+                render_model::PanoramaFaces::new(1, std::array::from_fn(|_| vec![255; 4])).unwrap(),
             )));
         app.world_mut().run_system_once(init_gpu).unwrap();
         app.world_mut()
             .resource_mut::<PanoramaScene>()
-            .show(Some(crate::PanoramaView {
+            .show(Some(render_model::PanoramaView {
                 yaw_radians: 0.0,
                 pitch_radians: 0.0,
                 vertical_fov_radians: 1.0,

@@ -50,7 +50,7 @@ pub(super) struct SetupApp {
     updating: bool,
     text: Text,
     /// Uploaded once the GPU exists.
-    faces: Option<render::PanoramaFaces>,
+    faces: Option<render_model::PanoramaFaces>,
     logo: Option<Image>,
     window: Option<Arc<Window>>,
     gpu: Option<gpu::Gpu>,
@@ -73,7 +73,7 @@ impl SetupApp {
     pub(super) fn new(
         layout: InstallLayout,
         text: Text,
-        faces: render::PanoramaFaces,
+        faces: render_model::PanoramaFaces,
         logo: Option<Image>,
         consented: bool,
         updating: bool,

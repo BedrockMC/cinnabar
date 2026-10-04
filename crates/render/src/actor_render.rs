@@ -4,8 +4,8 @@ use artwork::{GpuArtwork, draw_spans};
 
 use crate::actor::{
     ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
-    ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRigVertex, ActorRuntimeWitness,
-    ActorSubmitWitness, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, gpu::ActorDrawTracker,
+    ActorQueueWitness, ActorRenderFrame, ActorRigGeometrySpan, ActorRuntimeWitness,
+    ActorSubmitWitness, gpu::ActorDrawTracker,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
@@ -41,6 +41,7 @@ use bevy::{
         view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
+use render_model::{ActorRigVertex, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
 #[cfg(test)]
@@ -151,7 +152,7 @@ fn actor_skin_upload_plan(frame: &ActorRenderFrame) -> Option<ActorSkinUploadPla
         return None;
     }
     let layer_count = frame.skins_rgba8.len() / STANDARD_SKIN_BYTES;
-    if layer_count > crate::actor::MAX_RENDERED_PLAYERS
+    if layer_count > render_model::MAX_RENDERED_PLAYERS
         || frame
             .rig
             .instances
@@ -265,7 +266,7 @@ fn prepare_actor_resources(
         && rig.instances.len() <= crate::actor::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
         && rig.previous_bones.len()
-            <= crate::actor::MAX_ACTOR_RENDER_INSTANCES * crate::actor::MAX_RENDER_BONES_PER_ACTOR
+            <= crate::actor::MAX_ACTOR_RENDER_INSTANCES * render_model::MAX_RENDER_BONES_PER_ACTOR
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
         && skin_upload_plan.is_some()
@@ -375,7 +376,7 @@ fn prepare_actor_resources(
                     size: Extent3d {
                         width: STANDARD_SKIN_SIDE as u32,
                         height: STANDARD_SKIN_SIDE as u32,
-                        depth_or_array_layers: crate::actor::MAX_RENDERED_PLAYERS as u32,
+                        depth_or_array_layers: render_model::MAX_RENDERED_PLAYERS as u32,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -385,7 +386,7 @@ fn prepare_actor_resources(
                     view_formats: &[],
                 },
                 TextureDataOrder::LayerMajor,
-                &vec![0; crate::actor::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES],
+                &vec![0; render_model::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES],
             );
             let view = texture.create_view(&TextureViewDescriptor {
                 label: Some("bounded normalized server player skin array"),

@@ -202,9 +202,14 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
     };
     let held_model = super::super::PreviewHeldModel {
         source: held,
-        vertices: render::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
-            .unwrap()
-            .into(),
+        vertices: render_model::held_sprite_vertices(
+            16,
+            16,
+            &[255; 16 * 16 * 4],
+            [0.0, 0.0, 1.0, 1.0],
+        )
+        .unwrap()
+        .into(),
         placements: [super::super::PreviewHeldPlacement::Sprite {
             hand_equipped: false,
         }; 2],

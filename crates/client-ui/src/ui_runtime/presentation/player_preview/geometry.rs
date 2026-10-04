@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use super::{

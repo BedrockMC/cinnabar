@@ -12,11 +12,12 @@ use bevy::{
 use chunk_pipeline::WorldStream;
 use client_world::{BlockEntityKind, RopeKind};
 use render::{
-    ChunkTextureAssets, DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene,
-    DroppedItemShape, DroppedItemSpawnPose, DroppedItemSprite, ItemMeshVertex, MAX_ITEM_LAYERS,
-    MAX_ITEM_SPRITE_SIDE, StaticItemPlacements, dropped_item_transform,
-    native_dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
+    ChunkTextureAssets, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
+    DroppedItemSpawnPose, ItemMeshVertex, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
+    StaticItemPlacements, dropped_item_transform, native_dropped_item_transform,
+    pack_overlay_rgba8, rope_color, rope_ribbon,
 };
+use render_model::{DroppedItemCube, DroppedItemSprite};
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 

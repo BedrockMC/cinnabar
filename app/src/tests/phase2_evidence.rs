@@ -12,7 +12,8 @@ use acceptance::phase2_evidence::{
     graphics_identity_sha256, key_manifest_identity, phase2_publication_line_if_changed,
     phase2_publication_timing_line, sha256_identity_from_hex_or_text,
 };
-use render::{VisibilityDiagnosticsInput, VisibilityKeyDigest};
+use render::VisibilityDiagnosticsInput;
+use render_model::VisibilityKeyDigest;
 
 use crate::runtime::telemetry::local_subject_column;
 
@@ -423,7 +424,7 @@ fn phase2_frame_metrics_observe_the_real_clock() {
 
 #[test]
 fn phase2_graphics_identity_covers_effective_present_mode() {
-    let mut graphics = render::GraphicsAdapterMetadata {
+    let mut graphics = render_model::GraphicsAdapterMetadata {
         backend: "Vulkan".to_owned(),
         adapter: "adapter".to_owned(),
         driver: "driver".to_owned(),

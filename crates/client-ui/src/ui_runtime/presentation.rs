@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use assets::{RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
 use bevy::prelude::Resource;
-use render::{UiRenderInput, UiRenderTextureArray};
+use render_model::{UiRenderInput, UiRenderTextureArray};
 use sha2::{Digest, Sha256};
 
 use ui::{
@@ -89,7 +89,7 @@ pub enum UiPresentationError {
     Text(ui::TextError),
     Tree(ui::UiError),
     Adapter(super::render_adapter::UiRenderAdapterError),
-    Render(render::UiRenderReject),
+    Render(render_model::UiRenderReject),
 }
 
 impl fmt::Display for UiPresentationError {
@@ -107,7 +107,7 @@ pub struct UiPresentationRuntime {
     base_font: Arc<RuntimeFontCatalog>,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
-    blank_dynamic_page: render::UiTexturePage,
+    blank_dynamic_page: render_model::UiTexturePage,
     solid_texture_page: u16,
     hud_textures: Option<HudTexturePages>,
     icon_catalog: Option<Arc<RuntimeIconCatalog>>,
@@ -303,7 +303,7 @@ impl UiPresentationRuntime {
         skin: Option<&[u8]>,
         pose: player_preview::PlayerPreviewPose,
     ) {
-        let default_skin = render::default_actor_skin_rgba8();
+        let default_skin = render_model::default_actor_skin_rgba8();
         let skin = skin
             .filter(|pixels| {
                 let side = (pixels.len() / 4).isqrt();
@@ -439,7 +439,7 @@ impl UiPresentationRuntime {
     }
 
     /// The world-space tag quads for this frame's anchors.
-    pub fn nametag_scene(&mut self) -> render::NametagScene {
+    pub fn nametag_scene(&mut self) -> render_model::NametagScene {
         let palette = self.formatting_palette().copied().unwrap_or_default();
         self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);

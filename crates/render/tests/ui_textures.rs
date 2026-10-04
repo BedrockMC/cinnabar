@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use render::{
+use render_model::{
     MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, UI_DYNAMIC_PAGE_SIDE,
     UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET,
     UI_SESSION_ICON_PAGE_OFFSET, UiRenderRejectReason, UiTextureCatalog, UiTexturePage,
@@ -81,11 +81,14 @@ fn ordered_logical_mapping_does_not_group_draw_order() {
 #[test]
 fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
     let small = UiTexturePage::owned([256, 256], vec![0; 256 * 256 * 4].into()).unwrap();
-    let side = render::UI_ART_PAGE_SIDE;
+    let side = render_model::UI_ART_PAGE_SIDE;
     let art =
         UiTexturePage::owned([side, side], vec![0; (side * side * 4) as usize].into()).unwrap();
     let mut pages = vec![small.clone(); MAX_UI_DYNAMIC_PAGES];
-    pages.extend(std::iter::repeat_n(art.clone(), render::MAX_UI_ART_PAGES));
+    pages.extend(std::iter::repeat_n(
+        art.clone(),
+        render_model::MAX_UI_ART_PAGES,
+    ));
     assert!(UiTextureCatalog::new(pages.clone(), 0).is_ok());
     pages.push(art);
     assert!(UiTextureCatalog::new(pages, 0).is_err());
@@ -153,14 +156,14 @@ fn session_icon_resize_keeps_both_art_pages_and_static_identity() {
     let model = model_catalog();
     let mut pages = model.pages().to_vec();
     pages.extend(vec![
-        rgba_page([render::UI_ART_PAGE_SIDE; 2], 11);
-        render::MAX_UI_ART_PAGES
+        rgba_page([render_model::UI_ART_PAGE_SIDE; 2], 11);
+        render_model::MAX_UI_ART_PAGES
     ]);
     let base = UiTextureCatalog::new(pages, model.dynamic_start()).unwrap();
     let mut current = base.clone();
     for side in [
         UI_DYNAMIC_PAGE_SIDE * 2,
-        render::UI_ART_PAGE_SIDE,
+        render_model::UI_ART_PAGE_SIDE,
         UI_DYNAMIC_PAGE_SIDE,
     ] {
         let mut pages = current.pages()[current.dynamic_start()..].to_vec();
@@ -209,7 +212,10 @@ fn native_model_slots_cannot_expand_other_reservations_or_admit_malformed_extent
             UI_MODEL_ATLAS_PAGE_OFFSET,
             [UI_MODEL_ATLAS_SIDE, UI_MODEL_ATLAS_SIDE / 2],
         ),
-        (UI_MODEL_ATLAS_PAGE_OFFSET, [render::UI_ART_PAGE_SIDE; 2]),
+        (
+            UI_MODEL_ATLAS_PAGE_OFFSET,
+            [render_model::UI_ART_PAGE_SIDE; 2],
+        ),
     ] {
         let mut pages = base.pages()[base.dynamic_start()..].to_vec();
         pages[offset] = rgba_page(dimensions, 0);
@@ -254,10 +260,10 @@ fn model_resize_rechecks_full_catalog_byte_budget_before_acceptance() {
 
 #[test]
 fn session_icon_resize_rejects_over_budget_catalog_without_mutating_it() {
-    let large = rgba_page([render::MAX_UI_TEXTURE_SIDE; 2], 7);
+    let large = rgba_page([render_model::MAX_UI_TEXTURE_SIDE; 2], 7);
     let mut pages = vec![
         large.clone(),
-        rgba_page([render::MAX_UI_TEXTURE_SIDE / 2; 2], 0),
+        rgba_page([render_model::MAX_UI_TEXTURE_SIDE / 2; 2], 0),
     ];
     let dynamic_start = pages.len();
     pages.extend(vec![
@@ -271,7 +277,7 @@ fn session_icon_resize_rejects_over_budget_catalog_without_mutating_it() {
     assert!(matches!(
         base.replace_dynamic(replacement),
         Err(UiRenderRejectReason::TextureByteLimitExceeded { actual, limit })
-            if limit == render::MAX_UI_TEXTURE_BYTES && actual > limit
+            if limit == render_model::MAX_UI_TEXTURE_BYTES && actual > limit
     ));
     assert_eq!(base, before);
     assert_eq!(

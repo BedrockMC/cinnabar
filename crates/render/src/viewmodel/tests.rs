@@ -414,8 +414,8 @@ fn reverse_z_projection_is_private_aspect_correct_and_world_fov_independent() {
     assert!((projection.y_axis.y / projection.x_axis.x - 1920. / 1080.).abs() < 0.000001);
 }
 
-fn fallback_input() -> crate::ui::UiRenderInput {
-    use crate::ui::*;
+fn fallback_input() -> render_model::UiRenderInput {
+    use render_model::*;
     UiRenderInput {
         revision: 1,
         viewport_size: test_token().viewport,
@@ -446,9 +446,9 @@ fn fallback_input() -> crate::ui::UiRenderInput {
             UI_BLEND_ALPHA,
         )]),
         textures: Arc::new(
-            crate::UiTextureCatalog::new(
+            render_model::UiTextureCatalog::new(
                 vec![
-                    crate::UiTexturePage::owned(
+                    render_model::UiTexturePage::owned(
                         [VIEWMODEL_TEXTURE_SIDE; 2],
                         vec![255; VIEWMODEL_TEXTURE_BYTES].into(),
                     )
@@ -638,11 +638,11 @@ fn fallback_identity_is_logical_even_when_its_layer_is_in_another_bucket() {
     let mut scene = fallback_scene(&gate);
     let mut input = fallback_input();
     input.textures = Arc::new(
-        crate::UiTextureCatalog::new(
+        render_model::UiTextureCatalog::new(
             vec![
-                crate::UiTexturePage::owned([1024, 1024], vec![255; 1024 * 1024 * 4].into())
+                render_model::UiTexturePage::owned([1024, 1024], vec![255; 1024 * 1024 * 4].into())
                     .unwrap(),
-                crate::UiTexturePage::owned(
+                render_model::UiTexturePage::owned(
                     [VIEWMODEL_TEXTURE_SIDE; 2],
                     vec![255; VIEWMODEL_TEXTURE_BYTES].into(),
                 )
@@ -657,7 +657,7 @@ fn fallback_identity_is_logical_even_when_its_layer_is_in_another_bucket() {
     input.batches = Arc::from([batch]);
     assert_eq!(
         input.textures.plan().locations()[1],
-        crate::UiTextureLocation {
+        render_model::UiTextureLocation {
             bucket: 1,
             layer: 0
         }

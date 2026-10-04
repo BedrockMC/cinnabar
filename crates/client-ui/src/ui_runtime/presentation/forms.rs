@@ -302,7 +302,7 @@ impl UiPresentationRuntime {
             .map_or_else(Vec::new, |engine| engine.textures.oversized())
     }
 
-    pub(super) fn server_ui_pages(&self) -> &[render::UiTexturePage] {
+    pub(super) fn server_ui_pages(&self) -> &[render_model::UiTexturePage] {
         self.form_presentation
             .engine
             .as_ref()
