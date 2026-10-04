@@ -5,6 +5,7 @@ mod chat_coordinates;
 mod chat_screen;
 mod container_data;
 mod container_kinds;
+pub(super) use container_kinds::supported_storage_slots;
 mod containers;
 mod engine;
 mod experience;
