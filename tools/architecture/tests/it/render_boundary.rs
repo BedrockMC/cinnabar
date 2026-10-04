@@ -13,7 +13,7 @@ fn fixture() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("fixture root");
     let root = temp.path();
     let mut policy: toml::Value =
-        toml::from_str(include_str!("../policy.toml")).expect("repository policy");
+        toml::from_str(include_str!("../../policy.toml")).expect("repository policy");
     policy
         .as_table_mut()
         .expect("policy table")
