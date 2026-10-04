@@ -836,3 +836,7 @@ pub use view::ActorAnimationView;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "actor_animation/crystal_tests.rs"]
+mod crystal_tests;

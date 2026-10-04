@@ -25,8 +25,8 @@ use super::{
     state::BlockState,
 };
 use crate::{
-    local_player::LocalViewPose, movement::PhysicsCollisionRegistries, runtime::world::ClientWorld,
-    ui_runtime::UiRuntime,
+    local_player::LocalViewPose, movement::PhysicsCollisionRegistries,
+    runtime::network::ActorFramePartialTick, runtime::world::ClientWorld, ui_runtime::UiRuntime,
 };
 
 pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
@@ -36,6 +36,9 @@ const MAX_SUBMISSIONS: usize = 4_096;
 const TICKS_PER_SECOND: f64 = 20.0;
 const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
+
+#[path = "system/crystal_beams.rs"]
+mod crystal_beams;
 
 /// Reads the optional block-entity carrier next to the world carrier; on absence or
 /// corruption logs once and returns a scene that draws nothing.
@@ -157,7 +160,8 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
             Update,
             (
                 render::begin_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
-                update_block_entity_scene,
+                update_block_entity_scene
+                    .after(crate::runtime::network::prepare_actor_render_frame),
                 request_missing_maps,
                 render::end_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
             )
@@ -242,6 +246,8 @@ fn block_info(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_block_entity_scene(
     client_world: Res<ClientWorld>,
+    actor_partial_tick: Res<ActorFramePartialTick>,
+    camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
     collisions: Res<PhysicsCollisionRegistries>,
     view: Res<LocalViewPose>,
     ui: Res<UiRuntime>,
@@ -404,6 +410,14 @@ pub(crate) fn update_block_entity_scene(
             .filter(|cue| cue.event_type == BELL_RING_EVENT_TYPE)
             .map(|cue| cue.sequence)
     });
+    crystal_beams::submit(
+        &mut submissions,
+        stream.crystal_beams(actor_partial_tick.0),
+        camera
+            .single()
+            .ok()
+            .map(|(transform, _)| transform.translation),
+    );
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
 }

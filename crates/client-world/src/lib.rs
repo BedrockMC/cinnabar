@@ -24,7 +24,7 @@ pub use actor_animation::{
 };
 pub use actor_store::{
     ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityKind,
-    BlockEntityView, DEATH_DURATION_TICKS, DroppedItemView, HURT_DURATION_TICKS,
+    BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DroppedItemView, HURT_DURATION_TICKS,
     HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
     MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault,
     RideSeat, RopeKind, RopeView, SeatDefaults, SeatRequirement, dropped_item_copy_count,
