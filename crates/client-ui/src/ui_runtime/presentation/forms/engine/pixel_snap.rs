@@ -22,6 +22,13 @@ pub(super) fn positioned(rect: [f64; 4], pixels: f32, logical: f32) -> [f32; 4] 
     [x0, y0, x0 + w * to_logical, y0 + h * to_logical]
 }
 
+/// The grid, in 1/65536 logical pixels, that `flushText` truncates a label's per-line alignment
+/// offsets onto: it snaps them to whole physical pixels in the label's unscaled text space, so a
+/// label at text scale `scale` steps by `scale` physical pixels.
+pub(super) fn align_grid_65536(scale: f32, pixels: f32, logical: f32) -> u32 {
+    (f64::from(scale) * f64::from(logical / pixels) * 65_536.0).round() as u32
+}
+
 /// A physical position truncated toward zero, as the `(int)` cast does.
 fn position(value: f32) -> f32 {
     (value + EPSILON.copysign(value)).trunc()

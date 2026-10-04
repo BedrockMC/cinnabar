@@ -108,9 +108,9 @@ fn nearest_sampling_stays_inside_the_uv_rect() {
     }
 }
 
-/// A 195×152 image centred by JSON-UI's default anchors in a 1440×813 window (GUI scale 3, a
-/// 480×271 unit screen, so odd free space on both axes) at `dpi`, as absolute logical bounds.
-fn centred_image(dpi: f32) -> [f32; 4] {
+/// The nodes painted for `control`, centred by JSON-UI's default anchors in a 1440×813 window
+/// (GUI scale 3, a 480×271 unit screen, so odd free space on both axes) at `dpi`.
+fn paint(control: &str, dpi: f32) -> Vec<UiNode> {
     let page = UiAtlasPage {
         width: 1,
         height: 1,
@@ -127,26 +127,18 @@ fn centred_image(dpi: f32) -> [f32; 4] {
         ServerAtlas::new(&[("textures/snap/button.png".to_owned(), png)], None, 1),
         3,
     );
+    let screen = format!(
+        r#"{{
+            "namespace": "snap",
+            "screen": {{ "type": "panel", "controls": [{{ "control@snap.control": {{}} }}] }},
+            "control": {control}
+        }}"#
+    );
     let catalog = Arc::new(
         Catalog::from_files([
             ("ui/_global_variables.json", &b"{}"[..]),
             ("ui/_ui_defs.json", &br#"{"ui_defs":["ui/snap.json"]}"#[..]),
-            (
-                "ui/snap.json",
-                &br#"{
-                    "namespace": "snap",
-                    "screen": {
-                        "type": "panel",
-                        "controls": [{ "button@snap.button": {} }]
-                    },
-                    "button": {
-                        "type": "image",
-                        "texture": "textures/snap/button",
-                        "size": [195, 152],
-                        "keep_ratio": false
-                    }
-                }"#[..],
-            ),
+            ("ui/snap.json", screen.as_bytes()),
         ])
         .unwrap(),
     );
@@ -157,7 +149,7 @@ fn centred_image(dpi: f32) -> [f32; 4] {
     let font = fixture_font();
     let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
     let (mut nodes, mut next) = (Vec::new(), 1);
-    let mut screen = CachedScreen::default();
+    let mut cached = CachedScreen::default();
     let view = ViewState::default();
     engine
         .draw(
@@ -179,7 +171,7 @@ fn centred_image(dpi: f32) -> [f32; 4] {
             },
             |env, root| {
                 assert_eq!(root.map(f64::round), [480.0, 271.0]);
-                screen.render_with(
+                cached.render_with(
                     "snap.screen",
                     &catalog,
                     &Context::default(),
@@ -192,6 +184,20 @@ fn centred_image(dpi: f32) -> [f32; 4] {
         )
         .unwrap()
         .expect("the screen lays out");
+    nodes
+}
+
+/// A 195×152 image's absolute logical bounds (see [`paint`]).
+fn centred_image(dpi: f32) -> [f32; 4] {
+    let nodes = paint(
+        r#"{
+            "type": "image",
+            "texture": "textures/snap/button",
+            "size": [195, 152],
+            "keep_ratio": false
+        }"#,
+        dpi,
+    );
     let sprite = nodes
         .iter()
         .find(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
@@ -231,4 +237,41 @@ fn the_painter_snaps_in_physical_pixels_under_dpi() {
         rect.map(|edge| (edge * 1.25).round()),
         [427.0, 178.0, 1012.0, 634.0]
     );
+}
+
+fn the_painter_snaps_each_centred_line_to_whole_pixels() {
+    for dpi in [1.0, 1.25] {
+        let nodes = paint(
+            r#"{
+                "type": "label",
+                "text": "a\nabc",
+                "text_alignment": "center",
+                "size": [101, 40]
+            }"#,
+            dpi,
+        );
+        let text = nodes
+            .iter()
+            .find(|node| matches!(node.visual(), UiVisual::Text { .. }))
+            .expect("the label paints");
+        let UiVisual::Text { layout, .. } = text.visual() else {
+            unreachable!();
+        };
+        assert_eq!(layout.line_count(), 2);
+        let [left, ..] = absolute(&nodes, text);
+        for line in 0..2 {
+            let start = layout
+                .glyphs()
+                .iter()
+                .filter(|glyph| glyph.line == line)
+                .map(|glyph| glyph.bounds_64[0])
+                .min()
+                .unwrap();
+            let edge = (left + start as f32 / 64.0) * dpi;
+            assert!(
+                (edge - edge.round()).abs() < 0.02,
+                "DPI {dpi} line {line} starts at physical {edge}"
+            );
+        }
+    }
 }

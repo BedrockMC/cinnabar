@@ -190,6 +190,8 @@ impl Painter<'_> {
             TextAlign::Center => TextLineAlign::Center,
             TextAlign::Right => TextLineAlign::Right,
         };
+        request.wrap.align_grid_65536 =
+            super::pixel_snap::align_grid_65536(style.scale, self.metrics.gui_scale, self.px);
         let Ok(layout) = self.layouts.layout(request) else {
             return Ok(());
         };
