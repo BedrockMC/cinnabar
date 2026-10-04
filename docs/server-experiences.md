@@ -382,12 +382,14 @@ guest's bindings and `mod-host` the host's from that one file. Its imported inte
 `cinnabar:server-experience@1.2.0`, defined in
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
-collection-index)`, `epoch()`, `modal-resized(size)` and `text-changed(control, text)`.
+collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)` and
+`secondary-action(id, collection-index)`.
 A component built against 1.0.0 or 1.1.0 still links (its imports resolve to the 1.2.0
 host by semver): one built against 1.0.0 exports only `init` and `dispatch`, and the host
 skips `action`, `epoch` and 1.2's callbacks for it; one built against 1.1.0 also exports
-`action` and `epoch`, and the host skips 1.2's callbacks for it. Each pair of later
-callbacks is exported both or neither. SP5's planned `items.lookup(id)` (item icons and
+`action` and `epoch`, and the host skips 1.2's callbacks for it, so a 1.1 bundle only
+ever receives primary presses. 1.1's two callbacks and 1.2's three are each exported all
+or none. SP5's planned `items.lookup(id)` (item icons and
 names) is to join 1.2 as an import of its own, which leaves components built against 1.2
 now linking.
 
@@ -436,7 +438,11 @@ Data binds through the engine's own `#name` bindings:
   text, texture path, count or visibility.
 - A button whose `$pressed_button_name` is a declared manifest action delivers
   `action(id, collection-index)` on release, with the row of its nearest collection, if
-  the bundle holds `input`; other presses do nothing.
+  the bundle holds `input`; other presses do nothing. A secondary press (a right click)
+  released over the control it began on delivers `secondary-action(id, collection-index)`
+  (1.2) when the control maps `button.menu_secondary_select` to a declared action, as
+  vanilla's slot buttons map it to their `$pressed_button_name`; `action` stays the primary
+  press, and `input.pressed(id)` reports either one during its callback.
 - `ui.modal-size()` (1.2) returns the drawn modal's root size in GUI units, the units a
   `"100%"` root panel of the template gets, as the engine lays out vanilla screens
   (window content over the GUI scale), and `scale`, the window's logical pixels per GUI

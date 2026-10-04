@@ -86,6 +86,9 @@ pub enum Event {
     Action { id: String, index: Option<u32> },
     /// The world epoch changed, to `epoch`; the guest and its state live on.
     Epoch,
+    /// A secondary press fired a declared action from the focused modal, to `secondary-action`,
+    /// with its collection row.
+    SecondaryAction { id: String, index: Option<u32> },
     /// The open modal was first drawn at, or resized to, `size`, to `modal-resized`.
     Resized { size: GuiSize },
     /// The text of the modal's edit box `control`, a declared action, changed while the modal had
@@ -101,7 +104,9 @@ impl Event {
                 server_experience::manifest::identifier(channel)
                     && record.len() <= MAX_MESSAGE_BYTES
             }
-            Event::Action { id, .. } => server_experience::manifest::identifier(id),
+            Event::Action { id, .. } | Event::SecondaryAction { id, .. } => {
+                server_experience::manifest::identifier(id)
+            }
             Event::Epoch => true,
             Event::Resized { size } => size.valid(),
             Event::Text { control, text } => {
@@ -120,6 +125,7 @@ impl Event {
             Event::Message { .. } => "dispatch",
             Event::Action { .. } => "action",
             Event::Epoch => "epoch",
+            Event::SecondaryAction { .. } => "secondary-action",
             Event::Resized { .. } => "modal-resized",
             Event::Text { .. } => "text-changed",
         }

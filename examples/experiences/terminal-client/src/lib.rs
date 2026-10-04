@@ -7,7 +7,8 @@
 //!   collection's one row, so a fresh instance shows up as a count of 1;
 //! - `terminal.size` binds what `ui.modal-size` reads as `#read`;
 //! - `modal-resized` binds its size as `#size` and reads it back as `#read`, and `text-changed`
-//!   in `terminal.search` sets `terminal.echo` to the text in capitals;
+//!   in `terminal.search` sets `terminal.echo` to the text in capitals, and `secondary-action`
+//!   binds its action and row as `#secondary`;
 //! - anything else binds its item list (records of an id, a count and a display name) into the
 //!   `items` collection, one row per item, and binds nothing for any other record.
 
@@ -49,6 +50,12 @@ impl ClientPart for Terminal {
             &ui::Value::Numbers(vec![size.width, size.height, size.scale]),
         );
         read_size();
+    }
+
+    /// Binds a secondary press's action and row as `#secondary`.
+    fn secondary_action(id: String, collection_index: Option<u32>) {
+        let row = collection_index.map_or_else(|| "none".to_owned(), |row| row.to_string());
+        let _ = ui::set_value("#secondary", &ui::Value::Text(format!("{id} {row}")));
     }
 
     /// Answers text typed into `terminal.search` by setting `terminal.echo` to it in capitals.

@@ -27,4 +27,8 @@ world server-bundle {
     /// `text_edit_box`: Enter or Escape deselects the box, and Escape closes the modal only
     /// when no box was selected.
     export text-changed: func(control: string, text: string);
+    /// A secondary press (a right click) on a modal screen control that maps
+    /// `button.menu_secondary_select` to a declared action fired, while the modal has focus; the
+    /// index is the control's row in its nearest collection. `action` stays the primary press.
+    export secondary-action: func(id: string, collection-index: option<u32>);
 }

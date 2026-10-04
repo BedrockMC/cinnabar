@@ -204,21 +204,24 @@ impl cinnabar::server_experience::media::Host for State {
 struct Exports {
     dispatch: Func,
     events: Option<(Func, Func)>,
-    /// 1.2's `modal-resized` and `text-changed`.
-    editing: Option<(Func, Func)>,
+    /// 1.2's `modal-resized`, `text-changed` and `secondary-action`.
+    editing: Option<(Func, Func, Func)>,
 }
 
 impl Exports {
     /// Type-checks every callback once, before the guest runs.
     fn find(store: &mut Store<State>, instance: &Instance) -> Result<(Func, Self)> {
         let mut find = |name: &str| instance.get_func(&mut *store, name);
-        let (init, dispatch, action, epoch, resized, text) = (
+        let (init, dispatch, action, epoch) = (
             find("init"),
             find("dispatch"),
             find("action"),
             find("epoch"),
+        );
+        let (resized, text, secondary) = (
             find("modal-resized"),
             find("text-changed"),
+            find("secondary-action"),
         );
         let (Some(init), Some(dispatch)) = (init, dispatch) else {
             anyhow::bail!("component lacks init or dispatch");
@@ -234,14 +237,17 @@ impl Exports {
             (None, None) => None,
             _ => anyhow::bail!("component exports only half of action and epoch"),
         };
-        let editing = match (resized, text) {
-            (Some(resized), Some(text)) => {
+        let editing = match (resized, text, secondary) {
+            (Some(resized), Some(text), Some(secondary)) => {
                 resized.typed::<(GuiSize,), ()>(&*store)?;
                 text.typed::<(&str, &str), ()>(&*store)?;
-                Some((resized, text))
+                secondary.typed::<(&str, Option<u32>), ()>(&*store)?;
+                Some((resized, text, secondary))
             }
-            (None, None) => None,
-            _ => anyhow::bail!("component exports only half of modal-resized and text-changed"),
+            (None, None, None) => None,
+            _ => anyhow::bail!(
+                "component exports only some of modal-resized, text-changed and secondary-action"
+            ),
         };
         Ok((
             init,
@@ -378,14 +384,17 @@ impl BundleHost {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
         let state = self.store.data_mut();
-        if let Event::Action { id, .. } | Event::Text { control: id, .. } = event {
+        if let Event::Action { id, .. }
+        | Event::SecondaryAction { id, .. }
+        | Event::Text { control: id, .. } = event
+        {
             ensure!(state.capabilities.may_deliver(id), "action not granted");
         }
         if let Event::Resized { size } = event {
             state.gui = Some(*size);
         }
         state.action = match event {
-            Event::Action { id, .. } => Some(id.clone()),
+            Event::Action { id, .. } | Event::SecondaryAction { id, .. } => Some(id.clone()),
             _ => None,
         };
         state.epoch = epoch;
@@ -460,7 +469,7 @@ impl BundleHost {
             }
             (Event::Action { .. } | Event::Epoch, None) => Ok(()),
             (Event::Resized { size }, _) => match &self.exports.editing {
-                Some((resized, _)) => {
+                Some((resized, _, _)) => {
                     let resized = resized.typed::<(GuiSize,), ()>(&*store)?;
                     let size = GuiSize {
                         width: size.width,
@@ -472,8 +481,16 @@ impl BundleHost {
                 }
                 None => Ok(()),
             },
+            (Event::SecondaryAction { id, index }, _) => match &self.exports.editing {
+                Some((_, _, secondary)) => {
+                    let secondary = secondary.typed::<(&str, Option<u32>), ()>(&*store)?;
+                    secondary.call(&mut *store, (id, *index))?;
+                    secondary.post_return(store)
+                }
+                None => Ok(()),
+            },
             (Event::Text { control, text }, _) => match &self.exports.editing {
-                Some((_, changed)) => {
+                Some((_, changed, _)) => {
                     let changed = changed.typed::<(&str, &str), ()>(&*store)?;
                     changed.call(&mut *store, (control, text))?;
                     changed.post_return(store)

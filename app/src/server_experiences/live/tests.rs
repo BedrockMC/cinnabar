@@ -772,3 +772,23 @@ fn text_edits_reach_the_open_bundle_for_declared_boxes_only() {
     live.close_modal();
     assert!(!live.text_changed("bundle0.pick", "gold"));
 }
+
+/// A secondary press (a right click) reaches the open bundle as its own event, only for a
+/// declared action, as primary presses do.
+#[test]
+fn secondary_presses_reach_only_declared_actions() {
+    let mut live = opened();
+    assert!(!live.press_secondary("bundle0.other", Some(2)));
+    assert!(live.press_secondary("bundle0.pick", Some(2)));
+    assert_eq!(
+        live.instances["bundle0"]
+            .events
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [Event::SecondaryAction {
+            id: "bundle0.pick".into(),
+            index: Some(2)
+        }]
+    );
+}

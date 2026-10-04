@@ -57,6 +57,8 @@ pub(super) struct ModalScreen {
     pending_texts: Vec<(String, String)>,
     /// Each edit box's text last reported, by `text_box_name`.
     reported: BTreeMap<String, String>,
+    /// The control a secondary press went down on.
+    secondary: Option<String>,
 }
 
 /// What one frame of input did to the modal's edit boxes.
@@ -98,6 +100,7 @@ impl UiPresentationRuntime {
                 texts_applied: 0,
                 pending_texts: Vec::new(),
                 reported: BTreeMap::new(),
+                secondary: None,
             });
         }
         let screen = slot.as_mut().expect("modal installed");
@@ -317,6 +320,42 @@ impl UiPresentationRuntime {
         let held = screen.view.pressed.take()?;
         let region = region.filter(|region| region.key == held)?;
         Some((region.pressed.clone()?, region.collection_index))
+    }
+
+    /// Tracks a secondary (right) press and returns the action and collection row of one released
+    /// over the control it began on, from that control's `button.menu_secondary_select` mapping,
+    /// as vanilla controls map the secondary select.
+    pub(crate) fn secondary_press_experience_modal(
+        &mut self,
+        point: Option<[f32; 2]>,
+        pressed: bool,
+        released: bool,
+    ) -> Option<(String, Option<usize>)> {
+        let screen = self.form_presentation.experience_modal.as_mut()?;
+        let frame = screen.frame.as_ref()?;
+        let target = |region: &json_ui::HitRegion| {
+            region.input.mappings.iter().find_map(|mapping| {
+                (mapping.from == "button.menu_secondary_select"
+                    && mapping.kind == json_ui::MappingType::Pressed)
+                    .then(|| mapping.to.clone())
+            })
+        };
+        let region =
+            point.and_then(|point| {
+                let point = virtual_point(frame, point);
+                frame.hits.iter().rev().find(|region| {
+                    region.enabled && target(region).is_some() && region.contains(point)
+                })
+            });
+        if pressed {
+            screen.secondary = region.map(|region| region.key.clone());
+        }
+        if !released {
+            return None;
+        }
+        let held = screen.secondary.take()?;
+        let region = region.filter(|region| region.key == held)?;
+        Some((target(region)?, region.collection_index))
     }
 
     /// Draws the modal over the gameplay scenes when nothing else holds the screen; trusted

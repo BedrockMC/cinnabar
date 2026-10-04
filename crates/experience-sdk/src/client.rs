@@ -50,6 +50,11 @@ pub trait ClientPart {
     /// are coalesced, so this is the latest text, not each keystroke. [`ui::set_text`] sets a
     /// box's text without calling this.
     fn text_changed(_control: String, _text: String) {}
+
+    /// Handles `secondary-action`: a secondary press (a right click) fired the declared action
+    /// `id` from a modal screen control mapping `button.menu_secondary_select` to it, while the
+    /// modal had focus; `collection_index` is as in [`ClientPart::action`].
+    fn secondary_action(_id: String, _collection_index: Option<u32>) {}
 }
 
 /// Sends `record` on the to-server `channel`. The host checks it against the channel's
@@ -101,6 +106,13 @@ macro_rules! export_client_part {
 
             fn text_changed(control: ::std::string::String, text: ::std::string::String) {
                 <$ty as $crate::client::ClientPart>::text_changed(control, text)
+            }
+
+            fn secondary_action(
+                id: ::std::string::String,
+                collection_index: ::core::option::Option<u32>,
+            ) {
+                <$ty as $crate::client::ClientPart>::secondary_action(id, collection_index)
             }
         }
 

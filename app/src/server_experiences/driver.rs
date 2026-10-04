@@ -170,10 +170,18 @@ fn drive(
         presentation.hover_experience_modal(cursor);
         presentation.scroll_experience_modal(notches);
         let (mut pressed, mut released) = (false, false);
+        let (mut secondary_pressed, mut secondary_released) = (false, false);
         for input in buttons.read() {
-            if input.button == MouseButton::Left {
-                pressed |= input.state.is_pressed();
-                released |= !input.state.is_pressed();
+            match input.button {
+                MouseButton::Left => {
+                    pressed |= input.state.is_pressed();
+                    released |= !input.state.is_pressed();
+                }
+                MouseButton::Right => {
+                    secondary_pressed |= input.state.is_pressed();
+                    secondary_released |= !input.state.is_pressed();
+                }
+                _ => {}
             }
         }
         let control = keys.any_pressed([
@@ -192,6 +200,11 @@ fn drive(
         let escape = keys.just_pressed(KeyCode::Escape);
         let now = time.elapsed_secs_f64();
         let press = presentation.press_experience_modal(cursor, pressed, released);
+        let secondary = presentation.secondary_press_experience_modal(
+            cursor,
+            secondary_pressed,
+            secondary_released,
+        );
         let edits = presentation.edit_experience_modal(cursor, pressed, &typed, escape, now);
         let live = service.live.as_mut().expect("modal focus needs a runtime");
         for (control, text) in &edits.edits {
@@ -199,8 +212,13 @@ fn drive(
         }
         if escape && !edits.escape_consumed {
             live.close_modal();
-        } else if let Some((id, index)) = press {
-            live.press(&id, index);
+        } else {
+            if let Some((id, index)) = press {
+                live.press(&id, index);
+            }
+            if let Some((id, index)) = secondary {
+                live.press_secondary(&id, index);
+            }
         }
     } else {
         buttons.clear();

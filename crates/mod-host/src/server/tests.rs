@@ -217,7 +217,11 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         [Command::Screen { template: None }]
     ));
     // 1.2's events skip a 1.1 component.
-    for event in [resized(320.0), typed("demo.pick", "iron")] {
+    let secondary = Event::SecondaryAction {
+        id: "demo.pick".into(),
+        index: Some(1),
+    };
+    for event in [resized(320.0), typed("demo.pick", "iron"), secondary] {
         assert!(host.dispatch(&event, 5).unwrap().commands.is_empty());
     }
     let malformed = Event::Message {
@@ -496,4 +500,35 @@ fn text_changed_reaches_the_guest_and_set_text_stages_text() {
     assert!(typed("terminal.search", "tab\t").check().is_err());
     let long = "x".repeat(MAX_EDIT_TEXT_BYTES + 1);
     assert!(typed("terminal.search", &long).check().is_err());
+}
+
+/// A secondary press (a right click) on a declared action reaches `secondary-action` with its
+/// row, and an undeclared one is refused before the guest runs.
+#[test]
+fn secondary_presses_reach_secondary_action() {
+    let mut host = searching_terminal();
+    let press = |id: &str| Event::SecondaryAction {
+        id: id.into(),
+        index: Some(3),
+    };
+    match host
+        .dispatch(&press("terminal.search"), 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [
+            Command::Value {
+                name,
+                value: screen::Value::Text(text),
+            },
+        ] => {
+            assert_eq!(
+                (name.as_str(), text.as_str()),
+                ("#secondary", "terminal.search 3")
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(host.dispatch(&press("terminal.other"), 1).is_err());
 }

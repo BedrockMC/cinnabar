@@ -255,3 +255,49 @@ fn host_text_reaches_the_box_once() {
         [("demo.search".to_owned(), "gold!!".to_owned())]
     );
 }
+
+/// Two 50×20 buttons: `cycle` maps a primary and a secondary press to `demo.cycle`, as vanilla's
+/// slot buttons do; `plain` maps only a primary press to `demo.plain`.
+const BUTTONS: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"cycle": {"type": "button", "size": [50, 20],
+            "anchor_from": "top_left", "anchor_to": "top_left",
+            "button_mappings": [
+                {"from_button_id": "button.menu_select", "to_button_id": "demo.cycle", "mapping_type": "pressed"},
+                {"from_button_id": "button.menu_secondary_select", "to_button_id": "demo.cycle", "mapping_type": "pressed"}]}},
+        {"plain": {"type": "button", "size": [50, 20], "offset": [60, 0],
+            "anchor_from": "top_left", "anchor_to": "top_left",
+            "button_mappings": [
+                {"from_button_id": "button.menu_select", "to_button_id": "demo.plain", "mapping_type": "pressed"}]}}]}}"#;
+
+/// A secondary press released over the control it began on fires the action its
+/// `button.menu_secondary_select` mapping names; a control without one takes no secondary press.
+#[test]
+fn secondary_presses_fire_the_secondary_mapping() {
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", BUTTONS)]));
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let scale = presentation.experience_modal_size().unwrap().scale as f32;
+    let cycle = Some([10.0 * scale, 10.0 * scale]);
+    let plain = Some([70.0 * scale, 10.0 * scale]);
+    assert_eq!(
+        presentation.secondary_press_experience_modal(cycle, true, false),
+        None
+    );
+    assert_eq!(
+        presentation.secondary_press_experience_modal(cycle, false, true),
+        Some(("demo.cycle".to_owned(), None))
+    );
+    presentation.secondary_press_experience_modal(plain, true, false);
+    assert_eq!(
+        presentation.secondary_press_experience_modal(plain, false, true),
+        None
+    );
+    // Released elsewhere, nothing fires.
+    presentation.secondary_press_experience_modal(cycle, true, false);
+    assert_eq!(
+        presentation.secondary_press_experience_modal(plain, false, true),
+        None
+    );
+}

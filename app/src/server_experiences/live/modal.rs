@@ -139,6 +139,30 @@ impl<H: Worker> Live<H> {
         true
     }
 
+    /// Queues a secondary press (a right click) of the open modal's control `id`, under the same
+    /// rules as [`Live::press`].
+    pub(in crate::server_experiences) fn press_secondary(
+        &mut self,
+        id: &str,
+        index: Option<usize>,
+    ) -> bool {
+        let ready = self.ready;
+        let Some(instance) = self.open_instance() else {
+            return false;
+        };
+        if !ready
+            || !instance.capabilities.may_deliver(id)
+            || instance.events.len() >= MAX_PENDING_EVENTS
+        {
+            return false;
+        }
+        instance.events.push_back(Event::SecondaryAction {
+            id: id.to_owned(),
+            index: index.and_then(|index| u32::try_from(index).ok()),
+        });
+        true
+    }
+
     fn open_instance(&mut self) -> Option<&mut Instance<H>> {
         let bundle = self
             .modal()
