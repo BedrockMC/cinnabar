@@ -588,6 +588,7 @@ pub(crate) struct ActorStore {
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
+    local_view_dirty: bool,
     local_view_bobbing: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
