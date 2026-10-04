@@ -11,7 +11,8 @@ const OVERLAY: &str = r##"{
   "keyboard_and_mouse_section": {
     "modifications": [{
       "array_name": "controls",
-      "operation": "insert_front",
+      "operation": "insert_after",
+      "control_name": "option_toggle_1",
       "value": [{
         "always_sprint@settings_common.option_toggle": {
           "$option_label": "Always Sprint",
