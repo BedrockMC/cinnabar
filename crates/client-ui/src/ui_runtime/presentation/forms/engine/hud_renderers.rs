@@ -12,6 +12,12 @@ use ui::UiVisual;
 
 use super::Painter;
 
+const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
+const CROSSHAIR_SIDE: f32 = 16.0;
+
+#[cfg(test)]
+mod crosshair_tests;
+
 /// One sprite a renderer draws, relative to its control's origin, in GUI px.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cell {
@@ -89,6 +95,7 @@ impl HudPaint {
         .flatten()
         .flat_map(|cell| cell.preferred.into_iter().chain([cell.texture]))
         .chain(SLOT_ART)
+        .chain(self.crosshair.map(|_| CROSSHAIR_TEXTURE))
     }
 }
 
@@ -227,9 +234,26 @@ fn sheet(
     let _ = painter.push(visual, bounds);
 }
 
-/// The 15x15 inverting crosshair centred in the control.
+/// The pack crosshair, or built-in HUD art, centred with the inverting material.
 fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
-    let side = 15.0 * painter.px;
+    let (sprite, gui_side) = painter.textures.sprite(CROSSHAIR_TEXTURE).map_or_else(
+        || {
+            (
+                sprite,
+                assets::HudTextureRole::Crosshair.expected_size()[0] as f32,
+            )
+        },
+        |(page, [x, y, width, height])| {
+            (
+                SheetSprite {
+                    page,
+                    uv: [x, y, x + width, y + height].map(|value| value as u16),
+                },
+                CROSSHAIR_SIDE,
+            )
+        },
+    );
+    let side = gui_side * painter.px;
     let x = (dest[0] + dest[2] - side) * 0.5;
     let y = (dest[1] + dest[3] - side) * 0.5;
     let visual = UiVisual::InvertedSprite {
