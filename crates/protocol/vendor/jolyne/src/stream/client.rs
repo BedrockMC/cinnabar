@@ -2340,6 +2340,8 @@ impl<T: Transport> BedrockStream<StartGame, Client, T> {
                         unreachable!("packet ID and decoded variant must agree")
                     };
                     tracing::debug!(items = %registry.item_data.len(), "ItemRegistry received");
+                    // Native ItemRegistry::matchServerItemIds initializes once. A later empty/custom-only
+                    // packet must not replace the first table or shield ID.
                     if item_registry.is_some() {
                         continue;
                     }

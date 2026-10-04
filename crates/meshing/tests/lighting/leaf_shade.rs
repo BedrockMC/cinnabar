@@ -75,6 +75,8 @@ fn leaf_shade_is_independent_of_diagonal_occlusion_in_direct_and_cached_bakes() 
             Face::PositiveY,
             SHADE_TEST_FACE,
         );
+        // Vanilla leaf shade=.2; ambient occlusion still reads the
+        // diagonal because neither leaf has the cached solid-render bit.
         assert_eq!((direct.samples()[2] >> 8) & 7, 2);
         assert_eq!(direct.samples()[2] & 15, 15);
         let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_lighting(

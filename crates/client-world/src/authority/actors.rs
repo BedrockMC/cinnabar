@@ -53,7 +53,6 @@ impl WorldAuthority {
         self.actors.advance_interpolation_ticks(ticks);
     }
     /// Advances elapsed tick state, evaluating animation once for this rendered frame.
-    /// Bedrock 1.26.50.26: AnimationComponent RVAs 0x1e019a0 and 0x1e13940.
     pub fn advance_actor_interpolation_frame(&mut self, ticks: u32) {
         self.actors.advance_interpolation_frame(ticks);
     }

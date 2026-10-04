@@ -1,5 +1,6 @@
 //! Item-state projection shared by gameplay and UI.
 
+/// CrossbowItem::getAnimationFrame, including loaded projectile art.
 pub fn crossbow_animation_frame(
     elapsed: Option<u32>,
     duration: u32,

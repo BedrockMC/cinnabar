@@ -50,10 +50,12 @@ pub(crate) struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
+// Native ItemInHandRenderer::tick: ±0.4 clamp and cached
+// stack replacement at height <= 0.1.
 const ARM_HEIGHT_STEP: f32 = 0.4;
 const ARM_SWAP_HEIGHT: f32 = 0.1;
 
-// Babies' legs cycle faster by this factor; needs independent measurement.
+// Vanilla applies this modified-speed query multiplier to babies.
 const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
 
 // Gliding divides limb swing by the cubed squared speed over this; needs independent
@@ -84,6 +86,9 @@ pub(super) fn advance_motion(
         yaw: actor.yaw,
         head_yaw: actor.head_yaw,
     });
+    // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
+    // a mob: Actor::getInterpolatedBodyYaw returns 0, while
+    // query.target_y_rotation reads the actor's absolute rotation.
     if query::is_arrow(actor) {
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
@@ -231,6 +236,7 @@ pub(super) fn evaluate_state(
         input: &input,
         context,
         anim_tick,
+        anim_time: None,
         life_tick,
         finished: (false, false),
         bones: state.posed_bones(),
@@ -322,6 +328,12 @@ pub(super) fn evaluate_state(
         }
     }
     let mut weighted_clips = Vec::new();
+    let empty_clocks = super::clock::ClipClocks::new();
+    let previous_clocks = if reset {
+        &empty_clocks
+    } else {
+        &state.clip_clocks
+    };
     let candidate = assets
         .rig_geometries()
         .get(state.geometry_binding)
@@ -359,6 +371,7 @@ pub(super) fn evaluate_state(
                     clip: binding.clip as usize,
                     weight,
                     started_tick: 0,
+                    time: 0.0,
                 });
             }
         } else {
@@ -370,6 +383,7 @@ pub(super) fn evaluate_state(
                     evaluator: &evaluator,
                     variables: &mut variables,
                     controllers: &mut controllers,
+                    clip_clocks: previous_clocks,
                     clips: &mut weighted_clips,
                     budget,
                 };
@@ -386,11 +400,24 @@ pub(super) fn evaluate_state(
             evaluator: &evaluator,
             variables: &mut variables,
             controllers: &mut controllers,
+            clip_clocks: previous_clocks,
             clips: &mut weighted_clips,
             budget,
         }
         .evaluate(controller, 1.0, 0)?;
     }
+    let clip_clocks = super::clock::prepare(
+        &evaluator,
+        &mut variables,
+        if reset {
+            None
+        } else {
+            Some(&state.clip_clocks)
+        },
+        &controllers,
+        &mut weighted_clips,
+        budget,
+    )?;
     let local = sample_clips(
         &evaluator,
         &mut variables,
@@ -431,6 +458,7 @@ pub(super) fn evaluate_state(
         render,
         scale,
         controllers,
+        clip_clocks,
         variables,
     })
 }
@@ -493,6 +521,8 @@ pub(super) struct WeightedClip {
     pub(super) clip: usize,
     pub(super) weight: f32,
     pub(super) started_tick: u64,
+    /// Assigned once before posing, shared by every geometry this clip animates.
+    pub(super) time: f32,
 }
 
 fn blend_weight(
@@ -516,6 +546,7 @@ struct ControllerWalk<'e, 'v, 'b, 'w> {
     evaluator: &'e Evaluator<'e>,
     variables: &'v mut MolangVariables,
     controllers: &'v mut [ControllerState],
+    clip_clocks: &'v super::clock::ClipClocks,
     clips: &'v mut Vec<WeightedClip>,
     budget: &'b mut EvalBudget<'w>,
 }
@@ -551,6 +582,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                     clip: clip as usize,
                     weight,
                     started_tick,
+                    time: 0.0,
                 }),
                 EntityControllerAnimationTarget::Controller(nested) => {
                     self.evaluate(nested as usize, weight, depth + 1)?;
@@ -589,16 +621,22 @@ impl ControllerWalk<'_, '_, '_, '_> {
         let mut all = true;
         let mut any = false;
         for animation in state_animations(self.evaluator.assets, state)? {
-            let EntityControllerAnimationTarget::Clip(clip) = animation.target else {
+            let EntityControllerAnimationTarget::Clip(index) = animation.target else {
                 continue;
             };
             let clip = self
                 .evaluator
                 .assets
                 .animation_clips()
-                .get(clip as usize)
+                .get(index as usize)
                 .ok_or(EvalError::Invalid)?;
-            let done = elapsed >= clip.length_seconds.get();
+            let done = if clip.anim_time_update.is_some() {
+                self.clip_clocks
+                    .get(&(index as usize, entered_tick))
+                    .is_some_and(|clock| clock.finished)
+            } else {
+                elapsed >= clip.length_seconds.get()
+            };
             all &= done;
             any |= done;
         }

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, PLAYER_WIDTH, Vec3, WorldQueryError};
 
+/// Current Player constructor's SneakingHeightChangeVersion value.
 const SNEAK_HEIGHT: f64 = 1.49_f32 as f64;
 const LOW_POSE_HEIGHT: f64 = PLAYER_WIDTH;
 const FIT_INSET: f64 = 0.01_f32 as f64;

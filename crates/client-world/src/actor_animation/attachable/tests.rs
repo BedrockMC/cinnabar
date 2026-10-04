@@ -95,6 +95,7 @@ fn compiled_fixture() -> CompiledEntityAssets {
             channel_count: 1,
             source: 0,
             override_previous: false,
+            anim_time_update: None,
             geometry: Some(0),
         }]
         .into_boxed_slice(),
@@ -498,6 +499,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
                     input: &input,
                     context,
                     anim_tick: 2,
+                    anim_time: None,
                     life_tick: 10,
                     finished: (false, false),
                     bones: &[],

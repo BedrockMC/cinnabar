@@ -1,3 +1,9 @@
+//! Column shelter selection for native seasonal leaf materials.
+//!
+//! ClientLeavesSeasonColorUtils scans upward
+//! to the height map, skipping air/leaves and native exempt blocks. TopSnow
+//! delegates to a non-air extra layer, otherwise only the full-height state
+//! shelters leaves. Assets owns the shared predicate used by particle colours.
 
 use super::models::PaletteResolutionContext;
 use crate::{SIDE, contributors::PaletteFacts};

@@ -1,5 +1,9 @@
 # View-bobbing preference and the hand rig
 
+The vanilla hand renderer assigns `variable.bob_animation`.
+Cinnabar's authored player animations consume that Molang variable separately
+from the camera's bob transform. Disabling only the camera transform leaves the
+hand's authored movement running.
 
 The local-player feed therefore carries the camera settings authority's
 view-bobbing preference into the actor animation context. Remote actors keep

@@ -1,6 +1,9 @@
 //! The physics phase reads the same player owner that earlier commands mutate.
-use super::*;
+use crate::movement::GameplayWorldView;
+use crate::player_runtime::PlayerRuntime;
 use bevy::prelude::*;
+use gameplay::movement::local_facts::{LocalMovementFacts, read};
+use gameplay::test_support::DEPTH_STRIDER_ENCHANTMENT_ID;
 use inventory::inventory_ledger::{
     CellGesture, InventoryTarget, PERSONAL_INVENTORY_WINDOW_TYPE, PLAYER_INVENTORY_SLOT_COUNT,
 };
@@ -109,7 +112,7 @@ fn command(mut player: ResMut<PlayerRuntime>) {
 
 /// Samples the production movement view in the physics phase.
 fn sample(player: Res<PlayerRuntime>, stream: Res<Stream>, mut observed: ResMut<Observed>) {
-    observed.0 = Some(read(Some(&player), &stream.0, false));
+    observed.0 = Some(read(Some(&player), &GameplayWorldView(&stream.0), false));
 }
 
 #[test]
@@ -124,7 +127,7 @@ fn physics_reads_predicted_equipment_and_hunger_in_the_same_frame() {
         air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
-    let before = read(Some(&player), &stream, false);
+    let before = read(Some(&player), &GameplayWorldView(&stream), false);
     assert_eq!(before.depth_strider, 3);
     assert!(!before.sprint_blocked);
     assert!(before.swim_hunger_blocked);

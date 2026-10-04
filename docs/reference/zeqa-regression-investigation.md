@@ -53,10 +53,16 @@ The reported form FPS loss, live form layout, missing hotbar icons, remaining hu
 garbled nametags, and the particular stretched player are not accepted as fixed by
 these software witnesses. No visual or performance parity gate is closed here.
 
-## Vanilla references
+## Vanilla rules
 
-These are behavior witnesses, not copied implementation source.
-
+| Rule | Behaviour |
+| --- | --- |
+| Player appearance | Active entities retain their skin after roster removal. |
+| Name tags | Use the name-tag geometry, materials and constants recorded in `nametag-rendering.md`. |
+| Geometry faces | Distinguish absent faces from authored per-face UVs and read each supplied face’s UV data. The Zeqa logo’s border faces omit the opposite direction; its material is not nocull. |
+| Bone matrices | Copy the selected bone matrix to the skinned mesh. Matrix caches must include the current geometry’s pivots. |
+| Inventory items | Read the control’s property bag and dimensions before drawing the item. |
+| Forms and hotbar | `ui/server_form.json:118` instantiates dynamic form buttons; `ui/server_form.json:166` binds image texture/file system. `ui/hud_screen.json:1212` defines the hotbar collection; `ui/hud_screen.json:1237` defines its item renderer control. |
 
 Pack reference root: the installed pinned vanilla pack under
 `.local/assets/bedrock-samples/`; the carrier and original pack were read only.

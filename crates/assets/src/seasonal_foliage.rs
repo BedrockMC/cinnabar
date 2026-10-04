@@ -1,3 +1,10 @@
+//! Native seasonal foliage palette, independent of GPU colour packing.
+//!
+//! 1.26.50.26 `SeasonsRenderer` palette generation
+//! creates covered evergreen/birch/default columns, then their exposed
+//! counterparts. Snow blending precedes the half-intensity RGBA8 storage;
+//! the world material doubles stored RGB without clipping before multiplying
+//! the texture. The CPU particle consumer instead clamps it.
 
 use crate::{
     BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFlags, MATERIAL_FLAG_BIRCH_FOLIAGE,
@@ -9,6 +16,7 @@ pub const SEASONAL_FOLIAGE_EXPOSED_OFFSET: usize = 3;
 pub const SEASONAL_FOLIAGE_COUNT: usize = SEASONAL_FOLIAGE_EXPOSED_OFFSET * 2;
 const COVERED_MAPS: [TintMapId; SEASONAL_FOLIAGE_EXPOSED_OFFSET] =
     [TintMapId::Evergreen, TintMapId::Birch, TintMapId::Foliage];
+/// LeavesBlock::getRenderLayer cold limit.
 pub const SEASONAL_FOLIAGE_COLD_THRESHOLD: f32 = 0.15;
 pub const SEASONAL_FOLIAGE_SNOW_RGB: f32 = 1.8;
 
@@ -62,6 +70,15 @@ impl From<ResolvedBlock> for SeasonalFoliageBlock {
     }
 }
 
+/// Native ClientLeavesSeasonColorUtils
+/// skips the main block's air/leaves properties before canBeBuiltOver.
+/// TopSnow's override delegates to a non-air extra block
+/// first; only with air extra does its height decide replaceability.
+///
+/// `None` main means unavailable and conservatively shelters. `None` extra
+/// means no extra storage (air). Unknown blocks use Diagnostic facts and
+/// shelter; callers must not turn an unloaded/unknown extra into `None`.
+#[must_use]
 pub const fn seasonal_foliage_cell_shelters(
     main: Option<SeasonalFoliageBlock>,
     extra: Option<SeasonalFoliageBlock>,

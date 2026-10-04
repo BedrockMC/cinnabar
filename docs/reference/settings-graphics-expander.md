@@ -12,8 +12,12 @@ requested taller treatment. Height comes from the installed
 `textures/ui/arrowRight` and `textures/ui/arrowDown`. The label stays vertically
 centred. Server UI overlays are applied afterward.
 
-References inspected:
+## Vanilla rules
 
+| Rule | Behaviour |
+| --- | --- |
+| Settings geometry | `$settings_spatial_pattern_fix_enabled` is emitted into the JSON-UI context and makes settings geometry flight-dependent. This does not establish a chevron variant of this expander. |
+| Pack controls | Installed `v1.26.50.4/full/resource_pack/ui/settings_sections/general_section.json` and `settings_common.json` define the original expander, action-button size and arrow primitives. `texts/en_US.lang` supplies the label. |
 
 The json-ui test preserves the pack's actual 20-pixel plus/minus baseline. The
 client test verifies the requested full-height hit target, controller action and

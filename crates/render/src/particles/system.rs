@@ -23,6 +23,8 @@ pub const MAX_SPAWN_DISTANCE: f32 = 128.0;
 /// Longest single simulation step; larger frame gaps are split.
 const MAX_STEP: f32 = 1.0 / 30.0;
 const MAX_FRAME_SECONDS: f32 = 0.25;
+/// `_addTerrainEffect` checks the selected effect's
+/// existing emitter/particle totals, with strict `>` comparisons before spawn.
 const TERRAIN_EMITTER_LIMIT: usize = 20;
 const TERRAIN_PARTICLE_LIMIT: usize = 500;
 const TILE_VARIABLE_NAMES: [(&str, &str); 5] = [
@@ -56,7 +58,6 @@ pub struct ParticleSystem {
     boxes: Vec<[f32; 6]>,
     /// Requests dropped for an unknown effect, distance or a full emitter table.
     pub dropped_spawns: u64,
-    pub daylight: f32,
 }
 
 impl ParticleSystem {
@@ -66,7 +67,6 @@ impl ParticleSystem {
         Self {
             library: EffectLibrary::from_assets(assets),
             atlas: ParticleAtlas::from_assets(assets),
-            daylight: 1.0,
             ..Self::default()
         }
     }

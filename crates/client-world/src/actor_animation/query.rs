@@ -130,6 +130,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) input: &'a ActorTickInput,
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
+    pub(super) anim_time: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -160,7 +161,7 @@ pub(super) fn query(
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),
-        // Native query025186e0 requires a string argument; unknown names pass through.
+        // Native query requires a string argument; unknown names pass through.
         "item_slot_to_bone_name" => text(evaluator.context.attachable.and_then(|_| {
             let Some(MolangValue::String(slot)) = arguments.first() else {
                 return None;
@@ -246,6 +247,11 @@ fn default_bone_pivot(evaluator: &QueryInputs<'_>, arguments: &[MolangValue]) ->
 
 fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) -> f32 {
     let (actor, input, context) = (evaluator.actor, evaluator.input, evaluator.context);
+    if name == "anim_time"
+        && let Some(time) = evaluator.anim_time
+    {
+        return time;
+    }
     if let Some(attachable) = context.attachable {
         let remaining = attachable.use_elapsed_ticks.map_or(0, |elapsed| {
             attachable.max_use_ticks.saturating_sub(elapsed)
@@ -328,6 +334,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             }
         }
         "hurt_time" => f32::from(actor.status.hurt_time),
+        // 26.50 returns the signed actor shake counter as float.
         "shake_time" => actor.status.shake_time as f32,
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),

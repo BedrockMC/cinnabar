@@ -45,21 +45,19 @@ The first-person hand samples solved light at the authoritative eye position
 terrain and the hand. The screenshots alone do not establish an atmosphere or
 lightmap defect; no speculative lighting adjustment was made.
 
-## Vanilla references
+## Vanilla rules
 
+| Rule | Behaviour |
+| --- | --- |
+| Unknown runtime ID | Sequential and hashed lookup resolve to default air with a palette-disagreement diagnostic. Cinnabar retains these lenient semantics. |
+| In-range runtime ID | Index the palette directly. |
+| Palette insertion | Assign the sequential network index. |
+| Hash mode | The world retains the block-network-ID hash mode. |
+| Brightness | Sample spatial brightness and compose sky/block light. |
 
-- `R:BlockPalette:97-105`: an unknown runtime ID resolves to default air, with a
-  palette-disagreement diagnostic. `R:BlockPalette:120-125`: an in-range ID indexes
-  the palette directly. Cinnabar retains these lenient semantics.
-- `R:BlockPalette:16-19` and `R:BlockPalette:215-220`: palette insertion assigns
-  the sequential network index.
-- `R:Level:35879-35885`: the world retains the block-network-ID hash mode.
-- `R:Actor:18725-18743`: spatial brightness sampling.
-  `R:BaseLightTextureImageBuilder:270-304`: sky/block light composition.
 - The installed vanilla pack's `blocks.json`, entry `mushroom_stem`, names six
   terrain face keys. `textures/terrain_texture.json:5210-5261` supplies their
   texture routes. Pack content is read at runtime and is not committed here.
-
 
 ## Changes and next-session evidence
 

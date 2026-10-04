@@ -208,6 +208,8 @@ impl WorldAuthority {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
+                // A game-mode update changes the UI only when its unique ID matches
+                // the local player.
                 let event = match event {
                     UiEvent::PlayerGameMode {
                         actor_unique_id,

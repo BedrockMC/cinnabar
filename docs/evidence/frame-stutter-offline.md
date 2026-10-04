@@ -107,6 +107,16 @@ frames do not format strings, write traces or take aggregate-sample locks.
 
 ## Reference contracts
 
+- The brightness callback dirties the changed block's ±1 halo. Valid light
+  invalidation was preserved.
+- Controller bindings are conditional and retain state. The vanilla pack's
+  `ui/hud_screen.json` supplies authored HUD bindings and factories used offline.
+- The pinned vanilla pack's `entity/player.entity.json:16–43` selects
+  `geometry.humanoid.custom`, initialization, pre-animation and the player root
+  animation controller. The synthetic actor witness uses these installed
+  definitions through production publication, with distinct player skins.
+- The skin optimization changes cache lookup only. It does not change skin
+  geometry, texture pixels, actor animation or any vanilla presentation rule.
 
 The pack paths come from the worktree's read-only `.local` link and the source
 manifest. Extracted server packs, scratch carriers and executables remain under

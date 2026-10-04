@@ -9,6 +9,12 @@ launcher feedback uses those targets for the caret and selection.
 
 References:
 
+- The edit component owns caret blink timing, selection and
+  `text_edit_selected`; text rendering uses its caret position.
+- Vanilla pack `ui/ui_common.json:1371`, `:1415`, `:1428`, `:1539`, `:1620`
+  define the label/edit relationship. Its `text_box_deselected` cancel mapping
+  consumes the first Escape. `ui/add_external_server_screen.json:108` and
+  `:141` bind the three separate fields and their focus identifiers.
 
 `menu::server_input_tests::real_carrier_server_fields_click_type_select_paste_save_and_play`
 loads the installed pinned carrier and language table, uses the real Bevy input
