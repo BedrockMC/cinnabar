@@ -152,7 +152,12 @@ done
 # The digest keeps a rebuilt tag (nightly) from reusing an older unpacked build.
 build="$version-$(printf '%s' "$expected" | awk '{ print substr($0, 1, 12) }')"
 stage=$(mktemp -d "$app_dir/.install.XXXXXX")
-if [ ! -d "$app_dir/$build" ]; then
+# Written last during an unpack, so a build without it is partial or damaged.
+marker=.cinnabar-complete
+complete() {
+    [ -x "$1/AppRun" ] && [ -f "$1/cinnabar.png" ] && [ -f "$1/$marker" ]
+}
+if ! complete "$app_dir/$build"; then
     # Unpack on the data filesystem, so a noexec or small /tmp never runs or holds the image.
     cp "$work/$asset" "$stage/Cinnabar.AppImage"
     chmod 755 "$stage/Cinnabar.AppImage"
@@ -160,10 +165,19 @@ if [ ! -d "$app_dir/$build" ]; then
         fail 'Could not unpack the verified AppImage; the existing install was preserved'
     [ -x "$stage/squashfs-root/AppRun" ] || fail 'The AppImage is missing its AppRun'
     [ -f "$stage/squashfs-root/cinnabar.png" ] || fail 'The AppImage is missing its application icon'
+    : > "$stage/squashfs-root/$marker"
+    # A damaged copy moves into the stage, which cleanup removes.
+    [ ! -e "$app_dir/$build" ] || mv "$app_dir/$build" "$stage/damaged"
     mv "$stage/squashfs-root" "$app_dir/$build"
 fi
-previous=
-[ ! -f "$app_dir/current" ] || IFS= read -r previous < "$app_dir/current" || true
+read_pointer() {
+    value=
+    [ ! -f "$app_dir/$1" ] || IFS= read -r value < "$app_dir/$1" || true
+    printf '%s' "$value"
+}
+# Reinstalling the current build keeps the recorded previous build, which may still be running.
+previous=$(read_pointer current)
+[ "$previous" != "$build" ] || previous=$(read_pointer previous)
 quote_shell() { printf "'"; printf '%s' "$1" | sed "s/'/'\\\\''/g"; printf "'"; }
 {
     printf '#!/bin/sh\napp_dir='
@@ -185,6 +199,7 @@ EOF
 } > "$stage/cinnabar"
 chmod 755 "$stage/cinnabar"
 printf '%s\n' "$build" > "$stage/current"
+printf '%s\n' "$previous" > "$stage/previous"
 desktop_exec=$(printf '%s' "$bin_dir/cinnabar" | sed \
     -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/`/\\`/g' -e 's/\$/\\$/g' -e 's/%/%%/g' |
     sed 's/\\/\\\\/g')
@@ -209,6 +224,7 @@ cp "$stage/cinnabar.desktop" "$desktop_stage"
 chmod 644 "$desktop_stage"
 cp "$app_dir/$build/cinnabar.png" "$icon_stage"
 chmod 644 "$icon_stage"
+mv -f "$stage/previous" "$app_dir/previous"
 mv -f "$stage/current" "$app_dir/current"
 mv -f "$launcher_stage" "$bin_dir/cinnabar"
 mv -f "$desktop_stage" "$desktop_dir/cinnabar.desktop"
@@ -217,7 +233,7 @@ mv -f "$icon_stage" "$icon_dir/cinnabar.png"
 for entry in "$app_dir"/*; do
     [ -e "$entry" ] || continue
     case "${entry##*/}" in
-        current|"$build"|"$previous") ;;
+        current|previous|"$build"|"$previous") ;;
         *) rm -rf "$entry" ;;
     esac
 done
