@@ -3,7 +3,7 @@
 # carrier: those are built per user on first run from the bundled prep kit.
 set -euo pipefail
 
-repo_root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_root="$(CDPATH= cd -- "${CINNABAR_SOURCE_ROOT:-$(dirname -- "${BASH_SOURCE[0]}")/../..}" && pwd)"
 
 # Shared with check-payload.sh; Windows copies the .ps1 subset in build-installer.ps1.
 kit_scripts=(fetch-vanilla-assets.sh fetch-vanilla-assets.ps1 fetch-ui-font.sh fetch-ui-font.ps1 rename-directory-no-replace.c)
