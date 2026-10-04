@@ -2,7 +2,7 @@
 
 2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
 the native four-slot JSON-UI wheel and remappable emote control select an original,
-local-only Twerk dance with a 0.7-second loop. The owned clip preserves skin
+local-only Twerk dance with a faster user-requested loop. The owned clip preserves skin
 hierarchy and clothing; render-time body and player-preview sampling leave the
 native first-person hand and remote actor animations intact. Slot preferences
 persist through Change Emotes, and gameplay input cancels playback. Identified
@@ -20,14 +20,17 @@ retains rigid legs on unsupported custom models. The latest local revision adds
 temporary thigh/shin joints to classic cuboid skins only during playback, crops
 their existing UVs, and bends the knees with a planted-foot two-segment solve.
 Stopping playback restores the original mesh/pose; native hand, remote actors
-and simulation skeletons remain unchanged. Eleven animation tests pass; live
-acceptance and exact resemblance remain incomplete pending review.
-Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, seven
-animation tests (eight after the thrust/twist revision), the native-carrier wheel/preview tests, and twelve production
-input/actor regressions. The 1280x720 software-rendered wheel/equip frames were
-inspected for readable text and geometry. Live Windows game acceptance remains
-required for the revised clip; the original emote build was installed and its
-wheel accepted by the user. The animation revision is local and not pushed.
+and simulation skeletons remain unchanged. Eleven animation tests pass;
+exact Lunar/native parity remains incomplete.
+The user accepted the installed knee revision; the next local adjustment speeds
+up playback and increases vertical pelvis travel while keeping shoulders/head
+steady and foot centers planted. It awaits installation and user verification.
+Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, eleven
+animation tests, eleven emote UI tests and twenty-five app emote checks. The
+1280x720 software-rendered wheel/equip frames were inspected for readable text
+and geometry. The user accepted the installed wheel and knee revision; the
+latest speed/vertical-motion change still needs user verification. The animation
+revision is local and not pushed.
 Strict affected-package clippy passes. Required affected verification reaches
 the existing ice/water liquid-face test failure after formatting, architecture
 and compilation pass; that meshing regression is outside this change.

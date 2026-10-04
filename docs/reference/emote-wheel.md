@@ -70,8 +70,11 @@ The pelvis pulses beneath steady shoulders. Source models, tick-owned poses,
 first-person hands and remote actors keep their original skeletons; stopping the
 emote restores the original mesh and pose. Unsupported rotated/polygon/custom
 limbs retain the rigid approximation. Rigid armor knee articulation and exact
-Lunar animation parity remain incomplete. Live acceptance of the knee revision
-is pending.
+Lunar animation parity remain incomplete. The user accepted the installed knee
+revision. A follow-up requested faster playback and more vertical
+pelvis movement. The shared catalog now selects a shorter loop, and the planted
+knee solve permits a larger vertical hip pulse while retaining steady shoulders.
+This follow-up awaits user verification.
 
 Sampling resolves named bones in the player's actual geometry and applies
 channels before skeleton composition. Body, clothing/persona layers and armor
