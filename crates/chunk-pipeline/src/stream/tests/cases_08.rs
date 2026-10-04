@@ -45,9 +45,9 @@ fn player_and_visible_retries_precede_far_initial_prefetch_without_losing_fifo_t
     let visible = ChunkKey::new(0, 2, 0);
     let prefetch = ChunkKey::new(0, 6, 0);
     stream.required_columns = BTreeSet::from([player, visible]);
-    stream.requests.retain(|slot| {
-        !matches!(slot, super::OutboundRequestSlot::Ready(request) if request.chunk == player)
-    });
+    stream
+        .requests
+        .cancel_ready(|request| request.chunk == player);
     for y in [-4, -3] {
         let key = SubChunkKey::from_chunk(player, y);
         assert_eq!(

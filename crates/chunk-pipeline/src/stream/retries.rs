@@ -162,11 +162,10 @@ impl WorldStream {
     }
     pub(super) fn retry_is_queued(&self, key: SubChunkKey) -> bool {
         self.deferred_retry_set.contains(&key)
-            || self.requests.iter().any(|slot| {
-                matches!(slot, OutboundRequestSlot::Ready(request)
-                    if request.chunk == key.chunk()
-                        && request.base_sub_chunk_y == key.y
-                        && request.count == 1)
+            || self.requests.ready_requests().any(|request| {
+                request.chunk == key.chunk()
+                    && request.base_sub_chunk_y == key.y
+                    && request.count == 1
             })
     }
     pub(super) fn enqueue_exact_retry(&mut self, key: SubChunkKey) -> bool {
@@ -331,11 +330,8 @@ impl WorldStream {
         if self.deferred_retry_set.remove(&key) {
             self.deferred_retries.retain(|pending| *pending != key);
         }
-        self.requests.retain(|slot| {
-            !matches!(slot, OutboundRequestSlot::Ready(request)
-                if request.chunk == key.chunk()
-                    && request.base_sub_chunk_y == key.y
-                    && request.count == 1)
+        self.requests.cancel_ready(|request| {
+            request.chunk == key.chunk() && request.base_sub_chunk_y == key.y && request.count == 1
         });
     }
     pub(super) fn disarm_sub_chunk_deadline(&mut self, key: SubChunkKey) {
@@ -364,11 +360,7 @@ impl WorldStream {
                 }
             }
         }
-        self.requests.retain(|slot| match slot {
-            OutboundRequestSlot::Reserved(_) => true,
-            OutboundRequestSlot::Ready(request) => !chunks.contains(&request.chunk),
-        });
-        self.requests.forget_columns(chunks);
+        self.requests.cancel_columns(chunks);
         self.deferred_retries
             .retain(|key| !chunks.contains(&key.chunk()));
         self.deferred_retry_set
@@ -383,11 +375,8 @@ impl WorldStream {
     pub(super) fn queued_retry_request_count(&self) -> usize {
         let outbound = self
             .requests
-            .iter()
-            .filter(|slot| {
-                let OutboundRequestSlot::Ready(request) = slot else {
-                    return false;
-                };
+            .ready_requests()
+            .filter(|request| {
                 request.count == 1
                     && self
                         .requested_sub_chunks

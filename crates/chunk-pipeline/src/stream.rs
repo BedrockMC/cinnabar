@@ -240,7 +240,7 @@ impl SchedulerView {
 }
 
 use model::{
-    CorrelatedSubChunkAttempts, MeshCompletion, NormalizationErrorReason, OutboundRequestSlot,
+    CorrelatedSubChunkAttempts, MeshCompletion, NormalizationErrorReason,
     PendingMesh, PendingSubChunk, PendingSubChunkColumn, RetrySchedule, RevisionTracker,
     queue_wait, split_block_update,
 };

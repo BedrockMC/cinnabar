@@ -139,10 +139,7 @@ impl WorldStream {
         debug_assert!(self.sub_chunk_deadlines.len() <= self.outstanding_sub_chunk_count());
     }
     pub fn pending_request_count(&self) -> usize {
-        self.requests
-            .iter()
-            .filter(|slot| matches!(slot, OutboundRequestSlot::Ready(_)))
-            .count()
+        self.requests.ready_requests().count()
     }
     pub fn pending_request_work_count(&self) -> usize {
         self.requests.len()
