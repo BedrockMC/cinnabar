@@ -4981,6 +4981,35 @@ and accepted lily-pad appearance have not been adjusted to conceal them.
 The user explicitly requests publishing this checkpoint directly to dev before
 continuing those fixes. This checkpoint does not close full rendering parity.
 
+### Fish visibility and animation correction (2026-10-04; incomplete full parity)
+
+Native Cube setup offsets the drawable fin UV rectangles into the
+texture even when their unused unfolded box origin is negative. Actor artwork
+admission now accounts for the collapsed axis and cube/bone inflation, allowing
+cod, salmon, pufferfish and both tropical body geometries into the carrier.
+Native tropical variable update supplies the Base/Pattern selection
+from streamed Int variant metadata before pack evaluation. Behavior and
+remaining limits are in [fish-rendering.md](docs/reference/fish-rendering.md).
+
+The shared liquid probe now samples native shrunken body bounds against material
+cells, preserving the last valid sample when world data is unavailable. This
+removes false dry transitions that triggered a 90-degree land-flop roll in water.
+Native fish tick and variable updater now supply the retained
+current/previous phase that the authored swimming body/tail channels require.
+Spawn/motion vectors and interpolation follow the native StateVector velocity
+path, separate from displacement-derived movement queries.
+
+UV, pinned carrier, tropical selection, body-probe and fish-phase regressions
+pass. The complete client-world suite passed with 214 tests and eight ignored;
+the separate pinned pose check passed for all four fish families. The production
+client built successfully, and the user confirmed that fish look correct in the
+fresh macOS Metal client with ordinary controls and vanilla rendering.
+At the user's request, remaining verification and tests after integrating latest
+dev are skipped, and this correction is published directly to dev.
+Tropical two-sampler color composition, fractional-alpha pattern art, native
+intermediate-frame query sampling and full animation/material parity remain
+incomplete; this does not close those gates.
+
 ### Placed player skull lighting (Zeno visual acceptance)
 
 Current SkullBlockRenderer reads light at the placed skull's integer

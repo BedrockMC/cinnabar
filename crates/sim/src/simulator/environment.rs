@@ -6,6 +6,7 @@ use crate::{
 };
 
 use super::MovementEnvironment;
+use crate::fluid::liquid_contact;
 
 pub const MAX_BLOCK_SAMPLES_PER_TICK: usize = 64;
 
@@ -181,17 +182,6 @@ fn active_surface_response(
     } else {
         facts.surface_response
     }
-}
-
-/// Tests the native shrunken liquid probe against material cells, independent of surface height.
-fn liquid_contact(player: Aabb, block: [i32; 3], water: bool) -> bool {
-    let probe = crate::world::liquid_probe_bounds(player, water);
-    (0..3).all(|axis| {
-        let low = (probe.min[axis] as f32).floor();
-        let high = probe.max[axis] as f32;
-        let coordinate = block[axis] as f32;
-        low <= coordinate && coordinate <= high
-    })
 }
 
 /// Tests body contact with a block volume used by non-liquid effects.
