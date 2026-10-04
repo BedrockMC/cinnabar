@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "architecture"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "clap",
  "serde",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "clap",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "assets"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "bitflags 2.13.0",
  "lewton",
@@ -532,7 +532,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bedrock-client"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "assets",
@@ -545,7 +545,7 @@ dependencies = [
  "ctrlc",
  "fontdue",
  "image",
- "inventory 0.1.0",
+ "inventory 0.1.2",
  "json-ui",
  "launcher",
  "meshing",
@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "bytes",
@@ -1669,7 +1669,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-cxb"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "protocol",
@@ -1745,7 +1745,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-ui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1754,7 +1754,7 @@ dependencies = [
  "chunk-pipeline",
  "crossbeam-channel",
  "image",
- "inventory 0.1.0",
+ "inventory 0.1.2",
  "json-ui",
  "launcher",
  "mod-host",
@@ -1780,7 +1780,7 @@ dependencies = [
 
 [[package]]
 name = "client-world"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "bytes",
@@ -2377,7 +2377,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2433,7 +2433,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "same-file",
  "serde",
@@ -2641,14 +2641,14 @@ dependencies = [
 
 [[package]]
 name = "experience-probe"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "serde",
@@ -2663,7 +2663,7 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "wit-bindgen",
 ]
@@ -3145,7 +3145,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "mod-api",
 ]
@@ -3438,7 +3438,7 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "protocol",
@@ -3635,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -3644,7 +3644,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "image",
@@ -3658,7 +3658,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "image",
  "json-ui",
@@ -3684,7 +3684,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "protocol",
@@ -3877,7 +3877,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "bytemuck",
@@ -3931,14 +3931,14 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "wit-bindgen",
 ]
 
 [[package]]
 name = "mod-host"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "mod-api",
@@ -4591,7 +4591,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compiler"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -4740,10 +4740,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "client-world",
- "inventory 0.1.0",
+ "inventory 0.1.2",
 ]
 
 [[package]]
@@ -4896,7 +4896,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "protocol"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "aes",
  "anyhow",
@@ -5247,7 +5247,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "render"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "bevy",
@@ -5269,7 +5269,7 @@ dependencies = [
 
 [[package]]
 name = "render-api"
-version = "0.1.0"
+version = "0.1.2"
 
 [[package]]
 name = "renderdoc-sys"
@@ -5317,7 +5317,7 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "aes",
  "protocol",
@@ -5530,7 +5530,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.0"
+version = "0.1.2"
 
 [[package]]
 name = "semver"
@@ -5614,7 +5614,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -5686,7 +5686,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -6013,7 +6013,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "mod-api",
 ]
@@ -6393,7 +6393,7 @@ checksum = "214ca0b2191785cbc06209b9ca1861e048e39b5ba33574b3cedd58363d5bb5f6"
 
 [[package]]
 name = "ui"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "semantic-input",
@@ -6538,7 +6538,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "visualcoverage"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "clap",
@@ -7910,7 +7910,7 @@ dependencies = [
 
 [[package]]
 name = "world"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "hashbrown 0.16.1",
  "rayon",
