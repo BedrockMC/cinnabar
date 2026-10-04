@@ -37,6 +37,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
         {"name":"rightLeg","parent":"root","pivot":[-2,11,0]}]}]}"#.to_vec());
     let stream = player_stream(Arc::clone(&catalog), catalog);
     let native = stream
+        .authority()
         .actor_ui_pose(stream.local_player_runtime_id())
         .unwrap()
         .to_vec();
@@ -83,6 +84,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
     );
     assert_eq!(
         stream
+            .authority()
             .actor_ui_pose(stream.local_player_runtime_id())
             .unwrap(),
         native

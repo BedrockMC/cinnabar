@@ -113,7 +113,7 @@ steady head height, texture cropping, mirroring, clothing and source immutabilit
 The user accepted the faster hip pulse but reported a sliced-looking ankle seam.
 The local correction keeps the ankle inside overlapping textured foot/shin
 volumes, with a full-loop overlap regression and unchanged sole corners.
-Its rendered appearance awaits user verification.
+The user accepted its installed Windows appearance.
 Controller regressions also cover equipping/playing the left slot without
 retriggering the wheel opener, and closing-frame inventory consumption followed
 by fresh real drop/book actions.

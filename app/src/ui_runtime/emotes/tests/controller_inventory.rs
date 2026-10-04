@@ -1,8 +1,7 @@
 //! Closing-frame wheel ownership covers raw inventory consumers after the wheel.
 use super::*;
-use crate::ui_runtime::{
-    interaction::drive_world_inventory_keys, inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT,
-};
+use crate::ui_runtime::interaction::drive_world_inventory_keys;
+use client_ui::ui_runtime::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT;
 use protocol::{
     ContainerIdentity, InventoryContentEvent, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
 };
@@ -26,7 +25,9 @@ fn inventory_harness(identifier: &str) -> Harness {
         .world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
             let mut player = world.resource_mut::<PlayerRuntime>();
-            runtime.publish_player_game_mode(&mut player, protocol::PlayerGameMode::Survival);
+            player
+                .facts
+                .publish_player_game_mode(protocol::PlayerGameMode::Survival);
             runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
             let ledger = runtime.inventory_ledger_mut(&mut player);
             ledger.apply_registry(&ItemRegistryEvent { entries });
