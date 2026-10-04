@@ -7,6 +7,8 @@ A Bedrock client written in Rust (Bevy/wgpu), targeting vanilla parity with the 
 in `assets/bedrock-target.json`. A small Go core handles Microsoft sign-in and upstream
 networking.
 
+[Website](https://cinnabar.restartfu.com/) · [Discord](https://discord.gg/MeEz7BEHcM)
+
 <img width="2534" height="1446" alt="Cinnabar in game" src="https://github.com/user-attachments/assets/836cb337-3876-4b31-a97e-9cfb25227b11" />
 
 ## Download
