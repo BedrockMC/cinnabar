@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 /// Builds startup metadata without enabling developer execution in the test environment.
 fn startup() -> Start {
     Start {
+        protocol: HELPER_PROTOCOL,
         owner: Principal {
             session: "session".into(),
             bundle: "fixture".into(),
@@ -45,7 +46,7 @@ fn delayed_helper(executable: &Path) -> (Helper, mpsc::Sender<()>) {
 }
 
 /// Polls with a bounded test wait so asynchronous launch errors cannot hang the suite.
-fn completion(helper: &mut Helper) -> Result<Transaction> {
+fn completion(helper: &mut Helper) -> Result<Reply> {
     let since = Instant::now();
     loop {
         if let Some(result) = helper.poll() {
@@ -178,4 +179,59 @@ fn review_frame_serialization_stops_at_the_byte_limit() {
     assert!(write_frame(&mut written, &Large(&visits), 64).is_err());
     assert!(written.is_empty());
     assert_eq!(visits.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
+
+#[test]
+fn call_failures_name_their_kind_callback_and_bundle_with_a_bounded_clean_reason() {
+    let fuel = anyhow::Error::from(wasmtime::Trap::OutOfFuel);
+    let failure = CallFailure::of("terminal", "dispatch", &fuel);
+    assert_eq!(failure.kind, FailureKind::Fuel);
+    assert_eq!(
+        (failure.bundle.as_str(), failure.callback.as_str()),
+        ("terminal", "dispatch")
+    );
+    assert!(failure.reason.contains("fuel"), "{}", failure.reason);
+    let panic = anyhow::Error::from(wasmtime::Trap::UnreachableCodeReached);
+    assert_eq!(
+        CallFailure::of("t", "epoch", &panic).kind,
+        FailureKind::Panic
+    );
+    let other = anyhow::Error::from(wasmtime::Trap::StackOverflow);
+    assert_eq!(
+        CallFailure::of("t", "action", &other).kind,
+        FailureKind::Trap
+    );
+    let refused = anyhow::anyhow!(
+        "action not granted\u{1b}[31m\r\n{}",
+        "é".repeat(4 * MAX_FAILURE_REASON_BYTES)
+    );
+    let failure = CallFailure::of("t", "action", &refused);
+    assert_eq!(failure.kind, FailureKind::Refused);
+    assert!(failure.reason.len() <= MAX_FAILURE_REASON_BYTES);
+    assert!(failure.reason.starts_with("action not granted"));
+    assert!(
+        !failure.reason.chars().any(|c| c.is_control() && c != '\n'),
+        "{:?}",
+        failure.reason
+    );
+}
+
+#[test]
+fn helper_stderr_lines_are_cut_rate_limited_and_their_drops_counted() {
+    let long = "x".repeat(MAX_LOG_LINE_BYTES * 2);
+    let mut input = format!("{long}\nshort\n");
+    for line in 0..MAX_LOG_LINES_PER_SECOND * 2 {
+        input.push_str(&format!("line {line}\n"));
+    }
+    let (sender, lines) = mpsc::sync_channel(MAX_LOG_LINES_PER_SECOND * 4);
+    supervisor::forward_stderr(input.as_bytes(), &sender);
+    let lines: Vec<String> = lines.try_iter().collect();
+    assert_eq!(lines[0].len(), MAX_LOG_LINE_BYTES);
+    assert_eq!(lines[1], "short");
+    assert_eq!(lines.len(), MAX_LOG_LINES_PER_SECOND + 1);
+    let dropped = MAX_LOG_LINES_PER_SECOND * 2 + 2 - MAX_LOG_LINES_PER_SECOND;
+    assert_eq!(
+        lines.last().unwrap(),
+        &format!("{dropped} more helper stderr lines dropped")
+    );
 }

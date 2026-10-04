@@ -20,7 +20,22 @@ mod supervisor;
 const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
 const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT;
+/// A reply: one callback's output, or a failure, with room for the reply's own framing.
+const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 2 * MAX_FAILURE_REASON_BYTES;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The helper IPC protocol. A client and its helper ship together; a helper of another version
+/// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
+/// the helper exiting.
+const HELPER_PROTOCOL: u32 = 2;
+/// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
+/// at a char boundary.
+pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
+/// Bytes of one helper stderr line that reach the client's log; the rest of the line is dropped.
+pub const MAX_LOG_LINE_BYTES: usize = 512;
+/// Helper stderr lines per second that reach the client's log; the others are dropped and
+/// counted.
+pub const MAX_LOG_LINES_PER_SECOND: usize = 32;
 
 /// Locates the helper beside the profile-selected client executable.
 pub fn developer_executable(client: &Path) -> std::path::PathBuf {
@@ -53,6 +68,7 @@ pub fn developer_runtime_available(client: &Path) -> bool {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Start {
+    protocol: u32,
     owner: Principal,
     capabilities: Capabilities,
     epoch: u64,
@@ -87,6 +103,90 @@ impl Event {
     }
 }
 
+impl Event {
+    /// The guest export that receives this event.
+    fn callback(&self) -> &'static str {
+        match self {
+            Event::Message { .. } => "dispatch",
+            Event::Action { .. } => "action",
+            Event::Epoch => "epoch",
+        }
+    }
+}
+
+/// The helper's answer to its start and to each dispatch.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Reply {
+    /// The callback returned; its output, to publish whole.
+    Committed(Transaction),
+    /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
+    /// a fresh instance of the guest; after a failed start it exits.
+    Failed(CallFailure),
+}
+
+/// Why one callback, or the start, failed.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureKind {
+    /// The callback ran out of fuel.
+    Fuel,
+    /// The guest panicked, which a Rust guest's `unreachable` trap is.
+    Panic,
+    /// Any other trap.
+    Trap,
+    /// The host refused the callback or something it did, such as an undeclared action or too
+    /// much output.
+    Refused,
+    /// The component could not be compiled, linked or initialized.
+    Startup,
+}
+
+/// A failed callback: its bundle, the guest export it called, the kind of failure and a bounded
+/// reason with no control characters but line breaks.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CallFailure {
+    pub bundle: String,
+    pub callback: String,
+    pub kind: FailureKind,
+    pub reason: String,
+}
+
+impl CallFailure {
+    /// The failure of `bundle`'s `callback` with `error`: its error chain, which carries the
+    /// guest backtrace of a trap.
+    pub(crate) fn of(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
+        use wasmtime::Trap;
+        let kind = match error.downcast_ref::<Trap>() {
+            Some(Trap::OutOfFuel) => FailureKind::Fuel,
+            Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
+            Some(_) => FailureKind::Trap,
+            None => FailureKind::Refused,
+        };
+        Self::new(bundle, callback, kind, error)
+    }
+
+    /// A start of `bundle` that failed with `error`.
+    fn startup(bundle: &str, error: &anyhow::Error) -> Self {
+        Self::new(bundle, "init", FailureKind::Startup, error)
+    }
+
+    fn new(bundle: &str, callback: &str, kind: FailureKind, error: &anyhow::Error) -> Self {
+        let mut reason: String = format!("{error:#}")
+            .chars()
+            .filter(|c| !c.is_control() || *c == '\n')
+            .collect();
+        reason.truncate(reason.floor_char_boundary(MAX_FAILURE_REASON_BYTES));
+        Self {
+            bundle: bundle.to_owned(),
+            callback: callback.to_owned(),
+            kind,
+            reason,
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Dispatch {
@@ -98,7 +198,9 @@ pub struct Dispatch {
 pub struct Helper {
     process: supervisor::Process,
     requests: mpsc::SyncSender<Dispatch>,
-    responses: Mutex<mpsc::Receiver<Result<Transaction>>>,
+    responses: Mutex<mpsc::Receiver<Result<Reply>>>,
+    /// The helper's stderr lines, cut and rate-limited.
+    log: Mutex<mpsc::Receiver<String>>,
     pending_since: Option<Instant>,
     quarantined: bool,
 }
@@ -130,6 +232,7 @@ impl Helper {
         ensure!(bytes.len() <= MAX_COMPONENT_BYTES, "component too large");
         Self::spawn_pending(executable, move || {
             Ok(Start {
+                protocol: HELPER_PROTOCOL,
                 owner,
                 capabilities,
                 epoch,
@@ -146,11 +249,14 @@ impl Helper {
         let pending_since = Some(Instant::now());
         let (requests, receiver) = mpsc::sync_channel(1);
         let (sender, responses) = mpsc::sync_channel(1);
-        let process = supervisor::Process::start(executable.to_owned(), prepare, receiver, sender)?;
+        let (lines, log) = mpsc::sync_channel(4 * MAX_LOG_LINES_PER_SECOND);
+        let process =
+            supervisor::Process::start(executable.to_owned(), prepare, receiver, sender, lines)?;
         Ok(Self {
             process,
             requests,
             responses: Mutex::new(responses),
+            log: Mutex::new(log),
             pending_since,
             quarantined: false,
         })
@@ -169,8 +275,10 @@ impl Helper {
         Ok(())
     }
 
-    /// Polls completed output and kills a stalled compiler or guest after its deadline.
-    pub fn poll(&mut self) -> Option<Result<Transaction>> {
+    /// Polls completed output and kills a stalled compiler or guest after its deadline. A failed
+    /// callback is an `Ok` failure reply and the helper runs on; an `Err` means the helper is
+    /// gone.
+    pub fn poll(&mut self) -> Option<Result<Reply>> {
         if self.quarantined {
             return None;
         }
@@ -198,6 +306,14 @@ impl Helper {
         }
     }
 
+    /// The helper's stderr lines since the last call, for the client's log.
+    pub fn drain_log(&mut self) -> Vec<String> {
+        self.log
+            .get_mut()
+            .map(|log| log.try_iter().collect())
+            .unwrap_or_default()
+    }
+
     /// Revokes this process immediately; no automatic restart is allowed.
     fn kill(&mut self) {
         self.quarantined = true;
@@ -222,23 +338,58 @@ pub fn serve_developer() -> Result<()> {
     let mut input = std::io::stdin().lock();
     let mut output = std::io::stdout().lock();
     let startup: Start = read_frame(&mut input, MAX_STARTUP_IPC)?;
-    ensure!(
-        startup.component.len() <= MAX_COMPONENT_BYTES * 2,
-        "component too large"
-    );
-    let mut host = BundleHost::instantiate(
-        &crypto::unhex(&startup.component)?,
-        startup.owner,
-        startup.capabilities,
-        startup.epoch,
-    )?;
-    write_frame(&mut output, &host.take_transaction(), MAX_HOST_OUTPUT)?;
+    let bundle = startup.owner.bundle.clone();
+    let started = (|| {
+        ensure!(
+            startup.protocol == HELPER_PROTOCOL,
+            "the client speaks helper protocol {}, this helper {HELPER_PROTOCOL}",
+            startup.protocol
+        );
+        ensure!(
+            startup.component.len() <= MAX_COMPONENT_BYTES * 2,
+            "component too large"
+        );
+        BundleHost::instantiate(
+            &crypto::unhex(&startup.component)?,
+            startup.owner,
+            startup.capabilities,
+            startup.epoch,
+        )
+    })();
+    let mut host = match started {
+        Ok(host) => host,
+        Err(error) => {
+            let failure = CallFailure::startup(&bundle, &error);
+            write_frame(&mut output, &Reply::Failed(failure), MAX_REPLY_IPC)?;
+            return Err(error);
+        }
+    };
+    let init = Reply::Committed(host.take_transaction());
+    answer(&mut output, init, &bundle, "init")?;
     loop {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
-        request.event.check()?;
-        let result = host.dispatch(&request.event, request.epoch)?;
-        write_frame(&mut output, &result, MAX_HOST_OUTPUT)?;
+        let callback = request.event.callback();
+        let reply = match host.dispatch(&request.event, request.epoch) {
+            Ok(transaction) => Reply::Committed(transaction),
+            Err(error) => Reply::Failed(CallFailure::of(&bundle, callback, &error)),
+        };
+        answer(&mut output, reply, &bundle, callback)?;
     }
+}
+
+/// Writes `reply`, or a failure in its place when it does not fit a reply frame.
+fn answer(output: &mut impl Write, reply: Reply, bundle: &str, callback: &str) -> Result<()> {
+    let bytes = match serialize_frame(&reply, MAX_REPLY_IPC) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            let failure = CallFailure::new(bundle, callback, FailureKind::Refused, &error);
+            serialize_frame(&Reply::Failed(failure), MAX_REPLY_IPC)?
+        }
+    };
+    output.write_all(&(bytes.len() as u32).to_le_bytes())?;
+    output.write_all(&bytes)?;
+    output.flush()?;
+    Ok(())
 }
 
 /// Checks an IPC length before allocating or deserializing its payload.

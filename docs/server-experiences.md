@@ -178,7 +178,26 @@ or hot update. Key changes require user approval. Updates take effect on rejoin.
 
 The `disabled` control tag is reserved. The client does not need to send it to
 revoke authority. No fallback relies on receiving a final message from a crashed
-or disconnected client. There is no auto-restart after a trap or protocol failure.
+or disconnected client. A protocol failure or a helper that dies ends the session's
+runtime with no restart, as before.
+
+A failed client part callback does not. The developer helper (`mod-host server-helper`,
+helper IPC protocol 2, which the client and its helper share) answers a callback that
+traps, runs out of fuel, panics or breaks a host rule with a failure reply naming the
+bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
+`panic`, `trap`, `refused` or `startup`) and a reason of at most
+`MAX_FAILURE_REASON_BYTES`: the error chain with the guest backtrace, control characters
+removed. The callback publishes nothing and the helper runs on a fresh instance of the
+component, so the guest's memory starts over; the helper says so on its stderr. The
+client logs each failure at WARN and counts it as a strike; `MAX_GUEST_STRIKES` within
+`GUEST_STRIKE_WINDOW_MS` (`server_experience::policy`, mirroring the server adapter's
+`strikeLimit` and `strikeWindow`, which a test checks) stop that client part, as does a
+failed start such as a missing import. A stopped part's helper, contributions and later
+messages are dropped, the trusted status names it ("Cinnabar: <bundle> client part
+stopped after repeated errors. F9: disable server code"), and the session and the other
+parts go on. The helper's stderr reaches the client's log, each line cut to
+`MAX_LOG_LINE_BYTES` and at most `MAX_LOG_LINES_PER_SECOND` lines a second, the rest
+counted.
 
 Trust lives in `server-experiences.json` alongside the existing menu settings.
 Fields are `disabled`, `media_muted`, `media_autoplay`, `pins`. A pin contains

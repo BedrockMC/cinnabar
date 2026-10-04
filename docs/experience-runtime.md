@@ -253,7 +253,9 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 The server half of client parts (`tools/localserver/extension`) offers each Experience's client
 part, a `.cxb` that `cinnabar-cxb build --experience` makes from the Experience's
 `experience.toml`, over PR #34's unchanged handshake and typed channels
-([server-experiences.md](server-experiences.md)).
+([server-experiences.md](server-experiences.md)). On the client a failed client part callback
+drops only its own output and the helper restarts the guest; repeated failures stop that part,
+as the server stops a failing Experience (see server-experiences.md on helper failures).
 
 ```text
 bedrock-local-server … -extension-key <seed file> -extension-audience <host:port> -extension-cxb <dir>

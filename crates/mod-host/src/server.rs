@@ -219,6 +219,9 @@ impl Exports {
 pub struct BundleHost {
     store: Store<State>,
     exports: Exports,
+    /// The linked component, kept to start a fresh instance after a failed callback.
+    linker: Linker<State>,
+    component: Component,
     active: bool,
 }
 
@@ -274,6 +277,24 @@ impl BundleHost {
         let component = Component::new(&engine, source)?;
         let mut linker = Linker::new(&engine);
         ServerBundle::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        let (store, exports) = Self::start(&linker, &component, owner, capabilities, epoch)?;
+        Ok(Self {
+            store,
+            exports,
+            linker,
+            component,
+            active: true,
+        })
+    }
+
+    /// A fresh store and instance of `component` that has run `init`, its output staged.
+    fn start(
+        linker: &Linker<State>,
+        component: &Component,
+        owner: Principal,
+        capabilities: Capabilities,
+        epoch: u64,
+    ) -> Result<(Store<State>, Exports)> {
         let mut state = State {
             limits: StoreLimitsBuilder::new()
                 .memory_size(capabilities.scope.memory_bytes as usize)
@@ -292,23 +313,23 @@ impl BundleHost {
             calls: 0,
         };
         state.begin_output()?;
-        let mut store = Store::new(&engine, state);
+        let mut store = Store::new(linker.engine(), state);
         store.limiter(|state| &mut state.limits);
         store.set_fuel(CALLBACK_FUEL)?;
-        let instance = linker.instantiate(&mut store, &component)?;
+        let instance = linker.instantiate(&mut store, component)?;
         let (init, exports) = Exports::find(&mut store, &instance)?;
         let init = init.typed::<(), ()>(&store)?;
         init.call(&mut store, ())?;
         init.post_return(&mut store)?;
-        Ok(Self {
-            store,
-            exports,
-            active: true,
-        })
+        Ok((store, exports))
     }
 
-    /// Runs one fuel-bounded callback; a trap discards all output and quarantines this instance.
-    /// A 1.0 component skips `action` and `epoch` and returns an empty transaction.
+    /// Runs one fuel-bounded callback. A failed callback (a trap, its fuel running out, or a
+    /// host rule it broke) discards all its output and leaves an instance that may be
+    /// inconsistent, so it is replaced by a fresh one, whose guest memory starts over; the
+    /// fresh instance's `init` output is discarded too, since the first one's still stands. Only
+    /// a failed restart quarantines the bundle. A 1.0 component skips `action` and `epoch` and
+    /// returns an empty transaction.
     pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<Transaction> {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
@@ -324,11 +345,33 @@ impl BundleHost {
         state.begin_output()?;
         self.store.set_fuel(CALLBACK_FUEL)?;
         if let Err(error) = self.call(event) {
-            self.active = false;
             self.store.data_mut().commands.clear();
+            self.restart();
             return Err(error);
         }
         Ok(self.take_transaction())
+    }
+
+    /// Replaces the instance with a fresh one after a failed callback, or quarantines the bundle
+    /// when that fails. Either way it says so on stderr, which the client logs.
+    fn restart(&mut self) {
+        let state = self.store.data();
+        let (owner, capabilities, epoch) =
+            (state.owner.clone(), state.capabilities.clone(), state.epoch);
+        let bundle = owner.bundle.clone();
+        match Self::start(&self.linker, &self.component, owner, capabilities, epoch) {
+            Ok((store, exports)) => {
+                (self.store, self.exports) = (store, exports);
+                self.store.data_mut().commands.clear();
+                eprintln!(
+                    "bundle {bundle} restarted after a failed callback; its guest state is lost"
+                );
+            }
+            Err(error) => {
+                self.active = false;
+                eprintln!("bundle {bundle} quarantined: its restart failed: {error:#}");
+            }
+        }
     }
 
     fn call(&mut self, event: &Event) -> Result<()> {

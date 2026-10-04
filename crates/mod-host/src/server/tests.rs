@@ -311,3 +311,70 @@ fn terminal_sized_list_record_dispatches_within_callback_fuel() {
         other => panic!("{other:?}"),
     }
 }
+
+/// A launched terminal guest with the grants its callbacks use.
+fn terminal() -> BundleHost {
+    let mut capabilities = screen_capabilities(&[Permission::ModalUi]);
+    capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    let mut host = BundleHost::launch(&terminal_component(), owner(), capabilities, 1).unwrap();
+    host.take_transaction();
+    host
+}
+
+/// An empty record on `channel`, which selects the terminal guest's behavior.
+fn on(channel: &str) -> Event {
+    Event::Message {
+        channel: channel.into(),
+        record: b"[]".to_vec(),
+    }
+}
+
+/// The count the terminal guest binds for a `terminal.count` call.
+fn count(host: &mut BundleHost) -> i64 {
+    match host
+        .dispatch(&on("terminal.count"), 1)
+        .unwrap()
+        .commands
+        .as_slice()
+    {
+        [Command::Collection { name, rows }] if name == "count" => match rows[0]["#count"] {
+            screen::Value::Integer(count) => count,
+            ref other => panic!("{other:?}"),
+        },
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A trap fails only its own call, publishing nothing: the next call runs on a fresh instance,
+/// whose guest memory starts over.
+#[test]
+fn a_trapped_dispatch_fails_alone_and_the_next_runs_on_a_fresh_instance() {
+    let mut host = terminal();
+    assert_eq!((count(&mut host), count(&mut host)), (1, 2));
+    let error = host.dispatch(&on("terminal.panic"), 1).unwrap_err();
+    assert!(
+        matches!(
+            error.downcast_ref::<wasmtime::Trap>(),
+            Some(wasmtime::Trap::UnreachableCodeReached)
+        ),
+        "{error:?}"
+    );
+    assert!(host.take_transaction().commands.is_empty());
+    assert_eq!(count(&mut host), 1);
+}
+
+/// Running out of fuel is a trap like any other: reported, and survived.
+#[test]
+fn fuel_exhaustion_fails_its_call_and_the_guest_restarts() {
+    let mut host = terminal();
+    assert_eq!(count(&mut host), 1);
+    let error = host.dispatch(&on("terminal.spin"), 1).unwrap_err();
+    assert!(
+        matches!(
+            error.downcast_ref::<wasmtime::Trap>(),
+            Some(wasmtime::Trap::OutOfFuel)
+        ),
+        "{error:?}"
+    );
+    assert_eq!(count(&mut host), 1);
+}

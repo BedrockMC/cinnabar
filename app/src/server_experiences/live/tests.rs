@@ -1,4 +1,5 @@
 use super::*;
+use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::{
     manifest::{Manifest, Offer, PackageOffer, Permission, Scope},
     negotiation::{Limits, VerifiedOffer, Wire},
@@ -12,6 +13,10 @@ const SCREEN: &str = "ui/screen.json";
 
 struct FakeWorker {
     response: Option<Transaction>,
+    /// A failure reply that the next poll delivers before any response.
+    failure: Option<CallFailure>,
+    /// Makes each dispatch fail its callback instead of completing it.
+    fail: bool,
     dispatched: Vec<Event>,
     owner: Principal,
 }
@@ -21,16 +26,34 @@ impl Worker for FakeWorker {
     fn spawn(_: &Path, _: Vec<u8>, owner: Principal, _: Capabilities, _: u64) -> Result<Self> {
         Ok(Self {
             response: None,
+            failure: None,
+            fail: false,
             dispatched: Vec::new(),
             owner,
         })
     }
-    /// Delivers only explicitly completed transactions.
-    fn poll(&mut self) -> Option<Result<Transaction>> {
-        self.response.take().map(Ok)
+    /// Delivers only explicitly completed transactions and failures.
+    fn poll(&mut self) -> Option<Result<Reply>> {
+        if let Some(failure) = self.failure.take() {
+            return Some(Ok(Reply::Failed(failure)));
+        }
+        self.response
+            .take()
+            .map(|transaction| Ok(Reply::Committed(transaction)))
     }
-    /// Records delivered events and completes them on the next poll, in the dispatch's epoch.
+    /// Records delivered events and completes them on the next poll, in the dispatch's epoch,
+    /// or fails them when the test asks.
     fn dispatch(&mut self, request: Dispatch) -> Result<()> {
+        if self.fail {
+            self.failure = Some(CallFailure {
+                bundle: self.owner.bundle.clone(),
+                callback: "dispatch".into(),
+                kind: FailureKind::Panic,
+                reason: "wasm trap: wasm `unreachable` instruction executed".into(),
+            });
+            self.dispatched.push(request.event);
+            return Ok(());
+        }
         self.dispatched.push(request.event);
         self.response = Some(Transaction {
             owner: self.owner.clone(),
@@ -128,6 +151,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     opened: 0,
                     events: VecDeque::new(),
                     epoch: 1,
+                    strikes: VecDeque::new(),
+                    stopped: None,
                 },
             )
         })
@@ -554,5 +579,110 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
             channel: "bundle0.events0".into(),
             record: serde_json::to_vec(&large_list()).unwrap(),
         }]
+    );
+}
+
+/// Starts one bundle, ready, whose helper fails every callback from now on.
+fn failing() -> Live<FakeWorker> {
+    let mut live = fixture(1);
+    complete(&mut live, "bundle0");
+    live.poll(1, 0).unwrap();
+    assert!(live.ready);
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .fail = true;
+    live
+}
+
+/// Delivers one message to `bundle0` at `now_ms` and polls until its reply is handled.
+fn fail_once(live: &mut Live<FakeWorker>, sequence: u64, now_ms: u64) {
+    receive(live, "bundle0", sequence);
+    live.poll(1, now_ms).unwrap();
+    live.poll(1, now_ms).unwrap();
+}
+
+/// A failed callback is one dropped transaction: the helper is free for the next event, the
+/// part keeps running and the session stays up until the strike limit.
+#[test]
+fn a_failed_callback_drops_its_transaction_and_frees_the_helper() {
+    let mut live = failing();
+    for strike in 1..MAX_GUEST_STRIKES {
+        let now = strike as u64 * CALLBACK_INTERVAL_MS;
+        fail_once(&mut live, strike as u64, now);
+        let instance = &live.instances["bundle0"];
+        assert!(!instance.busy, "strike {strike}");
+        assert!(instance.helper.is_some(), "strike {strike}");
+        assert_eq!(instance.helper.as_ref().unwrap().dispatched.len(), strike);
+    }
+    assert_eq!(
+        live.text(),
+        "Cinnabar: server code running (developer helper). F9: disable"
+    );
+}
+
+/// `MAX_GUEST_STRIKES` failures within `GUEST_STRIKE_WINDOW_MS` stop the client part, which the
+/// trusted status names; the session goes on.
+#[test]
+fn repeated_failures_stop_the_client_part_and_say_so() {
+    let mut live = failing();
+    for strike in 1..=MAX_GUEST_STRIKES {
+        fail_once(
+            &mut live,
+            strike as u64,
+            strike as u64 * CALLBACK_INTERVAL_MS,
+        );
+    }
+    let instance = &live.instances["bundle0"];
+    assert!(instance.helper.is_none() && !instance.busy);
+    assert_eq!(
+        live.text(),
+        "Cinnabar: bundle0 client part stopped after repeated errors. F9: disable server code"
+    );
+    // Its later messages are dropped, and polling goes on.
+    receive(&mut live, "bundle0", MAX_GUEST_STRIKES as u64 + 1);
+    live.poll(1, 10 * CALLBACK_INTERVAL_MS).unwrap();
+}
+
+/// Failures farther apart than the window never add up to the limit.
+#[test]
+fn failures_outside_the_strike_window_do_not_stop_the_part() {
+    let mut live = failing();
+    for strike in 1..=2 * MAX_GUEST_STRIKES {
+        fail_once(
+            &mut live,
+            strike as u64,
+            strike as u64 * GUEST_STRIKE_WINDOW_MS,
+        );
+    }
+    assert!(live.instances["bundle0"].helper.is_some());
+}
+
+/// A part that fails to start is stopped at once, without waiting for strikes.
+#[test]
+fn a_failed_start_stops_the_part() {
+    let mut live = fixture(1);
+    let helper = live
+        .instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap();
+    helper.failure = Some(CallFailure {
+        bundle: "bundle0".into(),
+        callback: "init".into(),
+        kind: FailureKind::Startup,
+        reason: "import not found".into(),
+    });
+    live.poll(1, 0).unwrap();
+    assert!(live.ready);
+    assert!(live.instances["bundle0"].helper.is_none());
+    assert_eq!(
+        live.text(),
+        "Cinnabar: bundle0 client part stopped because it failed to start. F9: disable server code"
     );
 }

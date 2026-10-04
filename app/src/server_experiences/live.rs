@@ -2,7 +2,7 @@
 
 use super::worker::Worker;
 use anyhow::{Result, ensure};
-use mod_host::helper::{Dispatch, Event, Helper};
+use mod_host::helper::{CallFailure, Dispatch, Event, FailureKind, Helper, Reply};
 use server_experience::{
     bundle::VerifiedBundle,
     manifest::{Manifest, implemented_permissions},
@@ -36,7 +36,44 @@ struct Instance<H> {
     events: VecDeque<Event>,
     /// The world epoch of its pending callback, which that callback's transaction carries.
     epoch: u64,
+    /// When its recent callbacks failed, in milliseconds, oldest first.
+    strikes: VecDeque<u64>,
+    /// Why the client part was stopped, which the trusted status says; it runs no more.
+    stopped: Option<&'static str>,
 }
+
+impl<H> Instance<H> {
+    /// Counts the failed callback at `now_ms` and reports whether `MAX_GUEST_STRIKES` failed
+    /// within `GUEST_STRIKE_WINDOW_MS`, as the server adapter counts its strikes.
+    fn strike(&mut self, now_ms: u64) -> bool {
+        self.strikes.push_back(now_ms);
+        while self
+            .strikes
+            .front()
+            .is_some_and(|&at| now_ms.saturating_sub(at) >= GUEST_STRIKE_WINDOW_MS)
+        {
+            self.strikes.pop_front();
+        }
+        self.strikes.len() >= MAX_GUEST_STRIKES
+    }
+
+    /// Ends the client part for `why`: its helper, its contributions and its waiting events go,
+    /// and so does its budget.
+    fn stop(&mut self, budget: &mut Budget, why: &'static str) {
+        self.helper = None;
+        self.component = None;
+        self.busy = false;
+        self.events.clear();
+        self.contributions = Contributions::default();
+        budget.quarantine(&self.owner);
+        self.stopped = Some(why);
+    }
+}
+
+/// What the trusted status says of a client part stopped after `MAX_GUEST_STRIKES` failures.
+const STOPPED_AFTER_ERRORS: &str = "after repeated errors";
+/// What the trusted status says of a client part that failed to start.
+const STOPPED_AT_START: &str = "because it failed to start";
 
 pub(super) struct Live<H = Helper> {
     grant: Grant,
@@ -103,6 +140,8 @@ impl<H: Worker> Live<H> {
                     opened: 0,
                     events: VecDeque::new(),
                     epoch,
+                    strikes: VecDeque::new(),
+                    stopped: None,
                 },
             );
         }
@@ -141,12 +180,20 @@ impl<H: Worker> Live<H> {
             let Some(helper) = &mut instance.helper else {
                 continue;
             };
-            let Some(result) = helper.poll() else {
+            let result = helper.poll();
+            for line in helper.drain_log() {
+                bevy::log::warn!(bundle = %instance.owner.bundle, "client part helper: {line}");
+            }
+            let Some(result) = result else {
                 continue;
             };
             instance.busy = false;
             let transaction = match result {
-                Ok(transaction) => transaction,
+                Ok(Reply::Committed(transaction)) => transaction,
+                Ok(Reply::Failed(failure)) => {
+                    failed(instance, &mut self.budget, &failure, now_ms);
+                    continue;
+                }
                 Err(error) => {
                     self.budget.quarantine(&instance.owner);
                     instance.contributions = Contributions::default();
@@ -233,6 +280,10 @@ impl<H: Worker> Live<H> {
                     .instances
                     .get_mut(&message.bundle)
                     .ok_or_else(|| anyhow::anyhow!("unknown bundle"))?;
+                if instance.stopped.is_some() {
+                    self.ingress.pop(u64::MAX, epoch);
+                    continue;
+                }
                 if instance.busy || !self.budget.can_dispatch(&instance.owner) {
                     break;
                 }
@@ -314,9 +365,22 @@ impl<H: Worker> Live<H> {
         })
     }
 
-    /// Uses only host-owned status text in the persistent execution indicator.
+    /// Uses only host-owned status text in the persistent execution indicator; a stopped client
+    /// part is named by its bundle id, which the signed manifest bounds.
     pub(super) fn text(&self) -> String {
-        "Cinnabar: server code running (developer helper). F9: disable".into()
+        let stopped: Vec<String> = self
+            .instances
+            .iter()
+            .filter_map(|(id, instance)| {
+                instance
+                    .stopped
+                    .map(|why| format!("Cinnabar: {id} client part stopped {why}."))
+            })
+            .collect();
+        if stopped.is_empty() {
+            return "Cinnabar: server code running (developer helper). F9: disable".into();
+        }
+        format!("{} F9: disable server code", stopped.join(" "))
     }
 
     /// Limits remote text separately from the trusted execution indicator.
@@ -337,6 +401,27 @@ impl<H: Worker> Live<H> {
             labels.chars().take(256).collect::<String>()
         )
     }
+}
+
+/// Drops the failed callback's transaction and logs why; a failed start, or the strike that
+/// reaches the limit, stops the client part.
+fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFailure, now_ms: u64) {
+    bevy::log::warn!(
+        bundle = %failure.bundle,
+        callback = %failure.callback,
+        kind = ?failure.kind,
+        reason = %failure.reason,
+        "client part callback failed; its output was dropped"
+    );
+    let why = if failure.kind == FailureKind::Startup {
+        STOPPED_AT_START
+    } else if instance.strike(now_ms) {
+        STOPPED_AFTER_ERRORS
+    } else {
+        return;
+    };
+    bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");
+    instance.stop(budget, why);
 }
 
 /// What the guest of `manifest` may do in this session: the offer's scope narrowed to the
