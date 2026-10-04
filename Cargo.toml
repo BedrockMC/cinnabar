@@ -1,10 +1,14 @@
 [workspace]
 members = [
     "app",
+    "crates/acceptance",
+    "crates/diagnostics",
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
     "crates/client-world",
+    "crates/gameplay",
+    "crates/client-session",
     "crates/chunk-pipeline",
     "crates/pack-compiler",
     "crates/experience-sdk",
@@ -25,6 +29,7 @@ members = [
     "crates/inventory",
     "crates/launcher",
     "crates/client-ui",
+    "crates/client-presentation",
     "crates/player-state",
     "crates/sim",
     "crates/ui",

@@ -88,7 +88,7 @@ impl ActorStatus {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }
         self.hurt_time = self.hurt_time.saturating_sub(1);
-        // Native Actor::baseTick (26.50 RVA 01c0f8c0) decrements only positive
+        // Native Actor::baseTick decrements only positive
         // shake values. Zero and well-formed negative server values stay unchanged.
         if self.shake_time > 0 {
             self.shake_time -= 1;
@@ -166,7 +166,7 @@ impl ActorStore {
                 }
             }
             ActorStatusKind::SpawnAlive => actor.status.revive(),
-            // Actor::handleEntityEvent (26.50 RVA 01c1cea0), case 0x27.
+            // Actor::handleEntityEvent, case 0x27.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
             // Particle-only kinds have no retained actor state.
             _ => {}

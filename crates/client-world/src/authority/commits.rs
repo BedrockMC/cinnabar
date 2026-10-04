@@ -208,8 +208,8 @@ impl WorldAuthority {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
-                // Native ClientNetworkHandler::handle(UpdatePlayerGameType), 26.30
-                // RVA 03542aa0: only the matching local unique ID changes its UI mode.
+                // A game-mode update changes the UI only when its unique ID matches
+                // the local player.
                 let event = match event {
                     UiEvent::PlayerGameMode {
                         actor_unique_id,

@@ -523,6 +523,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             source: 1,
             override_previous: false,
             geometry: None,
+            anim_time_update: None,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {

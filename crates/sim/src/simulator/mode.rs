@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Aabb, CollisionWorld, PLAYER_HEIGHT, PLAYER_WIDTH, Vec3, WorldQueryError};
 
-/// Current Player constructor's SneakingHeightChangeVersion value (RVA 0x1eba20).
+/// Current Player constructor's SneakingHeightChangeVersion value.
 const SNEAK_HEIGHT: f64 = 1.49_f32 as f64;
 /// Native horizontal pose uses collision width as height (RVA 0x02c33550).
 const LOW_POSE_HEIGHT: f64 = PLAYER_WIDTH;

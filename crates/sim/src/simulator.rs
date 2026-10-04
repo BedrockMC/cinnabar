@@ -50,7 +50,7 @@ const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 /// this and each subsequent tick decrements it; prediction replays rebuild
 /// initiations against the same gate, so it is part of the public contract.
 pub const JUMP_DELAY_TICKS: u8 = 10;
-// Lens FinalizeMove 0x6dcbfc0 reads 0x14ffab690: the native float epsilon.
+// FinalizeMove uses the native float epsilon.
 const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
 /// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
 const CLIMB_SPEED: f64 = 0.2;
@@ -387,7 +387,7 @@ impl Simulator {
                     }
                 }
                 crate::SurfaceResponse::Bed if bounces => {
-                    // Current BedBlock restitution (1.26.50.26 RVA 0x2e27ce0).
+                    // Current BedBlock restitution.
                     f64::from(-0.75_f32 * pre_collision_velocity.y as f32)
                 }
                 _ => 0.0,
@@ -493,7 +493,6 @@ fn water_travel_speed(
 ) -> f64 {
     let base = DEFAULT_AIR_SPEED as f32 * horizontal_speed_factor as f32;
     let ground = effective_movement_speed(input);
-    // Lens 0xdc3eeb0; R:w/WaterTravelSystem.cpp:73.
     f64::from(base + ((ground - base) * depth_strider as f32) / f32::from(DEPTH_STRIDER_MAX_LEVEL))
 }
 
