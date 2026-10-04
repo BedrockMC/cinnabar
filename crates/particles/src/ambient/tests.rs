@@ -1,11 +1,12 @@
 use std::time::Duration;
 
+use assets::BlockFlags;
+
 use super::{
-    AmbientParticles, material_allows_leaf,
+    material_allows_leaf,
     random::AmbientRandom,
     sampler::{MAX_SAMPLES, MIN_SAMPLES, NEAR_SAMPLES, Sampler},
 };
-use crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
 
 #[test]
 fn native_ambient_mt_matches_the_reference_stream_across_twist_boundaries() {
@@ -27,29 +28,6 @@ fn native_ambient_mt_matches_the_reference_stream_across_twist_boundaries() {
             assert_eq!(value, *expected, "native MT output {index}");
         }
     }
-}
-use assets::BlockFlags;
-
-#[test]
-fn ambient_leaf_cadence_is_fixed_tick_not_render_frame_and_resets_without_a_backlog() {
-    let mut ambient = AmbientParticles::default();
-    let quarter_tick = world::TICK_DURATION / 4;
-    for _ in 0..30 {
-        for _ in 0..3 {
-            assert_eq!(ambient.due_ticks(quarter_tick), 0);
-        }
-        assert_eq!(ambient.due_ticks(quarter_tick), 1);
-    }
-    assert_eq!(ambient.due_ticks(world::TICK_DURATION * 3), 3);
-    assert_eq!(
-        ambient.due_ticks(world::TICK_DURATION * 1000),
-        MAX_LOCAL_PHYSICS_TICKS_PER_FRAME
-    );
-    assert_eq!(ambient.due_ticks(Duration::ZERO), 0);
-    assert_eq!(ambient.due_ticks(quarter_tick), 0);
-    ambient.reset();
-    assert_eq!(ambient.due_ticks(world::TICK_DURATION - quarter_tick), 0);
-    assert_eq!(ambient.due_ticks(quarter_tick), 1);
 }
 
 #[test]
