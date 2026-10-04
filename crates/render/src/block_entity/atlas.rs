@@ -237,6 +237,8 @@ struct CellPool {
     keys: Vec<Option<u64>>,
     last_used: Vec<u64>,
     clock: u64,
+    /// The first clock value of the current frame; slots used since then are never evicted.
+    frame_start: u64,
     revision: u64,
 }
 
@@ -252,12 +254,14 @@ impl CellPool {
             keys: vec![None; count],
             last_used: vec![0; count],
             clock: 0,
+            frame_start: 0,
             revision: 0,
         }
     }
 
     /// The slot holding `key`, rasterizing `make` (a cell-sized RGBA8 canvas) into the least
-    /// recently used slot on a miss. `None` when the canvas has the wrong size.
+    /// recently used slot on a miss. `None` when the canvas has the wrong size, or when every
+    /// slot already serves this frame: evicting one would repaint a rect already submitted.
     fn slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
         self.clock += 1;
         if let Some(slot) = self.keys.iter().position(|entry| *entry == Some(key)) {
@@ -273,7 +277,11 @@ impl CellPool {
             .keys
             .iter()
             .position(Option::is_none)
-            .or_else(|| (0..self.keys.len()).min_by_key(|slot| self.last_used[*slot]))?;
+            .or_else(|| {
+                (0..self.keys.len())
+                    .filter(|slot| self.last_used[*slot] < self.frame_start)
+                    .min_by_key(|slot| self.last_used[*slot])
+            })?;
         let column = slot % self.columns;
         let row = slot / self.columns;
         for line in 0..cell_height {
@@ -302,6 +310,13 @@ impl DynamicCells {
         Self {
             text: CellPool::new(atlas_width, TEXT_CELL, TEXT_COLUMNS, TEXT_ROWS),
             maps: CellPool::new(atlas_width, MAP_CELL, MAP_COLUMNS, MAP_ROWS),
+        }
+    }
+
+    /// Ends the frame whose rects were just submitted; their slots become evictable again.
+    pub fn begin_frame(&mut self) {
+        for pool in [&mut self.text, &mut self.maps] {
+            pool.frame_start = pool.clock + 1;
         }
     }
 
@@ -368,11 +383,32 @@ mod tests {
         for key in 2..=TEXT_SLOT_COUNT as u64 {
             text.text_slot(key, || canvas(key as u8)).unwrap();
         }
-        // Key 1 was touched first and is now the oldest; a new key takes its slot.
+        // Key 1 was touched first and is now the oldest; next frame a new key takes its slot.
+        text.begin_frame();
         let replaced = text.text_slot(1_000, || canvas(9)).unwrap();
         assert_eq!(replaced, first);
         assert_eq!(text.pixels()[0], 9);
         assert!(text.text_slot(2_000, || vec![0; 3]).is_none());
+    }
+
+    /// More distinct texts than slots in one frame must not repaint rects already handed out.
+    #[test]
+    fn a_full_frame_keeps_its_slots_instead_of_thrashing() {
+        let mut text = DynamicCells::new(1024);
+        for key in 0..TEXT_SLOT_COUNT as u64 {
+            text.text_slot(key, || canvas(1)).unwrap();
+        }
+        let revision = text.revision();
+        for key in TEXT_SLOT_COUNT as u64..2 * TEXT_SLOT_COUNT as u64 {
+            assert!(text.text_slot(key, || canvas(2)).is_none());
+        }
+        assert_eq!(text.revision(), revision);
+        text.begin_frame();
+        for key in 0..TEXT_SLOT_COUNT as u64 {
+            text.text_slot(key, || panic!("a hit must not rasterize"));
+        }
+        assert!(text.text_slot(TEXT_SLOT_COUNT as u64, || canvas(2)).is_none());
+        assert_eq!(text.revision(), revision);
     }
 
     #[test]
