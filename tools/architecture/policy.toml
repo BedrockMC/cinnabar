@@ -27,10 +27,6 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 # Existing oversized files may only shrink. New files and files below their
 # category limit remain governed by the strict limits above.
 [[line_baselines]]
-path = "app/tests/assets.rs"
-max = 1381
-
-[[line_baselines]]
 path = "app/src/tests/finish.rs"
 max = 1232
 
