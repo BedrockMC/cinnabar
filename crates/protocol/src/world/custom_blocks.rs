@@ -46,7 +46,7 @@ pub struct CustomBox {
     pub max: [f32; 3],
 }
 
-/// The render-relevant parts of a custom block definition.
+/// State identities and visual components of a custom block definition.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomBlockVisuals {
     pub base: CustomVisualComponents,
@@ -54,6 +54,8 @@ pub struct CustomBlockVisuals {
     pub permutations: Box<[CustomPermutation]>,
     /// Block states in definition order, properties first, then trait states.
     pub state_axes: Box<[CustomStateAxis]>,
+    /// A declared state could not be represented by the named axes.
+    pub state_identity_incomplete: bool,
 }
 
 /// Visual components present in one component set; `None` means absent.
@@ -114,12 +116,12 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
-    /// Every combination of the named state axes (last axis varies fastest) with
-    /// its network block hash, for sessions whose block ids are hashes.
+    /// Canonical named-state combinations, with the last axis varying fastest.
+    /// Incomplete definitions have no usable state identities.
     #[must_use]
     pub fn hashed_states(&self) -> Vec<CustomHashedState> {
         let axes = &self.visual.state_axes;
-        if axes.iter().any(|axis| axis.values.is_empty()) {
+        if self.visual.state_identity_incomplete || axes.iter().any(|axis| axis.values.is_empty()) {
             return Vec::new();
         }
         let total = axes.iter().fold(1_u64, |total, axis| {
@@ -142,7 +144,12 @@ impl CustomBlock {
                     .map(|(&pick, axis)| axis.values[pick].clone())
                     .collect();
                 CustomHashedState {
-                    hash: network_block_hash(&self.name, axes, &values),
+                    hash: block_state_network_hash(
+                        &self.name,
+                        axes.iter()
+                            .map(|axis| axis.name.as_ref())
+                            .zip(values.iter()),
+                    ),
                     values,
                 }
             })
@@ -166,12 +173,12 @@ pub fn block_name_sort_key(name: &str) -> u64 {
 
 /// FNV-1a 32 of the little-endian NBT `{name, states}` with state keys sorted:
 /// the id a hashed-palette server sends for a block state.
-fn network_block_hash(name: &str, axes: &[CustomStateAxis], values: &[CustomStateValue]) -> u32 {
-    let mut states: Vec<(&str, &CustomStateValue)> = axes
-        .iter()
-        .map(|axis| axis.name.as_ref())
-        .zip(values.iter())
-        .collect();
+#[must_use]
+pub fn block_state_network_hash<'a>(
+    name: &str,
+    states: impl IntoIterator<Item = (&'a str, &'a CustomStateValue)>,
+) -> u32 {
+    let mut states: Vec<_> = states.into_iter().collect();
     states.sort_by(|left, right| left.0.cmp(right.0));
     let mut data = vec![10, 0, 0];
     let push_string = |data: &mut Vec<u8>, text: &str| {
@@ -294,15 +301,19 @@ struct Definition {
 fn parse_definition(root: &Nbt) -> Option<Definition> {
     let mut states = 1_u64;
     let mut state_axes = Vec::new();
+    let mut state_identity_incomplete = false;
     for property in root.list("properties") {
         let values = property.list("enum");
         states = states.checked_mul(values.len().max(1) as u64)?;
         if let Some(Nbt::String(name)) = property.field("name") {
-            let values = values.iter().filter_map(state_value).collect();
+            let parsed_values = values.iter().filter_map(state_value).collect::<Vec<_>>();
+            state_identity_incomplete |= values.is_empty() || parsed_values.len() != values.len();
             state_axes.push(CustomStateAxis {
                 name: name.as_str().into(),
-                values,
+                values: parsed_values.into_boxed_slice(),
             });
+        } else {
+            state_identity_incomplete = true;
         }
     }
     for name in root.list("traits").iter().flat_map(|trait_| {
@@ -328,6 +339,8 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                     })
                     .collect(),
             });
+        } else {
+            state_identity_incomplete = true;
         }
     }
     if states > MAX_STATES_PER_BLOCK {
@@ -380,6 +393,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             base: visual_components(components),
             permutations,
             state_axes: state_axes.into_boxed_slice(),
+            state_identity_incomplete,
         },
     })
 }
@@ -617,6 +631,74 @@ mod tests {
         let mut bytes = vec![tag];
         bytes.extend(string(name));
         bytes
+    }
+
+    #[test]
+    fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
+        for with_named_property in [false, true] {
+            let mut nbt = named(10, "");
+            nbt.extend(named(9, "properties"));
+            nbt.extend([10, if with_named_property { 4 } else { 2 }]);
+            if with_named_property {
+                nbt.extend(named(8, "name"));
+                nbt.extend(string("example:variant"));
+                nbt.extend(named(9, "enum"));
+                nbt.extend([8, 2]);
+                nbt.extend(string("only"));
+                nbt.push(0);
+            }
+            nbt.extend(named(9, "enum"));
+            nbt.extend([8, 2]);
+            nbt.extend(string("unnamed"));
+            nbt.extend([0, 0]);
+            let blocks =
+                super::CustomBlocks::from_definitions([("example:incomplete", nbt.as_slice())]);
+            assert_eq!(blocks.blocks.len(), 1);
+            assert_eq!(blocks.skipped, 0);
+            let block = &blocks.blocks[0];
+            assert_eq!(block.state_count, 1);
+            assert_eq!(
+                block.visual.state_axes.len(),
+                usize::from(with_named_property)
+            );
+            assert!(block.collides);
+            assert!(
+                block.hashed_states().is_empty(),
+                "an unnamed singleton cannot create an identity; named_neighbor={with_named_property}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_property_and_trait_states_do_not_form_partial_identities() {
+        for unsupported_trait in [false, true] {
+            let mut nbt = named(10, "");
+            if unsupported_trait {
+                nbt.extend(named(9, "traits"));
+                nbt.extend([10, 2]);
+                nbt.extend(named(10, "enabled_states"));
+                nbt.extend(named(1, "unknown_state"));
+                nbt.extend([1, 0, 0]);
+            } else {
+                nbt.extend(named(9, "properties"));
+                nbt.extend([10, 2]);
+                nbt.extend(named(8, "name"));
+                nbt.extend(string("example:unsupported"));
+                nbt.extend(named(9, "enum"));
+                nbt.extend([10, 4, 0, 0, 0]);
+            }
+            nbt.push(0);
+            let blocks =
+                super::CustomBlocks::from_definitions([("example:incomplete", nbt.as_slice())]);
+            assert_eq!(blocks.blocks.len(), 1);
+            let block = &blocks.blocks[0];
+            assert_eq!(block.state_count, if unsupported_trait { 1 } else { 2 });
+            assert!(block.collides);
+            assert!(
+                block.hashed_states().is_empty(),
+                "unsupported states cannot form identities; unsupported_trait={unsupported_trait}"
+            );
+        }
     }
 
     #[test]

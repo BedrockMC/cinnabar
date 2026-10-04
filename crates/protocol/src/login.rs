@@ -797,6 +797,7 @@ fn decode_world_raw_with(
             | McpePacketName::AnimateEntityPacket
             | McpePacketName::LevelChunkPacket
             | McpePacketName::SubChunkPacket
+            | McpePacketName::DimensionDataPacket
             | McpePacketName::UpdateBlockPacket
             | McpePacketName::UpdateSubChunkBlocksPacket
             | McpePacketName::BlockActorDataPacket
@@ -806,6 +807,7 @@ fn decode_world_raw_with(
             | McpePacketName::ChunkRadiusUpdatedPacket
             | McpePacketName::NetworkChunkPublisherUpdatePacket
             | McpePacketName::ChangeDimensionPacket
+            | McpePacketName::PlayerActionPacket
             | McpePacketName::RespawnPacket
             | McpePacketName::MovePlayerPacket
             | McpePacketName::CorrectPlayerMovePredictionPacket
@@ -960,6 +962,8 @@ fn decode_empty_mob_equipment(
 
 #[cfg(test)]
 mod block_event_tests;
+#[cfg(test)]
+mod dimension_ingress_tests;
 #[cfg(test)]
 mod experience_ingress_tests;
 #[cfg(test)]

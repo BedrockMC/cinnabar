@@ -84,6 +84,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -94,6 +95,7 @@ fn live_playback_reader_consumes_commit_epoch_fences_without_diagnostic_ring() {
             WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
                 dimension: 0,
                 position: [0.0; 3],
+                ..Default::default()
             }),
         )
         .unwrap();

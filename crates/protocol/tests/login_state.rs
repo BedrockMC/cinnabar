@@ -207,6 +207,7 @@ struct ServerScript {
     cache_enabled: bool,
     cache_play_script: CachePlayScript,
     epilogue: PlayEpilogue,
+    dimension_definition_before_start: bool,
     stage: u8,
     inbound: VecDeque<Bytes>,
     crypto: Option<ScriptCrypto>,
@@ -229,6 +230,7 @@ impl ServerScript {
             cache_enabled,
             cache_play_script,
             epilogue: PlayEpilogue::Default,
+            dimension_definition_before_start: false,
             stage: 0,
             inbound: VecDeque::new(),
             crypto: None,
@@ -367,6 +369,9 @@ impl ServerScript {
                             if payload.response_type == "resourcepackstackfinished"
                     )
                 ));
+                if self.dimension_definition_before_start {
+                    self.enqueue_encrypted(&[start_game::early_dimension_definition()]);
+                }
                 if self.conflicting_start {
                     self.enqueue_encrypted(&[start_game(RUNTIME_ID), start_game(OTHER_RUNTIME_ID)]);
                 } else {

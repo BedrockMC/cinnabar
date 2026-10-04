@@ -224,6 +224,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
     let change = protocol::ChangeDimensionEvent {
         dimension: 1,
         position: [240.75, 82.0, -17.25],
+        ..Default::default()
     };
     let dimension_control = CommittedControlEvent::ChangeDimension {
         change,

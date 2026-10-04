@@ -25,6 +25,7 @@ fn dimension(value: i32) -> WorldEvent {
     WorldEvent::ChangeDimension(ChangeDimensionEvent {
         dimension: value,
         position: [0.0; 3],
+        ..Default::default()
     })
 }
 

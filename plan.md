@@ -1008,12 +1008,25 @@ need independent measurement; replaceable, interactive and unpickable-entity
 lists are local choices. A vanilla packet capture must still confirm the attack
 swing count.
 
+2026-10-04 dimension transfer: prediction waits for the server acknowledgement
+and the destination's loaded area before sending the local acknowledgement.
+Loading-screen IDs survive the start/end handshake and transport retries.
+Provisional, labeled incomplete: the local readiness delay uses a later app frame;
+the vanilla readiness updater's exact scheduling clock remains unverified.
+LoadingEnd currently follows the local acknowledgement without a JSON-UI
+dimension-loading screen and its presentation, navigation and resource-completion
+lifecycle. Hive subsequently banned the test account for "Unfair Advantage";
+final live acceptance after the custom persistent-identity fix remains blocked.
+This does not close the loading UI or Hive gameplay parity gates.
+See `docs/evidence/hive-connection.md` for the functional checks.
+
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
 lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
 null biome slots, per-entity tail skips, unknown ids to air/default biome, inline
 slots `i & 0xff`, unsent inline slots known air). Provisional, labeled incomplete:
 legacy sub-chunk versions 0/2–7 decode as air (no legacy id table), persistent
-palette entries resolve to air (no name/state lookup), and block-entity id and
+palettes now resolve exact current name/state identities; legacy state upgrades,
+default-state reconciliation and unknown-property handling remain incomplete. Block-entity id and
 block-actor-type checks are not emulated. StartGame custom blocks are known only
 when every custom name sorts after vanilla in sequential mode (Lifeboat's case);
 they collide as full cubes with stone's surface facts and render as diagnostic

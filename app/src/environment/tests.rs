@@ -245,6 +245,7 @@ fn dimension_change_is_not_an_environment_session_replacement() {
             change: ChangeDimensionEvent {
                 dimension: 1,
                 position: [0.0, 64.0, 0.0],
+                ..Default::default()
             },
             resolved: client_world::ResolvedServerPosition {
                 position: [0.0, 64.0, 0.0],

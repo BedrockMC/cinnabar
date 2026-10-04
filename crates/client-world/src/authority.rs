@@ -24,6 +24,8 @@ mod biomes;
 mod block_events;
 mod commits;
 mod contracts;
+mod dimension_ranges;
+mod dimension_transfer;
 mod map_data;
 mod movement_attribute;
 mod particles;
@@ -69,6 +71,9 @@ pub struct WorldAuthority {
     biome_tint_stream_id: u64,
     biome_tint_revision: u64,
     current_dimension: i32,
+    dimension_ranges: std::collections::BTreeMap<i32, (Arc<str>, DimensionRange)>,
+    frozen_dimension_ranges: BTreeSet<i32>,
+    dimension_range_skips: u64,
     form_dimension_epoch: u64,
     local_player_runtime_id: u64,
     local_player_unique_id: i64,
@@ -143,6 +148,9 @@ impl WorldAuthority {
             biome_tint_stream_id,
             biome_tint_revision: 0,
             current_dimension: bootstrap.dimension,
+            dimension_ranges: std::collections::BTreeMap::new(),
+            frozen_dimension_ranges: BTreeSet::new(),
+            dimension_range_skips: 0,
             form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,

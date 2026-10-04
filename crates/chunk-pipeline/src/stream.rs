@@ -17,10 +17,12 @@ use ::meshing::{
 use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
 };
+#[cfg(test)]
+use client_world::ingestion::vanilla_dimension_range;
 use client_world::ingestion::{
     ActorHandedness, BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange,
     LevelChunkEvent, LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
-    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    WorldBootstrap, WorldEvent, request_sub_chunk_column,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap as FastHashMap;

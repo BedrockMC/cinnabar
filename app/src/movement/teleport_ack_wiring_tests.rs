@@ -363,6 +363,7 @@ fn change_dimension_clears_an_armed_assertion_through_production_reconciliation(
         WorldEvent::ChangeDimension(ChangeDimensionEvent {
             dimension: 1,
             position: [240.75, 82.0, -17.25],
+            ..Default::default()
         }),
     );
     app.update();
@@ -372,5 +373,58 @@ fn change_dimension_clears_an_armed_assertion_through_production_reconciliation(
         ticker.pending_teleport_ack_admitted_ticks(),
         None,
         "the production dimension boundary must clear the armed assertion"
+    );
+}
+
+#[test]
+fn dimension_transfer_starts_loading_and_tracks_later_server_teleports() {
+    let mut app = wiring_app(authorized_ticker(false), LocalPhysicsController::default());
+    let (network, mut packets) = crate::runtime::network::NetworkHandle::stub_capturing_packets();
+    app.insert_resource(network);
+    submit(
+        &mut app,
+        1,
+        WorldEvent::ChangeDimension(ChangeDimensionEvent {
+            dimension: 1,
+            position: [0.0, 4000.0, 0.0],
+            loading_screen_id: Some(42),
+            ..Default::default()
+        }),
+    );
+    submit(
+        &mut app,
+        2,
+        WorldEvent::DimensionChangeAck { runtime_id: 0 },
+    );
+    let destination = [240.5, 82.0, -17.25];
+    submit(
+        &mut app,
+        3,
+        WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 1,
+            position: destination,
+            teleported: true,
+            ..Default::default()
+        }),
+    );
+    app.update();
+    let outgoing = packets.drain();
+    assert_eq!(outgoing.len(), 1);
+    let session = protocol::BedrockSession { shield_item_id: 0 };
+    assert_eq!(
+        protocol::encode(&outgoing[0], &session).unwrap(),
+        protocol::encode(
+            &protocol::dimension_loading_screen_packet(Some(42), true),
+            &session
+        )
+        .unwrap()
+    );
+    let ticker = app.world().resource::<MovementTicker>();
+    assert_eq!(ticker.dimension_transfer_position(), Some(destination));
+    assert!(!ticker.can_advance_physics_frame());
+    app.update();
+    assert!(
+        packets.drain().is_empty(),
+        "the destination terrain is still absent"
     );
 }

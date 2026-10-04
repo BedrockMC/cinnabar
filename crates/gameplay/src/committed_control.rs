@@ -53,6 +53,7 @@ pub struct CommittedGameplayState<'a> {
     pub speed: &'a mut LocalMovementSpeedAuthority,
     pub session_generation: u64,
     pub dimension: i32,
+    pub now: std::time::Duration,
 }
 
 impl CommittedGameplayState<'_> {
@@ -72,6 +73,10 @@ impl CommittedGameplayState<'_> {
             return ControlDisposition::Handled;
         }
         if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
+            return ControlDisposition::Handled;
+        }
+        if matches!(control, CommittedControlEvent::DimensionChangeAck { .. }) {
+            self.movement.note_dimension_change_ack();
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
@@ -251,7 +256,8 @@ impl CommittedGameplayState<'_> {
                 }
                 SpatialReset::Correction
             }
-            CommittedControlEvent::ChangeDimension { resolved, .. } => {
+            CommittedControlEvent::ChangeDimension { change, resolved } => {
+                self.movement.begin_dimension_transfer(*change, self.now);
                 // Not a server teleport for HandledTeleport acknowledgement:
                 // drop any armed assertion instead of leaking it across the
                 // boundary.
@@ -323,6 +329,7 @@ impl CommittedGameplayState<'_> {
                 SpatialReset::Correction
             }
             CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::DimensionChangeAck { .. }
             | CommittedControlEvent::WorldClocks { .. }
             | CommittedControlEvent::WeatherCycle { .. }
             | CommittedControlEvent::DaylightCycle { .. }
