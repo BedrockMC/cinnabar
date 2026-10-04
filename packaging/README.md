@@ -74,6 +74,30 @@ Without `CODESIGN_IDENTITY` the macOS app is ad-hoc signed and not notarized. Ga
 it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Applications/Cinnabar.app`
 (Open Anyway in System Settings clears only the app, so first-run helpers may still be blocked).
 
+## Website downloads and Linux installation
+
+`packaging/release-assets.json` is the canonical list of downloadable release artifacts and
+the website/repository locations. Publication requires every platform installer and the generated
+Linux install script before writing checksums. The signed update manifest, when present, is included
+in those checksums. Replacing an existing stable release keeps it draft until upload completes.
+
+Linux users can install the latest stable release without root:
+
+```sh
+curl -fsSL https://cinnabar.restartfu.com/install.sh | sh
+```
+
+The installer resolves a concrete release tag, verifies the AppImage against its release checksum,
+and adds a launcher, icon and application-menu entry. It uses the user's XDG data directory and
+`~/.local/bin` by default; `CINNABAR_BIN_DIR` overrides the launcher directory. Failed downloads,
+verification or extraction preserve the current installation. The launcher defaults to running
+without FUSE. Pass `--channel nightly` or `--version TAG` when invoking the script directly to test
+a particular release; these are explicit opt-ins to builds outside the stable channel.
+
+Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
+or Intel DMG; the site offers both because browser user agents cannot reliably identify Mac CPU
+architecture. Build the static website with `python3 website/build.py`; see `website/README.md`.
+
 ## Sign-in
 The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the
 code and URL; no packaging-specific UI exists.
