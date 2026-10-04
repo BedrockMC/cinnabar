@@ -30,6 +30,7 @@ pub(crate) use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::PhysicsCollisionRegistries;
 pub(crate) use control_trace::trace_server_control;
+pub(crate) use control_trace::{trace_local_attributes, trace_physics_frame};
 pub use correction_shape::{CORRECTION_TELEPORT_DISPLACEMENT_BLOCKS, CorrectionShape};
 pub use correction_shape::{
     PhysicsAnchor, reconcile_candidate_physics_correction, reconcile_physics_anchor,

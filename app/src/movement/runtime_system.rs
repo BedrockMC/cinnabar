@@ -156,6 +156,12 @@ pub(crate) fn advance_local_physics(
         &world,
         &mut *movement_effects,
     );
+    super::trace_physics_frame(
+        movement_ticker.session_generation,
+        now,
+        input.movement_speed,
+        &frame,
+    );
     let blocker = frame.blocked.as_ref().map(ToString::to_string);
     if frame.dropped_ticks != 0 {
         // Time starvation keeps the retained samples contiguous and monotonic,
