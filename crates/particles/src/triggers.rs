@@ -416,6 +416,90 @@ pub fn named_request(
     }
 }
 
+/// Seconds between hit-particle bursts on a block being mined; needs independent measurement.
+const CRACK_INTERVAL_SECONDS: f32 = 0.2;
+/// Largest server particle count a critical hit may request.
+const MAX_CRITICAL_PARTICLES: i32 = 256;
+
+/// Deterministic jitter in `[-0.4, 0.4]` per axis for a burst piece.
+fn jitter(seed: u64) -> [f32; 3] {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    std::array::from_fn(|_| {
+        state ^= state >> 29;
+        state = state.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        ((state >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 0.8
+    })
+}
+
+/// One single-piece spawn per burst piece, each jittered around `origin`.
+pub fn burst_requests(
+    effect: &str,
+    origin: [f32; 3],
+    pieces: u64,
+    seed: u64,
+) -> impl Iterator<Item = SpawnRequest> + '_ {
+    (0..pieces).map(move |index| {
+        let offset = jitter(seed ^ (index << 32));
+        SpawnRequest {
+            effect: effect.to_owned(),
+            position: std::array::from_fn(|i| origin[i] + offset[i]),
+            seed: seed.wrapping_add(index),
+            ..SpawnRequest::default()
+        }
+    })
+}
+
+/// Face index (0 down, 1 up, 2 north, 3 south, 4 west, 5 east) of `block` nearest the camera.
+#[must_use]
+pub fn face_toward(block: [i32; 3], camera: [f32; 3]) -> u8 {
+    let delta: [f32; 3] = std::array::from_fn(|i| camera[i] - (block[i] as f32 + 0.5));
+    let axis = (0..3)
+        .max_by(|&a, &b| delta[a].abs().total_cmp(&delta[b].abs()))
+        .unwrap_or(1);
+    match (axis, delta[axis] >= 0.0) {
+        (0, true) => 5,
+        (0, false) => 4,
+        (1, true) => 1,
+        (1, false) => 0,
+        (_, true) => 3,
+        (_, false) => 2,
+    }
+}
+
+/// `variable.particle_count` from a critical Animate's data, truncated as vanilla's `(int)` cast;
+/// a non-finite value leaves the pack's fallback count in place.
+fn critical_particle_variables(particle_count: f32) -> Vec<(String, f32)> {
+    if !particle_count.is_finite() {
+        return Vec::new();
+    }
+    let count = (particle_count as i32).clamp(0, MAX_CRITICAL_PARTICLES);
+    vec![("particle_count".to_owned(), count as f32)]
+}
+
+/// Spawn request for a (magic) critical hit at `position` with the server's particle count.
+#[must_use]
+pub fn critical_hit_request(magic: bool, position: [f32; 3], particle_count: f32) -> SpawnRequest {
+    let effect = if magic {
+        "minecraft:magic_critical_hit_emitter"
+    } else {
+        "minecraft:critical_hit_emitter"
+    };
+    let mut request = named_request(effect, position, None);
+    request.variables = critical_particle_variables(particle_count);
+    request
+}
+
+/// Advances the crack cadence, keeping the remainder so it does not drift with
+/// the frame rate; a long stall yields one burst, not a backlog.
+pub fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
+    *timer += delta_seconds;
+    if *timer < CRACK_INTERVAL_SECONDS {
+        return false;
+    }
+    *timer = (*timer - CRACK_INTERVAL_SECONDS).min(CRACK_INTERVAL_SECONDS);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,7 +592,7 @@ mod tests {
 
     #[test]
     fn destruction_request_drives_the_native_default_burst() {
-        use crate::particles::{system::ParticleSystem, world::EmptyWorld};
+        use crate::{system::ParticleSystem, world::EmptyWorld};
         let mut system = ParticleSystem::default();
         // Synthetic emitter checks the real request through the live engine.
         assert!(system.register_effect(br#"{"particle_effect":{"description":{
@@ -535,5 +619,28 @@ mod tests {
         assert!(system.spawn_terrain(&request).is_some());
         system.tick(0.01, &EmptyWorld);
         assert_eq!(system.live_particles(), BLOCK_BREAK_PARTICLES as usize);
+    }
+
+    /// The server's critical count reaches the emitter; unusable data keeps the pack fallback.
+    #[test]
+    fn critical_hits_bind_the_server_particle_count() {
+        let bound = |data| critical_particle_variables(data);
+        assert_eq!(bound(12.7), [("particle_count".to_owned(), 12.0)]);
+        assert_eq!(bound(0.0), [("particle_count".to_owned(), 0.0)]);
+        assert_eq!(bound(1.0e9), [("particle_count".to_owned(), 256.0)]);
+        assert!(bound(f32::NAN).is_empty());
+    }
+
+    /// Frame times that straddle the interval keep a steady five bursts per second.
+    #[test]
+    fn crack_cadence_keeps_the_remainder() {
+        let mut timer = 0.0;
+        let bursts = (0..61)
+            .filter(|_| crack_cadence_due(&mut timer, 0.07))
+            .count();
+        assert_eq!(
+            bursts, 21,
+            "4.27 s at 0.2 s per burst, not one per three frames"
+        );
     }
 }

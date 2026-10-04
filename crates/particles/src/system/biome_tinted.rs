@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::{MAX_LIVE_PARTICLES, MAX_QUEUED_SOUNDS, ParticleSystem};
-use crate::particles::{
+use crate::{
     def::{Motion, Rate},
     emitter::{Outputs, SpawnRequest},
 };

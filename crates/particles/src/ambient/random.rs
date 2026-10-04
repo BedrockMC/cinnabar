@@ -8,7 +8,7 @@ const TWIST_OFFSET: usize = 397;
 const SEED_MULTIPLIER: u32 = 0x6c07_8965;
 const TWIST_MATRIX: u32 = 0x9908_b0df;
 
-pub(super) struct AmbientRandom {
+pub struct AmbientRandom {
     words: [u32; WORDS],
     index: usize,
 }
@@ -22,7 +22,7 @@ impl Default for AmbientRandom {
 }
 
 impl AmbientRandom {
-    pub(super) fn new(seed: u32) -> Self {
+    pub(crate) fn new(seed: u32) -> Self {
         let mut words = [0; WORDS];
         words[0] = seed;
         for index in 1..WORDS {
@@ -37,7 +37,7 @@ impl AmbientRandom {
         }
     }
 
-    pub(super) fn next(&mut self) -> u32 {
+    pub(crate) fn next(&mut self) -> u32 {
         if self.index == WORDS {
             for index in 0..WORDS {
                 let joined = (self.words[index] & 0x8000_0000)
@@ -56,12 +56,12 @@ impl AmbientRandom {
         value ^ (value >> 18)
     }
 
-    pub(super) fn bounded(&mut self, upper: u32) -> u32 {
+    pub fn bounded(&mut self, upper: u32) -> u32 {
         if upper == 0 { 0 } else { self.next() % upper }
     }
 
     /// Native calls this distribution Z, Y, X, consuming two words per axis.
-    pub(super) fn gaussian_int(&mut self, radius: u32) -> i32 {
+    pub(crate) fn gaussian_int(&mut self, radius: u32) -> i32 {
         self.bounded(radius) as i32 - self.bounded(radius) as i32
     }
 }
