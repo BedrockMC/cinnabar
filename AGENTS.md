@@ -7,9 +7,9 @@ Cinnabar is a Rust Bedrock client plus a Go core. Every system (UI, rendering, c
 | `docs/agents/multi-agent-workflow.md` | Worktrees, build limits, verify-before-push |
 | `docs/agents/live-testing.md` | Running the client or BDS, capturing frames, closing a visual/performance gate |
 
-## Performance: beyond vanilla
+## Performance: as fast as we can make it
 
-Parity covers what the player sees and how the game behaves, never how we compute it. Choose every implementation, including CPU vs GPU, data layout, parallelism and caching, for maximum efficiency. The target is 10x vanilla or better on frame time, p99 stutter, chunk throughput, join time and memory. "Vanilla does it this way" never justifies a slower design. Measure before and after any performance claim.
+Parity covers what the player sees and how the game behaves, never how we compute it. Choose every implementation, including CPU vs GPU, data layout, parallelism and caching, for the best performance achievable, not just better than vanilla. The bar is a world that streams in faster than the player can see, so flying at any speed shows no loading edge or pop-in, frames stay smooth with no stutter, and joins are near-instant. "Vanilla does it this way" never justifies a slower design. Measure before and after any performance claim.
 
 ## Parity sources
 
