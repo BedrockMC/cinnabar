@@ -319,7 +319,7 @@ mod review_tests {
             "fixture must hit the layout cache"
         );
         let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
-            "../../../assets/ui-font-source.json"
+            "../../../assets/cinnangles-sans-source.json"
         ));
         let page = assets::FontTexturePage {
             source_path: "font/test.png".into(),

@@ -49,7 +49,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 <!-- END BEDSIM-MIT -->
 
-## Monocraft
+## Optional outline-font fixtures
+
+The default client ships the bundled Cinnangles Sans source from
+`assets/fonts/CinnanglesSans.ttf`. The licenses below belong to the dormant
+`outline-font-assets` path and its explicit compatibility fixtures.
 
 - Source: https://github.com/IdreesInc/Monocraft
 - Commit: `e498bf70aeb25b4bdcff1e44d878fb2cb4f7c2a9`
@@ -68,8 +72,8 @@ SOFTWARE.
 - Exact upstream license SHA-256:
   `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2`
 - Full license: `assets/licenses/NotoSansCJK-OFL-1.1.txt`
-- The generated UI carrier's accompanying `ui-font-notices.txt` includes
-  both source fonts' full licenses and copyright notices. Source fonts remain
+- The optional outline-font carrier includes both source fonts' full licenses
+  and copyright notices when that path is used. Source fonts remain
   unmodified in the local cache; upstream family names identify attribution.
 
 ## PMMP BedrockData
