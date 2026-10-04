@@ -1,3 +1,4 @@
+mod diagnostics;
 mod dominance;
 mod jobs;
 mod state;
