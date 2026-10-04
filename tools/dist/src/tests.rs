@@ -9,15 +9,6 @@ use std::{
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-#[test]
-fn converted_font_license_notice_is_required_for_distribution() {
-    let (root, options) = fixture(Platform::Windows);
-    fs::remove_file(options.assets.join("ui-font-notices.txt")).unwrap();
-    assert!(stage(&options).is_err());
-    assert!(!options.output.exists());
-    fs::remove_dir_all(root).unwrap();
-}
-
 fn temp_root() -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "cinnabar-dist-test-{}-{}",

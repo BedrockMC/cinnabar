@@ -140,7 +140,7 @@ const GLYPH_PAGE_SIDE: u32 = 256;
 
 fn font_with_glyphs(font: &Path, glyphs: &Path) -> (assets::RuntimeFontCatalog, Vec<Box<[u8]>>) {
     let manifest = crate::asset_startup::canonical_source_manifest_sha256(include_str!(
-        "../../../../../assets/ui-font-source.json"
+        "../../../../../assets/cinnangles-sans-source.json"
     ));
     let base = assets::RuntimeFontCatalog::decode(&std::fs::read(font).unwrap(), manifest).unwrap();
     let mut cells = Vec::new();
