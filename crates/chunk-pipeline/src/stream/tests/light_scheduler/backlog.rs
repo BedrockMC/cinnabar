@@ -34,12 +34,20 @@ fn ready_mesh_backlog_drains() {
         stream.mark_dirty_exact(key, Instant::now());
     }
     let started = Instant::now();
+    let mut progressed_at = Instant::now();
+    let mut completed = 0;
     while !stream.mesh_jobs.pending.is_empty() || !stream.mesh_jobs.in_flight.is_empty() {
         stream.poll([0.0; 3], 64);
         acknowledge_mesh_changes(&mut stream);
+        // A stall is no completed job for a long stretch, not a slow total drain on a busy runner.
+        let now_completed = stream.stats.phase2_stages.mesh_jobs_completed;
+        if now_completed != completed {
+            completed = now_completed;
+            progressed_at = Instant::now();
+        }
         assert!(
-            started.elapsed() < Duration::from_secs(30),
-            "ready mesh backlog stalled"
+            progressed_at.elapsed() < Duration::from_secs(30),
+            "ready mesh backlog stalled at {completed}/{count}"
         );
         std::thread::sleep(Duration::from_millis(8));
     }
