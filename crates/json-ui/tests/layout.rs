@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use json_ui::{
     Context, Draw, LaidOut, LayoutEnv, Rect, ResolvedControl, TextMeasure, TextureMeta,
-    TextureSource, emit, layout, nine_slice, parse_texture_meta, resolve,
+    TextureSource, emit, hit_regions, layout, nine_slice, parse_texture_meta, resolve,
 };
 use serde_json::{Value, json};
 
@@ -337,6 +337,68 @@ fn width_from_own_height_resolves_after_the_height() {
         wrapper.rect
     );
     assert!((child_named(wrapper, "logo").rect.w - wrapper.rect.w).abs() < 1e-9);
+}
+
+/// The pinned `common.squaring_panel` nests opposite own-axis maximums with
+/// omitted sizes. Both defaults must resolve before their bounds read them.
+#[test]
+fn omitted_panel_sizes_resolve_cross_axis_bounds_without_collapsing_descendants() {
+    let image = ctrl(
+        "image",
+        Some("image"),
+        json!({"texture": "preview"}),
+        vec![],
+    );
+    let button = ctrl(
+        "button",
+        Some("button"),
+        json!({"size": ["75%", "75%"]}),
+        vec![image],
+    );
+    let inner = ctrl(
+        "inner",
+        Some("panel"),
+        json!({"max_size": ["100%", "100%x"]}),
+        vec![button],
+    );
+    let outer = ctrl(
+        "outer",
+        Some("panel"),
+        json!({"max_size": ["100%y", "100%"]}),
+        vec![inner],
+    );
+    let root = ctrl("root", Some("panel"), json!({}), vec![outer]);
+    for viewport in [[640.0_f64, 360.0], [360.0, 640.0], [360.0, 360.0]] {
+        let side = viewport[0].min(viewport[1]);
+        let env = zero_env();
+        let placed = layout(&root, viewport, &env);
+        let outer = child_named(&placed, "outer");
+        let inner = child_named(outer, "inner");
+        let button = child_named(inner, "button");
+        let image = child_named(button, "image");
+        assert_eq!([outer.rect.w, outer.rect.h], [side, viewport[1]]);
+        assert_eq!([inner.rect.w, inner.rect.h], [side, side]);
+        assert_eq!(
+            [inner.rect.x, inner.rect.y],
+            [(viewport[0] - side) * 0.5, (viewport[1] - side) * 0.5]
+        );
+        assert_eq!([button.rect.w, button.rect.h], [side * 0.75; 2]);
+        assert_eq!(image.rect, button.rect);
+
+        let hits = hit_regions(&placed);
+        let hit = hits.iter().find(|hit| hit.name == "button").unwrap();
+        assert_eq!(hit.rect, button.rect.into());
+        assert!(hit.contains([
+            button.rect.x + button.rect.w * 0.5,
+            button.rect.y + button.rect.h * 0.5
+        ]));
+        let draws = emit(&placed, &env);
+        let sprite = draws
+            .iter()
+            .find(|node| node.name == "image" && matches!(node.draw, Draw::Sprite { .. }))
+            .expect("the nonzero descendant image must draw");
+        assert_eq!(sprite.dest, image.rect.into());
+    }
 }
 
 #[test]

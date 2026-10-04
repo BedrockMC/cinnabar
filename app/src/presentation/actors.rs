@@ -192,7 +192,7 @@ pub(crate) fn entity_rig_presentation_cached(
     Some(presentation)
 }
 
-#[cfg(test)]
+/// Converts a transient render-time pose without retaining its allocation address.
 pub(crate) fn actor_rig_presentation(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,

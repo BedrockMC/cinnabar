@@ -56,6 +56,11 @@ impl UiPresentationRuntime {
         if runtime.chat_focused() && !settings(super::chat_screen::CHAT_SCREEN).render_game_behind {
             return false;
         }
+        if runtime.emotes().is_open()
+            && !settings(super::emote_screen::EMOTE_SCREEN).render_game_behind
+        {
+            return false;
+        }
         if runtime.inventory_open()
             && let Some(layout) = super::containers::ScreenLayout::of(player_runtime, runtime, None)
             && !settings(layout.screen().0).render_game_behind

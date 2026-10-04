@@ -11,6 +11,8 @@ pub const EXTRA_KEYS: &[(&str, PhysicalControl)] = &[
     ("key.pickItem", PhysicalControl::MouseButton(3)),
     ("key.screenshot", PhysicalControl::KeyboardUsage(0x3b)),
     ("key.fullscreen", PhysicalControl::KeyboardUsage(0x44)),
+    // R:v/VanillaClientInputMappingFactory.cpp: key.emote defaults to B.
+    ("key.emote", PhysicalControl::KeyboardUsage(0x05)),
 ];
 // R:v/VanillaClientInputMappingFactory.cpp:6217–6235.
 pub const SECONDARY_KEYS: &[(&str, PhysicalControl)] =
@@ -21,6 +23,10 @@ pub const EXTRA_GAMEPAD: &[(&str, Option<PhysicalControl>)] = &[
     ("key.chat", Some(PhysicalControl::GamepadButton(14))),
     ("key.drop", Some(PhysicalControl::GamepadButton(12))),
     ("key.pickItem", None),
+    // R:26.30 createInputMappingTemplates action0x34 uses native button7;
+    // GamePadRemappingLayout's native sprite/name map identifies it as D-pad left.
+    // Append supplemental rows to preserve existing persisted row indices.
+    ("key.emote", Some(PhysicalControl::GamepadButton(13))),
 ];
 pub const GAMEPAD_BINDINGS: &[(Action, &str)] = &[
     (Action::Attack, "key.attack"),
@@ -104,5 +110,65 @@ impl super::SettingsOptions {
             _ => button,
         };
         PhysicalControl::GamepadButton(button)
+    }
+}
+
+#[cfg(test)]
+mod emote_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_supplemental_rows_keep_saved_drop_and_screenshot_bindings() {
+        let loaded = super::super::SettingsOptions::decode(
+            br#"{"keys":{"key.drop":69,"key.screenshot":70}}"#,
+        )
+        .unwrap();
+        let base = super::super::KEY_BINDINGS.len();
+        assert_eq!(
+            loaded.key_control(base + 3),
+            Some(PhysicalControl::KeyboardUsage(69))
+        );
+        assert_eq!(
+            loaded.key_control(base + 5),
+            Some(PhysicalControl::KeyboardUsage(70))
+        );
+        assert_eq!(
+            loaded.named_key_control("key.emote"),
+            Some(PhysicalControl::KeyboardUsage(0x05))
+        );
+    }
+
+    #[test]
+    fn native_emote_gamepad_default_and_device_remapping_survive_reload() {
+        let row = EXTRA_GAMEPAD
+            .iter()
+            .position(|(name, _)| *name == "key.emote")
+            .unwrap();
+        let index = GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + row;
+        let mut settings = super::super::SettingsOptions::default();
+        assert_eq!(
+            settings.key_control(index),
+            Some(PhysicalControl::GamepadButton(13))
+        );
+        assert_eq!(
+            gamepad_icon(settings.key_control(index).unwrap()),
+            "textures/ui/xbox_dpad_left"
+        );
+        assert!(settings.remap(index, PhysicalControl::GamepadButton(9)));
+        let mut loaded =
+            super::super::SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(
+            loaded.key_control(index),
+            Some(PhysicalControl::GamepadButton(9))
+        );
+        assert_eq!(
+            loaded.named_key_control("key.emote"),
+            Some(PhysicalControl::KeyboardUsage(0x05))
+        );
+        assert!(loaded.reset_key(index));
+        assert_eq!(
+            loaded.key_control(index),
+            Some(PhysicalControl::GamepadButton(13))
+        );
     }
 }

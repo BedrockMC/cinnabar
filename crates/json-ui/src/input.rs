@@ -33,6 +33,8 @@ pub enum HitKind {
     Dropdown,
     Slider,
     EditBox,
+    /// A radial selection control with component-owned sector geometry.
+    SelectionWheel,
     ScrollView,
     ScrollBox,
     ScrollTrack,
@@ -57,6 +59,7 @@ impl HitKind {
                 | HitKind::Dropdown
                 | HitKind::Slider
                 | HitKind::EditBox
+                | HitKind::SelectionWheel
         )
     }
 }
@@ -354,6 +357,7 @@ fn kind_of(node: &LaidOut, modal: bool) -> Option<HitKind> {
         "dropdown" => HitKind::Dropdown,
         "slider" => HitKind::Slider,
         "edit_box" => HitKind::EditBox,
+        "selection_wheel" => HitKind::SelectionWheel,
         "scroll_view" => HitKind::ScrollView,
         "scrollbar_box" => HitKind::ScrollBox,
         "scroll_track" => HitKind::ScrollTrack,

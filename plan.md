@@ -1,5 +1,23 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-04 user-requested custom emotes — **Incomplete native/Lunar parity**:
+the native four-slot JSON-UI wheel and remappable emote control select an original,
+local-only Twerk dance with a 0.7-second loop. The owned clip preserves skin
+hierarchy and clothing; render-time body and player-preview sampling leave the
+native first-person hand and remote actor animations intact. Slot preferences
+persist through Change Emotes, and gameplay input cancels playback. Identified
+native references, the public product visual reference, and remaining parity
+limits are recorded in [docs/reference/emote-wheel.md](docs/reference/emote-wheel.md).
+Exact Lunar keyframes/assets and full native animation parity are not verified.
+Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, five
+animation tests, the native-carrier wheel/preview tests, and twelve production
+input/actor regressions. The 1280x720 software-rendered wheel/equip frames were
+inspected for readable text and geometry. Live Windows game acceptance remains
+required; the emote change is local and has not been pushed or installed.
+Strict affected-package clippy passes. Required affected verification reaches
+the existing ice/water liquid-face test failure after formatting, architecture
+and compilation pass; that meshing regression is outside this change.
+
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
 accumulated work and follow-up fixes are committed through `97dccfb3`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler

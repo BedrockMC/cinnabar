@@ -236,7 +236,7 @@ impl Binder<'_> {
                 }
                 let answered = Answered {
                     bag,
-                    globals: &self.data.globals,
+                    data: self.data,
                 };
                 observe_in(expression, &answered, &self.env)
             })
@@ -311,14 +311,17 @@ fn observe_in(
 /// A bag whose missing properties the screen controller answers.
 struct Answered<'a> {
     bag: &'a super::bag::Bag,
-    globals: &'a std::collections::BTreeMap<String, Scalar>,
+    data: &'a super::DataSource,
 }
 
 impl predicate::Bindings for Answered<'_> {
     fn get(&self, name: &str) -> Option<Scalar> {
         self.bag
             .get(name)
-            .or_else(|| self.globals.get(name))
+            .or_else(|| {
+                self.data
+                    .global(super::apply::controller_index(self.bag), name)
+            })
             .cloned()
     }
 }

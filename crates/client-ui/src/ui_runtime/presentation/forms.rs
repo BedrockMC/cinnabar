@@ -7,6 +7,7 @@ pub mod container_data;
 pub mod container_kinds;
 pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
+pub mod emote_screen;
 pub mod engine;
 pub mod experience;
 pub mod fallback;
@@ -70,6 +71,7 @@ pub mod toast_screen;
 
 pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
+pub use emote_screen::{EMOTE_EQUIP_POPUP, EMOTE_SCREEN, EmoteHit};
 pub use loading_screen::{LOADING_SCREEN, LoadingStage};
 pub use menu_screens::menu_reference;
 pub use npc::NPC_SCREEN;
@@ -122,6 +124,7 @@ pub(super) struct FormPresentation {
     menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen; carried across the per-frame reset.
     chat: chat_screen::ChatScreen,
+    emote: emote_screen::EmoteScreen,
     /// The bed screen's hits and pointer; carried across the per-frame reset.
     bed: oreui::BedScreen,
     /// The sign editor's cached screen; carried across the per-frame reset.
@@ -427,6 +430,7 @@ impl UiPresentationRuntime {
             ready_menu: state.ready_menu,
             menu_caret: state.menu_caret,
             chat: state.chat,
+            emote: state.emote,
             bed: state.bed,
             sign: state.sign,
             oreui_originals: state.oreui_originals,
@@ -569,6 +573,8 @@ impl UiPresentationRuntime {
 pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
     [
         SIGN_SCREEN,
+        EMOTE_SCREEN,
+        EMOTE_EQUIP_POPUP,
         NPC_SCREEN,
         toast_screen::TOAST_SCREEN,
         crate::store::SDL_SCREEN,
