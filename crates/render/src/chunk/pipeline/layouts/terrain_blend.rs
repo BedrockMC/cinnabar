@@ -16,6 +16,12 @@ pub(super) fn apply(descriptor: &mut RenderPipelineDescriptor) {
     // Inherited terrain_base DisableAlphaWrite: the same native parser maps
     // state bit 0x10 to an RGB-only colour mask.
     target.write_mask = ColorWrites::RED | ColorWrites::GREEN | ColorWrites::BLUE;
+    descriptor
+        .fragment
+        .as_mut()
+        .expect("terrain fragment")
+        .shader_defs
+        .push("NATIVE_GAMMA_BLEND".into());
     let depth = descriptor
         .depth_stencil
         .as_mut()

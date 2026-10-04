@@ -1,6 +1,9 @@
 use crate::chunk::*;
+use meshing::liquid::LIQUID_FACE_INSET;
 mod arena_writes;
 mod lighting;
+#[cfg(test)]
+mod liquid_tests;
 mod model_draw_bases;
 mod publication_removals;
 use arena_writes::ArenaWrites;
@@ -578,18 +581,26 @@ pub(in crate::chunk) fn liquid_quad_centroid(
     let origin = quad.origin();
     let heights = quad.heights();
     let average_height = heights.into_iter().map(f32::from).sum::<f32>() / (4.0 * 255.0);
+    let top_inset = if quad.has_top_height_inset() {
+        LIQUID_FACE_INSET
+    } else {
+        0.0
+    };
     let mut centroid = [
         chunk_origin[0] as f32 + f32::from(origin[0]) + 0.5,
         chunk_origin[1] as f32 + f32::from(origin[1]) + average_height,
         chunk_origin[2] as f32 + f32::from(origin[2]) + 0.5,
     ];
     match quad.face() {
-        Face::NegativeX => centroid[0] -= 0.5,
-        Face::PositiveX => centroid[0] += 0.5,
+        Face::NegativeX => centroid[0] -= 0.5 - LIQUID_FACE_INSET,
+        Face::PositiveX => centroid[0] += 0.5 - LIQUID_FACE_INSET,
         Face::NegativeY => centroid[1] = chunk_origin[1] as f32 + f32::from(origin[1]),
-        Face::PositiveY => {}
-        Face::NegativeZ => centroid[2] -= 0.5,
-        Face::PositiveZ => centroid[2] += 0.5,
+        Face::PositiveY => centroid[1] -= top_inset,
+        Face::NegativeZ => centroid[2] -= 0.5 - LIQUID_FACE_INSET,
+        Face::PositiveZ => centroid[2] += 0.5 - LIQUID_FACE_INSET,
+    }
+    if !matches!(quad.face(), Face::NegativeY | Face::PositiveY) {
+        centroid[1] -= top_inset * 0.5;
     }
     centroid
 }

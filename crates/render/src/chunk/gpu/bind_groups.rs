@@ -1,6 +1,9 @@
 use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
 
+#[cfg(test)]
+mod water_tint_tests;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) view: BufferId,
@@ -41,9 +44,10 @@ pub(in crate::chunk) struct AnimationGpu {
     pub(in crate::chunk) frame_count: u32,
     pub(in crate::chunk) ticks_per_frame: u32,
     pub(in crate::chunk) flags: u32,
+    pub(in crate::chunk) uv_scale: f32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 16);
+pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 5 * 4);
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -82,7 +86,13 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
             birch: pack_linear_rgb10(entry.birch),
             evergreen: pack_linear_rgb10(entry.evergreen),
             dry_foliage: pack_linear_rgb10(entry.dry_foliage),
-            water: pack_linear_rgb10(entry.water),
+            // Native water tint is RGB8. Linear RGB10 loses several dark-blue
+            // palette bytes before the ordinary liquid colour is quantized.
+            water: u32::from_le_bytes(
+                Color::linear_rgb(entry.water[0], entry.water[1], entry.water[2])
+                    .to_srgba()
+                    .to_u8_array(),
+            ),
             flags: entry.flags,
             water_opacity: entry.water_opacity,
             seasonal_foliage: entry.seasonal_foliage.map(|rgb| {
@@ -404,6 +414,7 @@ fn build_chunk_texture_assets(
             frame_count: animation.frame_count,
             ticks_per_frame: animation.ticks_per_frame,
             flags: animation.flags,
+            uv_scale: 1.0 / animation.replicate as f32,
         })
         .collect::<Vec<_>>();
     let animation_frame_words = assets
@@ -450,6 +461,7 @@ fn build_chunk_texture_assets(
         frame_count: 1,
         ticks_per_frame: 1,
         flags: 0,
+        uv_scale: 1.0,
     }];
     let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk animations"),

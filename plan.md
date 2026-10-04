@@ -4848,3 +4848,85 @@ Optional resource-pack cloud masks outside the current mesher's fixed dimensions
 retain the startup cloud texture instead of panicking during live application.
 Other supported pack textures still apply. High-resolution pack clouds remain
 incomplete; this fallback does not close the native cloud parity gate.
+
+### Ordinary water rendering continuation (incomplete parity acceptance)
+
+Current-client liquid tessellation 06a1b960 does not use terrain ambient occlusion;
+its side and bottom faces repeat one outward light sample. The top still uses our
+existing sample admission and maximum until native Type+0x15c's independent
+brightness-admission property can be carried: native smooth top lighting rounds
+four samples from the above plane, not terrain's maximum or solid-render gate.
+
+Ordinary transparent alpha distance now derives independently of profile fog and
+cloud fade from current camera 04e40a10 and uniform producers 04e47ed0/04ed6730.
+The above-water formula uses the builder's adjusted render-distance input. Native
+optional platform-cap admission and the underwater/no-FrameBuilder branch remain
+incomplete; these changes do not close the overall water visual parity gate.
+
+Ordinary blended terrain now preserves the native gamma/UNORM framebuffer blend
+(RendererSettings 007b10b0, format mapping 0x57, RenderChunk Transparent Metal)
+without reordering the shared transparent phase. Native liquid inward winding and
+selective reverse-face admission follow 06a1b960/06a0d430 and 01ee0990: original
+faces use CW, exposed tops and primary-air sides admit the flagged reverse face,
+and bottoms do not. Production GPU geometry, material and six-face raster tests
+pass. Mixed terrain's segment cap now uses the existing bounded reference budget
+instead of falling back at 4,096 segments in an ordinary ocean view.
+
+Live user checks accept flowing water over ice and its previous flicker fix.
+Nighttime ocean visibility is reported correct; daytime submerged scenery is
+still too dark. Both clients use 50% brightness. The visual gate remains open
+while tracing native client skylight mode/heightmaps and submerged receiver light;
+no speculative global opacity or brightness adjustment closes this gate.
+
+The follow-up traced the actual current WATER draw, not just camera fields:
+MeshContext.x is zero (05bd2210/06878a80/068e09d0), and the uploaded
+FogAndDistanceControl.w comes from camera+5dc minus seven through 04e47ed0.
+Confirmed chunk radius is stored on the native Player with one extra chunk
+(014c34c0); after the native camera margin, a confirmed ten-chunk radius uses
+160 blocks, not 144. Classic water side/bottom contacts are suppressed whenever
+the neighbour's primary block is non-Air (06a1b960), including non-solid plants
+and transparent cubes. Focused camera, contact and liquid raster tests pass.
+
+Daytime-depth investigation found a separate registry mismatch in the final
+native registrations, which override constructor defaults. Current concrete
+BaseGameVersion >= native compatibility gate 1.21.130 sets still water's filter
+to one (0dc90eef/0dc90ef1), while flowing water stays at two (0dc9150f). Ice and
+all frosted ages finish at three (0dcae2a6/0dceb39c), not their constructor zero.
+The current light projection and rebuilt local world carrier now use those
+values. Shipped-carrier regressions verify every water depth/falling state and
+the full eight-deep ocean column: still water retains sky seven at the floor's
+outward sample instead of zero. Ordinary Fancy still seeds from the normal
+water-including heightmap (037cab20/037cbdb0); no shader brightness workaround
+was added. The Go and Rust focused tests pass, and the user has accepted the
+rebuilt daytime ocean visibility. The live StartGame version is `*`: current
+parser 00293820 marks byte seven as wildcard, and final registration 0dc90ed2
+jumps directly to filter one for that wildcard. Only concrete older versions
+retain filter two; dynamic compatibility selection for those remains incomplete.
+Ice/water edge appearance and lily-pad rendering are new open visual gates;
+the accepted daylight lighting values remain unchanged while tracing them.
+
+### Ocean rendering checkpoint (2026-10-04; incomplete ice acceptance)
+
+The user has accepted lily pads in the live macOS Metal ocean world. Current
+native tessellation 06a33800 supplies two opposite planes at 1/64 block, with
+the position-hashed rotation and pack-authored fixed tint retained. The copied
+material does not recolour shared atlas images; the underside applies native
+15/255 shading continuously in the shader. Focused compiler, meshing, shader
+and Metal rotation tests pass. The rebuilt carrier and canonical Rust client
+were exercised on the original BDS seed -7289507175626565880 on UDP 19132.
+
+Native transparent-cube opposing-face UV axes now follow 06a11a00, 06a180d0
+and 06a0d430. Native transparent sorting packs the emitted-vertex centroid in
+chunk-local space to ten bits at 1/32-block precision (07bf8430/07bf8830).
+The ordering metric now reproduces that packing without altering geometry.
+Four regressions failed before the change and all eight focused metric tests
+pass afterward. This is a source-backed ordering correction, not evidence
+that the user's ice-edge artifact is resolved.
+
+The latest paired live screenshots still show extra bright upright ice faces
+through the foreground ice next to the ocean. A separate user witness shows
+angle-dependent dark bands on opaque blocks at straight-on views. Both remain
+open and under investigation; ordinary ice opacity, accepted water lighting,
+and accepted lily-pad appearance have not been adjusted to conceal them.
+The user explicitly requests publishing this checkpoint directly to dev before
+continuing those fixes. This checkpoint does not close full rendering parity.

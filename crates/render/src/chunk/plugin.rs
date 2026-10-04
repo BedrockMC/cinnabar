@@ -88,17 +88,17 @@ impl Plugin for ChunkRenderPlugin {
         load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", |source, path| {
             crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
         });
-        load_internal_asset!(
-            app,
-            MODEL_SHADER_HANDLE,
-            "../model.wgsl",
-            crate::shader_safety::from_wgsl
-        );
+        load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wgsl", |source, path| {
+            crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
+        });
         load_internal_asset!(
             app,
             LIQUID_SHADER_HANDLE,
             "../liquid.wgsl",
-            crate::shader_safety::from_wgsl
+            |source, path| crate::shader_safety::from_wgsl(
+                crate::material_shader::source(source),
+                path
+            )
         );
 
         let acknowledgements = app
@@ -145,6 +145,8 @@ impl Plugin for ChunkRenderPlugin {
             crate::runtime_profile_trace::install_surface_trace(render_app);
         }
         install_chunk_commands(render_app);
+        transparent::gamma_pass::install(app);
+        let render_app = app.sub_app_mut(RenderApp);
         render_app.edit_schedule(Render, configure_chunk_publication);
         render_app
             .add_systems(
@@ -187,5 +189,8 @@ impl Plugin for ChunkRenderPlugin {
 
     fn finish(&self, app: &mut App) {
         install_atmosphere(app);
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            transparent::gamma_pass::install_graph(render_app.world_mut());
+        }
     }
 }

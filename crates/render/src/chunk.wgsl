@@ -20,12 +20,7 @@ struct ChunkOrigin {
 }
 
 
-struct AnimationGpu {
-    frame_start: u32,
-    frame_count: u32,
-    ticks_per_frame: u32,
-    flags: u32,
-}
+// ANIMATION_GPU_LAYOUT
 
 struct AnimationClockGpu {
     tick: u32,

@@ -100,6 +100,49 @@ fn runtime_assets() -> RuntimeAssets {
     )
 }
 
+#[test]
+fn lily_pad_planes_repeat_own_cell_light_without_neighbor_ao() {
+    let mut top = model_quad(2);
+    top.positions = [[0, 4, 256], [256, 4, 256], [256, 4, 0], [0, 4, 0]];
+    let mut bottom = top;
+    bottom.positions.reverse();
+    bottom.flags = 1;
+    let assets = runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: assets::MODEL_TEMPLATE_FLAG_LILY_PAD,
+        }],
+        vec![top, bottom],
+    );
+    let block = [8, 8, 8];
+    let center = layered_uniform(&[SOLID]);
+    let sampler = |coordinate| {
+        if coordinate == block {
+            MeshLightSample::try_new(3, 7).unwrap()
+        } else {
+            MeshLightSample::FULL_BRIGHT
+        }
+    };
+    for rotation in 0..4 {
+        let lighting = bake_template_lighting_with_sampler(
+            &BlockClassifier::new(AIR),
+            &assets,
+            NetworkIdMode::Sequential,
+            &MeshNeighbourhood::new(&center),
+            &sampler,
+            block,
+            0,
+            rotation,
+        )
+        .unwrap();
+        assert_eq!(lighting.len(), 2);
+        for quad in lighting {
+            assert_eq!(quad.samples(), [3 | (7 << 4); 4]);
+        }
+    }
+}
+
 fn runtime_assets_with_model_geometry(
     model_templates: Vec<ModelTemplate>,
     model_quads: Vec<ModelQuad>,

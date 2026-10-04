@@ -31,6 +31,7 @@ use crate::{
 
 mod classification;
 mod leaf_mips;
+mod lily_pad_textures;
 mod seasonal_leaves;
 mod variations;
 mod visuals;
@@ -442,7 +443,7 @@ fn compile_pack_inner(
     .with_aliases(pack.terrain.first_paths());
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
-    let (visuals, hashed, model_templates, model_quads) = compile_visuals(
+    let (visuals, hashed, model_templates, mut model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
@@ -461,6 +462,22 @@ fn compile_pack_inner(
     )?;
     let mut materials = materials.into_vec();
     let mut visuals = visuals.into_vec();
+    let lily_pad_textures::Installed {
+        pages: texture_pages,
+        material_keys: lily_pad_keys,
+    } = lily_pad_textures::install(
+        lily_pad_textures::Inputs {
+            pack: &pack,
+            records,
+            fallback,
+            descriptors: &material_by_descriptor,
+            templates: &model_templates,
+        },
+        &mut materials,
+        &mut visuals,
+        &mut model_quads,
+        texture_pages.into_vec(),
+    )?;
     let seasonal_copies =
         seasonal_leaves::install(records, &pack.blocks, &mut visuals, &mut materials)?;
     let leaf_mips::CompiledLeafTextures {
@@ -479,13 +496,17 @@ fn compile_pack_inner(
                 .map(move |&id| (id, key))
         })
         .collect::<Vec<_>>();
-    let material_keys = MaterialKeys::from_entries(original_keys.iter().copied().chain(
-        seasonal_copies.iter().flat_map(|&(copy, original)| {
-            original_keys
-                .iter()
-                .filter_map(move |&(id, key)| (id == original).then_some((copy, key)))
-        }),
-    ))
+    let material_keys = MaterialKeys::from_entries(
+        original_keys
+            .iter()
+            .copied()
+            .chain(lily_pad_keys.iter().map(|(id, key)| (*id, key.as_ref())))
+            .chain(seasonal_copies.iter().flat_map(|&(copy, original)| {
+                original_keys
+                    .iter()
+                    .filter_map(move |&(id, key)| (id == original).then_some((copy, key)))
+            })),
+    )
     .with_aliases(material_keys.aliases());
     if light_properties.len() != visuals.len() {
         return Err(AssetError::InvalidCompiledAssets {

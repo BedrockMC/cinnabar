@@ -52,15 +52,17 @@ fn derive_base_frame(
     medium: CameraMedium,
     context: &EnvironmentContext,
 ) -> AtmosphereFrame {
-    // Ordinary current preRenderParameters supplies coefficient1. Optional
-    // AppPlatform caps need their own admission witness; quality is not a multiplier.
-    let cloud_fade = context
+    // Player's packet radius includes one extra chunk before the camera margin.
+    // Ordinary preRenderParameters supplies coefficient1; optional platform
+    // caps need their own admission witness, not a quality multiplier.
+    let adjusted_render_distance = context
         .render_distance_blocks
-        .and_then(|blocks| render::adjusted_cloud_distance_blocks(blocks, 1.0, None))
+        .and_then(render::adjusted_player_render_distance_blocks)
         .unwrap_or(0.0);
     let frame = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium)
         .with_sky_kind(SkyKind::from_dimension(context.dimension))
-        .with_cloud_fade_distance(cloud_fade);
+        .with_cloud_fade_distance(adjusted_render_distance)
+        .with_liquid_render_distance(adjusted_render_distance);
     match context.camera_biome_temperature {
         Some(temperature) => frame.with_biome_temperature(temperature),
         None => frame,
@@ -101,7 +103,11 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         return (base, EnvironmentProfileRoute::default());
     };
     let resolve = |requested: FogMedium| {
-        let render_distance = context.render_distance_blocks?;
+        // Air fog profiles use camera+414, which equals adjusted+5e0 in the
+        // ordinary above-water route (04e40a10/04e429e0), not the raw packet.
+        // The separate native submerged distance admission remains incomplete.
+        let render_distance =
+            render::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
         let fog = fog_profiles
             .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
             .ok()
@@ -312,5 +318,28 @@ pub(crate) fn apply_boss_environment(
     match medium {
         CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
         CameraMedium::Water | CameraMedium::Lava => frame,
+    }
+}
+
+#[cfg(test)]
+mod liquid_distance_tests {
+    use super::*;
+
+    #[test]
+    fn base_frame_uses_native_player_margin_before_camera_distance_adjustment() {
+        let clock = WorldClock::default();
+        let weather = WeatherState::default();
+        for (confirmed, adjusted) in [(32.0, 45.0), (160.0, 160.0), (256.0, 256.0)] {
+            let context = EnvironmentContext {
+                render_distance_blocks: Some(confirmed),
+                ..Default::default()
+            };
+            let actual = derive_base_frame(clock, weather, 0.0, CameraMedium::Air, &context);
+            let expected =
+                derive_atmosphere_frame_for_medium(clock, weather, 0.0, CameraMedium::Air)
+                    .with_cloud_fade_distance(adjusted)
+                    .with_liquid_render_distance(adjusted);
+            assert_eq!(actual, expected);
+        }
     }
 }

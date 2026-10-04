@@ -170,6 +170,7 @@ pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
     CloudMatchingView, CloudQuality, CloudRenderConfig, adjusted_cloud_distance_blocks,
+    adjusted_player_render_distance_blocks,
 };
 pub use dropped_item::{
     DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,

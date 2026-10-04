@@ -40,6 +40,11 @@ fn unpack_linear_rgb10(packed: u32) -> vec3<f32> {
     ) / 1023.0;
 }
 
+fn unpack_water_rgb8(packed: u32) -> vec3<f32> {
+    let gamma = vec3(f32(packed & 255u), f32((packed >> 8u) & 255u), f32((packed >> 16u) & 255u)) / 255.0;
+    return tint_to_linear(vec4(gamma, 1.0)).rgb;
+}
+
 fn packed_payload_tint_index(payload: u32, coordinate: vec3<u32>) -> u32 {
     if (!biome_record_span_valid(payload, 1u)) { return 0u; }
     let header = biome_records[payload];
@@ -95,7 +100,7 @@ fn tint_domain_colour(tint: BiomeTintGpu, tint_kind: u32, material_flags: u32, w
         return vec4(unpack_linear_rgb10(tint.grass), 1.0);
     }
     if (tint_kind == 0x30u) {
-        return vec4(unpack_linear_rgb10(tint.water), tint.water_opacity);
+        return vec4(unpack_water_rgb8(tint.water), tint.water_opacity);
     }
     return vec4(special_foliage_tint(tint, material_flags), 1.0);
 }

@@ -73,3 +73,31 @@ fn segment_guard_rejects_pathological_fragmentation_before_submission() {
     ];
     assert!(merge_faces(SubChunkKey::new(0, 0, 0, 0), Vec3::ZERO, faces, 2).is_none());
 }
+
+#[test]
+fn ordinary_ice_water_overlap_never_hits_the_former_independent_segment_cap() {
+    let count = 8192;
+    let faces = (0..count)
+        .map(|index| {
+            let stream = if index % 2 == 0 {
+                MixedStream::Model
+            } else {
+                MixedStream::Water
+            };
+            face(stream, index / 2, index as f32 / 512.0)
+        })
+        .collect();
+    let segments = merge_faces(
+        SubChunkKey::new(0, 0, 0, 0),
+        Vec3::ZERO,
+        faces,
+        MAX_MIXED_TERRAIN_SEGMENTS_PER_FRAME,
+    )
+    .expect("all admitted references retain their interleaved order");
+    assert_eq!(segments.len(), count as usize);
+    assert!(
+        segments
+            .windows(2)
+            .all(|pair| pair[0].stream != pair[1].stream)
+    );
+}

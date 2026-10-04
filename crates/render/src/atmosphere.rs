@@ -10,6 +10,9 @@ use meshing::cloud_viewport::CLOUD_FADE_START;
 
 use crate::{AtmosphereViewInputs, celestial, native_sunlight};
 
+#[path = "atmosphere/liquid_distance.rs"]
+mod liquid_distance;
+
 pub const BEDROCK_DAY_TICKS: f64 = celestial::DAY_TICKS;
 pub const CLOUD_TEXTURE_WORLD_PERIOD: f64 = meshing::CLOUD_WORLD_PERIOD as f64;
 /// Vanilla samples the cloud texture 0.03 blocks ahead per 1.5 ticks.
@@ -193,7 +196,7 @@ pub fn cloud_distance_fade(distance: f32, fade_distance: f32) -> f32 {
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
 ///
-/// The eight `vec4`-shaped records are also the complete GPU uniform. Keeping the
+/// The nine `vec4`-shaped records are also the complete GPU uniform. Keeping the
 /// CPU and GPU contracts identical avoids per-frame allocation or conversion.
 #[repr(C)]
 #[derive(
@@ -218,9 +221,11 @@ pub struct AtmosphereFrame {
     sunrise_band: Vec4,
     /// Star alpha, celestial angle in turns, lightning flash, then `sky kind + 4 * medium`.
     sky_extra: Vec4,
+    /// Ordinary liquid alpha's distance control in x; remaining channels are reserved.
+    liquid_distance: Vec4,
 }
 
-const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 128);
+const _: () = assert!(std::mem::size_of::<AtmosphereFrame>() == 144);
 
 impl Default for AtmosphereFrame {
     fn default() -> Self {
@@ -285,6 +290,13 @@ impl AtmosphereFrame {
             fog_end_time: Vec4::new(fog_end, day_fraction, 0.0, 0.0),
             sunrise_band: Vec4::new(band_rgb[0], band_rgb[1], band_rgb[2], band[3]),
             sky_extra: Vec4::new(celestial::star_brightness(angle, rain), angle, 0.0, 0.0),
+            liquid_distance: Vec4::new(
+                liquid_distance::alpha_distance_blocks(FALLBACK_RENDER_DISTANCE)
+                    .unwrap_or_default(),
+                0.0,
+                0.0,
+                0.0,
+            ),
         }
     }
 

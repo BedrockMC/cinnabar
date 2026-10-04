@@ -2,19 +2,19 @@ package main
 
 import "testing"
 
-// Current IceBlock 071305c0 and FrostedIceBlock 08723f10 both use the
-// inherited 0365cdf0 getter: dampening zero, including every frosted age.
+// Final native registrations 0dcae2a6 / 0dceb39c override the constructors:
+// inherited getter 0365cdf0 returns dampening three for every frosted age.
 func TestIceNativeLightDampening(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name, state string
 		filter      byte
 	}{
-		{name: "minecraft:ice", state: `{}`, filter: 0},
-		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":0}}`, filter: 0},
-		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":1}}`, filter: 0},
-		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":2}}`, filter: 0},
-		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":3}}`, filter: 0},
+		{name: "minecraft:ice", state: `{}`, filter: 3},
+		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":0}}`, filter: 3},
+		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":1}}`, filter: 3},
+		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":2}}`, filter: 3},
+		{name: "minecraft:frosted_ice", state: `{"age":{"type":"int","value":3}}`, filter: 3},
 		{name: "minecraft:packed_ice", state: `{}`, filter: 15},
 		{name: "minecraft:blue_ice", state: `{}`, filter: 15},
 		{name: "test:ice", state: `{}`, filter: 15},

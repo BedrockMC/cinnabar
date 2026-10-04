@@ -441,10 +441,10 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../src/lighting.wgsl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap[sample & 255u].rgb"));
-    for (shader, terrain_lookup) in [
-        (include_str!("../../src/chunk.wgsl"), true),
-        (include_str!("../../src/model.wgsl"), true),
-        (include_str!("../../src/liquid.wgsl"), false),
+    for (shader, liquid) in [
+        (include_str!("../../src/chunk.wgsl"), false),
+        (include_str!("../../src/model.wgsl"), false),
+        (include_str!("../../src/liquid.wgsl"), true),
     ] {
         assert!(shader.contains("#import cinnabar::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
@@ -468,11 +468,11 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
             naga::ShaderStage::Vertex,
             13
         ));
-        assert!(!entry_points_use_binding(
-            &module,
-            naga::ShaderStage::Vertex,
-            15
-        ));
+        assert_eq!(
+            entry_points_use_binding(&module, naga::ShaderStage::Vertex, 15),
+            liquid,
+            "only liquid vertices read the native opacity-distance atmosphere uniform"
+        );
         assert!(entry_points_use_binding(
             &module,
             naga::ShaderStage::Fragment,
@@ -483,22 +483,21 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
             naga::ShaderStage::Vertex,
             "light_colour"
         ));
-        assert_eq!(
-            entry_points_call_function(&module, naga::ShaderStage::Fragment, "light_colour"),
-            terrain_lookup
-        );
-        assert_eq!(
-            entry_points_call_function(
-                &module,
-                naga::ShaderStage::Fragment,
-                "terrain_light_colour"
-            ),
-            terrain_lookup
-        );
-        assert_eq!(
-            entry_points_call_function(&module, naga::ShaderStage::Vertex, "terrain_light_levels"),
-            terrain_lookup
-        );
+        assert!(entry_points_call_function(
+            &module,
+            naga::ShaderStage::Fragment,
+            "light_colour"
+        ));
+        assert!(entry_points_call_function(
+            &module,
+            naga::ShaderStage::Fragment,
+            "terrain_light_colour"
+        ));
+        assert!(entry_points_call_function(
+            &module,
+            naga::ShaderStage::Vertex,
+            "terrain_light_levels"
+        ));
     }
 }
 

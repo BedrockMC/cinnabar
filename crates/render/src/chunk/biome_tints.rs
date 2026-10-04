@@ -32,7 +32,7 @@ impl Default for BiomeTint {
             seasonal_foliage: [[0.191_201_69, 0.527_115_1, 0.102_241_73];
                 assets::SEASONAL_FOLIAGE_COUNT],
             water: [1.0; 3],
-            water_opacity: 1.0,
+            water_opacity: assets::DEFAULT_WATER_OPACITY,
             flags: 0,
         }
     }

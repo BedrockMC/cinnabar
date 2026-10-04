@@ -2,6 +2,11 @@ use crate::chunk::*;
 
 mod terrain_blend;
 
+// Packed liquid corners run opposite to cube/model corners. Native's outward
+// winding is preserved without reversing the index buffer shared with cubes.
+const LIQUID_FRONT_FACE: bevy::render::render_resource::FrontFace =
+    bevy::render::render_resource::FrontFace::Cw;
+
 /// Minimum vertex storage slots required by the shared world layout.
 pub fn required_vertex_storage_buffers() -> u32 {
     chunk_bind_group_layout()
@@ -106,6 +111,7 @@ impl FromWorld for ChunkPipeline {
             .entry_point = Some("fragment".into());
         terrain_blend::apply(&mut liquid_descriptor);
         liquid_descriptor.primitive.cull_mode = None;
+        liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
         let mut depth_liquid_descriptor = descriptor.clone();
         depth_liquid_descriptor.label = Some("packed depth-writing liquid pipeline".into());
         depth_liquid_descriptor.vertex.shader = LIQUID_SHADER_HANDLE;
@@ -117,6 +123,7 @@ impl FromWorld for ChunkPipeline {
         depth_fragment.shader = LIQUID_SHADER_HANDLE;
         depth_fragment.entry_point = Some("fragment_depth".into());
         depth_liquid_descriptor.primitive.cull_mode = None;
+        depth_liquid_descriptor.primitive.front_face = LIQUID_FRONT_FACE;
         Self {
             variants: Variants::new(ChunkPipelineSpecializer, descriptor),
             model_variants: Variants::new(ChunkPipelineSpecializer, model_descriptor),
@@ -147,13 +154,34 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        let native_gamma = !key.hdr
+            && key.msaa == Msaa::Off
+            && !(crate::ENHANCED_RENDERING_ENABLED && key.enhanced)
+            && descriptor
+                .fragment
+                .as_ref()
+                .unwrap()
+                .shader_defs
+                .contains(&"NATIVE_GAMMA_BLEND".into());
+        if !native_gamma {
+            descriptor
+                .fragment
+                .as_mut()
+                .unwrap()
+                .shader_defs
+                .retain(|definition| definition != &"NATIVE_GAMMA_BLEND".into());
+        }
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
             .format = if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
         } else {
-            TextureFormat::bevy_default()
+            if native_gamma {
+                TextureFormat::bevy_default().remove_srgb_suffix()
+            } else {
+                TextureFormat::bevy_default()
+            }
         };
         if crate::ENHANCED_RENDERING_ENABLED && key.enhanced {
             descriptor
@@ -324,7 +352,7 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 15,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,

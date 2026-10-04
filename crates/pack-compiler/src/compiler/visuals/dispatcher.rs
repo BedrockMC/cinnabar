@@ -123,6 +123,7 @@ struct VisualCompiler {
     fence_templates: BTreeMap<[u32; 2], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
     thin_templates: BTreeMap<ThinTemplateKey, u32>,
+    lily_pad_templates: BTreeMap<u32, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
 }
 
@@ -153,6 +154,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.cuboid_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::lily_pad::compile_rule(
+            record,
+            inputs,
+            &mut self.lily_pad_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

@@ -21,6 +21,7 @@ pub(in crate::compiler) mod gates;
 pub(in crate::compiler) mod geometry;
 pub(in crate::compiler) mod kelp;
 pub(in crate::compiler) mod ladders;
+pub(in crate::compiler) mod lily_pad;
 pub(in crate::compiler) mod literal;
 pub(in crate::compiler) mod mineral_cubes;
 pub(in crate::compiler) mod multiface;

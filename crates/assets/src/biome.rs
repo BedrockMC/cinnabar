@@ -13,6 +13,12 @@ pub const TINT_MAP_SIZE: u32 = 256;
 pub const TINT_MAP_COUNT: usize = 8;
 pub const TINT_MAP_BYTES: usize = TINT_MAP_COUNT * 256 * 256 * 3;
 pub const BIOME_RULE_FLAG_GRASS_SHADED: u16 = 1;
+// Current getWaterColor 01dda1e0: default RGBA at VA 1502b26c0. The
+// water-appearance component's constructor 01df7dd0 separately defaults its
+// surfaceOpacity to .65; loader 01dd3ca0 replaces alpha with that value.
+pub const DEFAULT_WATER_RGB: u32 = 0x60_b7ff;
+pub const DEFAULT_WATER_OPACITY: f32 = 166.0 / 255.0;
+pub const DEFAULT_WATER_APPEARANCE_OPACITY: f32 = 0.65;
 // Upper-byte transparency preserves opaque defaults in existing biome records.
 const WATER_TRANSPARENCY_SHIFT: u32 = 8;
 pub const BIOME_RULE_FLAGS_MASK: u16 =
@@ -343,17 +349,18 @@ impl CompiledBiomeAssets {
             }
         }
 
-        let fallback = BiomeRule {
+        let mut fallback = BiomeRule {
             id: u32::MAX,
             name: "fallback".into(),
             flags: 0,
             grass: TintSource::map(TintMapId::Grass),
             foliage: TintSource::map(TintMapId::Foliage),
             dry_foliage: TintSource::map(TintMapId::DryFoliage),
-            water: TintSource::direct(0x44_aff5),
+            water: TintSource::direct(DEFAULT_WATER_RGB),
             temperature_bits: 0.8_f32.to_bits(),
             downfall_bits: 0.4_f32.to_bits(),
         };
+        fallback.set_water_opacity(DEFAULT_WATER_OPACITY)?;
         let mut records = Vec::with_capacity(self.rules.len() + custom.len() + 1);
         records.push(self.resolve_rule(&fallback, 0.8, 0.4, 0.0, None)?);
         for rule in &self.rules {
@@ -370,7 +377,7 @@ impl CompiledBiomeAssets {
             )?);
         }
         for (id, definition) in custom {
-            let fallback = BiomeRule {
+            let mut fallback = BiomeRule {
                 id,
                 name: definition.name.into(),
                 flags: 0,
@@ -381,6 +388,7 @@ impl CompiledBiomeAssets {
                 temperature_bits: definition.temperature.to_bits(),
                 downfall_bits: definition.downfall.to_bits(),
             };
+            fallback.set_water_opacity(DEFAULT_WATER_OPACITY)?;
             records.push(
                 self.resolve_rule(
                     &fallback,

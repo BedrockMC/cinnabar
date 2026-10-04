@@ -149,7 +149,8 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
             0.0,
             0.0,
         )
-        .with_cloud_fade_distance(0.0);
+        .with_cloud_fade_distance(0.0)
+        .with_liquid_render_distance(0.0);
         assert_eq!(restored.0.with_cloud_renderer_ticks(0.0), expected);
         assert_eq!(
             restored.1.0.sky_darken,

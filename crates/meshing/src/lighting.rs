@@ -300,15 +300,24 @@ pub(crate) fn bake_quad<I: LightingInputs + ?Sized>(
     bake_quad_with(inputs, block, face, positions, false, emitting_block)
 }
 
-/// Liquid tessellation has separate native light sampling (26.30 0x0383a1d0),
-/// not the terrain AO center rule. Preserve its existing outward-center admission.
+/// Current liquid tessellation (1.26.50.26 0x06a1b960) never applies terrain AO;
+/// sides and the bottom repeat one outward-cell sample across the whole face.
 pub(crate) fn bake_liquid_quad<I: LightingInputs + ?Sized>(
     inputs: &I,
     block: [i32; 3],
     face: Face,
     positions: [[i16; 3]; 4],
 ) -> PackedQuadLighting {
-    bake_quad_in_plane(inputs, block, face, positions, false, true, false)
+    if face != Face::PositiveY {
+        return lighting_at(inputs.sample(add_normal(block, face_basis(face).0)));
+    }
+    // Incomplete top-light parity: native averages four admitted samples in the
+    // y+1 plane, rounding each channel. Admission uses BlockType+0x15c > 0.5,
+    // which is not carried by LightingInputs and is not the solid-render bit
+    // (ordinary ice is non-solid but retains 0.0 here). Preserve the existing
+    // top light/admission until that independent native property is available.
+    let top = bake_quad_in_plane(inputs, block, face, positions, false, true, false);
+    PackedQuadLighting::new(top.samples().map(|sample| sample & 0x00ff))
 }
 
 /// Templates check their bounds; cube faces are known to lie on a block boundary.
@@ -466,6 +475,11 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     let start = template.quad_start as usize;
     let end = start.checked_add(template.quad_count as usize)?;
     let quads = assets.model_quads().get(start..end)?;
+    // Current lily tessellator 06a33800 reads 069e6110 at the pad's own cell.
+    // Neither neighbor AO nor terrain's underside face coefficient is applied.
+    if template.flags & assets::MODEL_TEMPLATE_FLAG_LILY_PAD != 0 {
+        return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
+    }
     Some(
         quads
             .iter()
@@ -664,6 +678,10 @@ const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
 #[cfg(test)]
 #[path = "lighting/native_planes.rs"]
 mod native_planes;
+
+#[cfg(test)]
+#[path = "lighting/native_liquid.rs"]
+mod native_liquid;
 
 #[cfg(test)]
 mod tests {

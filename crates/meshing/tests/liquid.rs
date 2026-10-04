@@ -27,6 +27,9 @@ const GLASS: u32 = 25;
 const STILL: u32 = 1;
 const FLOW: u32 = 2;
 
+#[path = "support/liquid_contacts.rs"]
+mod liquid_contacts;
+
 #[test]
 fn state_derived_levels_cover_source_flowing_and_falling() {
     let expected = [227, 198, 170, 142, 113, 85, 57, 28];
@@ -180,7 +183,7 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
         (WATER_SOURCE, [8, 8, 8]),
         (OTHER_LIQUID, [9, 8, 8]),
     ]));
-    assert_eq!(different.liquid_quads().len(), 12);
+    assert_eq!(different.liquid_quads().len(), 10);
     let different_above = mesh(&blocks(&[
         (WATER_SOURCE, [8, 8, 8]),
         (OTHER_LIQUID, [8, 9, 8]),
@@ -202,7 +205,7 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
 }
 
 #[test]
-fn alpha_glass_enclosure_retains_contacting_water_faces_but_opaque_enclosure_culls() {
+fn alpha_glass_enclosure_culls_water_sides_and_bottom_but_preserves_top_admission() {
     let enclosure = |neighbour| {
         mesh(&blocks(&[
             (WATER_SOURCE, [8, 8, 8]),
@@ -215,8 +218,77 @@ fn alpha_glass_enclosure_retains_contacting_water_faces_but_opaque_enclosure_cul
         ]))
     };
 
-    assert_eq!(enclosure(GLASS).liquid_quads().len(), 6);
+    let transparent = enclosure(GLASS);
+    assert_eq!(transparent.liquid_quads().len(), 1);
+    assert_eq!(transparent.liquid_quads()[0].face(), Face::PositiveY);
     assert!(enclosure(SOLID).liquid_quads().is_empty());
+}
+
+#[test]
+fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_repack() {
+    // Native 06a1b960 mutates the four heights during top emission, then reuses
+    // them for sides. Bottom geometry never receives that height mutation.
+    let exposed = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
+    for quad in exposed.liquid_quads() {
+        assert_eq!(quad.has_top_height_inset(), quad.face() != Face::NegativeY);
+    }
+    assert!(
+        exposed
+            .liquid_quads()
+            .iter()
+            .enumerate()
+            .all(|(index, quad)| { quad.lighting_index() == index as u32 })
+    );
+    for cover in [WATER_ALIAS, SOLID] {
+        let covered = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8]), (cover, [8, 9, 8])]));
+        let mut lower = covered
+            .liquid_quads()
+            .iter()
+            .filter(|quad| quad.origin() == [8, 8, 8]);
+        assert!(lower.clone().all(|quad| quad.face() != Face::PositiveY));
+        assert!(lower.clone().any(|quad| quad.face() == Face::NegativeX));
+        assert!(lower.all(|quad| !quad.has_top_height_inset()));
+    }
+}
+
+#[test]
+fn native_liquid_winding_admission_survives_lighting_repack() {
+    // Native 06a1b960 + Tessellator face metadata: the ordinary exposed top
+    // admits opposite winding, only primary-Air side neighbours do, and the
+    // ordinary bottom helper06a0d430 never requests a secondary face.
+    let exposed = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
+    for quad in exposed.liquid_quads() {
+        assert_eq!(quad.is_two_sided(), quad.face() != Face::NegativeY);
+    }
+    for neighbour in [GLASS, CROSS, OTHER_LIQUID] {
+        let touching = mesh(&blocks(&[
+            (WATER_SOURCE, [8, 8, 8]),
+            (neighbour, [9, 8, 8]),
+        ]));
+        assert!(
+            !touching
+                .liquid_quads()
+                .iter()
+                .any(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
+        );
+        assert!(quad_at(&touching, [8, 8, 8], Face::NegativeX).is_two_sided());
+        assert!(quad_at(&touching, [8, 8, 8], Face::PositiveY).is_two_sided());
+        assert!(!quad_at(&touching, [8, 8, 8], Face::NegativeY).is_two_sided());
+    }
+    let covered = mesh(&blocks(&[
+        (WATER_SOURCE, [8, 8, 8]),
+        (WATER_SOURCE, [8, 9, 8]),
+    ]));
+    let side = quad_at(&covered, [8, 8, 8], Face::PositiveX);
+    assert!(side.is_two_sided());
+    assert!(!side.has_top_height_inset());
+    assert!(
+        exposed
+            .liquid_quads()
+            .iter()
+            .enumerate()
+            .all(|(index, quad)| quad.lighting_index() == index as u32)
+    );
 }
 
 #[test]
@@ -371,7 +443,7 @@ fn waterlogging_retains_model_and_exactly_one_lighting_record_per_liquid_quad() 
 }
 
 #[test]
-fn liquid_lighting_is_face_specific_and_ao_samples_the_expected_corner() {
+fn liquid_lighting_never_inherits_terrain_ambient_occlusion() {
     let isolated = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
     let top = quad_at(&isolated, [8, 8, 8], Face::PositiveY);
     assert_eq!(
@@ -383,7 +455,7 @@ fn liquid_lighting_is_face_specific_and_ao_samples_the_expected_corner() {
     let top = quad_at(&occluded_corner, [8, 8, 8], Face::PositiveY);
     assert_eq!(
         occluded_corner.liquid_lighting()[top.lighting_index() as usize].samples(),
-        [0x01f0, 0x00f0, 0x00f0, 0x00f0]
+        [0x00f0; 4]
     );
 }
 
@@ -410,20 +482,18 @@ fn liquid_lighting_uses_the_render_owned_sampler() {
 }
 
 #[test]
-fn side_and_bottom_lighting_indices_match_the_packed_vertex_winding() {
-    for (face, occluder, expected_index) in [
-        (Face::NegativeX, [7, 9, 7], 1_usize),
-        (Face::PositiveX, [9, 9, 9], 1),
-        (Face::NegativeZ, [9, 9, 7], 1),
-        (Face::PositiveZ, [7, 9, 9], 1),
-        (Face::NegativeY, [7, 7, 7], 0),
+fn liquid_sides_and_bottom_are_not_darkened_by_terrain_corners() {
+    for (face, occluder) in [
+        (Face::NegativeX, [7, 9, 7]),
+        (Face::PositiveX, [9, 9, 9]),
+        (Face::NegativeZ, [9, 9, 7]),
+        (Face::PositiveZ, [7, 9, 9]),
+        (Face::NegativeY, [7, 7, 7]),
     ] {
         let mesh = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8]), (SOLID, occluder)]));
         let quad = quad_at(&mesh, [8, 8, 8], face);
         let samples = mesh.liquid_lighting()[quad.lighting_index() as usize].samples();
-        let mut expected = [0x00f0; 4];
-        expected[expected_index] = 0x01f0;
-        assert_eq!(samples, expected, "{face:?} packed/lighting vertex order");
+        assert_eq!(samples, [0x00f0; 4], "{face:?}");
     }
 }
 
@@ -480,7 +550,7 @@ fn depth_writing_lava_uses_the_shared_liquid_stream_without_water_flags() {
 }
 
 #[test]
-fn mixed_water_and_lava_are_stably_partitioned_with_both_interface_faces() {
+fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface() {
     let mesh = mesh(&blocks(&[
         (WATER_SOURCE, [8, 8, 8]),
         (NON_WATER_LIQUID, [9, 8, 8]),
@@ -490,8 +560,8 @@ fn mixed_water_and_lava_are_stably_partitioned_with_both_interface_faces() {
         .iter()
         .position(|quad| quad.is_depth_writing())
         .expect("lava suffix");
-    assert_eq!(split, 6);
-    assert_eq!(mesh.liquid_quads().len(), 12);
+    assert_eq!(split, 5);
+    assert_eq!(mesh.liquid_quads().len(), 11);
     assert!(
         mesh.liquid_quads()[..split]
             .iter()
@@ -503,7 +573,8 @@ fn mixed_water_and_lava_are_stably_partitioned_with_both_interface_faces() {
             .all(|quad| quad.is_depth_writing())
     );
     assert!(
-        mesh.liquid_quads()
+        !mesh
+            .liquid_quads()
             .iter()
             .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX })
     );
@@ -1041,7 +1112,8 @@ fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
 }
 
 /// Mesh output for dense mixed cube/model/liquid scenes must stay byte-identical.
-/// This baseline includes native transparent-cube flow/height barrier handling.
+/// Includes native transparent-cube flow barriers, selective reverse-face
+/// admission, classic-water primary-Air contacts, liquid inset flags and no-AO lighting.
 #[test]
 fn mixed_neighbourhood_mesh_output_is_golden() {
     let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
@@ -1056,17 +1128,17 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            14_654_652_482_365_600_924,
-            13_039_309_695_558_536_809,
-            7_295_938_615_817_743_962,
-            1_487_539_637_164_714_131
+            16_967_610_146_635_233_032,
+            1_635_448_699_120_490_173,
+            4_724_742_875_596_759_153,
+            402_004_103_534_269_269
         ]
     );
 }
 
 /// Layer conflicts must resolve to the same diagnostic/primary/liquid winners.
 /// Diagnostic terrain cubes with non-solid source winners use their own center
-/// light (native terrain 0x069e5200); liquid outward-center sampling is unchanged.
+/// light (native terrain 0x069e5200); liquids use native inset flags and no-AO lighting.
 #[test]
 fn conflicting_layer_mesh_output_is_golden() {
     let mut state = 0x9e37_79b9_7f4a_7c15_u64;
@@ -1108,5 +1180,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 9_633_046_852_208_710_660);
+    assert_eq!(digest, 8_827_825_707_649_792_903);
 }

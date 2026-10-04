@@ -77,7 +77,14 @@ fn biome_gpu_entries_pack_all_six_tint_classes_and_flags() {
     assert_eq!(gpu.birch, pack_linear_rgb10(entry.birch));
     assert_eq!(gpu.evergreen, pack_linear_rgb10(entry.evergreen));
     assert_eq!(gpu.dry_foliage, pack_linear_rgb10(entry.dry_foliage));
-    assert_eq!(gpu.water, pack_linear_rgb10(entry.water));
+    assert_eq!(
+        gpu.water,
+        u32::from_le_bytes(
+            Color::linear_rgb(entry.water[0], entry.water[1], entry.water[2])
+                .to_srgba()
+                .to_u8_array()
+        )
+    );
     assert_eq!(
         gpu.seasonal_foliage,
         entry.seasonal_foliage.map(|[r, g, b]| [r, g, b, 1.0])
