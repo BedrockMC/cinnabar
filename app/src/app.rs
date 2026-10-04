@@ -53,9 +53,8 @@ use crate::{
     },
     melee::{MeleeRuntime, SwingTracker, produce_melee},
     menu::{
-        CoreProcessGuard, MenuRuntime, drive_menu_connection, drive_menu_input,
-        follow_server_transfer, recover_menu_session_failure, spawn_core_for_address,
-        wait_for_core,
+        CoreProcessGuard, MenuRuntime, drive_menu_input, drive_menu_services,
+        spawn_core_for_address, wait_for_core,
     },
     metrics::MetricsCollector,
     movement::{
@@ -90,6 +89,7 @@ use crate::{
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
         synchronize_semantic_input_authority,
     },
+    session::{SessionController, drive_session, follow_server_transfer, recover_session_failure},
     session_cleanup::{ScopedSessionDirectory, reclaim_stale_session_directories},
     survival_mining::{SurvivalMiningRuntime, produce_survival_mining},
     ui_runtime::{
@@ -190,9 +190,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             crate::session_audio::drain_sequenced_audio_into_session
                 .after(reconcile_world_stream_before_physics)
-                .after(drive_menu_connection)
+                .after(drive_session)
                 .after(follow_server_transfer)
-                .after(recover_menu_session_failure),
+                .after(recover_session_failure),
         )
         .add_systems(
             Update,
@@ -236,9 +236,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .after(publish_local_player_frame)
                 .after(drive_world_stream)
                 .after(reconcile_world_stream_before_physics)
-                .after(drive_menu_connection)
+                .after(drive_session)
                 .after(follow_server_transfer)
-                .after(recover_menu_session_failure),
+                .after(recover_session_failure),
         )
         .add_systems(
             Update,
@@ -294,7 +294,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
             .after(ClientFrameSet::NetworkSend)
             .after(ClientFrameSet::UiPublication)
             .after(record_metrics)
-            .after(recover_menu_session_failure),
+            .after(recover_session_failure),
     );
     app
         // The launcher gets first refusal on a fatal session error, so a failed
@@ -304,7 +304,7 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
         // move is classified as a replacement handoff, not a failure.
         .add_systems(
             Update,
-            (follow_server_transfer, recover_menu_session_failure)
+            (follow_server_transfer, recover_session_failure)
                 .chain()
                 .after(receive_network_events)
                 .after(ClientFrameSet::NetworkSend)
@@ -771,7 +771,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(core_process)
+    .insert_resource(SessionController::new(core_process))
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())

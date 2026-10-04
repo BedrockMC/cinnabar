@@ -579,11 +579,8 @@ impl UiRuntime {
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn begin_session(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        session_id: u64,
-    ) {
+    /// Resets UI session state for `session_id`; the session controller moves player authority with it.
+    pub fn begin_session(&mut self, session_id: u64) {
         if self.session_id == session_id {
             return;
         }
@@ -592,7 +589,6 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen = screen_state::ScreenState::default();
         self.experiences.reset();
-        player_runtime.begin_session(session_id);
         self.server_lang = None;
         self.session_icons = None;
         self.session_items = None;
