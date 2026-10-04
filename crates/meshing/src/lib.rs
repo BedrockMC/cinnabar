@@ -16,7 +16,7 @@ pub mod liquid;
 mod publication;
 mod types;
 
-const SIDE: usize = 16;
+const SIDE: usize = world::SUB_CHUNK_SIDE;
 
 pub use biome::{
     BIOME_NEIGHBOUR_SLOT_COUNT, BiomeBlendSample, ChunkBiomeTintIdentity,
