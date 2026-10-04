@@ -22,3 +22,6 @@ pub mod actor_feed;
 
 mod plugin;
 pub use plugin::ClientPresentationPlugin;
+
+#[cfg(test)]
+mod molang_conformance_tests;
