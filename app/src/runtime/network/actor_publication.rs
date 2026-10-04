@@ -133,7 +133,7 @@ pub(crate) fn prepare_actor_render_frame(
                         ui,
                         movement
                             .as_deref()
-                            .map_or(0, MovementTicker::completed_tick),
+                            .map_or(0, |movement| movement.completed_tick()),
                         partial_tick,
                     )
                 });

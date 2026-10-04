@@ -560,11 +560,13 @@ dependencies = [
  "bytes",
  "chunk-pipeline",
  "client-presentation",
+ "client-session",
  "client-ui",
  "crossbeam-channel",
  "ctrlc",
  "diagnostics",
  "fontdue",
+ "gameplay",
  "image",
  "inventory 0.1.2",
  "json-ui",
@@ -1797,6 +1799,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "client-session"
+version = "0.1.2"
+dependencies = [
+ "assets",
+ "bytes",
+ "crossbeam-channel",
+ "image",
+ "protocol",
+ "resource-pack",
+ "serde_json",
+ "server-experience",
+ "sha2",
+ "sim",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "world",
+]
+
+[[package]]
 name = "client-ui"
 version = "0.1.2"
 dependencies = [
@@ -2958,6 +2981,26 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gameplay"
+version = "0.1.2"
+dependencies = [
+ "assets",
+ "client-world",
+ "inventory 0.1.2",
+ "player-state",
+ "protocol",
+ "semantic-input",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sim",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "world",
 ]
 
 [[package]]
