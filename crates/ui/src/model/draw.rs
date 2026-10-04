@@ -575,6 +575,7 @@ fn emit_colored_quad(
                 .is_some_and(|projection| projection.alpha_test),
             alpha_cutoff: -1.0,
             model_light: 1.0,
+            overlay_color: [0.0; 4],
         });
     }
     indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

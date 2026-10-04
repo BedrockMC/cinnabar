@@ -22,6 +22,7 @@ fn vertex(position: [f32; 2], w: f32) -> UiMeshVertex {
         style_flags: 0,
         alpha_test: false,
         model_light: 0.718_629,
+        overlay_color: [0.0; 4],
     }
 }
 

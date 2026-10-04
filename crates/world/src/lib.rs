@@ -41,7 +41,7 @@ pub use light_solver::{
 pub use mesh_neighbourhood::{MeshDependencyMask, MeshNeighbourhood, MeshSample};
 pub use mutation::BlockUpdate;
 pub use nbt_tree::{NbtCompound, NbtValue};
-pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage};
+pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage, SUB_CHUNK_SIDE};
 pub use store::{
     ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, DimensionSlots,
     PreparedSubChunkMutation, decode_column_tail,

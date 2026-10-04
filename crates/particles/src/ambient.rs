@@ -1,12 +1,14 @@
-//! Native ambient leaf sampling: the sampler budget, its random stream and leaf admission.
+//! Native ambient sampling, its shared random stream, and leaf/fire admission.
 
 use assets::BlockFlags;
 
+mod fire;
 mod random;
 mod sampler;
 #[cfg(test)]
 mod tests;
 
+pub use fire::{FIRE_SMOKE_EFFECT, emit_fire_smoke};
 pub use random::AmbientRandom;
 pub use sampler::{SamplePlan, Sampler};
 

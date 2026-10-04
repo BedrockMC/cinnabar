@@ -1,4 +1,4 @@
-//! Draws the camera overlay stack as one full-screen triangle after all other transparent geometry.
+//! Draws camera effects after first-person geometry and before the JSON-UI HUD.
 use crate::screen_overlay::{
     MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayScene,
 };
@@ -20,19 +20,21 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
-            BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
-            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, PipelineCache, RenderPipeline, RenderPipelineDescriptor,
-            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer,
-            SpecializerKey, Texture, TextureDataOrder, TextureDescriptor, TextureDimension,
-            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BufferBindingType, BufferInitDescriptor, BufferSize, BufferUsages,
+            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, Extent3d, FilterMode, FragmentState, PipelineCache,
+            RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, Sampler,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, Specializer, SpecializerKey,
+            Texture, TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
             TextureViewDimension, Variants, VertexState,
         },
-        renderer::{RenderDevice, RenderQueue},
+        renderer::{RenderContext, RenderDevice, RenderQueue},
         sync_world::MainEntity,
         view::{ExtractedView, ViewTarget},
     },
 };
+use std::collections::HashMap;
 
 const OVERLAY_SHADER_HANDLE: Handle<Shader> = uuid_handle!("2f6d4c1a-8b73-4e0c-a5d9-61c7b3e8f204");
 const UNIFORM_BYTES: usize = std::mem::size_of::<OverlayUniform>();
@@ -42,6 +44,8 @@ const UNIFORM_BYTES: usize = std::mem::size_of::<OverlayUniform>();
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct OverlayUniform {
     header: [f32; 4],
+    fire: [f32; 4],
+    projection: [f32; 4],
     layers: [[f32; 8]; MAX_SCREEN_OVERLAY_LAYERS],
 }
 
@@ -99,15 +103,22 @@ struct OverlayGpu {
     sampler: Sampler,
     _texture: Texture,
     texture_view: TextureView,
+    _fire_texture: Texture,
+    fire_view: TextureView,
+    fire_sampler: Sampler,
+    fire_revision: Option<u64>,
+    fire_present: bool,
     textures_revision: Option<u64>,
     layer_count: u32,
     bind_group: Option<BindGroup>,
+    view_pipelines: HashMap<Entity, CachedRenderPipelineId>,
 }
 
 fn texture_array(
     device: &RenderDevice,
     queue: &RenderQueue,
     side: u32,
+    layers: u32,
     pixels: &[u8],
 ) -> (Texture, TextureView) {
     let texture = device.create_texture_with_data(
@@ -117,7 +128,7 @@ fn texture_array(
             size: Extent3d {
                 width: side,
                 height: side,
-                depth_or_array_layers: 2,
+                depth_or_array_layers: layers,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -138,7 +149,8 @@ fn texture_array(
 }
 
 fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<RenderQueue>) {
-    let (texture, texture_view) = texture_array(&device, &queue, 1, &[255; 8]);
+    let (texture, texture_view) = texture_array(&device, &queue, 1, 2, &[255; 8]);
+    let (fire_texture, fire_view) = texture_array(&device, &queue, 1, 1, &[0; 4]);
     commands.insert_resource(OverlayGpu {
         uniform: device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("screen overlay layers"),
@@ -157,14 +169,26 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
         }),
         _texture: texture,
         texture_view,
+        _fire_texture: fire_texture,
+        fire_view,
+        fire_sampler: device.create_sampler(&SamplerDescriptor {
+            label: Some("native fire point sampler"),
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            ..default()
+        }),
+        fire_revision: None,
+        fire_present: false,
         textures_revision: None,
         layer_count: 0,
         bind_group: None,
+        view_pipelines: HashMap::new(),
     });
 }
 
 fn prepare_overlay(
     scene: Res<ScreenOverlayScene>,
+    clock: Option<Res<crate::ChunkAnimationClock>>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<OverlayGpu>,
@@ -175,13 +199,36 @@ fn prepare_overlay(
                 &device,
                 &queue,
                 SCREEN_OVERLAY_TEXTURE_SIDE,
+                2,
                 &textures.layer_major(),
             ),
-            None => texture_array(&device, &queue, 1, &[255; 8]),
+            None => texture_array(&device, &queue, 1, 2, &[255; 8]),
         };
         gpu._texture = texture;
         gpu.texture_view = view;
         gpu.textures_revision = Some(scene.textures_revision);
+        gpu.bind_group = None;
+    }
+    if gpu.fire_revision != Some(scene.fire_revision) {
+        gpu.fire_present = scene
+            .fire
+            .as_ref()
+            .is_some_and(|fire| fire.frames <= device.limits().max_texture_array_layers);
+        let (texture, view) = match &scene.fire {
+            Some(fire) if gpu.fire_present => {
+                texture_array(&device, &queue, fire.side, fire.frames, &fire.pixels)
+            }
+            Some(_) => {
+                warn!(
+                    "camera fire animation exceeds this adapter's texture layer limit; skipping effect"
+                );
+                texture_array(&device, &queue, 1, 1, &[0; 4])
+            }
+            None => texture_array(&device, &queue, 1, 1, &[0; 4]),
+        };
+        gpu._fire_texture = texture;
+        gpu.fire_view = view;
+        gpu.fire_revision = Some(scene.fire_revision);
         gpu.bind_group = None;
     }
     let count = scene.layers.len().min(MAX_SCREEN_OVERLAY_LAYERS);
@@ -190,6 +237,14 @@ fn prepare_overlay(
         return;
     }
     let mut uniform = OverlayUniform {
+        fire: scene
+            .fire
+            .as_ref()
+            .filter(|_| gpu.fire_present)
+            .map_or([0.0; 4], |fire| {
+                fire.sample(clock.as_deref().copied().unwrap_or_default())
+            }),
+        projection: [scene.fire_projection[0], scene.fire_projection[1], 0.0, 0.0],
         header: [
             count as f32,
             scene.clock_seconds,
@@ -252,6 +307,22 @@ impl FromWorld for OverlayPipeline {
                     ty: BindingType::Sampler(SamplerBindingType::Filtering),
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         );
         let descriptor = RenderPipelineDescriptor {
@@ -293,6 +364,7 @@ impl FromWorld for OverlayPipeline {
 struct OverlayPipelineKey {
     msaa: Msaa,
     hdr: bool,
+    after_hand: bool,
 }
 
 impl Specializer<RenderPipeline> for OverlayPipelineSpecializer {
@@ -304,6 +376,9 @@ impl Specializer<RenderPipeline> for OverlayPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        if key.after_hand {
+            descriptor.depth_stencil = None;
+        }
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
@@ -341,6 +416,14 @@ fn prepare_bind_group(
                 binding: 2,
                 resource: BindingResource::Sampler(&gpu.sampler),
             },
+            BindGroupEntry {
+                binding: 3,
+                resource: BindingResource::TextureView(&gpu.fire_view),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: BindingResource::Sampler(&gpu.fire_sampler),
+            },
         ],
     ));
 }
@@ -349,10 +432,12 @@ fn queue_overlay(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<OverlayPipeline>,
     scene: Res<ScreenOverlayScene>,
+    (ui, mut gpu): (Option<Res<crate::ui_render::UiGpu>>, ResMut<OverlayGpu>),
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
+    gpu.view_pipelines.clear();
     if scene.layers.is_empty() {
         return;
     }
@@ -366,10 +451,15 @@ fn queue_overlay(
             OverlayPipelineKey {
                 msaa: *msaa,
                 hdr: view.hdr,
+                after_hand: ui.is_some(),
             },
         ) else {
             continue;
         };
+        if ui.is_some() {
+            gpu.view_pipelines.insert(view_entity, pipeline_id);
+            continue;
+        }
         phase.add(Transparent3d {
             entity: (view_entity, *main_entity),
             pipeline: pipeline_id,
@@ -381,6 +471,56 @@ fn queue_overlay(
             indexed: false,
         });
     }
+}
+
+/// The HUD graph calls this after the hand pass, including Enhanced's post-grade path.
+pub(crate) fn draw_before_hud(
+    view: Entity,
+    target: &ViewTarget,
+    camera: &bevy::render::camera::ExtractedCamera,
+    resolution: Option<&bevy::camera::MainPassResolutionOverride>,
+    context: &mut RenderContext,
+    world: &World,
+) {
+    if world
+        .get_resource::<crate::PanoramaScene>()
+        .is_some_and(|scene| !scene.game_visible())
+    {
+        return;
+    }
+    let (Some(gpu), Some(cache)) = (
+        world.get_resource::<OverlayGpu>(),
+        world.get_resource::<PipelineCache>(),
+    ) else {
+        return;
+    };
+    if gpu.layer_count == 0 {
+        return;
+    }
+    let (Some(binding), Some(pipeline)) = (
+        &gpu.bind_group,
+        gpu.view_pipelines
+            .get(&view)
+            .and_then(|id| cache.get_render_pipeline(*id)),
+    ) else {
+        return;
+    };
+    let attachments = [Some(target.get_color_attachment())];
+    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("camera effects before HUD"),
+        color_attachments: &attachments,
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+    if let Some(viewport) =
+        crate::ui_render::overlay::overlay_viewport(camera.viewport.as_ref(), resolution)
+    {
+        pass.set_camera_viewport(&viewport);
+    }
+    pass.set_render_pipeline(pipeline);
+    pass.set_bind_group(0, binding, &[]);
+    pass.draw(0..3, 0..1);
 }
 
 type DrawOverlayCommands = (SetItemPipeline, SetOverlayBindGroup, DrawOverlay);
@@ -431,11 +571,51 @@ impl<P: PhaseItem> RenderCommand<P> for DrawOverlay {
 
 #[cfg(test)]
 mod tests {
-    use super::UNIFORM_BYTES;
+    use super::*;
 
     #[test]
     fn uniform_matches_the_wgsl_layout() {
-        assert_eq!(UNIFORM_BYTES, 16 + 8 * 32);
+        assert_eq!(UNIFORM_BYTES, 3 * 16 + MAX_SCREEN_OVERLAY_LAYERS * 32);
+    }
+
+    #[test]
+    fn fire_shader_resources_match_the_pipeline_layout() {
+        let mut world = World::new();
+        let pipeline = OverlayPipeline::from_world(&mut world);
+        crate::shader_test_support::assert_binding_visibility(
+            include_str!("screen_overlay.wgsl"),
+            0,
+            &pipeline.bind_group_layout,
+        );
+    }
+
+    #[test]
+    fn fire_draws_after_the_hand_without_inheriting_world_depth() {
+        let (mut app, _) = crate::queue_review_support::app();
+        let cache = app.world().resource::<PipelineCache>();
+        let mut pipeline = OverlayPipeline::from_world(&mut World::new());
+        let id = pipeline
+            .variants
+            .specialize(
+                cache,
+                OverlayPipelineKey {
+                    msaa: Msaa::Sample4,
+                    hdr: false,
+                    after_hand: true,
+                },
+            )
+            .unwrap();
+        let mut cache = app.world_mut().resource_mut::<PipelineCache>();
+        let descriptor = crate::queue_review_support::queued_descriptor(&mut cache, id);
+        assert!(descriptor.depth_stencil.is_none());
+        assert_eq!(descriptor.multisample.count, 4);
+        assert_eq!(
+            descriptor.fragment.as_ref().unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .blend,
+            Some(BlendState::ALPHA_BLENDING)
+        );
     }
 }
 
