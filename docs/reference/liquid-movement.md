@@ -244,13 +244,13 @@ actor flag 57. These synthetic checks do not establish live server acceptance.
 - `SwimSpeedMultiplier` above one and DolphinFlag alter water acceleration;
   optional WaterMovement alters unsprinted drag. Those component paths are not
   included in Cinnabar's input contract.
-- Liquid currents exist in **0x0a5d5c40**. When admitted by liquid-state and flow
-  checks, native gathers flow vectors from contacted materials, normalizes their
-  sum above its small-vector threshold and applies a material-specific impulse.
-  The water impulse is `0.0140000004`, lava `0.00350000011` (PE VAs
-  `0x1500d3a40` and `0x1500d3a3c`). Cinnabar's block facts expose no current
-  vector. The flow-vector calculation and all admission gates need separate
-  reconstruction; inventing a vector from rendered water is insufficient.
+- Ordinary player liquid-current admission, per-cell flow and aggregate force
+  are implemented from **0x0a5d5c40** and **0x0395d2f0**, with replay-captured
+  preceding contact pose and flying policy. The source evidence and exact
+  material getter boundaries are recorded in [liquid-currents.md](liquid-currents.md).
+  Compile and live acceptance remain pending for this integration. Native
+  directional obstruction facts that have not been established remain explicitly
+  unavailable; mounted ownership and non-player liquid probes are separate paths.
 - This investigation does not close the full liquid parity gate. Native
   swim-entry/exit timing, surface behavior, bubble-column forces and waterlogged
   obstacles still need controlled vanilla and real-server comparisons.

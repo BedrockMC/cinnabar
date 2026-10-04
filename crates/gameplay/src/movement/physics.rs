@@ -483,6 +483,7 @@ impl LocalPhysicsController {
             input.sprinting = sprint_request;
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(self.modes.contact_height());
+            input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
             let mut mode_error = None;
             let previous_modes = self.modes;

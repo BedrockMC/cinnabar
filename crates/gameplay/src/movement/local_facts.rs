@@ -46,8 +46,7 @@ pub fn read(
     let capabilities = player.facts.game_mode_capabilities();
     let can_fly = capabilities.is_some_and(|capabilities| capabilities.can_fly);
     let hunger_below_floor = player.facts.hunger().map(|hunger| {
-        u32::from(hunger.current())
-            <= u32::from(SPRINT_HUNGER_FLOOR) * u32::from(hunger.scale())
+        u32::from(hunger.current()) <= u32::from(SPRINT_HUNGER_FLOOR) * u32::from(hunger.scale())
     });
     let boots_level = |id| protocol::item_enchantment_level(&boots.extra_data, id).unwrap_or(0);
     let ride = player.facts.mount_unique_id().map(|unique| {
@@ -81,8 +80,7 @@ pub fn read(
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
         swim_hunger_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
-        sprint_blocked: (player.facts.survival_stats_visible()
-            && hunger_below_floor == Some(true))
+        sprint_blocked: (player.facts.survival_stats_visible() && hunger_below_floor == Some(true))
             || item_in_use,
     }
 }

@@ -29,7 +29,7 @@ pub use simulator::{
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
     CollisionQuery, CollisionRegistry, CollisionRegistryIdentity, CollisionSnapshot,
-    CollisionWorld, DoorFacing, DoorState, LenientCollisionBoxes, LenientSkipCounts,
-    MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld, ProvenancedCollider,
-    RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
+    CollisionWorld, DoorFacing, DoorState, FlowBlockFacts, LenientCollisionBoxes,
+    LenientSkipCounts, MAX_COLLISION_IDENTITY_CHUNKS, MAX_COLLISION_QUERY_EXTENT, PaletteWorld,
+    ProvenancedCollider, RegistryError, SurfaceResponse, WorldCollisionIdentity, WorldQueryError,
 };

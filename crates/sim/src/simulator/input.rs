@@ -46,6 +46,10 @@ pub struct MovementInput {
     /// height while resampling water/lava at the corrected position.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liquid_contact_height: Option<f64>,
+    /// Flow policy is sensed before this tick's flight trigger. Retaining its
+    /// preceding flying state keeps toggle ticks and correction replay aligned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liquid_flow_enabled: Option<bool>,
     /// Depth Strider level on the boots; scales water travel toward ground travel.
     #[serde(default, skip_serializing_if = "is_zero_level")]
     pub depth_strider: u8,

@@ -7,6 +7,13 @@ use super::{
 };
 
 pub trait CollisionWorld {
+    /// Native liquid velocity impulse for the preceding collision pose. Worlds
+    /// without liquid-state authority may omit it; palette snapshots retain the
+    /// same neighbor sampling and immutable identity as live prediction.
+    fn liquid_current(&self, _aabb: Aabb) -> Result<Option<CollisionQuery<Vec3>>, WorldQueryError> {
+        Ok(None)
+    }
+
     /// Primary air material, when the adapter retains palette material identity.
     fn primary_is_air(
         &self,

@@ -36,6 +36,13 @@ impl CollisionSnapshot {
 }
 
 impl CollisionWorld for CollisionSnapshot {
+    fn liquid_current(
+        &self,
+        previous_pose: Aabb,
+    ) -> Result<Option<CollisionQuery<Vec3>>, WorldQueryError> {
+        self.world().liquid_current(previous_pose)
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         self.world().collision_boxes(query)
     }
