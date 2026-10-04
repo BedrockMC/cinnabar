@@ -560,6 +560,43 @@ fn d07_bound_maximum_grid_items() {
     assert_eq!(instances(&grid), 0);
 }
 
+#[test]
+fn evaluated_grid_capacity_takes_precedence_over_source_bag() {
+    for factory in [true, false] {
+        let mut data = items(23);
+        data.set_global("#item_count", Scalar::Num(23.0));
+        let mut grid = control(
+            "g",
+            top_left(json!({
+                "type": "grid", "size": [60, "100%c"],
+                "grid_rescaling_type": "horizontal", "grid_item_template": "t.cell",
+                "collection_name": "items", "bindings": [
+                    { "binding_name": "#item_count", "binding_name_override": "#collection_length" },
+                    { "binding_name": "(#item_count - 15)", "binding_name_override": "#maximum_grid_items" }
+                ]
+            })),
+        );
+        if factory {
+            grid.factory = Some(json_ui::Factory {
+                control_name: Some(ControlRef::new("t", "cell")),
+                ..Default::default()
+            });
+        }
+        let bound = bind(&grid, &data, &CellLibrary);
+        let laid = layout(&bound, [100.0, 100.0], &env());
+        assert_eq!(
+            laid.children.len(),
+            8,
+            "factory={factory}: only game cells place"
+        );
+        assert_eq!(
+            laid.rect.h, 30.0,
+            "factory={factory}: eight cells fill three rows"
+        );
+        assert_eq!(laid.children.last().unwrap().rect.y, 20.0);
+    }
+}
+
 // D07: vanilla's container grid binds its collection's size as the capacity.
 #[test]
 fn d07_collection_total_items_sets_the_capacity() {

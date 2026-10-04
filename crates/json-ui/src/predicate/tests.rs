@@ -50,6 +50,17 @@ fn text(value: &str) -> Option<Scalar> {
     Some(Scalar::Text(value.into()))
 }
 
+#[test]
+fn surplus_closing_groups_keep_interior_closes_rejected() {
+    assert_eq!(value("(true))"), Some(Scalar::Bool(true)));
+    assert_eq!(value("(false)))  "), Some(Scalar::Bool(false)));
+    for expression in [")", ") (true)", "(true)) and false", "(true)) (false)"] {
+        assert_eq!(value(expression), None, "{expression}");
+    }
+    assert_eq!(value("((true"), Some(Scalar::Bool(true)));
+    assert_eq!(value("(true +)"), Some(Scalar::Json(json!(null))));
+}
+
 // A variable holding an expression evaluates it; a self-reference stays undecidable.
 #[test]
 fn expression_variables_evaluate() {
