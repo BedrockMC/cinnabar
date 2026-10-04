@@ -194,7 +194,7 @@ fn menu_and_server_form_ownership_drop_chat_modifiers() {
                     true,
                     Some(2),
                     "Fixture".into(),
-                    crate::install_layout::InstallLayout::scratch("chat-modifier-ownership"),
+                    crate::install_layout::scratch("chat-modifier-ownership"),
                     crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
                 ));
         } else {

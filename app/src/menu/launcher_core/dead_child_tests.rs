@@ -29,7 +29,7 @@ fn child_guard(exited: bool) -> CoreProcessGuard {
 }
 
 fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
-    let layout = InstallLayout::scratch("launcher-child-recovery");
+    let layout = crate::install_layout::scratch("launcher-child-recovery");
     let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
     let directory = SessionDirectoryGuard::bind(socket_dir.clone()).unwrap();
     std::fs::write(
