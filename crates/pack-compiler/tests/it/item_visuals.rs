@@ -7,7 +7,7 @@ use assets::{
 use pack_compiler::{compile_entity_assets, compile_icon_assets};
 use tempfile::TempDir;
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 #[path = "item_visuals/spawn_eggs.rs"]
 mod spawn_eggs;
@@ -264,7 +264,7 @@ fn absent_binding_aliases_do_not_invent_routes_and_missing_pixels_stay_missing()
 fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes() {
     let pack = item_pack(false);
     let facts: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../assets/data/default-sprite-bindings-1.26.50.json"
+        "../../../assets/data/default-sprite-bindings-1.26.50.json"
     ))
     .unwrap();
     let rows = facts["routes"].as_array().unwrap();
@@ -316,7 +316,7 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
 fn native_seed_components_use_item_sprites_instead_of_the_crop_they_place() {
     let pack = item_pack(false);
     let bindings: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../assets/data/default-sprite-bindings-1.26.50.json"
+        "../../../assets/data/default-sprite-bindings-1.26.50.json"
     ))
     .unwrap();
     let seeds = bindings["routes"]

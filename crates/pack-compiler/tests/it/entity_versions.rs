@@ -4,7 +4,7 @@ use assets::{EntityAssetKind, RuntimeEntityAssets};
 use pack_compiler::compile_entity_assets;
 use serde_json::{Value, json};
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 fn write(root: &Path, path: &str, value: Value) {
     let path = root.join(path);
@@ -277,7 +277,7 @@ fn a_present_manifest_requires_a_valid_engine_ceiling() {
 #[test]
 fn manifestless_base_assets_use_the_pinned_compiler_target() {
     let target: Value =
-        serde_json::from_slice(include_bytes!("../../../assets/bedrock-target.json")).unwrap();
+        serde_json::from_slice(include_bytes!("../../../../assets/bedrock-target.json")).unwrap();
     let pack = pack(
         Value::Null,
         &[

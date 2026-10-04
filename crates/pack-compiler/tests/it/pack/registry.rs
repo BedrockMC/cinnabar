@@ -212,7 +212,7 @@ fn registry_reader_decodes_checked_in_canonical_projection() {
 #[test]
 fn checked_in_registry_has_one_canonical_air_network_identity() {
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode checked-in BREG1003");
     let air = records
@@ -233,7 +233,7 @@ fn checked_in_registry_has_one_canonical_air_network_identity() {
 #[test]
 fn registry_reader_decodes_all_pressure_plate_pressed_selectors() {
     const PRESSED: u32 = 1 << 1;
-    let bytes = include_bytes!("../../../assets/data/block-registry-v1001.bin");
+    let bytes = include_bytes!("../../../../assets/data/block-registry-v1001.bin");
     let records = read_registry(bytes).expect("decode checked-in BREG1003");
     let plates = records
         .iter()
