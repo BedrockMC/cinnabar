@@ -121,16 +121,9 @@ fn launch(url: &str) -> bool {
             return true;
         }
     }
-    spawn_browser(
-        "open",
-        &[
-            "-a".into(),
-            "Firefox".into(),
-            "--args".into(),
-            "--new-window".into(),
-            url.into(),
-        ],
-    ) || spawn_browser("open", &[url.into()])
+    let mut args = vec!["-a".into(), "Firefox".into(), "--args".into()];
+    args.extend(popup_args(Browser::Firefox, url));
+    spawn_browser("open", &args) || spawn_browser("open", &[url.into()])
 }
 
 #[cfg(target_os = "windows")]
