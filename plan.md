@@ -273,6 +273,21 @@ nonuniform scale shear and the separate legacy/custom item paths. Changes are un
 no complete first-person parity gate is closed. See
 [attachable source record](docs/reference/held-attachables.md).
 
+2026-10-04 end crystals and respawn anchors: crystal artwork now bakes native
+alpha-test coverage instead of dropping the whole rig over fractional texels;
+the pack supplies nested frame rotation, bobbing and base visibility. Native
+target-metadata beams use interpolated endpoints, taper, gradient and UV scroll.
+Anchor glowstone use selects click-block interaction at every charge, without
+adjacent-block prediction; charge, spawn and explosion effects remain authoritative.
+Affected-crate compile checks, test suites and formatting pass locally, including
+the application suite (2,252 passed, zero failures). No changes were pushed.
+Provisional, labeled incomplete: material evidence is from adjacent installed
+versions; no fresh target-platform rendered-frame comparison has been performed.
+General actor material propagation and exact per-frame nonlinear Molang remain
+open. Non-glowstone fallback at an already-selected Nether spawn needs retained
+spawn-block authority. No complete visual or interaction parity gate is closed.
+See [source record](docs/reference/end-crystal-respawn-anchor.md).
+
 2026-10-01 arrow entity rendering: native per-face UV defaults now use face
 dimensions, including fractional sizes, instead of a one-by-one texel region.
 The vanilla arrow's alpha-test/no-cull material samples its authored plane
