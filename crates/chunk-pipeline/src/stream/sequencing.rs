@@ -37,6 +37,7 @@ impl WorldStream {
         prepared: Vec<PreparedSubChunkMutation>,
         relight: &BTreeSet<SubChunkKey>,
     ) -> bool {
+        self.diagnose_light_mutations(&prepared, relight);
         let Ok(changed) = self.authority.commit_prepared_block_updates(prepared) else {
             return false;
         };

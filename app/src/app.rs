@@ -764,9 +764,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         screenshots_dir: layout.screenshots_dir(),
         debug_overlay: args.dev_debug_overlay,
     });
-    if !connection_requested {
-        app.init_resource::<crate::menu::LauncherCoreSlot>();
-    }
+    // Account feeds also serve Profile in direct-address and external-socket runs.
+    app.init_resource::<crate::menu::LauncherCoreSlot>();
     app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
         present_mode_policy,
     ));

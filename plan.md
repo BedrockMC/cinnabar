@@ -140,6 +140,16 @@ formatting needs integration with the locale system. Native fixture frames are n
 vanilla captures, and no overall visual parity gate is closed. No live server, remote
 machine or owner's authenticated service request was used for verification.
 
+2026-10-04 Profile loading recovery: direct-address and external-socket startup
+now have an account core; Profile opens/refetches independently of Home and
+other catalogs. Missing workers, failed control calls and withheld replies end
+in the existing unavailable/Retry state. Socket fixtures reproduce the old
+stuck state and verify recovery without an owner-account request. The local
+60-second RPC bound is transport protection, not vanilla timing parity.
+Per-request diagnostics report fixed outcomes with rate limits and no account
+material. Native privacy/offline classification and a separate permissions
+facet remain incomplete; see `docs/profile-parity.md` for references.
+
 2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
 the account control surface only lists and connects to existing Realms. Joining
 by invite or code and creating a Realm need a supported backend operation and a
@@ -4807,3 +4817,9 @@ matched pause/inventory pixel captures and complete Inbox settings/rich-message
 behavior remain incomplete. The owner's stretched-model bug has no reproduced
 failing geometry witness. These changes do not close any overall visual or live
 performance parity gate. No live server or remote machine was used.
+# Optional cloud texture safety
+
+Optional resource-pack cloud masks outside the current mesher's fixed dimensions
+retain the startup cloud texture instead of panicking during live application.
+Other supported pack textures still apply. High-resolution pack clouds remain
+incomplete; this fallback does not close the native cloud parity gate.
