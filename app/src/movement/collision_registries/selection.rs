@@ -1,6 +1,10 @@
-//! Vanilla plants have visual pick bounds even when their movement collision is empty.
+//! Native selection bounds are independent of movement collision geometry.
+//!
+//! The interaction ray and outline both consume these bounds. Passable foliage
+//! and the first snow layer remain selectable without a movement collider.
+//! Unreviewed blocks retain their existing registry bounds.
 
-use assets::RegistryRecord;
+use assets::{RegistryRecord, TOP_SNOW_LAYER_COUNT};
 use sim::{Aabb, Vec3};
 
 /// Visual bounds from R:TallGrassBlock:59, R:FlowerBlock:45, R:SaplingBlock:120,
@@ -8,6 +12,21 @@ use sim::{Aabb, Vec3};
 /// independently of movement collision (R:BlockType:20090,20728).
 pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     let name = record.name.strip_prefix("minecraft:")?;
+    if name == "snow_layer" {
+        let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
+        let height = state.get("height")?.get("value")?.as_u64()?;
+        if height >= u64::from(TOP_SNOW_LAYER_COUNT) {
+            return None;
+        }
+        return Some(Aabb::new(
+            Vec3::ZERO,
+            Vec3::new(
+                1.0,
+                (height + 1) as f64 / f64::from(TOP_SNOW_LAYER_COUNT),
+                1.0,
+            ),
+        ));
+    }
     if matches!(
         name,
         "torch" | "soul_torch" | "redstone_torch" | "unlit_redstone_torch"
@@ -31,20 +50,20 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         | "acacia_sapling" | "dark_oak_sapling" | "cherry_sapling" | "pale_oak_sapling" => {
             (0.1, 0.8, 0.9)
         }
-        "deadbush" => (0.1, 1.0, 0.9),
-        "bush" => (0.0, 1.0, 1.0),
+        // Named 26.30 DeadBushBlock ctor 0x0aabfb60 overrides inherited
+        // flower bounds with grass-sized bounds, including maxY=.8.
+        "deadbush" => (0.1, 0.8, 0.9),
+        // Current BushBlock ctor 0x03663ca0: PE VA 0x150077ad0 contains
+        // minXYZ=(0,0,0), maxX=1; ctor literals set maxY=.8 and maxZ=1.
+        "bush" => (0.0, 0.8, 1.0),
         "tall_grass" | "large_fern" | "sunflower" | "lilac" | "rose_bush" | "peony" => {
-            let upper = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?["upper_block_bit"]
-                ["value"]
-                == 1;
+            let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
+            let upper = state.get("upper_block_bit")?.get("value")?.as_i64()? != 0;
             (0.3, if upper { 0.6 } else { 1.0 }, 0.7)
         }
         _ => return None,
     };
-    Some(Aabb::new(
-        Vec3::new(f64::from(inset), 0.0, f64::from(inset)),
-        Vec3::new(f64::from(edge), f64::from(height), f64::from(edge)),
-    ))
+    Some(bounds([inset, 0.0, inset], [edge, height, edge]))
 }
 
 /// R:TorchBlock:880 chooses the visual box by `torch_facing_direction`, independently
@@ -60,12 +79,13 @@ fn torch_shape(record: &RegistryRecord) -> Option<Aabb> {
         "south" => ([0.35, 0.2, 0.7], [0.65, 0.8, 1.0]),
         _ => ([0.4, 0.0, 0.4], [0.6, 0.6, 0.6]),
     };
-    let vector = |point: [f32; 3]| {
-        Vec3::new(
-            f64::from(point[0]),
-            f64::from(point[1]),
-            f64::from(point[2]),
-        )
-    };
-    Some(Aabb::new(vector(min), vector(max)))
+    Some(bounds(min, max))
 }
+
+fn bounds(min: [f32; 3], max: [f32; 3]) -> Aabb {
+    let point = |[x, y, z]: [f32; 3]| Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+    Aabb::new(point(min), point(max))
+}
+
+#[cfg(test)]
+mod tests;

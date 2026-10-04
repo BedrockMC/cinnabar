@@ -197,6 +197,9 @@ const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct UseSurroundings {
     pub(crate) clicked_identifier: Option<String>,
+    pub(crate) clicked_canonical_state: Option<String>,
+    /// The selected block item's resolved block type, including server remaps.
+    pub(crate) held_block_identifier: Option<String>,
     /// Identifier of the cell across the clicked face; `None` when unreadable.
     pub(crate) neighbor_identifier: Option<String>,
     pub(crate) player_box: BoxBounds,
@@ -244,9 +247,12 @@ impl LocalUse {
         let clicked_identifier = surroundings.clicked_identifier.as_deref();
         let holding = item.network_id() != 0 && item.count() > 0;
         // Sneaking with an item uses the item instead of the block.
-        if clicked_identifier
-            .and_then(interaction)
-            .is_some_and(|interaction| interaction.permitted(caps))
+        let block_interaction = if clicked_identifier == Some("minecraft:respawn_anchor") {
+            respawn_anchor::uses_block(surroundings).then_some(Interaction::Other)
+        } else {
+            clicked_identifier.and_then(interaction)
+        };
+        if block_interaction.is_some_and(|interaction| interaction.permitted(caps))
             && !(surroundings.sneaking && holding)
         {
             return Self::Interact;
@@ -742,6 +748,19 @@ fn use_surroundings(
                 observed.target.runtime_id,
             )
             .map(str::to_owned),
+        clicked_canonical_state: stream.and_then(|stream| {
+            context
+                .collisions
+                .block_canonical_state(stream.network_id_mode(), observed.target.runtime_id)
+                .map(str::to_owned)
+        }),
+        held_block_identifier: stream.and_then(|stream| {
+            let block = held_block_store_id(stream, observed.selection.item.block_runtime_id())?;
+            context
+                .collisions
+                .block_identifier(stream.network_id_mode(), block)
+                .map(str::to_owned)
+        }),
         neighbor_identifier: identifier(placement_cell(
             observed.target.position,
             observed.target.face,
@@ -808,3 +827,5 @@ pub(crate) fn verified_use_selection(
 
 #[cfg(test)]
 mod tests;
+
+mod respawn_anchor;

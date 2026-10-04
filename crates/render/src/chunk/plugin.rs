@@ -1,6 +1,9 @@
 use crate::RuntimeStageProfiler;
 use crate::chunk::*;
 
+mod publication_schedule;
+use publication_schedule::{ChunkPublicationStage, configure_chunk_publication};
+
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkEntities(pub(in crate::chunk) HashMap<SubChunkKey, Entity>);
 
@@ -76,16 +79,26 @@ impl Plugin for ChunkRenderPlugin {
             app,
             BIOME_TINT_SHADER_HANDLE,
             "../biome_tint.wgsl",
-            |source, path| Shader::from_wgsl(meshing::biome_lattice::shader_source(source), path)
+            |source, path| crate::shader_safety::from_wgsl(
+                meshing::biome_lattice::shader_source(source),
+                path
+            )
         );
         crate::enhanced::load_shader_imports(app);
-        load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", Shader::from_wgsl);
-        load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wgsl", |source, path| {
+            crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
+        });
+        load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wgsl", |source, path| {
+            crate::shader_safety::from_wgsl(crate::material_shader::source(source), path)
+        });
         load_internal_asset!(
             app,
             LIQUID_SHADER_HANDLE,
             "../liquid.wgsl",
-            Shader::from_wgsl
+            |source, path| crate::shader_safety::from_wgsl(
+                crate::material_shader::source(source),
+                path
+            )
         );
 
         let acknowledgements = app
@@ -132,6 +145,9 @@ impl Plugin for ChunkRenderPlugin {
             crate::runtime_profile_trace::install_surface_trace(render_app);
         }
         install_chunk_commands(render_app);
+        transparent::gamma_pass::install(app);
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app.edit_schedule(Render, configure_chunk_publication);
         render_app
             .add_systems(
                 RenderStartup,
@@ -153,17 +169,13 @@ impl Plugin for ChunkRenderPlugin {
                     prepare_chunk_texture_assets
                         .in_set(RenderSystems::PrepareAssets)
                         .before(RenderSystems::Queue),
-                    prepare_chunk_animation_clock.in_set(RenderSystems::PrepareResources),
-                    prepare_chunk_biome_tints.in_set(RenderSystems::PrepareResources),
+                    prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
+                    prepare_chunk_biome_tints.in_set(ChunkPublicationStage::Attributes),
                     prepare_gpu_chunks
-                        .in_set(RenderSystems::PrepareResources)
+                        .in_set(ChunkPublicationStage::Geometry)
                         .after(prepare_chunk_texture_assets),
-                    prepare_transparent_sorts
-                        .in_set(RenderSystems::PrepareResources)
-                        .after(prepare_gpu_chunks),
-                    prepare_transparent_model_sorts
-                        .in_set(RenderSystems::PrepareResources)
-                        .after(prepare_transparent_sorts),
+                    prepare_transparent_sorts.in_set(ChunkPublicationStage::LiquidSort),
+                    prepare_transparent_model_sorts.in_set(ChunkPublicationStage::ModelSort),
                     prepare_chunk_indirect_batches
                         .in_set(RenderSystems::PrepareResources)
                         .after(prepare_gpu_chunks),
@@ -177,5 +189,8 @@ impl Plugin for ChunkRenderPlugin {
 
     fn finish(&self, app: &mut App) {
         install_atmosphere(app);
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            transparent::gamma_pass::install_graph(render_app.world_mut());
+        }
     }
 }

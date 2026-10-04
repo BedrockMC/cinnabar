@@ -136,7 +136,7 @@ fn server_packs_restyle_the_engine_hud() {
             );
             return;
         };
-        presentation.set_server_ui_pack(&dir_pack(dir));
+        presentation.set_server_ui_pack(&dir_pack([dir]));
         let name = std::path::Path::new(dir)
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -227,7 +227,7 @@ fn server_pack_stack_hud_dump() {
         );
         return;
     };
-    presentation.set_server_ui_pack(&dir_pack(&stack));
+    presentation.set_server_ui_pack(&dir_pack(stack.split(':').filter(|dir| !dir.is_empty())));
     let runtime = session(&mut player_runtime, "Objective");
     for now in [500, 516] {
         let input = presentation
@@ -288,7 +288,7 @@ fn zeqa_top_bar_snapshot() {
         );
         return;
     };
-    presentation.set_server_ui_pack(&dir_pack(&stack));
+    presentation.set_server_ui_pack(&dir_pack(stack.split(':').filter(|dir| !dir.is_empty())));
     let mut cells = Vec::new();
     for high_byte in 0..=u8::MAX {
         let path = std::path::Path::new(&stack).join(format!("font/glyph_{high_byte:02X}.png"));

@@ -66,6 +66,20 @@ impl Default for MenuClipboard {
     }
 }
 
+impl ChatClipboard for MenuClipboard {
+    type Error = std::convert::Infallible;
+
+    fn read_text_bounded(
+        &mut self,
+        maximum_bytes: usize,
+    ) -> Result<Option<std::sync::Arc<str>>, Self::Error> {
+        Ok(self
+            .read_text_bounded(maximum_bytes)
+            .filter(|text| text.len() <= maximum_bytes)
+            .map(std::sync::Arc::from))
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct MenuModifiers(u8);
 

@@ -10,8 +10,6 @@ const CLOSE_SPAWN_DURATION: f32 = 0.4;
 const CLOSE_SPAWN_YAW_DEGREES: f32 = 80.0;
 const RADIANS_TO_DEGREES: f32 = 57.295776;
 const DEGREES_TO_RADIANS: f32 = 0.017453292;
-const SINE_INDEX_SCALE: f32 = 10430.378;
-const SINE_TABLE_MASK: i32 = 0xffff;
 const SPRITE_GROUP_SCALE: f32 = 0.3;
 const SPRITE_DEFAULT_SCALE: f32 = 1.5;
 const CUBE_SCALE: f32 = 0.25;
@@ -54,9 +52,7 @@ impl DroppedItemSpawnPose {
         } else {
             (phase, 0.0)
         };
-        let index = (((angle + phase) * SINE_INDEX_SCALE) as i32) & SINE_TABLE_MASK;
-        // Native table initialization, 0296ccd0: sinf(float(index)/10430.3779296875).
-        let sine = (index as f32 / SINE_INDEX_SCALE).sin();
+        let sine = crate::native_trig::sine(angle + phase);
         let lift = if shape == DroppedItemShape::Cube {
             BLOCK_LIFT
         } else {
@@ -110,7 +106,7 @@ mod tests {
             BLOCK_LIFT + BOB_AMPLITUDE
         );
         let phase = 0.23456;
-        let indexed = (((phase * SINE_INDEX_SCALE) as i32) as f32 / SINE_INDEX_SCALE).sin();
+        let indexed = crate::native_trig::sine(phase);
         assert_eq!(
             pose.bob(0.0, phase, DroppedItemShape::Sprite),
             indexed * BOB_AMPLITUDE + BOB_AMPLITUDE
@@ -130,8 +126,7 @@ mod tests {
         assert!((close.yaw(0.0) - 50.0 * DEGREES_TO_RADIANS).abs() < 1e-7);
         let time = 4.0 * TIME_RATE;
         let phase = 0.4 * 2.0;
-        let sine =
-            ((((time + time + phase) * SINE_INDEX_SCALE) as i32) as f32 / SINE_INDEX_SCALE).sin();
+        let sine = crate::native_trig::sine(time + time + phase);
         assert!(
             (close.bob(4.0, 2.0, DroppedItemShape::Sprite)
                 - (sine * BOB_AMPLITUDE + BOB_AMPLITUDE + 0.35))

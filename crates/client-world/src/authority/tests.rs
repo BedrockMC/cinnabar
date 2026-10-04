@@ -26,6 +26,7 @@ fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
         temperature: 0.8,
         downfall: 0.4,
         snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_color: 0xff44_6688,
     }]));
 

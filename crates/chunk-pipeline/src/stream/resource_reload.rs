@@ -22,6 +22,8 @@ impl ResourceMeshSnapshot {
                 biome_id: definition.biome_id,
                 temperature: definition.temperature,
                 downfall: definition.downfall,
+                snow_foliage: definition.snow_foliage,
+                max_snow_accumulation: definition.max_snow_accumulation,
                 map_water_argb: definition.map_water_color,
             })
             .collect();

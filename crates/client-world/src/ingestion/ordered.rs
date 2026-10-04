@@ -57,6 +57,7 @@ pub struct OrderedCommitState {
     heavy_sequences: HashSet<u64>,
     pending_sub_chunks: Option<PendingSubChunkCommit>,
     blocking_block_updates: Option<u64>,
+    block_update_range_end: Option<u64>,
     applying: Option<u64>,
 }
 
@@ -71,6 +72,7 @@ impl OrderedCommitState {
             heavy_sequences: HashSet::new(),
             pending_sub_chunks: None,
             blocking_block_updates: None,
+            block_update_range_end: None,
             applying: None,
         }
     }
@@ -92,6 +94,7 @@ impl OrderedCommitState {
                 (self.applying != Some(pending.sequence)).then_some(pending.sequence)
             }),
             self.blocking_block_updates,
+            self.block_update_range_end.and(self.applying),
         ]
         .into_iter()
         .flatten()
@@ -174,8 +177,7 @@ impl OrderedCommitState {
             && matches!(&event, PreparedWorldEvent::BlockUpdates { .. })
         {
             self.blocking_block_updates = None;
-            self.submitted.remove(&sequence);
-            self.heavy_sequences.remove(&sequence);
+            self.release_block_update_admission(sequence);
             return Ok(DecodeCommit::BlockUpdates(event));
         }
         if let Err(error) = self.insert_ready(sequence, event) {
@@ -225,7 +227,27 @@ impl OrderedCommitState {
                 });
                 CommitStep::BatchStarted
             }
-            PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(events)) => {
+            PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(mut events)) => {
+                // Apply a ready wire burst from one current block snapshot. Only adjacent
+                // updates can merge: a missing sequence or any control event is a fence.
+                // Keep a malformed mutation's existing packet-sized failure boundary.
+                let can_coalesce = block_updates_can_coalesce(&events);
+                while can_coalesce
+                    && matches!(
+                        self.ready.get(&self.next),
+                        Some(PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(next)))
+                            if block_updates_can_coalesce(next)
+                    )
+                {
+                    let Some(PreparedWorldEvent::Immediate(WorldEvent::BlockUpdates(next))) =
+                        self.ready.remove(&self.next)
+                    else {
+                        unreachable!("the adjacent block update was inspected");
+                    };
+                    events.extend(next);
+                    self.next = self.next.saturating_add(1);
+                }
+                self.block_update_range_end = Some(self.next.saturating_sub(1));
                 self.applying = Some(sequence);
                 CommitStep::BlockUpdates { sequence, events }
             }
@@ -261,9 +283,16 @@ impl OrderedCommitState {
         } else {
             return false;
         }
-        self.submitted.remove(&sequence);
-        self.heavy_sequences.remove(&sequence);
+        self.release_block_update_admission(sequence);
         true
+    }
+
+    fn release_block_update_admission(&mut self, sequence: u64) {
+        let end = self.block_update_range_end.take().unwrap_or(sequence);
+        for sequence in sequence..=end {
+            self.submitted.remove(&sequence);
+            self.heavy_sequences.remove(&sequence);
+        }
     }
 
     /// Returns the currently admitted event count for backpressure and diagnostics.
@@ -311,4 +340,10 @@ impl OrderedCommitState {
             .saturating_sub(self.submitted.len().saturating_add(retained_commits))
             .min(MAX_ADMITTED_HEAVY_EVENTS.saturating_sub(self.heavy_sequences.len()))
     }
+}
+
+fn block_updates_can_coalesce(events: &[BlockUpdateEvent]) -> bool {
+    events
+        .iter()
+        .all(|event| event.layer < world::MAX_STORAGE_COUNT)
 }

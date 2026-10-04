@@ -19,6 +19,7 @@ fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeome
             binding: None,
             pivot: None,
             rotation: None,
+            bind_pose_rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,

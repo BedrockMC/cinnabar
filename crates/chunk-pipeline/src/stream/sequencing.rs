@@ -37,6 +37,7 @@ impl WorldStream {
         prepared: Vec<PreparedSubChunkMutation>,
         relight: &BTreeSet<SubChunkKey>,
     ) -> bool {
+        self.diagnose_light_mutations(&prepared, relight);
         let Ok(changed) = self.authority.commit_prepared_block_updates(prepared) else {
             return false;
         };
@@ -340,20 +341,7 @@ impl WorldStream {
     pub(super) fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
             WorldEvent::BiomeDefinitions(event) => {
-                let result = self.authority.apply_biome_definitions(event.definitions);
-                for _ in 0..result.resolution_failures {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::BiomeDefinitionResolutionFailure,
-                    );
-                }
-                if result.revision_overflow {
-                    self.record_normalization_error(
-                        NormalizationErrorReason::BiomeTintRevisionOverflow,
-                    );
-                }
-                if result.changed {
-                    self.invalidate_resident_biome_tints(Instant::now());
-                }
+                self.replace_biome_definitions(event.definitions);
             }
             WorldEvent::LevelChunk(_) => {
                 unreachable!("LevelChunk packets are prepared on workers")

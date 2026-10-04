@@ -125,7 +125,9 @@ func JoinGathering(ctx context.Context, account *authcache.Account, id uuid.UUID
 // AccountProfile returns the signed-in gamertag, XUID and gamerpic; a missing
 // gamerpic is not an error.
 func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, error) {
+	finish := ObserveProfileRequest(ctx, "xbox_auth")
 	xbl, err := XboxClient(ctx, account)
+	finish(err)
 	if err != nil {
 		return Profile{}, err
 	}
@@ -134,7 +136,10 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 	profile := Profile{Gamertag: info.GamerTag, XUID: info.XUID}
 	social := xbl.Social()
 	var failures []error
-	if user, err := social.UserByXUID(ctx, info.XUID); err != nil {
+	finish = ObserveProfileRequest(ctx, "identity")
+	user, err := social.UserByXUID(ctx, info.XUID)
+	finish(err)
+	if err != nil {
 		failures = append(failures, fmt.Errorf("profile: %w", err))
 	} else {
 		if validArtworkURL(user.DisplayPictureRawURL) {
@@ -149,24 +154,36 @@ func AccountProfile(ctx context.Context, account *authcache.Account) (Profile, e
 			profile.Gamerscore = &score
 		}
 	}
-	if friends, err := social.Friends(ctx); err != nil {
+	finish = ObserveProfileRequest(ctx, "friends")
+	friends, err := social.Friends(ctx)
+	finish(err)
+	if err != nil {
 		failures = append(failures, fmt.Errorf("friends: %w", err))
 	} else {
 		count := len(friends)
 		profile.Friends = &count
 	}
-	if followers, err := social.Followers(ctx); err != nil {
+	finish = ObserveProfileRequest(ctx, "followers")
+	followers, err := social.Followers(ctx)
+	finish(err)
+	if err != nil {
 		failures = append(failures, fmt.Errorf("followers: %w", err))
 	} else {
 		count := len(followers)
 		profile.Followers = &count
 	}
-	if stats, err := profileStatistics(ctx, xbl.HTTPClient(), info.XUID); err != nil {
+	finish = ObserveProfileRequest(ctx, "statistics")
+	stats, err := profileStatistics(ctx, xbl.HTTPClient(), info.XUID)
+	finish(err)
+	if err != nil {
 		failures = append(failures, fmt.Errorf("statistics: %w", err))
 	} else {
 		profile.Statistics = stats
 	}
-	if achievements, err := profileAchievements(ctx, xbl.HTTPClient(), info.XUID); err != nil {
+	finish = ObserveProfileRequest(ctx, "achievements")
+	achievements, err := profileAchievements(ctx, xbl.HTTPClient(), info.XUID)
+	finish(err)
+	if err != nil {
 		failures = append(failures, fmt.Errorf("achievements: %w", err))
 	} else {
 		profile.Achievements = achievements

@@ -575,6 +575,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                     initial_time: 0,
                     day_cycle_lock_time: -1,
                     daylight_cycle_enabled: true,
+                    weather_cycle_enabled: true,
                     rain_level: 0.0,
                     lightning_level: 0.0,
                 },

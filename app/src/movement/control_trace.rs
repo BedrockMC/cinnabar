@@ -3,7 +3,65 @@
 use client_world::CommittedControlEvent;
 use serde_json::json;
 
-use super::{LocalPhysicsController, MovementTicker, trace};
+use super::{LocalPhysicsController, LocalPhysicsFrame, MovementTicker, trace};
+
+/// Raw server attributes for correlating effective speed with modifier identities.
+pub(crate) fn trace_local_attributes(
+    session: u64,
+    sequence: u64,
+    server_tick: u64,
+    attributes: &[protocol::ActorAttribute],
+) {
+    if !trace::movement_trace_enabled() {
+        return;
+    }
+    let attributes = attributes
+        .iter()
+        .map(|attribute| {
+            json!({
+                "name": attribute.name, "current": attribute.current, "default": attribute.default,
+                "min": attribute.min, "max": attribute.max,
+                "modifiers": attribute.modifiers.iter().map(|modifier| json!({
+                    "id": modifier.id, "name": modifier.name, "amount": modifier.amount,
+                    "operation": modifier.operation, "operand": modifier.operand,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    trace::write_trace_line(
+        &json!({"schema":"rust-mcbe-speed-attributes-v1",
+        "session_generation":session, "sequence":sequence, "server_tick":server_tick,
+        "attributes":attributes})
+        .to_string(),
+    );
+}
+
+/// Fixed-tick displacement and controls, paired with real elapsed time, behind the trace switch.
+pub(crate) fn trace_physics_frame(
+    session: u64,
+    elapsed: std::time::Duration,
+    speed: Option<f64>,
+    effective_speed: Option<f64>,
+    frame: &LocalPhysicsFrame,
+) {
+    if !trace::movement_trace_enabled() {
+        return;
+    }
+    for sample in &frame.samples {
+        trace::write_trace_line(
+            &json!({"schema":"rust-mcbe-local-speed-v1",
+                "session_generation":session, "elapsed_seconds":elapsed.as_secs_f64(),
+                "tick":sample.tick, "position":sample.position, "velocity":sample.velocity,
+                "displacement":sample.movement, "move_vector":sample.move_vector,
+                "prediction_walk_speed":speed, "effective_movement_speed":effective_speed,
+                "sprinting":sample.processed.sprinting,
+                "sneaking":sample.processed.sneaking, "jumping":sample.jumping,
+                "grounded":sample.grounded_after_tick, "mode":format!("{:?}",sample.processed.mode),
+            })
+            .to_string(),
+        );
+    }
+}
 
 /// Records incoming movement state before a correction can rewrite history.
 pub(crate) fn trace_server_control(
@@ -39,6 +97,14 @@ pub(crate) fn trace_server_control(
         }),
         CommittedControlEvent::LocalActorMotion { event, .. } => json!({
             "kind": "motion", "tick": event.tick, "velocity": event.motion,
+        }),
+        CommittedControlEvent::LocalMovementSpeed {
+            sequence,
+            current,
+            tick,
+            ..
+        } => json!({
+            "kind": "movement_speed", "sequence": sequence, "current": current, "tick": tick,
         }),
         CommittedControlEvent::MovePlayer { movement, .. } => json!({
             "kind": "move_player", "tick": movement.source_tick,

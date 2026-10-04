@@ -22,6 +22,7 @@ fn geometry() -> EntityGeometry {
             parent: None,
             pivot: Some([2.0, 14.0, 1.0].map(scalar)),
             rotation: None,
+            bind_pose_rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,

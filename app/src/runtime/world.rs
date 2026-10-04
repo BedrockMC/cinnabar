@@ -13,6 +13,7 @@ mod acceptance_helpers;
 mod committed_ui;
 mod control_apply;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
+use committed_ui::refresh_player_list_cache_for_controls;
 #[cfg(test)]
 mod player_list_tests;
 mod shutdown_watchdog;
@@ -77,25 +78,6 @@ use crate::{
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
-}
-
-/// Refreshes Tab/rawtext identity state when a committed player-list marker
-/// reports that the authoritative roster changed without a UI packet.
-fn refresh_player_list_cache_for_controls(
-    stream: &WorldStream,
-    ui_runtime: &mut UiRuntime,
-    controls: &[CommittedControlEvent],
-) {
-    if !controls
-        .iter()
-        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
-    {
-        return;
-    }
-    ui_runtime.refresh_raw_text_identities(
-        |unique_id| stream.actor_display_name(unique_id),
-        stream.player_list_usernames(),
-    );
 }
 
 #[derive(Resource, Debug, Default)]
@@ -215,6 +197,7 @@ pub(crate) fn update_camera_medium(
     camera: Query<&Transform, With<FlyCamera>>,
     mut medium: ResMut<environment::CameraMediumState>,
     mut context: ResMut<environment::EnvironmentContext>,
+    mut precipitation: Local<environment::FogPrecipitationSamples>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
         medium.0 = CameraMedium::Air;
@@ -235,6 +218,11 @@ pub(crate) fn update_camera_medium(
     *context = environment::EnvironmentContext {
         dimension: stream.current_dimension(),
         fog_biomes: environment::fog_biome_samples(stream, &client_world.runtime_assets, position),
+        precipitation_sample_count: precipitation.count(
+            stream,
+            &client_world.runtime_assets,
+            position,
+        ),
         camera_biome_identifier: camera_biome.map(|rule| rule.name.clone()),
         camera_biome_temperature: camera_biome.map(|rule| rule.temperature()),
         render_distance_blocks: Some(stream.render_distance_blocks()),
@@ -429,20 +417,30 @@ pub(crate) fn reconcile_world_stream_before_physics(
             sequence,
             dimension,
             current,
+            sprint_modifier,
             tick,
         } = control
         {
-            if movement_speed.apply(clock.session_generation(), sequence, dimension, current)
-                && movement.physics_is_authorized()
-                && let Some(rewind) = local_physics.retime_movement_speed(tick, current)
+            if movement_speed.apply(
+                clock.session_generation(),
+                sequence,
+                dimension,
+                current,
+                sprint_modifier,
+            ) && movement.physics_is_authorized()
+                && let Some((rewind, speed)) =
+                    local_physics.retime_movement_speed(tick, current, sprint_modifier)
             {
-                control_apply::replay_timeline_edit(
-                    &mut movement,
-                    &mut local_physics,
-                    stream,
-                    &collisions,
-                    rewind,
-                );
+                movement_speed.adopt_replayed_speed(speed);
+                if let Some(rewind) = rewind {
+                    control_apply::replay_timeline_edit(
+                        &mut movement,
+                        &mut local_physics,
+                        stream,
+                        &collisions,
+                        rewind,
+                    );
+                }
             }
             continue;
         }
@@ -698,7 +696,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 LocalPlayerFrameReset::Correction
             }
             CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::WorldClocks { .. }
             | CommittedControlEvent::DaylightCycle { .. }
+            | CommittedControlEvent::WeatherCycle { .. }
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }
             | CommittedControlEvent::LocalMovementSpeed { .. }

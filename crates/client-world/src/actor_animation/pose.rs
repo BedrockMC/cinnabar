@@ -32,16 +32,16 @@ impl LocalDelta {
 }
 
 /// Blends weighted clips into per-bone deltas, evaluating keyframe expressions against the
-/// value earlier clips produced for the same channel.
+/// native default orientation plus the value earlier clips produced for the same channel.
 pub(super) fn sample_clips(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
-    bone_count: usize,
+    bones: &[RuntimeBone],
     clips: &[WeightedClip],
     budget: &mut EvalBudget<'_>,
 ) -> Result<Vec<LocalDelta>, EvalError> {
     let assets = evaluator.assets;
-    let mut local = vec![LocalDelta::default(); bone_count];
+    let mut local = vec![LocalDelta::default(); bones.len()];
     for weighted in clips {
         budget.charge_work()?;
         let weight = weighted.weight;
@@ -92,7 +92,15 @@ pub(super) fn sample_clips(
                 .get_mut(channel.bone as usize)
                 .ok_or(EvalError::Invalid)?;
             let current = bone.property(channel.property);
-            let this = *current;
+            // `this` reads BoneOrientation, not an animation-only delta. ModelPart's
+            // defaults are copied into that orientation before channels add their values
+            // (26.50.26 model constructor 01e772b0; KeyFrameTransform 26.30 09e85520).
+            let defaults = default_channel(bones, channel.bone as usize, channel.property)
+                .ok_or(EvalError::Invalid)?;
+            let this = std::array::from_fn(|axis| match channel.property {
+                EntityAnimationProperty::Scale => defaults[axis] * current[axis],
+                _ => defaults[axis] + current[axis],
+            });
             let value = sample_channel(
                 assets,
                 channel.first_keyframe,
@@ -110,6 +118,38 @@ pub(super) fn sample_clips(
         }
     }
     Ok(local)
+}
+
+fn default_channel(
+    bones: &[RuntimeBone],
+    index: usize,
+    property: EntityAnimationProperty,
+) -> Option<[f32; 3]> {
+    let bone = bones.get(index)?;
+    if matches!(bone.attachable_root, AttachableRootFrame::MatchingOwnerName) {
+        return Some(match property {
+            EntityAnimationProperty::Scale => [1.0; 3],
+            _ => [0.0; 3],
+        });
+    }
+    Some(match property {
+        EntityAnimationProperty::Rotation => bone.rotation,
+        EntityAnimationProperty::Scale => [1.0; 3],
+        EntityAnimationProperty::Translation => {
+            // ModelPart uses an authored X/Z frame and a 24-pixel Y origin. A
+            // parented part stores a relative pivot; only roots retain that origin.
+            // BoneOrientation negates ModelPart's Y before exposing it to Molang.
+            let origin = match bone.parent {
+                Some(parent) => bones.get(parent)?.pivot,
+                None => [0.0, MODEL_PART_ORIGIN_Y, 0.0],
+            };
+            [
+                origin[0] - bone.pivot[0],
+                bone.pivot[1] - origin[1],
+                bone.pivot[2] - origin[2],
+            ]
+        }
+    })
 }
 
 fn keyframe_value(

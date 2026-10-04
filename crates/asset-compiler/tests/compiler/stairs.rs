@@ -1,5 +1,8 @@
 use super::support::*;
 
+#[path = "stairs/native_state.rs"]
+mod native_state;
+
 fn write_stair_pack(root: &Path) {
     write_pack(
         root,

@@ -4,7 +4,12 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use crate::{AssetError, RuntimeEntityAssets};
+mod color_mask;
 mod eligibility;
+pub use color_mask::{
+    native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
+    native_actor_uses_multitexture,
+};
 pub use eligibility::neutral_actor_geometry_uvs_are_supported;
 
 pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT3";
@@ -66,6 +71,8 @@ pub struct RuntimeActorCatalog {
     entity_identity: [u8; 32],
     textures: Arc<[ActorTexture]>,
     bindings: Arc<[ActorArtworkBinding]>,
+    color_mask_textures: Arc<[bool]>,
+    multitexture_textures: Arc<[bool]>,
 }
 
 pub fn neutral_actor_material_is_supported(name: &str) -> bool {
@@ -173,11 +180,27 @@ impl RuntimeActorCatalog {
             return Err(invalid("actor carrier has trailing payload"));
         }
         validate(&textures, &bindings, &entities)?;
+        let color_mask_textures = textures
+            .iter()
+            .map(|texture| {
+                native_actor_texture_uses_color_mask(&entities.sources()[texture.source as usize])
+            })
+            .collect::<Vec<_>>()
+            .into();
+        let multitexture_textures = textures
+            .iter()
+            .map(|texture| {
+                native_actor_texture_uses_multitexture(&entities.sources()[texture.source as usize])
+            })
+            .collect::<Vec<_>>()
+            .into();
         Ok(Self {
             identity: Sha256::digest(bytes).into(),
             entity_identity,
             textures: textures.into(),
             bindings: bindings.into(),
+            color_mask_textures,
+            multitexture_textures,
         })
     }
 
@@ -189,6 +212,20 @@ impl RuntimeActorCatalog {
     }
     pub fn textures(&self) -> &[ActorTexture] {
         &self.textures
+    }
+    /// Whether this exact raster uses the witnessed native alpha-as-color-mask material.
+    pub fn texture_uses_color_mask(&self, texture: usize) -> bool {
+        self.color_mask_textures
+            .get(texture)
+            .copied()
+            .unwrap_or(false)
+    }
+    /// Whether this exact raster belongs to the witnessed three-sampler material profile.
+    pub fn texture_uses_multitexture(&self, texture: usize) -> bool {
+        self.multitexture_textures
+            .get(texture)
+            .copied()
+            .unwrap_or(false)
     }
     pub fn bindings(&self) -> &[ActorArtworkBinding] {
         &self.bindings
@@ -284,10 +321,12 @@ fn validate(
             || !(source.path.ends_with(".png") || source.path.ends_with(".tga"))
             || texture.rgba8.len() != length
             || texture.pixel_sha256 != <[u8; 32]>::from(Sha256::digest(&texture.rgba8))
-            || texture
-                .rgba8
-                .chunks_exact(4)
-                .any(|pixel| !matches!(pixel[3], 0 | 255))
+            || (!native_actor_texture_uses_color_mask(source)
+                && !native_actor_texture_uses_multitexture(source)
+                && texture
+                    .rgba8
+                    .chunks_exact(4)
+                    .any(|pixel| !matches!(pixel[3], 0 | 255)))
             || !seen_sources.insert(texture.source)
         {
             return Err(invalid("actor pixels or raster provenance are invalid"));

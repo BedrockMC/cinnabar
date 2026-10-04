@@ -64,6 +64,7 @@ const SOURCE_FILES: &[&str] = &[
     "textures/entity/beacon_beam",
     "textures/entity/dragon/dragon",
     "textures/entity/enchanting_table_book",
+    assets::CRYSTAL_BEAM_TEXTURE,
     "textures/entity/end_portal",
     "textures/entity/piglin/piglin",
     "textures/entity/steve",
@@ -424,6 +425,16 @@ mod tests {
         let atlas = runtime.atlas_rgba8();
         let offset = ((placement.y * ATLAS_WIDTH + placement.x) * 4) as usize;
         assert_eq!(atlas[offset], 20);
+    }
+
+    #[test]
+    fn crystal_beam_texture_is_packed_for_the_native_additional_effect() {
+        let pack = tempfile::tempdir().unwrap();
+        let name = assets::CRYSTAL_BEAM_TEXTURE;
+        write_png(&pack.path().join(format!("{name}.png")), 16, 16, 50);
+        let compiled = compile_block_entity_assets(pack.path(), b"{}").unwrap();
+        let runtime = assets::RuntimeBlockEntityAssets::decode(&compiled.bytes).unwrap();
+        assert!(runtime.placement(name).is_some());
     }
 
     #[test]

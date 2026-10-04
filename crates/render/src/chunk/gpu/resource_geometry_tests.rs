@@ -1,5 +1,6 @@
 use super::super::resource_sorts::ResourceView;
 use super::*;
+use crate::chunk::transparent::model::camera_position_bits;
 use bevy::render::renderer::WgpuWrapper;
 
 /// A single transparent face exercises address preparation without external carriers.
@@ -148,6 +149,7 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
     candidate.models.committed = Some(TransparentModelSortKey {
         view_entity: view,
         rotation_bits: [0; 4],
+        camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
         address: TransparentModelAddressIdentity {
             asset_identity: ChunkTextureAssets::default().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
@@ -314,6 +316,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     let key = TransparentModelSortKey {
         view_entity: view,
         rotation_bits: Quat::IDENTITY.to_array().map(f32::to_bits),
+        camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
         address: TransparentModelAddressIdentity {
             asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {

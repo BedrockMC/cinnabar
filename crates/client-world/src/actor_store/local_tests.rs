@@ -51,6 +51,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         off_hand: None,
         teleported: false,
         first_person: false,
+        view_bobbing: true,
         sneaking: false,
         sprinting: false,
         item_use: Default::default(),

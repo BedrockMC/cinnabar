@@ -73,6 +73,8 @@ pub enum MeshSample {
 pub struct MeshDependencyMask {
     pub diagonal_ao: bool,
     pub liquid: bool,
+    /// Seasonal leaves read shelter in their full vertical chunk column.
+    pub seasonal_foliage: bool,
 }
 
 impl MeshDependencyMask {
@@ -81,12 +83,19 @@ impl MeshDependencyMask {
         Self {
             diagonal_ao,
             liquid,
+            seasonal_foliage: false,
         }
     }
 
     #[must_use]
     pub const fn needs_diagonal_samples(self) -> bool {
         self.diagonal_ao || self.liquid
+    }
+
+    #[must_use]
+    pub const fn with_seasonal_foliage(mut self, enabled: bool) -> Self {
+        self.seasonal_foliage = enabled;
+        self
     }
 }
 
@@ -98,6 +107,7 @@ impl MeshDependencyMask {
 #[derive(Debug, Clone)]
 pub struct MeshNeighbourhood<'a> {
     sub_chunks: [Option<&'a SubChunk>; ENTRY_COUNT],
+    column_above: Vec<(i32, &'a SubChunk)>,
 }
 
 impl<'a> MeshNeighbourhood<'a> {
@@ -108,7 +118,10 @@ impl<'a> MeshNeighbourhood<'a> {
     pub fn new(center: &'a SubChunk) -> Self {
         let mut sub_chunks = [None; ENTRY_COUNT];
         sub_chunks[index([0, 0, 0]).expect("center offset is bounded")] = Some(center);
-        Self { sub_chunks }
+        Self {
+            sub_chunks,
+            column_above: Vec::new(),
+        }
     }
 
     /// Inserts one of the 26 adjacent sub-chunks. Returns false for an
@@ -127,6 +140,33 @@ impl<'a> MeshNeighbourhood<'a> {
     #[must_use]
     pub fn sub_chunk(&self, offset: [i8; 3]) -> Option<&'a SubChunk> {
         self.sub_chunks.get(index(offset)?).copied().flatten()
+    }
+
+    /// Adds palette-packed seasonal shelter context beyond the ordinary AO
+    /// halo. Offsets zero/one already belong to the center/upper halo.
+    pub fn insert_column_above(&mut self, offset_y: i32, sub_chunk: &'a SubChunk) -> bool {
+        if offset_y < 2
+            || offset_y.checked_mul(SUB_CHUNK_SIDE).is_none()
+            || self
+                .column_above
+                .iter()
+                .any(|(existing, _)| *existing == offset_y)
+        {
+            return false;
+        }
+        self.column_above.push((offset_y, sub_chunk));
+        true
+    }
+
+    /// Center, upper neighbor, and explicitly captured higher sub-chunks.
+    pub fn seasonal_column(&self) -> impl Iterator<Item = (i32, &'a SubChunk)> + '_ {
+        [
+            self.sub_chunk([0, 0, 0]).map(|chunk| (0, chunk)),
+            self.sub_chunk([0, 1, 0]).map(|chunk| (1, chunk)),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(self.column_above.iter().copied())
     }
 
     /// Canonical offsets for all 26 adjacent sub-chunks used by diagonal AO.

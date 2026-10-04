@@ -55,6 +55,7 @@ pub(in crate::compiler) struct CuboidTemplateKey {
     pub(in crate::compiler) materials: [u32; 6],
     pub(in crate::compiler) min: [i16; 3],
     pub(in crate::compiler) max: [i16; 3],
+    flags: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -182,7 +183,33 @@ pub(in crate::compiler) fn intern_cuboid_template(
         materials,
         min,
         max,
+        flags: 0,
     };
+    intern_cuboid(key, template_by_key, model_templates, model_quads)
+}
+
+pub(in crate::compiler) fn intern_snow_template(
+    materials: [u32; 6],
+    max: [i16; 3],
+    template_by_key: &mut BTreeMap<CuboidTemplateKey, u32>,
+    model_templates: &mut Vec<ModelTemplate>,
+    model_quads: &mut Vec<ModelQuad>,
+) -> Result<u32, AssetError> {
+    let key = CuboidTemplateKey {
+        materials,
+        min: [0; 3],
+        max,
+        flags: assets::MODEL_TEMPLATE_FLAG_SNOW_LAYER,
+    };
+    intern_cuboid(key, template_by_key, model_templates, model_quads)
+}
+
+fn intern_cuboid(
+    key: CuboidTemplateKey,
+    template_by_key: &mut BTreeMap<CuboidTemplateKey, u32>,
+    model_templates: &mut Vec<ModelTemplate>,
+    model_quads: &mut Vec<ModelQuad>,
+) -> Result<u32, AssetError> {
     if let Some(&template) = template_by_key.get(&key) {
         return Ok(template);
     }
@@ -197,9 +224,18 @@ pub(in crate::compiler) fn intern_cuboid_template(
     model_templates.push(ModelTemplate {
         quad_start,
         quad_count: 6,
-        flags: 0,
+        flags: key.flags,
     });
-    model_quads.extend(cuboid_quads(materials, min, max));
+    let mut quads = cuboid_quads(key.materials, key.min, key.max);
+    if key.flags == assets::MODEL_TEMPLATE_FLAG_SNOW_LAYER {
+        // Vanilla tests touching voxel boundaries, not the inset snow top.
+        for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+            if face != BlockFace::Up {
+                quad.flags |= (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4;
+            }
+        }
+    }
+    model_quads.extend(quads);
     template_by_key.insert(key, template);
     Ok(template)
 }

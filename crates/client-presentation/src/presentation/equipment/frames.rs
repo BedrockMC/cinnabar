@@ -193,6 +193,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         off_hand: None,
         teleported: false,
         first_person,
+        view_bobbing: true,
         sneaking: false,
         sprinting: false,
         item_use: Default::default(),

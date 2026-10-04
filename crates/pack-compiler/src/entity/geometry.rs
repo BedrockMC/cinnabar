@@ -9,6 +9,8 @@ use assets::{
 use serde_json::Value;
 
 use super::{PendingGeometry, PendingSymbol, insert_symbol, invalid};
+#[cfg(test)]
+mod defaults_tests;
 mod texture_mesh;
 
 pub(super) fn parse_geometry(
@@ -253,6 +255,7 @@ fn parse_geometry_bones_with_inheritance(
             .map(Into::into);
         let pivot = optional_vec(bone, "pivot", path)?;
         let rotation = optional_vec(bone, "rotation", path)?;
+        let bind_pose_rotation = optional_vec(bone, "bind_pose_rotation", path)?;
         let mirror = optional_bool(bone, "mirror", path)?;
         let inflate = optional_scalar(bone, "inflate", path)?;
         let never_render = optional_bool(bone, "neverRender", path)?;
@@ -286,6 +289,7 @@ fn parse_geometry_bones_with_inheritance(
             parent,
             pivot,
             rotation,
+            bind_pose_rotation,
             mirror,
             inflate,
             never_render,
@@ -383,10 +387,14 @@ fn parse_geometry_cubes(
             if size.iter().any(|value| value.get() < 0.0) {
                 return Err(invalid("entity geometry cube size is negative"));
             }
+            let origin = required_vec(cube, "origin", path)?;
+            let pivot = optional_vec(cube, "pivot", path)?
+                .or_else(|| EntityGeometryCube::default_rotation_pivot(origin, size))
+                .ok_or_else(|| invalid("entity geometry cube default pivot exceeds bound"))?;
             Ok(EntityGeometryCube {
-                origin: required_vec(cube, "origin", path)?,
+                origin,
                 size,
-                pivot: optional_vec(cube, "pivot", path)?.unwrap_or_else(zero_vec3),
+                pivot,
                 rotation: optional_vec(cube, "rotation", path)?.unwrap_or_else(zero_vec3),
                 uv: cube
                     .get("uv")
@@ -631,6 +639,5 @@ fn validate_known_deferred_bone_fields(value: &Value, path: &Path) -> Result<(),
     optional_string(value, "binding", path)?;
     optional_bool(value, "neverRender", path)?;
     optional_bool(value, "reset", path)?;
-    let _: Option<[EntityGeometryScalar; 3]> = optional_vec(value, "bind_pose_rotation", path)?;
     Ok(())
 }

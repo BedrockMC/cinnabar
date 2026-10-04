@@ -1,4 +1,4 @@
-use assets::{EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryUv};
+use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryUv};
 use bevy::math::Vec3;
 
 use super::rig::{ActorRigGeometryError, ActorRigVertex};
@@ -23,6 +23,52 @@ pub(super) fn append_entity_cube_vertices(
     texture_size: (u16, u16),
     bone_mirror: bool,
     bone_inflate: f32,
+) -> Result<(), ActorRigGeometryError> {
+    append_cube_vertices(
+        vertices,
+        cube,
+        bone_index,
+        texture_size,
+        bone_mirror,
+        bone_inflate,
+        None,
+    )
+}
+
+/// Bind-pose rotation belongs to the part's cubes, not its children or animation channels.
+pub(super) fn append_entity_bone_cube_vertices(
+    vertices: &mut Vec<ActorRigVertex>,
+    cube: &EntityGeometryCube,
+    bone_index: u32,
+    texture_size: (u16, u16),
+    bone: &EntityGeometryBone,
+) -> Result<(), ActorRigGeometryError> {
+    let bind = bone.bind_pose_rotation.map(|rotation| {
+        (
+            bone.pivot
+                .map_or([0.0; 3], |pivot| pivot.map(|value| value.get() / 16.0)),
+            rotation.map(|value| value.get()),
+        )
+    });
+    append_cube_vertices(
+        vertices,
+        cube,
+        bone_index,
+        texture_size,
+        bone.mirror.unwrap_or(false),
+        bone.inflate.map_or(0.0, |inflate| inflate.get()),
+        bind,
+    )
+}
+
+fn append_cube_vertices(
+    vertices: &mut Vec<ActorRigVertex>,
+    cube: &EntityGeometryCube,
+    bone_index: u32,
+    texture_size: (u16, u16),
+    bone_mirror: bool,
+    bone_inflate: f32,
+    bind: Option<([f32; 3], [f32; 3])>,
 ) -> Result<(), ActorRigGeometryError> {
     let origin = cube.origin.map(|value| value.get());
     let size = cube.size.map(|value| value.get());
@@ -54,13 +100,30 @@ pub(super) fn append_entity_cube_vertices(
     }
     let mut corners = cuboid_corners(min, max);
     let pivot = cube.pivot.map(|value| value.get() / 16.0);
-    let rotation = cube.rotation.map(|value| value.get());
-    if rotation.iter().any(|value| *value != 0.0) {
+    let cube_rotation = cube.rotation.map(|value| value.get());
+    let bind_rotation = bind.map_or([0.0; 3], |(_, rotation)| rotation);
+    let rotation: [f32; 3] = std::array::from_fn(|axis| cube_rotation[axis] + bind_rotation[axis]);
+    // Native ModelPart cube setup (26.50.26 01e62d50) adds the bind Euler angles
+    // to the cube's angles and rotates its pivot about the part's pivot separately.
+    let bind_offset = match bind {
+        None => [0.0; 3],
+        Some((bone_pivot, _)) => {
+            let rotated = rotate_euler_around(
+                pivot,
+                bone_pivot,
+                [-bind_rotation[0], bind_rotation[1], -bind_rotation[2]],
+            )
+            .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
+            std::array::from_fn(|axis| rotated[axis] - pivot[axis])
+        }
+    };
+    if rotation.iter().any(|value| *value != 0.0) || bind.is_some() {
         // Authored rotations turn X and Z the opposite way to a right-handed rotation.
         let authored = [-rotation[0], rotation[1], -rotation[2]];
         for corner in &mut corners {
             *corner = rotate_euler_around(*corner, pivot, authored)
                 .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
+            *corner = std::array::from_fn(|axis| corner[axis] + bind_offset[axis]);
         }
     }
     let corners = corners.map(mirror_x);
@@ -303,6 +366,10 @@ pub(super) fn triangle_normal(first: [f32; 3], second: [f32; 3], third: [f32; 3]
     let right = Vec3::from_array(third) - Vec3::from_array(first);
     left.cross(right).normalize_or_zero().to_array()
 }
+
+#[cfg(test)]
+#[path = "bind_pose_tests.rs"]
+mod bind_pose_tests;
 
 #[cfg(test)]
 mod tests {

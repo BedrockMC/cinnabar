@@ -19,11 +19,7 @@ use bevy::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
         Resource, SystemSet, Update, Window, default,
     },
-    render::{
-        RenderPlugin,
-        diagnostic::RenderDiagnosticsPlugin,
-        settings::{Backends, RenderCreation, WgpuSettings},
-    },
+    render::{diagnostic::RenderDiagnosticsPlugin, settings::Backends},
     window::WindowPlugin,
 };
 use client_world::PublicationServiceConfig;
@@ -48,6 +44,7 @@ use crate::{
     environment::{
         self, EnvironmentContext, EnvironmentProfileRoute, WeatherState, WorldClock,
         update_atmosphere_frame, update_lightning, update_precipitation_scene,
+        update_seasonal_foliage,
     },
     install_layout::InstallLayout,
     local_player::{
@@ -111,6 +108,9 @@ use diagnostics::markers::{SHUTDOWN_COMPLETED, requested_present_mode};
 
 #[cfg(feature = "acceptance")]
 use crate::acceptance::model_witness::drive_model_witness;
+
+mod render_setup;
+use render_setup::render_plugin;
 
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
@@ -346,6 +346,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 poll_model_witness_request,
                 update_camera_medium,
                 update_atmosphere_frame,
+                update_seasonal_foliage,
                 crate::environment::log_world_lighting,
                 update_precipitation_scene,
                 update_lightning,
@@ -407,21 +408,6 @@ fn bind_direct_session_directory(
             .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
     }
     Ok(ScopedSessionDirectory::none())
-}
-
-fn render_plugin() -> RenderPlugin {
-    let mut settings = WgpuSettings::default();
-    settings.limits.max_storage_buffers_per_shader_stage = settings
-        .limits
-        .max_storage_buffers_per_shader_stage
-        .max(render::required_vertex_storage_buffers());
-    if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
-        settings.backends = Some(backends);
-    }
-    RenderPlugin {
-        render_creation: RenderCreation::Automatic(settings),
-        ..default()
-    }
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
@@ -768,9 +754,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         screenshots_dir: layout.screenshots_dir(),
         debug_overlay: args.dev_debug_overlay,
     });
-    if !connection_requested {
-        app.init_resource::<crate::menu::LauncherCoreSlot>();
-    }
+    // Account feeds also serve Profile in direct-address and external-socket runs.
+    app.init_resource::<crate::menu::LauncherCoreSlot>();
     app.add_plugins(render::Dx12PresentModePolicyPlugin::new(
         present_mode_policy,
     ));
@@ -812,6 +797,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(ui_presentation)
     .insert_resource(WorldClock::default())
     .insert_resource(WeatherState::default())
+    .init_resource::<environment::WeatherTickFrame>()
     .insert_resource(environment::CameraMediumState::default())
     .insert_resource(environment::LightningFlashState::default())
     .insert_resource(EnvironmentContext::default())

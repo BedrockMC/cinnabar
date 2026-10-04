@@ -19,5 +19,5 @@ pub(crate) fn source(raw: &str) -> String {
 }
 
 pub(super) fn from_wgsl(raw: &str, path: impl Into<String>) -> Shader {
-    Shader::from_wgsl(source(raw), path)
+    crate::shader_safety::from_wgsl(source(raw), path)
 }

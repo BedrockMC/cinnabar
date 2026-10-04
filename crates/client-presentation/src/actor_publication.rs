@@ -11,7 +11,7 @@ use bevy::prelude::DetectChanges;
 use bevy::{
     ecs::system::SystemParam,
     math::Mat4,
-    prelude::{Local, Projection, Res, ResMut, Resource, Time},
+    prelude::{Local, Projection, Res, ResMut, Resource, Time, Vec3},
     time::Real,
 };
 use client_world::{LocalPlayerFeed, WorldStream};
@@ -584,30 +584,37 @@ pub fn prepare_actor_render_frame(
         if visibility.runtime_id() != local_runtime_id {
             return (false, None);
         }
-        // The driven rig already carries the motion model's body yaw and head-over-body split,
-        // so it is placed by its own transform. The static diagnostic is only a pre-rig fallback.
-        let local = canonical_local.or_else(|| {
-            let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
-            let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
-            let pitch_degrees = -pitch.to_degrees();
-            let position = visibility.feet();
-            let diagnostic = local_diagnostic_presentation(
-                actor_session_id,
-                dimension,
-                visibility.runtime_id(),
-                visibility.pose_generation(),
-                position.to_array(),
-                yaw_degrees,
-                pitch_degrees,
-            );
-            local_actor_presentation_for_visibility(
-                local_runtime_id,
-                visibility.runtime_id(),
-                None,
-                diagnostic,
-                yaw_degrees,
-            )
-        });
+        // Native camera and body transforms sample the same actor origin at render alpha
+        // (26.30 VanillaOffsetSystem::getCameraPosition / Actor::getActorToWorldTransform).
+        // Keep the rig's body yaw and animation, but use the physics render sample rather
+        // than interpolating the local position again on the remote actor clock.
+        let local = canonical_local
+            .map(|mut local| {
+                place_local_actor_at_render_feet(&mut local, visibility.feet());
+                local
+            })
+            .or_else(|| {
+                let (yaw, pitch, _) = visibility.rotation().to_euler(bevy::math::EulerRot::YXZ);
+                let yaw_degrees = (180.0 - yaw.to_degrees()).rem_euclid(360.0);
+                let pitch_degrees = -pitch.to_degrees();
+                let position = visibility.feet();
+                let diagnostic = local_diagnostic_presentation(
+                    actor_session_id,
+                    dimension,
+                    visibility.runtime_id(),
+                    visibility.pose_generation(),
+                    position.to_array(),
+                    yaw_degrees,
+                    pitch_degrees,
+                );
+                local_actor_presentation_for_visibility(
+                    local_runtime_id,
+                    visibility.runtime_id(),
+                    None,
+                    diagnostic,
+                    yaw_degrees,
+                )
+            });
         (visibility.visible(), local)
     });
     // The visibility override rebuilds the local transform, so re-apply the death tip-over.
@@ -843,6 +850,18 @@ fn register_geometries(
         for geometry in geometries {
             let _ = scene.insert_geometry(geometry);
         }
+    }
+}
+
+/// Positions the local rig at the same render sample as its camera subject.
+fn place_local_actor_at_render_feet(presentation: &mut ActorRigPresentation, feet: Vec3) {
+    for (row, coordinate) in presentation
+        .submission
+        .world_from_actor
+        .iter_mut()
+        .zip(feet.to_array())
+    {
+        row[3] = coordinate;
     }
 }
 

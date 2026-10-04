@@ -6,15 +6,12 @@ pub struct LiquidShaderContract {
     flow_angle_offset: f32,
     side_height_bias: f32,
     side_height_scale: f32,
-    falling_scroll_direction: f32,
-    falling_scroll_ticks: f32,
+    face_inset: f32,
     flow_face: usize,
     side_face_mask: u32,
-    falling_face_mask: u32,
     flow_direction_operator: f32,
     flow_offset_operator: f32,
     side_scale_operator: f32,
-    falling_assignment_operator: f32,
 }
 
 impl LiquidShaderContract {
@@ -27,25 +24,44 @@ impl LiquidShaderContract {
             flow_angle_offset: parse_f32(shader, "FLOW_ANGLE_OFFSET"),
             side_height_bias: parse_f32(shader, "SIDE_HEIGHT_BIAS"),
             side_height_scale: parse_f32(shader, "SIDE_HEIGHT_SCALE"),
-            falling_scroll_direction: parse_f32(shader, "FALLING_SCROLL_DIRECTION"),
-            falling_scroll_ticks: parse_f32(shader, "FALLING_SCROLL_TICKS"),
+            face_inset: parse_f32(&crate::material_shader::source(shader), "LIQUID_FACE_INSET"),
             flow_face: parse_u32(shader, "FLOW_FACE") as usize,
             side_face_mask: parse_u32(shader, "SIDE_FACE_MASK"),
-            falling_face_mask: parse_u32(shader, "FALLING_FACE_MASK"),
             flow_direction_operator: parse_flow_direction_operator(shader),
             flow_offset_operator: parse_flow_offset_operator(shader),
             side_scale_operator: parse_side_scale_operator(shader),
-            falling_assignment_operator: parse_falling_assignment_operator(shader),
         }
     }
 
     pub fn corner(&self, face: usize, corner: usize, origin: [f32; 3], height: u8) -> [f32; 3] {
+        self.inset_corner(face, corner, origin, height, false)
+    }
+
+    pub fn inset_corner(
+        &self,
+        face: usize,
+        corner: usize,
+        origin: [f32; 3],
+        height: u8,
+        top_inset: bool,
+    ) -> [f32; 3] {
         let xz = self.face_xz[face * 4 + corner];
-        [
+        let mut position = [
             origin[0] + xz[0],
             origin[1] + f32::from(height) / 255.0,
             origin[2] + xz[1],
-        ]
+        ];
+        match face {
+            0 => position[0] += self.face_inset,
+            1 => position[0] -= self.face_inset,
+            4 => position[2] += self.face_inset,
+            5 => position[2] -= self.face_inset,
+            _ => {}
+        }
+        if top_inset && face != 2 && (face == 3 || corner == 1 || corner == 2) {
+            position[1] -= self.face_inset;
+        }
+        position
     }
 
     pub fn uv(
@@ -54,30 +70,25 @@ impl LiquidShaderContract {
         corner: usize,
         height: u8,
         flow: [i8; 2],
-        falling: bool,
-        clock: [f32; 2],
+        _falling: bool,
+        _clock: [f32; 2],
     ) -> [f32; 2] {
         let mut uv = self.base_uv[face * 4 + corner];
         if self.side_face_mask & (1 << face) != 0 {
             uv[1] = self.side_height_bias
                 + self.side_scale_operator * self.side_height_scale * f32::from(height) / 255.0;
+            uv = uv.map(|component| component / 2.0);
         }
         if face == self.flow_face && flow != [0, 0] {
             let radians = self.flow_direction_operator
                 * self.flow_angle_direction
                 * f32::from(flow[1]).atan2(f32::from(flow[0]))
                 + self.flow_offset_operator * self.flow_angle_offset;
-            let centered = [uv[0] - 0.5, uv[1] - 0.5];
+            let centered = [(uv[0] - 0.5) / 2.0, (uv[1] - 0.5) / 2.0];
             uv = [
                 0.5 + centered[0] * radians.cos() - centered[1] * radians.sin(),
                 0.5 + centered[0] * radians.sin() + centered[1] * radians.cos(),
             ];
-        }
-        if falling && self.falling_face_mask & (1 << face) != 0 {
-            let phase = ((clock[0] + clock[1].clamp(0.0, 0.999_999_94))
-                / self.falling_scroll_ticks)
-                .fract();
-            uv[1] += self.falling_assignment_operator * self.falling_scroll_direction * phase;
         }
         uv
     }
@@ -135,16 +146,18 @@ fn validate_structural_wiring(shader: &str) {
             1,
         ),
         ("((SIDE_FACE_MASK>>face)&1u)!=0u", "side-face mask test", 1),
+        ("uv*=uv_scale", "side replicate footprint", 1),
+        ("(uv-vec2(0.5))*uv_scale", "top replicate footprint", 1),
         ("face==FLOW_FACE", "flow-face test", 1),
         (
-            "falling&&((FALLING_FACE_MASK>>face)&1u)!=0u",
-            "falling-face mask test",
+            "local_position.y-f32(block_coordinate.y)",
+            "side UV uses already-inset upper heights",
             1,
         ),
         (
             "f32((height_word>>(corner*8u))&255u)/255.0",
             "packed u8 height decode",
-            2,
+            1,
         ),
         (
             "signed_i8(geometry,16u),signed_i8(geometry,24u)",
@@ -200,17 +213,6 @@ fn parse_side_scale_operator(shader: &str) -> f32 {
         -1.0
     } else {
         panic!("unsupported liquid side-height expression")
-    }
-}
-
-fn parse_falling_assignment_operator(shader: &str) -> f32 {
-    let shader = compact(shader);
-    if shader.contains("uv.y+=FALLING_SCROLL_DIRECTION*falling_phase") {
-        1.0
-    } else if shader.contains("uv.y-=FALLING_SCROLL_DIRECTION*falling_phase") {
-        -1.0
-    } else {
-        panic!("unsupported liquid falling-scroll expression")
     }
 }
 
@@ -291,17 +293,6 @@ mod tests {
             baseline.uv(0, 1, 128, [0, 0], false, [0.0, 0.0]),
             changed_side.uv(0, 1, 128, [0, 0], false, [0.0, 0.0]),
         );
-
-        let falling_mutation = SHADER.replacen(
-            "uv.y += FALLING_SCROLL_DIRECTION * falling_phase",
-            "uv.y -= FALLING_SCROLL_DIRECTION * falling_phase",
-            1,
-        );
-        let changed_falling = LiquidShaderContract::parse(&falling_mutation);
-        assert_ne!(
-            baseline.uv(0, 1, 128, [0, 0], true, [4.0, 0.0]),
-            changed_falling.uv(0, 1, 128, [0, 0], true, [4.0, 0.0]),
-        );
     }
 
     #[test]
@@ -316,7 +307,8 @@ mod tests {
         );
         assert_rejects_mutation("SIDE_FACE_MASK >> face", "SIDE_FACE_MASK >> corner");
         assert_rejects_mutation("face == FLOW_FACE", "face != FLOW_FACE");
-        assert_rejects_mutation("FALLING_FACE_MASK >> face", "FALLING_FACE_MASK >> corner");
+        assert_rejects_mutation("uv *= uv_scale", "uv /= uv_scale");
+        assert_rejects_mutation("(uv - vec2(0.5)) * uv_scale", "(uv - vec2(0.5)) / uv_scale");
         assert_rejects_mutation(
             "f32((height_word >> (corner * 8u)) & 255u) / 255.0",
             "f32((height_word >> (corner * 8u)) & 255u) / 256.0",

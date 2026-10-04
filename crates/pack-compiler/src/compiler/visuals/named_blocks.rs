@@ -1,13 +1,13 @@
 use super::super::*;
 use super::context::{
     CuboidTemplateKey, ModelStorage, RuleInputs, diagnostic_visual, intern_cuboid_template,
-    set_model_visual,
+    intern_snow_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
 
 const FULL: i16 = 256;
 /// One snow layer is two pixels tall.
-const SNOW_LAYER: i16 = 32;
+const SNOW_LAYER: i16 = FULL / assets::TOP_SNOW_LAYER_COUNT as i16;
 /// Repeaters and comparators sit on a two-pixel base.
 const REDSTONE_BASE: i16 = 32;
 
@@ -55,7 +55,7 @@ pub(in crate::compiler) fn named_shape(record: &RegistryRecord) -> Option<NamedS
         }
         "snow_layer" => {
             let height = canonical_state_u32(&record.canonical_state, "height")?;
-            if height > 7 {
+            if height >= u32::from(assets::TOP_SNOW_LAYER_COUNT) {
                 return None;
             }
             shape((height as i16 + 1) * SNOW_LAYER, false, false)
@@ -104,18 +104,26 @@ pub(in crate::compiler) fn compile_rule(
             visual.faces = materials;
             visual.kind = VisualKind::Cube;
         } else {
-            let template = intern_cuboid_template(
-                materials,
-                [0, 0, 0],
-                [FULL, shape.top, FULL],
-                templates,
-                storage.templates,
-                storage.quads,
-            )?;
+            let max = [FULL, shape.top, FULL];
+            let template = if record.name.as_ref() == "minecraft:snow_layer" {
+                intern_snow_template(materials, max, templates, storage.templates, storage.quads)?
+            } else {
+                intern_cuboid_template(
+                    materials,
+                    [0; 3],
+                    max,
+                    templates,
+                    storage.templates,
+                    storage.quads,
+                )?
+            };
             set_model_visual(&mut visual, materials, template);
         }
         if shape.provisional {
             visual.support = VisualSupport::VanillaFallback;
+        }
+        if record.name.as_ref() == "minecraft:snow_layer" {
+            visual.variant |= assets::BLOCK_VISUAL_VARIANT_TOP_SNOW;
         }
     }
     Ok(CompileRuleResult::Compiled(visual))
@@ -150,10 +158,11 @@ mod tests {
                 &format!(r#"{{"height":{{"type":"int","value":{height}}}}}"#),
             ))
         };
-        assert_eq!(layer(0).map(|s| s.top), Some(32));
-        assert_eq!(layer(3).map(|s| s.top), Some(128));
-        assert_eq!(layer(7).map(|s| s.top), Some(FULL));
-        assert_eq!(layer(8), None);
+        let count = u32::from(assets::TOP_SNOW_LAYER_COUNT);
+        assert_eq!(layer(0).map(|s| s.top), Some(SNOW_LAYER));
+        assert_eq!(layer(count / 2 - 1).map(|s| s.top), Some(FULL / 2));
+        assert_eq!(layer(count - 1).map(|s| s.top), Some(FULL));
+        assert_eq!(layer(count), None);
     }
 
     #[test]

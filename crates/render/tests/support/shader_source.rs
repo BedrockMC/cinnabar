@@ -3,6 +3,7 @@
     dead_code,
     reason = "shared helpers serve different shader test targets"
 )]
+use crate::material_shader;
 use std::collections::BTreeSet;
 
 const VIEW: &str = "struct View { clip_from_world: mat4x4<f32>, unjittered_clip_from_world: mat4x4<f32>, view_from_world: mat4x4<f32>, world_from_view: mat4x4<f32>, clip_from_view: mat4x4<f32>, view_from_clip: mat4x4<f32>, world_position: vec3<f32>, exposure: f32, viewport: vec4<f32>, }";
@@ -11,6 +12,7 @@ const FULLSCREEN_VERTEX: &str = "@vertex fn fullscreen(@builtin(vertex_index) in
 
 /// Keep precisely the active Enhanced branches, including the depth caster variant.
 pub fn preprocess(source: &str, definitions: &[&str]) -> String {
+    let source = material_shader::source(source);
     let mut active = vec![true];
     let mut output = String::new();
     for line in source.split_inclusive('\n') {
@@ -35,7 +37,10 @@ pub fn preprocess(source: &str, definitions: &[&str]) -> String {
 
 /// Inline imported modules once, matching Bevy's shared WGSL definitions.
 pub fn standalone(source: &str, definitions: &[&str]) -> String {
-    imports(&preprocess(source, definitions), &mut BTreeSet::new())
+    imports(
+        &preprocess(&meshing::cloud_viewport::shader_source(source), definitions),
+        &mut BTreeSet::new(),
+    )
 }
 
 /// Expand multiline imports recursively while retaining all selected module symbols.
@@ -43,6 +48,8 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
     let mut output = String::new();
     let mut lines = source.lines();
     let biome = meshing::biome_lattice::shader_source(include_str!("../../src/biome_tint.wgsl"));
+    let material = material_shader::source(include_str!("../../src/material.wgsl"));
+    let lighting = material_shader::source(include_str!("../../src/lighting.wgsl"));
     while let Some(line) = lines.next() {
         let directive = line.trim();
         if directive.starts_with("#define_import_path") {
@@ -62,9 +69,9 @@ fn imports(source: &str, seen: &mut BTreeSet<String>) -> String {
             } else if module.starts_with("bevy_core_pipeline::fullscreen_vertex_shader::") {
                 ("fullscreen", FULLSCREEN)
             } else if module.starts_with("cinnabar::material") {
-                ("material", include_str!("../../src/material.wgsl"))
+                ("material", material.as_str())
             } else if module.starts_with("cinnabar::lighting") {
-                ("lighting", include_str!("../../src/lighting.wgsl"))
+                ("lighting", lighting.as_str())
             } else if module.starts_with("cinnabar::biome_tint") {
                 ("biome", biome.as_str())
             } else if module.starts_with("cinnabar::enhanced_common") {
@@ -95,6 +102,8 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
     use naga_oil::compose::{
         ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
     };
+    let resolved = material_shader::source(source);
+    let source = resolved.as_str();
     let mut composer = Composer::default();
     for (name, body) in [
         ("bevy_render::view", VIEW.to_owned()),
@@ -104,11 +113,11 @@ pub fn composed(source: &str, definitions: &[&str]) -> String {
         ),
         (
             "cinnabar::material",
-            include_str!("../../src/material.wgsl").to_owned(),
+            material_shader::source(include_str!("../../src/material.wgsl")),
         ),
         (
             "cinnabar::lighting",
-            include_str!("../../src/lighting.wgsl").to_owned(),
+            material_shader::source(include_str!("../../src/lighting.wgsl")),
         ),
         (
             "cinnabar::biome_tint",
