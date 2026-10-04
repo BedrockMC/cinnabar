@@ -282,6 +282,7 @@ mod core;
 mod core_process;
 mod crafting_authority_schedule;
 mod finish;
+#[cfg(feature = "reports")]
 mod frame_cost_bench;
 mod gameplay_click;
 mod input_publication;
@@ -290,7 +291,6 @@ mod inventory_reopen;
 mod inventory_schedule;
 mod inventory_secondary_input;
 mod menu_scene;
-mod molang_conformance;
 mod pack_entity_metadata;
 mod phase2_evidence;
 mod phase4_presentation;
