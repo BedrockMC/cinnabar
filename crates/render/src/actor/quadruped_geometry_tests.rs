@@ -115,7 +115,7 @@ fn pinned_fox_cube_binds_keep_body_horizontal_and_tail_clear_of_the_floor() {
     // Independently measured native bind results in authored pixels (X is mirrored).
     assert_bounds(
         bounds(&bone_vertices("tail")),
-        [-2.0, 4.0477008, 7.5940995],
+        [-2.0, 4.047_701, 7.5940995],
         [2.0, 10.534573, 17.32561],
     );
     assert_bounds(

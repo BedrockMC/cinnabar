@@ -51,6 +51,7 @@ pub(super) struct MotionState {
     stride: f32,
     /// FishAnimationComponent survives geometry/controller resets for this actor lifetime.
     fish_phase: [f32; 2],
+    pub(super) horse: super::horse::AnimationState,
 }
 
 impl MotionState {
