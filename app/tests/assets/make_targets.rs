@@ -278,9 +278,12 @@ fn make_builds_the_pinned_official_hud_carrier_for_default_launch() {
     for contract in [
         "HUD_PACK_DIR ?= $(PACK_DIR)",
         "PACK_SENTINEL ?= $(PACK_DIR)/blocks.json",
-        "VANILLA_FETCH_INPUTS := scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh",
+        concat!(
+            "VANILLA_ASSET_FETCH = $(CARGO) run --locked -p asset-compiler --bin assetc -- vanilla-pack ",
+            "--source-manifest \"$(VANILLA_SOURCE_MANIFEST)\" --accept-eula",
+        ),
         "vanilla-assets: $(PACK_SENTINEL)",
-        "$(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST) | $(VANILLA_FETCH_INPUTS)",
+        "$(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST)",
         "$(ASSET_BLOB): $(PACK_SENTINEL) $(ASSET_COMPILER_INPUTS)",
         "HUD_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbehud",
         "HUD_ASSET_REPORT ?= .local/assets/compiled/hud-assets.json",
@@ -407,7 +410,6 @@ fn make_vanilla_pack_sentinel_reacquires_only_when_missing() {
         format!("PACK_DIR={}", make_path(&pack)),
         format!("PACK_SENTINEL={}", make_path(&sentinel)),
         format!("VANILLA_ASSET_FETCH={producer}"),
-        "VANILLA_FETCH_INPUTS=".to_owned(),
     ];
 
     run_make_vanilla_assets(root, &assignments);
@@ -479,7 +481,6 @@ fn make_client_acquires_compiles_all_assets_then_launches() {
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
         "REGISTRYGEN_INPUTS=".to_owned(),
-        "VANILLA_FETCH_INPUTS=".to_owned(),
         format!("PACK_DIR={}", make_path(&pack)),
         format!("PACK_SENTINEL={}", make_path(&sentinel)),
         format!("BLOCK_REGISTRY={}", make_path(&block)),
@@ -762,7 +763,6 @@ fn make_atmosphere_target_serializes_one_producer_for_missing_and_stale_pairs() 
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
         "REGISTRYGEN_INPUTS=".to_owned(),
-        "VANILLA_FETCH_INPUTS=".to_owned(),
         format!("PACK_DIR={}", make_path(&pack)),
         format!("PACK_SENTINEL={}", make_path(&sentinel)),
         format!("ASSET_BLOB={}", make_path(&world)),
@@ -915,7 +915,6 @@ fn make_report_fallback_recovers_missing_and_stale_reports_with_quoted_arguments
     };
     let assignments = [
         "ASSET_COMPILER_INPUTS=".to_owned(),
-        "VANILLA_FETCH_INPUTS=".to_owned(),
         format!("PACK_DIR={}", make_path(&pack)),
         format!("PACK_SENTINEL={}", make_path(&sentinel)),
         format!("VANILLA_SOURCE_MANIFEST={}", make_path(&manifest)),

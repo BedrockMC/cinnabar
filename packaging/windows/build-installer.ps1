@@ -23,7 +23,7 @@ if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($payload)) -ne $outPath) 
 Remove-Item -LiteralPath $payload -Recurse -Force -ErrorAction SilentlyContinue
 $resources = Join-Path $payload "resources"
 $kit = Join-Path $resources "prep-kit"
-New-Item -ItemType Directory -Force (Join-Path $resources "assets"), (Join-Path $resources "licenses"), (Join-Path $resources "fonts"), (Join-Path $kit "bin"), (Join-Path $kit "scripts"), (Join-Path $kit "assets"), (Join-Path $kit "assets/fonts"), (Join-Path $kit "data") | Out-Null
+New-Item -ItemType Directory -Force (Join-Path $resources "assets"), (Join-Path $resources "licenses"), (Join-Path $resources "fonts"), (Join-Path $kit "bin"), (Join-Path $kit "assets"), (Join-Path $kit "assets/fonts"), (Join-Path $kit "data") | Out-Null
 Copy-Item (Join-Path $release "bedrock-client.exe"), (Join-Path $release "bedrock-core.exe"), (Join-Path $release "bedrock-local-server.exe") $payload
 Copy-Item (Join-Path $release "assetc.exe") (Join-Path $kit "bin")
 Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2193.bin") (Join-Path $resources "assets")
@@ -33,7 +33,6 @@ $fontSource = Get-Content -Raw (Join-Path $root "assets/cinnangles-sans-source.j
 $font = Join-Path $root "assets/fonts/$($fontSource.font_file)"
 if (-not (Test-Path $font)) { throw "missing $font" }
 Copy-Item $font (Join-Path $resources "fonts")
-Copy-Item (Join-Path $root "scripts/fetch-vanilla-assets.ps1") (Join-Path $kit "scripts")
 Copy-Item (Join-Path $root "assets/*.json") (Join-Path $kit "assets")
 Copy-Item $font (Join-Path $kit "assets/fonts")
 foreach ($stem in "block-registry", "block-light-registry", "biome-registry") { Copy-Item (Join-Path $root "crates/assets/data/$stem-v2193.*") (Join-Path $kit "data") }

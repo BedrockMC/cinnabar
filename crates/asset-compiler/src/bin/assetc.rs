@@ -53,6 +53,8 @@ mod particle_command;
 mod registry_version;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
+#[path = "assetc/vanilla_pack_command.rs"]
+mod vanilla_pack_command;
 
 use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
@@ -428,6 +430,10 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 out.display()
             );
         }
+        Command::VanillaPack {
+            source_manifest,
+            accept_eula,
+        } => vanilla_pack_command::acquire(&source_manifest, accept_eula)?,
         Command::AnimationInventory {
             pack,
             source_manifest,
