@@ -1,6 +1,7 @@
 """Exercise stable publication offline with a fake release asset store."""
 
 import os
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -36,7 +37,7 @@ esac
 ''')
             (root / "gh").chmod(0o755)
             env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}",
-                       RELEASE_TAG="v-test", RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root))
+                       UPDATE_MANIFEST=json.loads((ROOT / "packaging/release-assets.json").read_text())["update_manifest"], RELEASE_TAG="v-test", RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root))
             result = subprocess.run(["bash", "-eu", "-c", script], cwd=root,
                                     env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
