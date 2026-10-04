@@ -45,6 +45,9 @@ pub(super) fn sample_clips(
     for weighted in clips {
         budget.charge_work()?;
         let weight = weighted.weight;
+        if weight < f32::EPSILON {
+            continue;
+        }
         let clip = assets
             .animation_clips()
             .get(weighted.clip)
@@ -54,22 +57,13 @@ pub(super) fn sample_clips(
         let clip_tick = evaluator.anim_tick.saturating_sub(weighted.started_tick);
         let evaluator = &Evaluator {
             anim_tick: clip_tick,
+            anim_time: Some(weighted.time),
             ..*evaluator
         };
-        let frame_alpha = evaluator
-            .context
-            .attachable
-            .map_or(0.0, |input| input.frame_alpha);
-        let raw_time = (clip_tick as f32 + frame_alpha) * ACTOR_TICK_DURATION.as_secs_f32();
-        let time = match clip.loop_mode {
-            EntityAnimationLoop::Loop if length > 0.0 => raw_time.rem_euclid(length),
-            // A finished one-shot stops contributing; only hold keeps its last frame.
-            EntityAnimationLoop::Once if raw_time > length => continue,
-            EntityAnimationLoop::Once | EntityAnimationLoop::HoldOnLastFrame => {
-                raw_time.clamp(0.0, length)
-            }
-            EntityAnimationLoop::Loop => 0.0,
-        };
+        if clip.loop_mode == EntityAnimationLoop::Once && weighted.time > length {
+            continue;
+        }
+        let time = weighted.time;
         let first = clip.first_channel as usize;
         let end = first
             .checked_add(clip.channel_count as usize)
