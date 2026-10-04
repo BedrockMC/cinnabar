@@ -8,7 +8,7 @@ use client_presentation::observations::{
 impl PhysicsObservation for crate::movement::LocalPhysicsController {
     /// Borrows the completed physics state at the presentation boundary.
     fn state(&self) -> Option<&sim::PlayerState> {
-        self.state()
+        std::ops::Deref::deref(self).state()
     }
     /// Borrows tick-owned sneak and sprint flags.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
@@ -16,25 +16,25 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     }
     /// Borrows the collision frontier used by the completed tick.
     fn last_world_identity(&self) -> Option<&sim::WorldCollisionIdentity> {
-        self.last_world_identity()
+        std::ops::Deref::deref(self).last_world_identity()
     }
     /// Reports gameplay's current ownership of translation.
     fn is_active(&self) -> bool {
-        self.is_active()
+        std::ops::Deref::deref(self).is_active()
     }
 }
 impl CollisionLookup for crate::movement::PhysicsCollisionRegistries {
     /// Borrows the existing registry without duplicating its ownership.
     fn registry(&self, mode: assets::NetworkIdMode) -> &sim::CollisionRegistry {
-        self.registry(mode)
+        std::ops::Deref::deref(self).registry(mode)
     }
     /// Borrows the canonical state used by actor surface observations.
     fn block_canonical_state(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
-        self.block_canonical_state(mode, runtime_id)
+        std::ops::Deref::deref(self).block_canonical_state(mode, runtime_id)
     }
     /// Resolves the existing block-name fact for presentation.
     fn block_identifier(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
-        self.block_identifier(mode, runtime_id)
+        std::ops::Deref::deref(self).block_identifier(mode, runtime_id)
     }
 }
 impl MiningObservation for crate::survival_mining::SurvivalMiningRuntime {
