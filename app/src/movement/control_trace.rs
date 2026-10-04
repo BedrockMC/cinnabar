@@ -41,6 +41,7 @@ pub(crate) fn trace_physics_frame(
     session: u64,
     elapsed: std::time::Duration,
     speed: Option<f64>,
+    effective_speed: Option<f64>,
     frame: &LocalPhysicsFrame,
 ) {
     if !trace::movement_trace_enabled() {
@@ -52,7 +53,8 @@ pub(crate) fn trace_physics_frame(
                 "session_generation":session, "elapsed_seconds":elapsed.as_secs_f64(),
                 "tick":sample.tick, "position":sample.position, "velocity":sample.velocity,
                 "displacement":sample.movement, "move_vector":sample.move_vector,
-                "movement_attribute":speed, "sprinting":sample.processed.sprinting,
+                "prediction_walk_speed":speed, "effective_movement_speed":effective_speed,
+                "sprinting":sample.processed.sprinting,
                 "sneaking":sample.processed.sneaking, "jumping":sample.jumping,
                 "grounded":sample.grounded_after_tick, "mode":format!("{:?}",sample.processed.mode),
             })

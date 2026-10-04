@@ -79,18 +79,19 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    if let Some(current) = update
+                    if let Some((current, sprint_modifier)) = update
                         .attributes
                         .iter()
                         .rev()
                         .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
-                        .find_map(movement_attribute::walk_speed)
+                        .find_map(movement_attribute::effective_speed)
                     {
                         self.local_movement_speed = Some(current);
                         self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
                             sequence,
                             dimension: update.dimension,
                             current,
+                            sprint_modifier,
                             tick: update.tick,
                         });
                     }
