@@ -386,6 +386,7 @@ pub(crate) fn receive_network_events(
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
+                stream.set_light_diagnostic_custom_blocks(custom_blocks.clone());
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
                     (
                         Arc::clone(&pack.assets),
