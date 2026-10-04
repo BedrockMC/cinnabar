@@ -22,7 +22,7 @@ pub(super) fn submit(
         }
         submissions.push(BlockEntitySubmission {
             block: beam.target.map(|value| value as i32),
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::CrystalBeam(CrystalBeamModel {
                 target: beam.target,
                 crystal: beam.crystal,
@@ -58,7 +58,7 @@ mod tests {
                 let mut submissions = vec![
                     BlockEntitySubmission {
                         block: [0; 3],
-                        light: 1.0,
+                        light: 1.0.into(),
                         kind: BlockEntityKind::EndPortal,
                     };
                     super::super::MAX_SUBMISSIONS - 1
