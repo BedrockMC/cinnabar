@@ -52,7 +52,11 @@ use crate::valentine::{
 const DEFAULT_LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 const START_GAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
+// Built-in compatibility pack in the pinned gophertunnel conn.go exemption list.
+const CURRENT_BUILTIN_COMPATIBILITY_PACK: (&str, &str) =
+    ("d34cfa4b-2ad1-453d-a0db-668b429a3ea0", "1.26.40");
 const EXEMPTED_RESOURCE_PACKS: &[(&str, &str)] = &[
+    CURRENT_BUILTIN_COMPATIBILITY_PACK,
     ("0fba4063-dba1-4281-9b89-ff9390653530", "1.0.0"),
     ("b41c2785-c512-4a49-af56-3a87afd47c57", "1.21.30"),
     ("a4df0cb3-17be-4163-88d7-fcf7002b935d", "1.21.20"),
@@ -1353,6 +1357,34 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("resource-pack handoff failed"));
+    }
+
+    #[tokio::test]
+    async fn zeno_required_offer_accepts_builtin_resource_pack_without_download() {
+        // Captured from zenomc.org:19132: a required offer also selects the
+        // built-in 1.26.40 compatibility pack, which is never offered for download.
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_pack_required: true,
+            ..Default::default()
+        });
+        let stack = McpePacket::from(crate::valentine::ResourcePackStackPacket {
+            texture_pack_list: vec![crate::valentine::PackInstanceId {
+                pack_id: CURRENT_BUILTIN_COMPATIBILITY_PACK.0.into(),
+                version: CURRENT_BUILTIN_COMPATIBILITY_PACK.1.into(),
+                sub_pack_name: String::new(),
+            }],
+            ..Default::default()
+        });
+        let start = resource_pack_stream(vec![
+            uncompressed_frame(&[info]),
+            uncompressed_frame(&[stack]),
+        ])
+        .handle_packs()
+        .await
+        .expect("required offers may select built-in compatibility packs");
+        let handoff = start.state.resource_pack_handoff.unwrap();
+        assert!(handoff.required());
+        assert_eq!(handoff.len(), 0, "built-in packs need no archive");
     }
 
     #[tokio::test]
