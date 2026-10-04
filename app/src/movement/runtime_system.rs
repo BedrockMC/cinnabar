@@ -29,7 +29,7 @@ pub(crate) fn advance_local_physics(
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
     mut movement_effects: ResMut<LocalMovementEffectTimeline>,
-    movement_speed: Res<LocalMovementSpeedAuthority>,
+    mut movement_speed: ResMut<LocalMovementSpeedAuthority>,
     mut movement_ticker: ResMut<MovementTicker>,
     mut view: ResMut<LocalViewPose>,
     settings: Option<Res<RuntimeSettings>>,
@@ -98,7 +98,6 @@ pub(crate) fn advance_local_physics(
             toggle_sprint: gameplay.toggle_sprint,
             toggle_sneak: gameplay.toggle_sneak,
             facts,
-            movement_speed: movement_speed.current(),
             item_use_modifier: item_use
                 .as_deref()
                 .and_then(|item_use| item_use.movement_modifier()),
@@ -106,6 +105,7 @@ pub(crate) fn advance_local_physics(
         &mut physics,
         &mut movement_ticker,
         &mut movement_effects,
+        &mut movement_speed,
         &world,
     );
     if !advanced {

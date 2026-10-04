@@ -20,6 +20,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) has_player_rider: bool,
     /// The local player rendered from its own camera; selects the first-person render controller.
     pub(crate) is_local_first_person: bool,
+    /// Local view-bobbing preference; other actor contexts keep the native default.
+    pub(crate) view_bobbing: Option<bool>,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
@@ -392,7 +394,7 @@ pub(super) fn evaluate_state(
     let local = sample_clips(
         &evaluator,
         &mut variables,
-        state.bones.len(),
+        &state.bones,
         &weighted_clips,
         budget,
     )?;
@@ -480,8 +482,10 @@ pub(super) fn apply_engine_variables(
         engine.context_player_offhand_arm_height,
         input.off_hand_arm_height,
     );
-    // View bobbing is on by default; the first-person walk/breathing bob weigh against this.
-    variables.set(engine.bob_animation, 1.0);
+    variables.set(
+        engine.bob_animation,
+        f32::from(context.view_bobbing.unwrap_or(true)),
+    );
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.

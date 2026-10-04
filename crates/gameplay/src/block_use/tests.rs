@@ -9,6 +9,8 @@ use super::{
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
+mod respawn_anchor;
+
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
     let extra_data: Arc<[u8]> = Arc::from([]);
     NetworkItemStack {
@@ -103,6 +105,8 @@ fn placement_targets_the_clicked_face_neighbor() {
 fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
     UseSurroundings {
         clicked_identifier: Some(clicked.to_owned()),
+        clicked_canonical_state: None,
+        held_block_identifier: None,
         neighbor_identifier: Some(neighbor.to_owned()),
         player_box: ([0.2, 64.0, 0.2], [0.8, 65.8, 0.8]),
         actor_boxes: Vec::new(),

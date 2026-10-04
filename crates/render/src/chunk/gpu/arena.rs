@@ -130,7 +130,7 @@ impl ChunkGpuArena {
             device_limits.max_buffer_size,
             u64::from(device_limits.max_storage_buffer_binding_size),
         );
-        Self {
+        let arena = Self {
             quad_buffer: create_storage_buffer(
                 render_device,
                 "packed chunk quads",
@@ -193,7 +193,9 @@ impl ChunkGpuArena {
                 MAX_TRANSPARENT_RETIRED_BYTES,
             ),
             migration: None,
-        }
+        };
+        super::telemetry::log_initial_arena_capacity(&arena, render_device);
+        arena
     }
 }
 

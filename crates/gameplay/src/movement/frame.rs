@@ -3,8 +3,8 @@ use super::control_modes::{ControlModes, ControlObservation, DoubleTap};
 use super::local_facts::LocalMovementFacts;
 use super::physics_authority_fault_for_frame;
 use super::{
-    LocalMovementEffectTimeline, LocalPhysicsController, ModeIntent, MovementTicker,
-    PhysicsSampleContext, physics_movement_input,
+    LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController, ModeIntent,
+    MovementTicker, PhysicsSampleContext, physics_movement_input,
 };
 use semantic_input::ActionPhase;
 use std::time::Duration;
@@ -28,7 +28,6 @@ pub struct PhysicsFrameInput {
     pub toggle_sprint: bool,
     pub toggle_sneak: bool,
     pub facts: LocalMovementFacts,
-    pub movement_speed: Option<f64>,
     pub item_use_modifier: Option<f64>,
 }
 
@@ -54,6 +53,7 @@ impl LocomotionState {
         physics: &mut LocalPhysicsController,
         movement_ticker: &mut MovementTicker,
         movement_effects: &mut LocalMovementEffectTimeline,
+        movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
         let PhysicsFrameInput {
@@ -75,6 +75,7 @@ impl LocomotionState {
         }
         let fly_toggle = jump.pressed && self.fly_tap.press(now);
         if let Some(server) = physics.take_server_control_flags() {
+            movement_speed.adopt_server_sprinting(server.sprinting);
             self.controls
                 .adopt_server_flags(server.sprinting, server.sneaking);
         }
@@ -99,7 +100,8 @@ impl LocomotionState {
             controlled.sprint_request,
             frame.item_use_modifier,
         );
-        input.movement_speed = frame.movement_speed;
+        movement_speed.set_sprinting(input.sprinting);
+        input.movement_speed = movement_speed.prediction_speed();
         let frame = physics.advance_with_context_and_effects(
             frame.delta,
             input,
@@ -127,6 +129,13 @@ impl LocomotionState {
             },
             world,
             movement_effects,
+        );
+        super::control_trace::trace_physics_frame(
+            movement_ticker.session_generation,
+            now,
+            input.movement_speed,
+            movement_speed.current(),
+            &frame,
         );
         let blocker = frame.blocked.as_ref().map(ToString::to_string);
         if frame.dropped_ticks != 0 {

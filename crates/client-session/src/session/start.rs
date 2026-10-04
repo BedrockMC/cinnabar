@@ -61,6 +61,10 @@ pub fn spawn_network<P: Send + 'static>(
                         return;
                     }
                 };
+                tracing::info!(
+                    base_game_version = %game_data.start_game.settings.base_game_version,
+                    "world lighting compatibility version"
+                );
                 // The login handoff is one-shot. Take and validate it before
                 // publishing any StartGame state; optional semantic rejection
                 // remains a live base-assets session, a required one ends it.

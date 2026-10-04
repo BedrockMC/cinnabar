@@ -7,6 +7,7 @@ use world::{ChunkCollisionRevision, ChunkKey, ChunkStore, SubChunkKey};
 use crate::{Aabb, Vec3};
 
 mod door;
+mod primary_lookup;
 mod snapshot;
 pub use snapshot::CollisionSnapshot;
 mod raycast;
@@ -726,11 +727,6 @@ impl<'a> PaletteWorld<'a> {
             .runtime_ids_at(block)?
             .into_iter()
             .all(|runtime_id| runtime_id == self.registry.air_runtime_id))
-    }
-
-    /// The first-layer runtime id of a loaded block.
-    pub fn primary_runtime_id(&self, block: [i32; 3]) -> Result<u32, WorldQueryError> {
-        Ok(self.runtime_ids_at(block)?[0])
     }
 
     fn runtime_ids_at(&self, block: [i32; 3]) -> Result<Vec<u32>, WorldQueryError> {

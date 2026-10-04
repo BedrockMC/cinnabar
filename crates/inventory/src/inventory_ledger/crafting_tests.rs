@@ -436,7 +436,14 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
     ));
     assert!(matches!(
         &actions[1],
-        StackRequestAction::CraftResultsDeprecated { results, crafts: 1 } if results.is_empty()
+        StackRequestAction::CraftResultsDeprecated { results, crafts: 1 }
+            if results.as_ref() == [protocol::CraftResult {
+                identifier: Arc::from("minecraft:cobblestone"),
+                aux: 0,
+                count: 1,
+                block_runtime_id: 0,
+                user_data: Arc::from([]),
+            }]
     ));
     let StackRequestAction::Take {
         amount,
@@ -459,6 +466,44 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
     respond(&mut ledger, request, &[(CONTAINER_NAME_CURSOR, 0, 64, 700)]);
     assert_eq!(ledger.cursor_stack().unwrap().stack_network_id, 700);
     assert!(!ledger.resync_required());
+}
+
+fn creative_take_declares_the_catalog_item_metadata_and_user_data() {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let prototype = NetworkItemStack {
+        metadata: 2,
+        block_runtime_id: 123,
+        extra_data: Arc::from([0; 10]),
+        ..stack(COBBLE, -1, 1)
+    };
+    ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+        groups: Arc::from([]),
+        items: Arc::from([protocol::CreativeItem {
+            creative_network_id: 44,
+            stack: prototype.clone(),
+            group: 0,
+        }]),
+        skipped: 0,
+    }));
+    ledger
+        .begin_creative_take(44, CreativeDestination::Player(4))
+        .unwrap();
+    let StackRequestAction::CraftResultsDeprecated { results, crafts } =
+        &ledger.newest_request().unwrap().actions[1]
+    else {
+        panic!("creative take declares its result");
+    };
+    assert_eq!(*crafts, 1);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].identifier.as_ref(), "minecraft:cobblestone");
+    assert_eq!(results[0].aux, prototype.metadata as i32);
+    assert_eq!(results[0].count, prototype.count);
+    assert_eq!(
+        results[0].block_runtime_id,
+        prototype.block_runtime_id as u32
+    );
+    assert_eq!(results[0].user_data, prototype.extra_data);
+    assert_eq!(ledger.displayed_stack(4).unwrap().count, 64);
 }
 
 /// Unknown entries and occupied destinations send nothing.

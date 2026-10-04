@@ -1,6 +1,11 @@
 include!("mesh/models.rs");
 include!("mesh/vines.rs");
 include!("mesh/slabs.rs");
+include!("mesh/snow.rs");
+include!("mesh/snow_covered.rs");
+include!("mesh/snow_grass.rs");
+include!("mesh/seasonal_leaves.rs");
+include!("mesh/leaf_layers.rs");
 include!("mesh/stained_glass.rs");
 include!("mesh/copper_grates.rs");
 include!("mesh/bookshelves.rs");

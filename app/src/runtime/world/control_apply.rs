@@ -57,7 +57,9 @@ pub(crate) fn apply_committed_control(
             resolved
         }
         CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::WorldClocks { .. }
         | CommittedControlEvent::DaylightCycle { .. }
+        | CommittedControlEvent::WeatherCycle { .. }
         | CommittedControlEvent::Weather { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }

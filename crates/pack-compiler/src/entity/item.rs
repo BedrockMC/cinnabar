@@ -16,6 +16,8 @@ use super::{
     legacy_icons,
 };
 
+mod spawn_eggs;
+
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
     include_bytes!("../../../assets/data/block-item-routes-v2193.json");
 const BLOCK_REGISTRY: &[u8] = include_bytes!("../../../assets/data/block-registry-v2193.bin");
@@ -173,7 +175,7 @@ pub(super) fn compile(
                 identifier: binding.identifier,
                 metadata: 0,
             };
-            if routes.routes.contains_key(&key) {
+            if routes.routes.contains_key(&key) && !routes.placers.contains(&key) {
                 return Err(invalid(
                     "default sprite binding conflicts with a reviewed block route",
                 ));
@@ -202,10 +204,11 @@ pub(super) fn compile(
                     },
                 },
             );
-            if definitions
-                .get(&key)
-                .is_some_and(|(_, existing)| *existing != route)
-            {
+            if definitions.get(&key).is_some_and(|(_, existing)| {
+                *existing != route
+                    && !(routes.placers.contains(&key)
+                        && matches!(existing, ItemVisualDefinitionRoute::BlockItem { .. }))
+            }) {
                 return Err(invalid(
                     "default sprite binding conflicts with an exact atlas route",
                 ));
@@ -245,6 +248,14 @@ pub(super) fn compile(
             );
             definitions.insert(key, (legacy_source, route));
         }
+        spawn_eggs::compile(
+            root,
+            payloads,
+            sources,
+            &source_indices,
+            texture_data,
+            &mut definitions,
+        )?;
     }
     let visuals = definitions
         .into_iter()

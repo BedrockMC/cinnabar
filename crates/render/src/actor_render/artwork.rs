@@ -8,6 +8,8 @@ pub(super) struct GpuArtworkPage {
     _texture: Texture,
     pub view: TextureView,
     pub bind_group: Option<BindGroup>,
+    pub color_mask: bool,
+    pub multitexture: bool,
 }
 
 #[derive(Default)]
@@ -87,6 +89,8 @@ impl GpuArtwork {
                 _texture: texture,
                 view,
                 bind_group: None,
+                color_mask: page.color_mask,
+                multitexture: page.multitexture,
             });
         }
         true
@@ -193,10 +197,13 @@ mod tests {
             height,
             layers: 1,
             rgba8: vec![255; 2 * usize::from(height) * 4].into(),
+            color_mask: true,
+            multitexture: false,
         }]);
         let mut gpu = GpuArtwork::default();
         assert!(gpu.prepare(&pages, &device, &queue));
         assert_eq!(gpu.pages.len(), 1);
+        assert!(gpu.pages[0].color_mask);
     }
 
     #[test]
@@ -214,6 +221,8 @@ mod tests {
             height: 16,
             layers: 1,
             rgba8: vec![255; 16 * 16 * 4].into(),
+            color_mask: false,
+            multitexture: false,
         }]);
         let mut gpu = GpuArtwork::default();
         assert!(gpu.prepare(&pages, &device, &queue));

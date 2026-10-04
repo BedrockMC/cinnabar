@@ -92,8 +92,22 @@ fn formatting_palette_follows_pack_replacement_and_removal() {
 /// Finds installed pack data through this worktree's symlink, without needing it on CI.
 fn local(relative: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
         .join("../.local")
         .join(relative)
+}
+
+#[test]
+fn installed_palette_fixtures_are_rooted_in_workspace() {
+    let fixture_root = local("");
+    let manifest = fixture_root.parent().unwrap().join("Cargo.toml");
+    let workspace = std::fs::read_to_string(&manifest).unwrap_or_else(|error| {
+        panic!("read workspace manifest beside palette fixtures {manifest:?}: {error}")
+    });
+    assert!(
+        workspace.contains("[workspace]"),
+        "palette fixtures must be beside the workspace manifest"
+    );
 }
 
 #[test]

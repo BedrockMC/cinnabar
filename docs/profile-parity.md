@@ -104,6 +104,32 @@ J `r2` selects:
 This document records the target behavior. It does not close a visual parity
 gate: implemented behavior and remaining gaps are tracked in `plan.md`.
 
+Opening Profile subscribes to or refetches the profile instead of waiting for
+the Home feed. R:PlayerProfileFacet:204 subscribes and :394 refetches;
+R:ProfileSystem:2254 implements explicit refetch. Lens artifact 6,
+`0xd1416b0`, binds `subscribeToOrRefetchProfile`; `0xd140920` binds avatar
+state separately. Cinnabar now wakes an independent Profile worker on opening,
+retry and account changes. Its terminal control error finishes all loading
+inputs and selects the existing unavailable/Retry panel. Optional avatar,
+featured-image, statistics and achievement failures finish their own inputs.
+Permissions are still not a separate transported facet; privacy/offline error
+classification remains incomplete as recorded in `plan.md`.
+
+Every startup mode owns an account control core, including direct-address
+and external-socket runs. Direct remote sessions retain their separate game
+core; local worlds use the core that opened them, even after a direct-startup
+session returns Home. Account sign-in cannot restart a core serving a local
+world. Direct-mode account cores omit the shared resource-pack cache lease,
+leaving it to remote game cores; launcher-owned game cores retain their lease.
+An absent feed worker selects unavailable immediately, and a control reply
+withheld for 60 seconds ends in unavailable. This deadline is Cinnabar's local
+transport safeguard, not a
+claimed vanilla timeout. Core diagnostics identify each Profile dependency
+before it runs and report fixed outcomes afterward, without credentials,
+account identifiers, URLs or response bodies. Repeated core facet/outcome
+lines are limited to one per 30 seconds; client RPC pairs and missing-worker
+diagnostics are limited to one per 15 seconds.
+
 ## Account service transport
 
 All Profile requests use the Go core's existing authenticated Xbox HTTP client.

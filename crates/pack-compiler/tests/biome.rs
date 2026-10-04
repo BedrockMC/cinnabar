@@ -167,6 +167,8 @@ fn live_biomes_resolve_to_one_fallback_prefixed_dense_table() {
                 biome_id: None,
                 temperature: 0.25,
                 downfall: 0.5,
+                snow_foliage: 0.0,
+                max_snow_accumulation: None,
                 map_water_argb: 0xff00_0000,
             },
             LiveBiomeDefinition {
@@ -174,6 +176,8 @@ fn live_biomes_resolve_to_one_fallback_prefixed_dense_table() {
                 biome_id: Some(900),
                 temperature: 0.8,
                 downfall: 0.4,
+                snow_foliage: 0.0,
+                max_snow_accumulation: None,
                 map_water_argb: 0xff12_3456,
             },
             LiveBiomeDefinition {
@@ -181,6 +185,8 @@ fn live_biomes_resolve_to_one_fallback_prefixed_dense_table() {
                 biome_id: None,
                 temperature: 0.8,
                 downfall: 0.4,
+                snow_foliage: 0.0,
+                max_snow_accumulation: None,
                 map_water_argb: 0,
             },
         ])
@@ -241,6 +247,8 @@ fn live_biome_duplicates_fail_closed() {
         biome_id: Some(900),
         temperature: 0.8,
         downfall: 0.4,
+        snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_argb: 0xff12_3456,
     };
     assert!(compiled.resolve_live(&[duplicate, duplicate]).is_err());
@@ -265,6 +273,8 @@ fn custom_biome_dense_order_is_deterministic_by_raw_id() {
         biome_id: Some(10),
         temperature: 0.8,
         downfall: 0.4,
+        snow_foliage: 0.0,
+        max_snow_accumulation: None,
         map_water_argb: 0xff12_3456,
     };
     let high = LiveBiomeDefinition {
@@ -300,6 +310,8 @@ fn unknown_name_only_definitions_are_ignored_without_validating_unused_fields() 
                 biome_id: None,
                 temperature: f32::NAN,
                 downfall: f32::INFINITY,
+                snow_foliage: f32::NAN,
+                max_snow_accumulation: None,
                 map_water_argb: u32::MAX,
             },
             LiveBiomeDefinition {
@@ -307,6 +319,8 @@ fn unknown_name_only_definitions_are_ignored_without_validating_unused_fields() 
                 biome_id: None,
                 temperature: f32::NEG_INFINITY,
                 downfall: f32::NAN,
+                snow_foliage: f32::NAN,
+                max_snow_accumulation: None,
                 map_water_argb: 0,
             },
         ])
@@ -345,6 +359,8 @@ fn known_and_explicit_custom_definitions_still_validate_used_fields() {
                 biome_id: None,
                 temperature: f32::NAN,
                 downfall: 0.4,
+                snow_foliage: 0.0,
+                max_snow_accumulation: None,
                 map_water_argb: 0,
             }])
             .is_ok()
@@ -356,6 +372,8 @@ fn known_and_explicit_custom_definitions_still_validate_used_fields() {
                 biome_id: Some(900),
                 temperature: 0.8,
                 downfall: 0.4,
+                snow_foliage: 0.0,
+                max_snow_accumulation: None,
                 map_water_argb: 0,
             }])
             .is_err()
@@ -384,7 +402,7 @@ fn compiler_parses_tagged_and_direct_colours_in_fixed_tint_map_order() {
 
     assert_eq!(compiled.rules.len(), 1);
     let rule = &compiled.rules[0];
-    assert_eq!(rule.flags, BIOME_RULE_FLAG_GRASS_SHADED);
+    assert_ne!(rule.flags & BIOME_RULE_FLAG_GRASS_SHADED, 0);
     assert_eq!(rule.grass.raw(), 0x00ff_0000);
     assert_eq!(rule.foliage.raw(), 0x0100_0002);
     assert_eq!(rule.dry_foliage.raw(), 0x0000_00ff);

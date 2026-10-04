@@ -457,7 +457,7 @@ func resolveV2193Lights(projection v2193Projection, legacyProperties []byte) ([]
 	return properties, unresolved, nil
 }
 
-// applyV2193RetailLightCorrections applies the retail table to unimplemented
+// applyV2193RetailLightCorrections applies native corrections and retail
 // defaults, looking twins up under the twin whose facts they carry.
 func applyV2193RetailLightCorrections(projection v2193Projection, properties []byte, retail map[string]PMMPLightProperties) (int, error) {
 	lookup := make([]Record, len(projection.records))

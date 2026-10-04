@@ -35,10 +35,12 @@ mod physics_registry;
 mod provenance;
 mod registry;
 mod runtime;
+mod seasonal_foliage;
 mod server_lang;
 mod skin_geometry;
 mod sound_bank;
 mod sound_events;
+mod stair;
 mod texture;
 mod ui;
 mod vanilla_refs;
@@ -58,8 +60,9 @@ pub use actor::{
     ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
     MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
     MAX_ACTOR_TEXTURES, RuntimeActorCatalog, encode_actor_catalog,
-    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
-    neutral_actor_pose_mode,
+    native_actor_texture_uses_color_mask, native_actor_texture_uses_multitexture,
+    native_actor_uses_multitexture, neutral_actor_geometry_uvs_are_supported,
+    neutral_actor_material_is_supported, neutral_actor_pose_mode,
 };
 pub use fog_layers::resolve_fog_layers;
 pub use fog_transition::FogTransition;
@@ -83,16 +86,17 @@ pub use audio_pcm::{
     reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
 };
 pub use biome::{
-    BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SWAMP_GRASS,
-    BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets, LinearBiomeTints, LiveBiomeDefinition,
-    MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MISSING_BIOME_DENSE_INDEX,
-    RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES, TINT_MAP_COUNT, TINT_MAP_SIZE,
-    TintMapId, TintSource, colormap_coordinate, read_biome_registry,
+    BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SEASONAL_FOLIAGE,
+    BIOME_TINT_FLAG_SWAMP_GRASS, BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets,
+    DEFAULT_WATER_APPEARANCE_OPACITY, DEFAULT_WATER_OPACITY, DEFAULT_WATER_RGB, LinearBiomeTints,
+    LiveBiomeDefinition, MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES,
+    MISSING_BIOME_DENSE_INDEX, RAW_BIOME_ID_COUNT, ResolvedBiomeTints, TINT_MAP_BYTES,
+    TINT_MAP_COUNT, TINT_MAP_SIZE, TintMapId, TintSource, colormap_coordinate, read_biome_registry,
 };
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
     BLOCK_ENTITY_CARRIER_MAGIC, BLOCK_ENTITY_CARRIER_VERSION, BLOCK_ENTITY_ROUTES,
-    BlockEntityPlacement, BlockEntityRouteKind, MAX_BLOCK_ENTITY_ATLAS_SIDE,
+    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, MAX_BLOCK_ENTITY_ATLAS_SIDE,
     MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_KEY_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
     RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
 };
@@ -100,10 +104,15 @@ pub use block_names::legacy_resource_pack_block_alias;
 pub use compiled::{
     BlockFace, BlockVisual, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
     MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_DRY_FOLIAGE,
-    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
-    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_UV_MASK,
-    MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material,
+    MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_EXPOSED_FOLIAGE,
+    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
+    MATERIAL_FLAG_LEAF_ISOTROPIC, MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+    MATERIAL_FLAG_NATIVE_LEAF_COLOUR, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
+    MATERIAL_FLAG_SEASONAL_FOLIAGE, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_TWO_SIDED,
+    MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
+    MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
+    MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_MATERIALS,
+    MAX_TEXTURE_LAYERS, Material, material_leaf_ao_exponent,
 };
 pub use entity::{
     CompiledEntityAssets, CompiledMolangExpression, ENTITY_BLOB_MAGIC, ENTITY_BLOB_VERSION,
@@ -183,14 +192,19 @@ pub use lang::{
 pub use light_registry::{LightProperties, read_light_registry, read_light_registry_for_protocol};
 pub use material_keys::{MATERIAL_KEYS_SCHEMA, MAX_MATERIAL_KEYS_BYTES, MaterialKeys};
 pub use model::{
-    ANIMATION_FLAG_BLEND, Animation, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
+    ANIMATION_FLAG_BLEND, Animation, BLOCK_VISUAL_VARIANT_COVERED_GRASS,
+    BLOCK_VISUAL_VARIANT_MATERIAL_MASK, BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF,
+    BLOCK_VISUAL_VARIANT_SEASONAL_LEAF, BLOCK_VISUAL_VARIANT_SNOW_COVER,
+    BLOCK_VISUAL_VARIANT_TOP_SNOW, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES, MODEL_QUAD_FLAG_CULL_FACE_MASK,
     MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    TexturePage, TextureRef, VisualKind, VisualSupport,
+    MODEL_TEMPLATE_FLAG_LILY_PAD, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
+    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET,
+    SEASONAL_LEAF_EXPOSED_OFFSET, SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE,
+    TOP_SNOW_LAYER_COUNT, TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
@@ -216,15 +230,20 @@ pub use runtime::{
     BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,
     SequentialIdRemap,
 };
+pub use seasonal_foliage::{
+    SEASONAL_FOLIAGE_COLD_THRESHOLD, SEASONAL_FOLIAGE_COUNT, SEASONAL_FOLIAGE_EXPOSED_OFFSET,
+    SeasonalFoliageBlock, seasonal_foliage_cell_shelters, seasonal_foliage_palette_index,
+};
 pub use server_lang::{MAX_SERVER_LANG_INPUT_BYTES, ServerLangOverlay};
 pub use sound_bank::{
     MAX_SOUND_BANK_FILES, MAX_SOUND_BANK_PATH_BYTES, MAX_SOUND_BANK_PREFIX_BYTES, SOUND_BANK_MAGIC,
     SoundBankEntry, SoundBankError, SoundBankIndex, encode_sound_bank, sound_bank_prefix_len,
 };
 pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
+pub use stair::StairDirection;
 pub use texture::{
-    MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_texture_mip_chain,
-    downsample_linear_premultiplied,
+    MAX_TILE_SIZE, MIP_COUNT, TILE_SIZE, TextureArray, TextureMip, build_legacy_terrain_mip_chain,
+    build_texture_mip_chain, downsample_linear_premultiplied,
 };
 pub use ui::{
     MAX_UI_ATLAS_PAGES, MAX_UI_ATLAS_SIDE, MAX_UI_CARRIER_BYTES, MAX_UI_FILE_BYTES, MAX_UI_FILES,

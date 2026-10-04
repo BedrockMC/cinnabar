@@ -140,3 +140,9 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
         "highlight must brighten the backing block"
     );
 }
+#[allow(
+    dead_code,
+    reason = "shared shader adapter uses production material definitions"
+)]
+#[path = "../src/material_shader.rs"]
+mod material_shader;

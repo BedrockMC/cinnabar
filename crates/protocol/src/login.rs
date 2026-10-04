@@ -807,6 +807,7 @@ fn decode_world_raw_with(
             | McpePacketName::SetActorMotionPacket
             | McpePacketName::NetworkStackLatencyPacket
             | McpePacketName::SetTimePacket
+            | McpePacketName::SyncWorldClocksPacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
             | McpePacketName::LevelEventGenericPacket

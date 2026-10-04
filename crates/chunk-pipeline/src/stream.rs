@@ -72,6 +72,7 @@ mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;
 mod retries;
 mod scheduler_refresh;
+mod seasonal_foliage;
 mod sequencing;
 mod sign_edit;
 mod workers;
@@ -266,6 +267,7 @@ pub struct WorldStream {
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,
+    seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     predictions: prediction::DeferredPredictions,

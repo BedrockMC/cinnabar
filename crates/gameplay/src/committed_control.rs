@@ -82,16 +82,25 @@ impl CommittedGameplayState<'_> {
             sequence,
             dimension,
             current,
+            sprint_modifier,
             tick,
         } = control
         {
-            if self
-                .speed
-                .apply(self.session_generation, sequence, dimension, current)
-                && self.movement.physics_is_authorized()
-                && let Some(rewind) = self.physics.retime_movement_speed(tick, current)
+            if self.speed.apply(
+                self.session_generation,
+                sequence,
+                dimension,
+                current,
+                sprint_modifier,
+            ) && self.movement.physics_is_authorized()
+                && let Some((rewind, speed)) =
+                    self.physics
+                        .retime_movement_speed(tick, current, sprint_modifier)
             {
-                replay_timeline_edit(self.movement, self.physics, rewind, world);
+                self.speed.adopt_replayed_speed(speed);
+                if let Some(rewind) = rewind {
+                    replay_timeline_edit(self.movement, self.physics, rewind, world);
+                }
             }
             return ControlDisposition::Handled;
         }
@@ -106,6 +115,8 @@ impl CommittedGameplayState<'_> {
         if matches!(
             control,
             CommittedControlEvent::SetTime { .. }
+                | CommittedControlEvent::WorldClocks { .. }
+                | CommittedControlEvent::WeatherCycle { .. }
                 | CommittedControlEvent::DaylightCycle { .. }
                 | CommittedControlEvent::Weather { .. }
         ) {
@@ -312,6 +323,8 @@ impl CommittedGameplayState<'_> {
                 SpatialReset::Correction
             }
             CommittedControlEvent::SetTime { .. }
+            | CommittedControlEvent::WorldClocks { .. }
+            | CommittedControlEvent::WeatherCycle { .. }
             | CommittedControlEvent::DaylightCycle { .. }
             | CommittedControlEvent::Weather { .. }
             | CommittedControlEvent::LocalMovementEffect { .. }

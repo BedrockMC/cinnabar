@@ -90,6 +90,8 @@ struct Node {
     image: Image,
     buttons_shape: Shape,
     buttons: [Button; 2],
+    elements_shape: Shape,
+    elements: [Button; 2],
     other_keys: usize,
 }
 #[derive(Debug, PartialEq, Eq)]
@@ -298,6 +300,11 @@ impl<'de> Visitor<'de> for Seed {
                     node.buttons_shape = value.shape;
                     node.buttons = value.buttons;
                 }
+                (Mode::Form, Key::Elements) => {
+                    let value = map.next_value_seed(Seed(Mode::Buttons))?;
+                    node.elements_shape = value.shape;
+                    node.elements = value.buttons;
+                }
                 (Mode::Button, Key::Text) => {
                     node.text = map.next_value_seed(Seed(Mode::Shape))?.shape
                 }
@@ -333,6 +340,7 @@ enum Key {
     Title,
     Content,
     Buttons,
+    Elements,
     Text,
     Image,
     Data,
@@ -357,6 +365,7 @@ impl<'de> Visitor<'de> for KeySeed {
             "title" => Key::Title,
             "content" => Key::Content,
             "buttons" => Key::Buttons,
+            "elements" => Key::Elements,
             "text" => Key::Text,
             "image" => Key::Image,
             "data" => Key::Data,

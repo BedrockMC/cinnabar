@@ -51,6 +51,9 @@ const fn storage_run<const N: usize>(first: u8) -> [Cell; N] {
 
 const CHEST_27: [Cell; 27] = storage_run(0);
 const CHEST_54: [Cell; 54] = storage_run(0);
+const CHEST_18: [Cell; 18] = storage_run(0);
+const CHEST_36: [Cell; 36] = storage_run(0);
+const CHEST_45: [Cell; 45] = storage_run(0);
 const NINE: [Cell; 9] = storage_run(0);
 const FIVE: [Cell; 5] = storage_run(0);
 /// The largest chest a mount carries; smaller ones show a prefix.
@@ -76,6 +79,28 @@ const LARGE_CHEST: ContainerKind = kind(
     "container.chestDouble",
     &[("container_items", &CHEST_54)],
 );
+const MENU_CHESTS: [ContainerKind; 4] = [
+    kind(
+        "chest.small_chest_screen",
+        "container.chest",
+        &[("container_items", &NINE)],
+    ),
+    kind(
+        "chest.small_chest_screen",
+        "container.chest",
+        &[("container_items", &CHEST_18)],
+    ),
+    kind(
+        "chest.small_chest_screen",
+        "container.chest",
+        &[("container_items", &CHEST_36)],
+    ),
+    kind(
+        "chest.small_chest_screen",
+        "container.chest",
+        &[("container_items", &CHEST_45)],
+    ),
+];
 const BARREL: ContainerKind = kind("chest.barrel_screen", "container.barrel", CHEST_CELLS);
 const SHULKER_BOX: ContainerKind = kind(
     "chest.shulker_box_screen",
@@ -102,8 +127,16 @@ pub fn storage_kind(slots: usize, block_entity: Option<&str>) -> &'static Contai
         (_, Some("Barrel")) => &BARREL,
         (_, Some("ShulkerBox")) => &SHULKER_BOX,
         (_, Some("EnderChest")) => &ENDER_CHEST,
-        _ => &SMALL_CHEST,
+        _ => MENU_CHESTS
+            .iter()
+            .find(|kind| kind.collections[0].1.len() == slots)
+            .unwrap_or(&SMALL_CHEST),
     }
+}
+
+/// Row counts supported by the bounded chest templates and server menu layouts.
+pub(crate) fn supported_storage_slots(slots: usize) -> bool {
+    matches!(WindowKind::Storage.open_cells(), Some(protocol::OpenCells::Generic(lengths)) if lengths.contains(&slots))
 }
 
 /// The vanilla screen of a station window, `None` for kinds drawn elsewhere.
@@ -354,6 +387,28 @@ mod tests {
             storage_kind(27, Some("Barrel")).screen,
             "chest.barrel_screen"
         );
+    }
+
+    #[test]
+    fn server_chest_menu_rows_map_only_authoritative_cells() {
+        let Some(protocol::OpenCells::Generic(lengths)) = WindowKind::Storage.open_cells() else {
+            panic!("storage cell contract");
+        };
+        for &slots in lengths {
+            assert!(supported_storage_slots(slots));
+            let kind = storage_kind(slots, None);
+            for index in 0..slots {
+                assert_eq!(
+                    kind.cell("container_items", index),
+                    Some(Cell::Storage(index as u8))
+                );
+            }
+            assert_eq!(kind.cell("container_items", slots), None);
+            assert_eq!(kind.screen == "chest.large_chest_screen", slots == 54);
+        }
+        for slots in [0, 1, 8, 10, 55, 255, usize::MAX] {
+            assert!(!supported_storage_slots(slots));
+        }
     }
 
     // Every station routes to an allow-listed screen and addresses each cell once.

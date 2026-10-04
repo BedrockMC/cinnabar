@@ -82,7 +82,12 @@ fn install(app: &mut App) {
     }
     app.add_plugins(ExtractResourcePlugin::<BlockEntityFrame>::default());
     app.add_plugins(ExtractResourcePlugin::<BlockSelectionFrame>::default());
-    load_internal_asset!(app, SHADER_HANDLE, "block_entity.wgsl", Shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        SHADER_HANDLE,
+        "block_entity.wgsl",
+        crate::shader_safety::from_wgsl
+    );
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(BlockEntityRenderInstalled)

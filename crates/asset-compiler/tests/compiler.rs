@@ -61,6 +61,9 @@ mod cross_aquatic;
 #[path = "compiler/materials.rs"]
 mod materials;
 
+#[path = "compiler/leaf_metadata.rs"]
+mod leaf_metadata;
+
 #[path = "compiler/special_cubes.rs"]
 mod special_cubes;
 

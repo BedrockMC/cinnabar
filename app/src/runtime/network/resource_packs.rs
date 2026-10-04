@@ -10,6 +10,9 @@ use super::{
 };
 use crate::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
+mod ui;
+use ui::collect_server_ui;
+
 /// Everything the session applies from its server pack stack.
 #[derive(Clone, Debug)]
 pub struct PackApplication {
@@ -265,42 +268,6 @@ pub(super) fn prepare_changed_application(
         block_overlay,
         dependencies,
     }
-}
-
-/// Bound on the pack UI json handed to the form engine.
-const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
-
-/// Each pack's `ui/**/*.json` (lowest precedence first), with the stack its
-/// textures read from; `None` when no pack carries ui or textures.
-fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
-    let mut total = 0usize;
-    let mut pack = ServerUiPack::default();
-    for layer in view.layers() {
-        let mut files = Vec::new();
-        for path in layer
-            .files_under("ui/")
-            .iter()
-            .filter(|path| path.ends_with(".json"))
-        {
-            let Some(bytes) = layer.read_file(path).ok().flatten() else {
-                continue;
-            };
-            total = total.saturating_add(bytes.len());
-            if total > MAX_SERVER_UI_BYTES {
-                break;
-            }
-            files.push(((*path).to_owned(), bytes.into_vec()));
-        }
-        pack.ui_layers.push(files);
-    }
-    // Textures are read on first draw, after this compile, so all of their bytes are inputs.
-    view.track_contents("textures/");
-    // A pack that only restyles textures still overrides vanilla UI art.
-    if pack.is_empty() && view.list("textures/").is_empty() {
-        return None;
-    }
-    pack.view = Some(view.clone());
-    Some(Arc::new(pack))
 }
 
 pub(super) fn install_server_ui(

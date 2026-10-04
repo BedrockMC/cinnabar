@@ -17,6 +17,10 @@ const AIR: u32 = 0;
 const SOLID: u32 = 1;
 const MODEL: u32 = 2;
 const LIQUID: u32 = 3;
+const LEAF: u32 = 4;
+const EMITTING: u32 = 5;
+const FULL_HEIGHT_SNOW: u32 = 6;
+const TEST_HASH_BASE: u32 = 0x10000;
 
 fn zig_zag_i32(value: i32) -> Vec<u8> {
     let mut value = ((value as u32) << 1) ^ ((value >> 31) as u32);
@@ -96,6 +100,49 @@ fn runtime_assets() -> RuntimeAssets {
     )
 }
 
+#[test]
+fn lily_pad_planes_repeat_own_cell_light_without_neighbor_ao() {
+    let mut top = model_quad(2);
+    top.positions = [[0, 4, 256], [256, 4, 256], [256, 4, 0], [0, 4, 0]];
+    let mut bottom = top;
+    bottom.positions.reverse();
+    bottom.flags = 1;
+    let assets = runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: assets::MODEL_TEMPLATE_FLAG_LILY_PAD,
+        }],
+        vec![top, bottom],
+    );
+    let block = [8, 8, 8];
+    let center = layered_uniform(&[SOLID]);
+    let sampler = |coordinate| {
+        if coordinate == block {
+            MeshLightSample::try_new(3, 7).unwrap()
+        } else {
+            MeshLightSample::FULL_BRIGHT
+        }
+    };
+    for rotation in 0..4 {
+        let lighting = bake_template_lighting_with_sampler(
+            &BlockClassifier::new(AIR),
+            &assets,
+            NetworkIdMode::Sequential,
+            &MeshNeighbourhood::new(&center),
+            &sampler,
+            block,
+            0,
+            rotation,
+        )
+        .unwrap();
+        assert_eq!(lighting.len(), 2);
+        for quad in lighting {
+            assert_eq!(quad.samples(), [3 | (7 << 4); 4]);
+        }
+    }
+}
+
 fn runtime_assets_with_model_geometry(
     model_templates: Vec<ModelTemplate>,
     model_quads: Vec<ModelQuad>,
@@ -111,7 +158,7 @@ fn runtime_assets_with_model_geometry(
             .collect::<Vec<_>>()
             .into_boxed_slice(),
     };
-    let visuals = vec![
+    let mut visuals = vec![
         BlockVisual {
             faces: [DIAGNOSTIC_MATERIAL; 6],
             flags: BlockFlags::AIR,
@@ -153,10 +200,23 @@ fn runtime_assets_with_model_geometry(
             variant: 0,
         },
     ];
-    let light_properties = vec![assets::LightProperties::default(); visuals.len()];
+    let mut leaf = visuals[SOLID as usize];
+    leaf.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::LEAF_MODEL;
+    visuals.push(leaf);
+    let mut emitting = leaf;
+    emitting.flags = BlockFlags::CUBE_GEOMETRY;
+    visuals.push(emitting);
+    let mut full_height_snow = visuals[SOLID as usize];
+    full_height_snow.variant = assets::BLOCK_VISUAL_VARIANT_TOP_SNOW;
+    visuals.push(full_height_snow);
+    let mut light_properties = vec![assets::LightProperties::default(); visuals.len()];
+    light_properties[EMITTING as usize] = assets::LightProperties::new(9, 0).unwrap();
+    let hashed = (0..visuals.len() as u32)
+        .map(|id| (TEST_HASH_BASE + id, id))
+        .collect();
     let compiled = CompiledAssets {
         visuals: visuals.into_boxed_slice(),
-        hashed: Box::new([]),
+        hashed,
         materials: vec![Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
@@ -182,10 +242,13 @@ fn runtime_assets_with_model_geometry(
         .expect("decode lighting assets")
 }
 
+include!("lighting/leaf_shade.rs");
+include!("lighting/snow_solid_render.rs");
+
 fn fixture() -> (RuntimeAssets, SubChunk) {
     // At the high corner of block 8,8,8, the up face sees both planar sides,
     // while the east face sees only their shared +X/+Y side.
-    (runtime_assets(), blocks(&[[9, 9, 8], [8, 9, 9]]))
+    (runtime_assets(), blocks(&[[8, 8, 8], [9, 9, 8], [8, 9, 9]]))
 }
 
 #[test]

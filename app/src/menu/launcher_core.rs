@@ -1,7 +1,7 @@
 //! The launcher's long-lived core: one `-control-status` core serves account,
 //! catalog, connect and local-world control for the whole launcher run. Joins
 //! pick their target over `connect.v1` and dial this core's game socket, so it
-//! restarts only when the validated sign-in changes (sign-in or sign-out).
+//! restarts when the validated sign-in changes or its child exits unexpectedly.
 
 use std::{
     path::{Path, PathBuf},
@@ -35,7 +35,17 @@ const LOCAL_SERVER: &str = if cfg!(windows) {
     "bedrock-local-server"
 };
 
-/// Present only in launcher runs; holds the core once started.
+/// Allows auth updates beside a separate direct game core, but protects games this core owns.
+pub(super) fn account_core_idle(
+    launcher: bool,
+    connecting: bool,
+    in_session: bool,
+    local_world: bool,
+) -> bool {
+    !connecting && (!in_session || !(launcher || local_world))
+}
+
+/// Holds the account core in every startup mode, including direct connections.
 #[derive(Default, Resource)]
 pub(crate) struct LauncherCoreSlot {
     core: Option<LauncherCore>,
@@ -63,23 +73,25 @@ impl LauncherCoreSlot {
         upstream_client_cache: bool,
         mut worlds: Option<&mut LocalWorlds>,
     ) {
+        if self.core.as_mut().is_some_and(|core| core._guard.exited()) {
+            bevy::log::warn!("launcher core exited; reconnecting its control clients when idle");
+            self.retire(commands, menu, worlds.as_deref_mut());
+            self.failed = None;
+        }
+        if self.core.is_none() && std::mem::take(&mut menu.feeds.profile_refresh_requested) {
+            self.failed = None;
+        }
         if idle && !menu.sign_in_in_flight() {
             let auth_cache = menu.launcher_auth_cache();
             let wanted = auth_cache.is_some();
             let current = self.core.as_ref().map(|core| core.authenticated);
             if current != Some(wanted) && self.failed != Some(wanted) {
-                if let Some(old) = self.core.take() {
-                    drop(old);
-                    commands.remove_resource::<LauncherAccount>();
-                    if let Some(worlds) = worlds.as_deref_mut() {
-                        worlds.detach();
-                    }
-                    menu.control_auth = None;
-                }
+                self.retire(commands, menu, worlds.as_deref_mut());
                 match LauncherCore::spawn(
                     &menu.layout,
                     auth_cache.as_deref(),
                     upstream_client_cache,
+                    menu.is_launcher(),
                 ) {
                     Ok(core) => {
                         self.core = Some(core);
@@ -106,14 +118,35 @@ impl LauncherCoreSlot {
         }
     }
 
+    fn retire(
+        &mut self,
+        commands: &mut Commands,
+        menu: &mut MenuRuntime,
+        worlds: Option<&mut LocalWorlds>,
+    ) {
+        if let Some(old) = self.core.take() {
+            drop(old);
+            commands.remove_resource::<LauncherAccount>();
+            if let Some(worlds) = worlds {
+                worlds.detach();
+            }
+            menu.control_auth = None;
+        }
+    }
+
     /// Selects a join's target on the launcher core off the frame; the receiver
-    /// yields the game socket to dial. `None` leaves the join to a per-session core.
+    /// yields the game socket to dial. Local worlds always use their owning core;
+    /// direct remote joins stay on a separate per-session core.
     pub(super) fn begin_join(
         &self,
         address: &str,
         local_world: bool,
         authenticated: bool,
+        launcher_mode: bool,
     ) -> Option<crossbeam_channel::Receiver<Result<PathBuf, String>>> {
+        if !launcher_mode && !local_world {
+            return None;
+        }
         let core = self.core.as_ref()?;
         if !local_world && core.authenticated != authenticated {
             return None;
@@ -135,6 +168,7 @@ impl LauncherCore {
         layout: &InstallLayout,
         auth_cache: Option<&Path>,
         upstream_client_cache: bool,
+        lease_game_cache: bool,
     ) -> Result<Self> {
         let executable =
             core_executable(layout).ok_or_else(|| anyhow!("bedrock-core executable not found"))?;
@@ -149,6 +183,7 @@ impl LauncherCore {
             auth_cache,
             upstream_client_cache,
             Some(&crate::runtime::network::active_language_code()),
+            lease_game_cache,
         ))
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
@@ -184,20 +219,25 @@ fn launcher_command(
     auth_cache: Option<&Path>,
     upstream_client_cache: bool,
     language: Option<&str>,
+    lease_game_cache: bool,
 ) -> Command {
     let mut command = Command::new(executable);
     command
         .arg("-socket-dir")
         .arg(socket_dir)
         .arg("-control-status")
-        .arg("-resource-pack-cache-dir")
-        .arg(layout.resource_pack_cache_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(
             crate::lifecycle::core_health::open_core_log(layout)
                 .map_or_else(Stdio::null, Stdio::from),
         );
+    // Direct-mode account cores run alongside game cores that own this exclusive lease.
+    if lease_game_cache {
+        command
+            .arg("-resource-pack-cache-dir")
+            .arg(layout.resource_pack_cache_dir());
+    }
     // The core refuses to start local worlds without their server binary.
     if executable.with_file_name(LOCAL_SERVER).is_file() {
         command.args(crate::local_worlds::core_args(layout));
@@ -292,8 +332,132 @@ impl MenuRuntime {
 }
 
 #[cfg(test)]
+mod dead_child_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_startup_local_world_uses_its_owning_core_after_save_and_quit() {
+        let layout = crate::install_layout::scratch("direct-local-world-routing");
+        let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
+        let directory = SessionDirectoryGuard::bind(socket_dir.clone()).unwrap();
+        // Readiness only: no game connection or server process is needed to select the route.
+        std::fs::write(
+            crate::runtime::endpoint::bridge_endpoint_path(&socket_dir),
+            [],
+        )
+        .unwrap();
+        let slot = LauncherCoreSlot {
+            core: Some(LauncherCore {
+                _guard: CoreProcessGuard::default(),
+                _directory: directory,
+                socket_dir: socket_dir.clone(),
+                authenticated: false,
+                attached: true,
+            }),
+            failed: None,
+        };
+        let mut menu = MenuRuntime::new_with_layout(
+            false,
+            Some(2),
+            "Fixture".into(),
+            layout,
+            crate::player_skin::LocalPlayerSkin::generated_default("Fixture"),
+        );
+        menu.mark_disconnected();
+        assert!(!menu.is_launcher());
+        assert_eq!(menu.screen(), super::super::MenuScreen::Home);
+        assert!(
+            slot.begin_join("example.invalid", false, false, menu.is_launcher())
+                .is_none(),
+            "direct remote joins must keep their separate game core"
+        );
+        let selected = slot
+            .begin_join("Local fixture", true, false, menu.is_launcher())
+            .expect("Save & Quit must retain the owning local-world core");
+        assert_eq!(
+            selected
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap()
+                .unwrap(),
+            socket_dir
+        );
+    }
+
+    #[test]
+    fn direct_account_core_leaves_pack_cache_for_game_cores() {
+        let layout = crate::install_layout::scratch("direct-cache-ownership");
+        for auth in [None, Some(Path::new("/fixture/auth.json"))] {
+            let account = launcher_command(
+                &layout,
+                Path::new("/fixture/core"),
+                Path::new("/fixture/socket"),
+                auth,
+                false,
+                None,
+                false,
+            );
+            let account_args: Vec<_> = account.get_args().collect();
+            assert!(
+                !account_args.contains(&std::ffi::OsStr::new("-resource-pack-cache-dir")),
+                "account-only startup or auth restart must not lease the shared pack cache"
+            );
+        }
+        let game = super::super::core_process::core_command_for_address(
+            &layout,
+            Path::new("/fixture/core"),
+            Path::new("/fixture/socket"),
+            "example.invalid",
+            None,
+            false,
+        );
+        let args: Vec<_> = game.get_args().collect();
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "-resource-pack-cache-dir"
+                    && pair[1] == layout.resource_pack_cache_dir().as_os_str())
+        );
+        let launcher = launcher_command(
+            &layout,
+            Path::new("/fixture/core"),
+            Path::new("/fixture/socket"),
+            None,
+            false,
+            None,
+            true,
+        );
+        assert!(
+            launcher
+                .get_args()
+                .any(|arg| arg == "-resource-pack-cache-dir")
+        );
+    }
+
+    #[test]
+    fn account_core_idle_keeps_direct_play_independent_from_account_startup() {
+        for launcher in [false, true] {
+            assert!(account_core_idle(launcher, false, false, false));
+            for in_session in [false, true] {
+                assert!(!account_core_idle(launcher, true, in_session, false));
+            }
+        }
+        assert!(account_core_idle(false, false, true, false));
+        assert!(!account_core_idle(true, false, true, false));
+    }
+
+    #[test]
+    fn direct_local_world_prevents_an_account_restart_during_play() {
+        assert!(
+            !account_core_idle(false, false, true, true),
+            "the account core owns this local game and cannot restart for auth changes"
+        );
+        assert!(
+            account_core_idle(false, false, false, true),
+            "after quitting the local game, account updates may resume"
+        );
+    }
 
     // A missing launcher socket is an error, not a panic on a timer built outside the runtime.
     #[test]
@@ -348,6 +512,7 @@ mod tests {
                 auth,
                 false,
                 Some("pt_BR"),
+                true,
             )
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())

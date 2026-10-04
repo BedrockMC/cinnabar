@@ -13,8 +13,8 @@ pub use gameplay::movement::{
     note_correction, note_motion, pending_trace_line, physics_movement_input,
     reconcile_candidate_physics_correction, reconcile_committed_correction,
     reconcile_move_player_teleport, reconcile_physics_anchor, reconcile_prediction_correction,
-    reconcile_timeline_rewind, reset_start_game_prediction, trace, trace_server_control,
-    write_trace_line,
+    reconcile_timeline_rewind, reset_start_game_prediction, trace, trace_local_attributes,
+    trace_server_control, write_trace_line,
 };
 mod prediction_sync;
 mod runtime_system;

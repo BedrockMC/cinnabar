@@ -933,6 +933,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
         initial_time: 12_000,
         day_cycle_lock_time: 18_000,
         daylight_cycle_enabled: false,
+        weather_cycle_enabled: true,
         rain_level: 0.25,
         lightning_level: 0.75,
     };

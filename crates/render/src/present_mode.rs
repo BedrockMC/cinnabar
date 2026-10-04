@@ -148,6 +148,7 @@ impl Plugin for Dx12PresentModePolicyPlugin {
             return;
         };
         render_app.insert_resource(self.policy.clone());
+        crate::surface_lifecycle::install(render_app);
         #[cfg(target_os = "windows")]
         render_app.add_systems(
             Render,

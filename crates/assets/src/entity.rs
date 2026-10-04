@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+#[path = "entity/inherited_cubes.rs"]
+mod inherited_cubes;
 #[path = "entity/texture_mesh.rs"]
 mod texture_mesh;
 #[path = "entity/v4.rs"]
@@ -164,6 +166,16 @@ pub struct EntityGeometryCube {
 }
 
 impl EntityGeometryCube {
+    pub fn default_rotation_pivot(
+        origin: [EntityGeometryScalar; 3],
+        size: [EntityGeometryScalar; 3],
+    ) -> Option<[EntityGeometryScalar; 3]> {
+        let center: [f32; 3] =
+            std::array::from_fn(|axis| origin[axis].get() + size[axis].get() * 0.5);
+        let [x, y, z] = center.map(EntityGeometryScalar::new);
+        Some([x?, y?, z?])
+    }
+
     /// Default UV sizes for north, south, east, west, up and down faces.
     #[must_use]
     pub fn face_uv_dimensions(&self) -> [[f32; 2]; 6] {
@@ -204,6 +216,9 @@ pub struct EntityGeometryBone {
     pub parent: Option<Box<str>>,
     pub pivot: Option<[EntityGeometryScalar; 3]>,
     pub rotation: Option<[EntityGeometryScalar; 3]>,
+    /// Rotation baked into this part's cubes, independently of the animated bone frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind_pose_rotation: Option<[EntityGeometryScalar; 3]>,
     pub mirror: Option<bool>,
     pub inflate: Option<EntityGeometryScalar>,
     pub never_render: Option<bool>,
@@ -794,6 +809,9 @@ fn validate_geometry_bones(
             validate_scalars(pivot)?;
         }
         if let Some(rotation) = &bone.rotation {
+            validate_scalars(rotation)?;
+        }
+        if let Some(rotation) = &bone.bind_pose_rotation {
             validate_scalars(rotation)?;
         }
         if let Some(inflate) = bone.inflate {
