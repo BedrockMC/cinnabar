@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+gameplay = { path = "../crates/gameplay" }
+client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
 launcher = { path = "../crates/launcher" }
 player-state = { path = "../crates/player-state" }
@@ -61,6 +63,8 @@ rustix = { version = "1", default-features = false, features = ["fs", "process",
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+gameplay = { path = "../crates/gameplay", features = ["test-support"] }
+client-session = { path = "../crates/client-session", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }

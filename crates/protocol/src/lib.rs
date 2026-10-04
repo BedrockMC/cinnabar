@@ -215,3 +215,9 @@ pub use world::{
     block_name_sort_key, into_world_event, is_hardcore, request_sub_chunk_column,
     rewind_history_size, server_authoritative_block_breaking, vanilla_dimension_range,
 };
+
+mod movement_transport;
+pub use movement_transport::{BatchSendError, InteractionPacketGuard, PhysicsSendIdentity};
+
+mod fast_transfer_action;
+pub use fast_transfer_action::FastTransferAction;
