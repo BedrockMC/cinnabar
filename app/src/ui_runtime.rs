@@ -2,6 +2,7 @@
 #[cfg(test)]
 use client_ui::ui_runtime::item_facts;
 use client_ui::ui_runtime::{UiRuntime, inventory_drag};
+pub(crate) mod emotes;
 pub mod forms;
 pub(crate) mod gameplay_touch;
 pub mod interaction;

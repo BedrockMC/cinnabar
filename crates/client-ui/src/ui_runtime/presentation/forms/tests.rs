@@ -429,14 +429,14 @@ fn path_and_url_button_images_resolve_like_vanilla() {
 }
 
 /// Six virtual px per character, nine per line.
-struct FixedText;
+pub(super) struct FixedText;
 impl json_ui::TextMeasure for FixedText {
     fn extent(&self, text: &str) -> [f64; 2] {
         [text.chars().count() as f64 * 6.0, 9.0]
     }
 }
 
-struct NoTextures;
+pub(super) struct NoTextures;
 impl json_ui::TextureSource for NoTextures {
     fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
         Some(json_ui::TextureMeta {

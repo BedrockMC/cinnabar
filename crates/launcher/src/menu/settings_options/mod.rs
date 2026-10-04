@@ -3,6 +3,7 @@
 pub mod chat;
 pub mod control_bindings;
 pub mod definitions;
+pub mod emotes;
 pub mod keybindings;
 pub mod language;
 pub mod persistence;
@@ -20,6 +21,7 @@ pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
 pub use definitions::{SETTINGS_OPTIONS, SettingDefinition, SettingKind};
+pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{KEY_BINDINGS, key_name};
 pub use persistence::SETTINGS_FILE;
 
@@ -29,6 +31,8 @@ pub struct SettingsOptions {
     values: BTreeMap<String, i32>,
     keys: BTreeMap<String, u16>,
     language: Option<String>,
+    /// None means the original custom catalog supplies first-run defaults.
+    emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
 }
 
 impl SettingsOptions {
