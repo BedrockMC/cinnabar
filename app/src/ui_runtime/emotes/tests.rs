@@ -367,7 +367,8 @@ fn new_session_cannot_resume_an_old_emote() {
         .world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntime>| {
             let mut player = world.resource_mut::<PlayerRuntime>();
-            runtime.begin_session(&mut player, 2);
+            player.begin_session(2);
+            runtime.begin_session(2);
             runtime
                 .publish_local_runtime_id(&mut player, 2, 43)
                 .unwrap();

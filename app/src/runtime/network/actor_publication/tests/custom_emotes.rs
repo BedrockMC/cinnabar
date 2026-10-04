@@ -3,13 +3,11 @@ use std::{sync::Arc, time::Duration};
 
 use bevy::{prelude::*, time::Real};
 use client_presentation::actor_publication::PreparedActorPublication;
+use client_ui::ui_runtime::UiRuntime;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use semantic_input::PerspectiveMode;
 
-use crate::{
-    runtime::{network::actor_publication::*, world::ClientWorld},
-    ui_runtime::UiRuntime,
-};
+use crate::runtime::{network::actor_publication::*, world::ClientWorld};
 
 fn fixture() -> World {
     fixture_with_skin(false)
@@ -180,11 +178,8 @@ fn prepare(world: &mut World, millis: u64) {
 fn body(world: &World, id: u64) -> render::ActorRigSubmission {
     world
         .resource::<PreparedActorPublication>()
-        .0
-        .as_ref()
+        .submissions()
         .unwrap()
-        .batch
-        .submissions
         .iter()
         .find(|body| {
             body.input.identity.runtime_id == id
@@ -278,11 +273,8 @@ fn custom_emote_publication_advances_between_ticks_without_changing_native_hand_
     assert!(
         world
             .resource::<PreparedActorPublication>()
-            .0
-            .as_ref()
+            .submissions()
             .unwrap()
-            .batch
-            .submissions
             .iter()
             .all(|body| body.input.identity.runtime_id != 1),
         "first person does not publish the custom body"
