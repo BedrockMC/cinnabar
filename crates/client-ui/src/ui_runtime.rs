@@ -204,6 +204,7 @@ pub struct UiRuntime {
     /// Sorted usernames on the authoritative player list, the retained
     /// answer for the `@a` selector.
     known_player_names: Vec<Arc<str>>,
+    player_list_held: bool,
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: bool,
@@ -224,6 +225,7 @@ impl UiRuntime {
             inventory_open: false,
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
+            player_list_held: false,
             screen_settings: Arc::default(),
             loading_screen: false,
             hurt_pending: false,
@@ -606,6 +608,7 @@ impl UiRuntime {
         self.inventory_open = false;
         self.score_owner_names.clear();
         self.known_player_names.clear();
+        self.player_list_held = false;
         self.hud.clear();
         self.chat.clear();
         self.scoreboards.clear();

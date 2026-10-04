@@ -576,6 +576,14 @@ impl UiPresentationRuntime {
                     )?;
                     if !crosshair {
                         self.append_mod_hud(player_runtime, runtime, nodes, next, metrics, content);
+                        self.append_player_list(
+                            player_runtime,
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                        )?;
                     }
                 }
                 Scene::Bed => {
