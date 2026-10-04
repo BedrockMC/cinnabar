@@ -6,7 +6,7 @@ use assets::{
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_WATER_TINT, NetworkIdMode,
     RuntimeAssets, RuntimeIconCatalog,
 };
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 use render::TileRequest;
 
 #[cfg(test)]

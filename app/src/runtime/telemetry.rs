@@ -1,7 +1,7 @@
 #[cfg(feature = "acceptance")]
 use crate::acceptance::AcceptanceRun;
 #[cfg(feature = "acceptance")]
-use crate::runtime::phase2_evidence::{
+use acceptance::phase2_evidence::{
     CombinedPhase2Snapshot, PlayerColumnPresentationEvidence, build_profile_identity,
     generation_manifest_identity, graphics_identity_sha256, key_manifest_identity,
     phase2_publication_line_if_changed, present_mode_identity, sha256_identity_from_hex_or_text,
@@ -28,7 +28,7 @@ use bevy::{
     winit::{UpdateMode, WinitSettings},
 };
 #[cfg(feature = "acceptance")]
-use client_world::Phase2PresentationSnapshot;
+use chunk_pipeline::Phase2PresentationSnapshot;
 #[cfg(feature = "acceptance")]
 use meshing::{BiomeBlendSample, ChunkBiomeTintIdentity, PackedBiomeRecord};
 use render::{
@@ -53,10 +53,6 @@ use crate::{
     },
     camera::{self, FlyCamera, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_RADIUS_BLOCKS},
     local_player::LocalPlayerFrameCarrier,
-    metrics::{
-        GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
-        TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
-    },
     movement::{
         MovementSendError, MovementTicker, PhysicsTickEvidenceContext,
         flush_player_auth_inputs_guarded,
@@ -71,6 +67,10 @@ use crate::{
         world::{ClientWorld, WorldStreamFramePoll},
     },
     semantic_controls::SemanticInputSnapshot,
+};
+use diagnostics::metrics::{
+    GpuPassMeasurement, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+    TransparentSortMetricsSnapshot, pair_gpu_pass_sample,
 };
 
 const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
@@ -634,7 +634,7 @@ pub(crate) fn record_metrics_and_title(
                 .unwrap_or(0);
             write_stdout_marker(
                 &mut stdout,
-                &crate::runtime::phase2_evidence::phase2_publication_timing_line(
+                &acceptance::phase2_evidence::phase2_publication_timing_line(
                     &marker,
                     observed_unix_ms,
                 ),

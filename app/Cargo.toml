@@ -37,7 +37,8 @@ bevy = { workspace = true, default-features = false, features = [
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
-client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline" }
+chunk-pipeline = { path = "../crates/chunk-pipeline" }
+client-world = { path = "../crates/client-world" }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
@@ -77,5 +78,5 @@ client-ui = { path = "../crates/client-ui", features = ["test-support"] }
 protocol = { path = "../crates/protocol", features = ["wire-test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 pack-compiler = { path = "../crates/pack-compiler" }
-client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
+chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }

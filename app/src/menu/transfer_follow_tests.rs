@@ -20,8 +20,8 @@ use crate::{
         network::{NetworkHandle, ResourcePackAdmissionState},
         world::{ClientWorld, TransferNotice},
     },
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 struct TempRoot(PathBuf);
 
@@ -404,7 +404,7 @@ fn failed_automatic_replacement(
     }
 
     let client_world = ClientWorld {
-        stream: Some(client_world::WorldStream::new(protocol::WorldBootstrap {
+        stream: Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
             local_player_unique_id: 1,

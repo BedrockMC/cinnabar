@@ -14,8 +14,8 @@ use crate::{
         world::ClientWorld,
     },
     session_cleanup::SessionDirectoryGuard,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 use std::{path::PathBuf, time::Instant};
 
@@ -95,8 +95,10 @@ fn attempt_connect(
     menu.mark_disconnected();
     let generation = session.retire(player_runtime, menu);
     session.runtime.experiences.select_destination(&address);
-    menu.feeds.join =
-        super::view::JoinProgress::new(super::launcher_core::join_kind(&address, local_world));
+    menu.feeds.join = launcher::menu::view::JoinProgress::new(super::launcher_core::join_kind(
+        &address,
+        local_world,
+    ));
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,

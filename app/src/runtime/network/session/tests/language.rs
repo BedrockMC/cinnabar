@@ -5,7 +5,7 @@ use crate::runtime::network::{
         BootstrapGenerationDisposition, classify_bootstrap_generation, install_server_language,
     },
 };
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 fn overlay(value: &[u8]) -> Arc<assets::ServerLangOverlay> {
     assets::ServerLangOverlay::read(value.len(), |target| {
