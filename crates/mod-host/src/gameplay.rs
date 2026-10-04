@@ -25,6 +25,14 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    fn set_attack_reach(&mut self, blocks: Option<f32>) -> Result<Result<(), String>> {
+        self.set_reach(blocks)
+    }
+
+    fn pulse_attack(&mut self) -> Result<Result<(), String>> {
+        State::pulse_attack(self)
+    }
+
     fn read_frame(&mut self) -> Result<Result<Option<GameplaySnapshot>, String>> {
         self.gameplay_reads += 1;
         if self.gameplay_reads > MAX_IMPORT_WRITES {
