@@ -48,6 +48,14 @@ pub fn block_lookup<'a>(
     }
 }
 
+fn network_block_lookup<'a>(
+    collisions: Option<&'a dyn PhysicsCollisionRegistries>,
+    stream: &'a chunk_pipeline::WorldStream,
+) -> impl Fn(u32) -> Option<String> + 'a {
+    let lookup = block_lookup(collisions, stream.network_id_mode());
+    move |wire_id| lookup(stream.resolve_block_network_id(wire_id))
+}
+
 pub fn identifier_at(
     world: &PaletteWorld<'_>,
     collisions: &dyn PhysicsCollisionRegistries,
@@ -186,7 +194,7 @@ pub fn ingest_audio_events(
         &mut engine,
     );
     let dimension = stream.current_dimension();
-    let lookup = block_lookup(collisions, stream.network_id_mode());
+    let lookup = network_block_lookup(collisions, stream);
     for event in messages.read() {
         if !state.admits(event, dimension) {
             engine.stats.stale += 1;
@@ -637,6 +645,70 @@ pub fn pump_audio(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[derive(Default)]
+    struct BlockMaterials(sim::CollisionRegistry);
+
+    impl PhysicsCollisionRegistries for BlockMaterials {
+        fn registry(&self, _: assets::NetworkIdMode) -> &sim::CollisionRegistry {
+            &self.0
+        }
+
+        fn block_canonical_state(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
+            None
+        }
+
+        fn block_identifier(&self, _: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
+            match runtime_id {
+                1 => Some("minecraft:dirt"),
+                7 | 0x8000_0007 => Some("minecraft:stone"),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn server_block_sounds_use_the_session_palette_and_preserve_high_bit_hashes() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"block_sounds": {
+                "stone": {"events": {"break": "dig.stone"}},
+                "gravel": {"events": {"break": "dig.gravel"}}
+            }}),
+            &serde_json::json!({"stone": "stone", "dirt": "gravel"}),
+        );
+        let collisions = BlockMaterials::default();
+        for (hashes, wire) in [(false, 1), (true, 0x8000_0007_u32)] {
+            let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: hashes,
+            });
+            stream.set_sequential_id_remap(assets::SequentialIdRemap::from_palette(vec![0, 7], 8));
+            let event = protocol::LevelAudioEvent {
+                sound_event: Arc::from("break"),
+                position: [1.5, 64.5, 2.5],
+                data: i32::from_ne_bytes(wire.to_ne_bytes()),
+                actor_identifier: Arc::from(""),
+                is_baby: false,
+                is_global: false,
+                actor_unique_id: -1,
+                fire_at_position: None,
+            };
+            let lookup = network_block_lookup(Some(&collisions), &stream);
+            let request = route::level_sound_request(&tables, &event, &lookup).unwrap();
+            assert_eq!(request.name.as_ref(), "dig.stone");
+            assert_eq!(request.position, Some(event.position));
+            assert_eq!(u32::from_ne_bytes(event.data.to_ne_bytes()), wire);
+            assert_eq!(
+                block_lookup(Some(&collisions), assets::NetworkIdMode::Sequential)(7),
+                Some("minecraft:stone".to_owned()),
+            );
+        }
+    }
 
     fn event(sequence: u64, dimension: i32, dimension_epoch: u64) -> SequencedAudioEvent {
         SequencedAudioEvent {

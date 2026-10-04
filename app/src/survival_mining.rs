@@ -274,6 +274,7 @@ fn observe_destroy_target(
         position: observed.target.position,
         face: observed.target.face,
         runtime_id: observed.target.runtime_id,
+        wire_runtime_id: stream.block_network_id(observed.target.runtime_id)?,
         relative_hit: observed.target.relative_hit,
         block,
         conditions: DestroyConditions {
