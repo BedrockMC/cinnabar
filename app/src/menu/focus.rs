@@ -98,6 +98,27 @@ impl MenuRuntime {
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
         if let Some(dialog) = self.dialog {
             return match dialog {
+                MenuDialog::Accounts => {
+                    if self.feeds.account_adding {
+                        return vec![MenuAction::CancelSignIn];
+                    }
+                    let mut actions: Vec<_> = self
+                        .feeds
+                        .accounts
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, account)| {
+                            Some(&account.id) != self.feeds.account_active_id.as_ref()
+                        })
+                        .map(|(index, _)| MenuAction::SwitchAccount(index))
+                        .collect();
+                    actions.extend([
+                        MenuAction::AddAccount,
+                        MenuAction::Navigate(MenuScreen::Profile),
+                        MenuAction::DismissDialog,
+                    ]);
+                    actions
+                }
                 MenuDialog::SettingsResetGroup(group) => vec![
                     MenuAction::SettingsConfirmResetGroup(group),
                     MenuAction::DismissDialog,
@@ -141,6 +162,7 @@ impl MenuRuntime {
         match self.screen {
             MenuScreen::Home => {
                 let mut actions = nav();
+                actions[4] = MenuAction::OpenAccounts;
                 actions.extend((0..self.friends.len().min(1)).map(MenuAction::PlayFriend));
                 actions.extend((0..self.realms.len().min(1)).map(MenuAction::PlayRealm));
                 actions.extend((0..self.featured.len().min(2)).map(MenuAction::PlayFeatured));

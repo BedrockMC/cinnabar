@@ -73,6 +73,8 @@ pub struct ItemUseRuntime {
     /// Cooldown category and the tick it ends.
     cooldowns: Vec<(&'static str, u64)>,
     predicted: Option<PredictedStack>,
+    /// A throw's emptied slot and the authoritative revision it consumed, until the ledger takes it.
+    emptied_slot: Option<(u8, u64)>,
     /// The use button has stayed down since a press no block interaction consumed.
     repeat_armed: bool,
     /// A rejected click retries only while its verified selection remains current.
@@ -140,8 +142,14 @@ impl ItemUseRuntime {
         self.rearm_millis = None;
         self.cooldowns.clear();
         self.predicted = None;
+        self.emptied_slot = None;
         self.release_pending = false;
         self.crossbows.clear();
+    }
+
+    /// The slot and authoritative revision an admitted throw of the last item emptied, once.
+    pub fn take_emptied_slot(&mut self) -> Option<(u8, u64)> {
+        self.emptied_slot.take()
     }
 
     /// Whether this frame has anything to resolve against an unsent tick.
@@ -261,6 +269,7 @@ impl ItemUseRuntime {
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
+        let mut emptied_slot = None;
         let mut throw_cooldown = None;
         let mut swung = false;
         match air_use {
@@ -284,6 +293,11 @@ impl ItemUseRuntime {
                 }
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
+                    if to.is_empty() {
+                        emptied_slot = frame
+                            .inventory_revision
+                            .map(|revision| (selection.slot, revision));
+                    }
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
                         slot: selection.slot,
                         server: server.item.clone(),
@@ -309,6 +323,9 @@ impl ItemUseRuntime {
             }
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
+            }
+            if emptied_slot.is_some() {
+                self.emptied_slot = emptied_slot;
             }
             if air_use == Some(AirUse::Instant) {
                 self.crossbows

@@ -162,6 +162,7 @@ fn compiled() -> super::CompiledBlockOverlay {
     );
     let blocks = CustomBlocks {
         blocks: vec![lucky, generator(), missing].into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     compile_block_overlay(&view(), &blocks, false, None).expect("overlay")
@@ -389,6 +390,7 @@ fn light_components_drive_state_light() {
     );
     let blocks = CustomBlocks {
         blocks: vec![lit, plain].into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
@@ -406,6 +408,7 @@ fn light_components_drive_state_light() {
 fn hashed_mode_emits_a_visual_and_hash_per_state() {
     let blocks = CustomBlocks {
         blocks: vec![generator()].into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let compiled = compile_block_overlay(&view(), &blocks, true, None).expect("overlay");
@@ -469,6 +472,7 @@ fn custom_block_items_draw_their_default_state() {
             block("test:missing", 1, CustomBlockVisuals::default()),
         ]
         .into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let icons = custom_block_icons(&overlay, &blocks, false, &items);
@@ -492,6 +496,7 @@ fn custom_block_items_draw_their_default_state() {
 
     let hashed = CustomBlocks {
         blocks: vec![generator()].into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let overlay = compile_block_overlay(&view(), &hashed, true, None)
@@ -524,6 +529,7 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
             generator(),
         ]
         .into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let icons = custom_block_icons(&compiled.overlay, &blocks, false, &items);
