@@ -116,6 +116,9 @@ pub struct EntityAnimationChannel {
     pub property: EntityAnimationProperty,
     pub first_keyframe: u32,
     pub keyframe_count: u32,
+    /// This bone uses the entity's axes after its pivot follows the parent transform.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rotation_relative_to_entity: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

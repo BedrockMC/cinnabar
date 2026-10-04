@@ -11,6 +11,7 @@ pub(super) struct LocalDelta {
     pub(super) translation: [f32; 3],
     pub(super) rotation: [f32; 3],
     pub(super) scale: [f32; 3],
+    pub(super) rotation_relative_to_entity: bool,
 }
 
 impl Default for LocalDelta {
@@ -19,6 +20,7 @@ impl Default for LocalDelta {
             translation: [0.0; 3],
             rotation: [0.0; 3],
             scale: [1.0; 3],
+            rotation_relative_to_entity: false,
         }
     }
 }
@@ -87,6 +89,8 @@ pub(super) fn sample_clips(
             let bone = local
                 .get_mut(channel.bone as usize)
                 .ok_or(EvalError::Invalid)?;
+            // Native blending retains the greatest frame setting across active clips.
+            bone.rotation_relative_to_entity |= channel.rotation_relative_to_entity;
             let current = bone.property(channel.property);
             // `this` reads BoneOrientation, not an animation-only delta. ModelPart's
             // defaults are copied into that orientation before channels add their values.
@@ -290,9 +294,18 @@ fn compose_bone(
         let rotated = rotate_vector(parent.rotation, scaled);
         // A non-uniform parent scale under a rotated child would shear; the child keeps the
         // componentwise product, exact only for a uniform parent scale or an unturned child.
-        let scale = std::array::from_fn(|axis| parent_scale[axis] * delta.scale[axis]);
+        // Entity-relative rotation resets the inherited basis after translating the pivot.
+        // This removes both parent rotation and scale; descendants inherit our new basis.
+        let (rotation, scale) = if delta.rotation_relative_to_entity {
+            (rotation, delta.scale)
+        } else {
+            (
+                quat_multiply(parent.rotation, rotation),
+                std::array::from_fn(|axis| parent_scale[axis] * delta.scale[axis]),
+            )
+        };
         with_scale(
-            quat_multiply(parent.rotation, rotation),
+            rotation,
             std::array::from_fn(|axis| parent.translation_scale[axis] + rotated[axis]),
             scale,
         )
