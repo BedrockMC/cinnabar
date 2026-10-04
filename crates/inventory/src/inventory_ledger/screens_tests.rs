@@ -15,6 +15,11 @@ use protocol::{
 
 use super::*;
 
+#[path = "distribute/live_tests.rs"]
+mod live_distribute_tests;
+#[path = "distribute/reconcile_tests.rs"]
+mod reconcile_distribute_tests;
+
 fn stack(stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
         network_id: 6,
@@ -278,7 +283,8 @@ fn distribute_splits_the_cursor_evenly() {
     let mut ledger = personal_ledger(&[]);
     set_cursor(&mut ledger, stack(60, 10));
     ledger
-        .begin_distribute(
+        .advance_distribute(
+            &mut None,
             &[
                 InventoryTarget::Player(9),
                 InventoryTarget::Player(10),
@@ -299,7 +305,8 @@ fn distribute_one_places_single_items() {
     let mut ledger = personal_ledger(&[]);
     set_cursor(&mut ledger, stack(60, 5));
     ledger
-        .begin_distribute(
+        .advance_distribute(
+            &mut None,
             &[InventoryTarget::Player(9), InventoryTarget::Player(10)],
             DistributeMode::One,
         )

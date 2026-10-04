@@ -20,7 +20,7 @@ pub(in crate::compiler) fn compile_rule(
             template
         } else {
             let template = push_model_template(
-                cuboid_quads(materials, [0, 0, 0], [256, 256, 256]).to_vec(),
+                native_cube_quads(materials).to_vec(),
                 MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
                 storage.templates,
                 storage.quads,
@@ -31,6 +31,23 @@ pub(in crate::compiler) fn compile_rule(
         set_model_visual(&mut visual, materials, template);
     }
     Ok(CompileRuleResult::Compiled(visual))
+}
+
+fn native_cube_quads(materials: [u32; 6]) -> [ModelQuad; 6] {
+    let mut quads = cuboid_quads(materials, [0, 0, 0], [256, 256, 256]);
+    // Current cube emitters 06a11a00/06a180d0 mirror North/East U;
+    // bottom emitter 06a0d430 reverses V relative to the top. Unlike greedy
+    // cubes, immutable model quads do not run the shader's native UV helper.
+    for quad in &mut quads {
+        for uv in &mut quad.uvs {
+            match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
+                4 | 5 => uv[0] = 4096 - uv[0],
+                1 => uv[1] = 4096 - uv[1],
+                _ => {}
+            }
+        }
+    }
+    quads
 }
 
 #[cfg(test)]
@@ -84,5 +101,24 @@ mod tests {
             translucent_cube_material_flags("minecraft:ice"),
             MATERIAL_FLAG_ALPHA_BLEND
         );
+    }
+
+    #[test]
+    fn transparent_cube_uvs_follow_native_opposing_face_axes() {
+        for quad in native_cube_quads([1; 6]) {
+            for ([x, y, z], uv) in quad.positions.into_iter().zip(quad.uvs) {
+                let [x, y, z] = [x, y, z].map(|v| v as u16 * 16);
+                let expected = match quad.flags {
+                    1 => [x, 4096 - z],
+                    2 => [x, z],
+                    3 => [z, 4096 - y],
+                    4 => [4096 - z, 4096 - y],
+                    5 => [4096 - x, 4096 - y],
+                    6 => [x, 4096 - y],
+                    _ => unreachable!(),
+                };
+                assert_eq!(uv, expected, "native cube face {}", quad.flags);
+            }
+        }
     }
 }

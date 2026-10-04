@@ -141,11 +141,11 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
             255
         }
     };
-    let [red, green, blue] = [color[0], color[1], color[2]].map(byte);
-    if (red, green, blue) == (255, 255, 255) {
+    let [red, green, blue, alpha] = color.map(byte);
+    if (red, green, blue, alpha) == (255, 255, 255, 255) {
         0
     } else {
-        0xff00_0000 | (blue << 16) | (green << 8) | red
+        (alpha << 24) | (blue << 16) | (green << 8) | red
     }
 }
 
@@ -172,7 +172,13 @@ fn resolve(
                 Some(ResolvedLayer {
                     model,
                     ignore_lighting: layer.ignore_lighting,
-                    location: artwork.variant_location(submission.input.rig, layer.source)?,
+                    location: match layer.multitexture {
+                        Some([second, third]) => artwork.multitexture_location(
+                            submission.input.rig,
+                            [layer.source, second, third],
+                        )?,
+                        None => artwork.variant_location(submission.input.rig, layer.source)?,
+                    },
                     tint: pack_layer_tint(layer.color),
                     overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
                     hidden_bones: Arc::clone(&layer.hidden_bones),
@@ -288,5 +294,7 @@ mod tests {
         assert_eq!(pack_layer_tint([1.0, 1.0, 1.0, 1.0]), 0);
         assert_eq!(pack_layer_tint([1.0, 0.0, 0.0, 1.0]), 0xff00_00ff);
         assert_eq!(pack_layer_tint([0.0, 0.0, 1.0, 1.0]), 0xffff_0000);
+        assert_eq!(pack_layer_tint([1.0, 1.0, 1.0, 0.5]), 0x80ff_ffff);
+        assert_eq!(pack_layer_tint([1.0, 0.0, 0.0, 0.5]), 0x8000_00ff);
     }
 }

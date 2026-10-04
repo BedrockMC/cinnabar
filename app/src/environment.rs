@@ -10,12 +10,17 @@ pub(crate) use diagnostics::log_world_lighting;
 mod time_override;
 pub(crate) use time_override::VisualTimeOverride;
 mod fog;
-pub(crate) use fog::fog_biome_samples;
+pub(crate) use fog::{FogPrecipitationSamples, fog_biome_samples};
 mod numeric;
 mod profile_lookup;
+mod renderer_clock;
+mod seasonal_foliage;
 mod weather;
+mod weather_fog;
+mod world_clocks;
 pub(crate) use atmosphere::update_atmosphere_frame;
 use numeric::finite_nonnegative;
+pub(crate) use seasonal_foliage::{WeatherTickFrame, update_seasonal_foliage};
 pub(crate) use weather::{
     LightningFlashState, WeatherDisplay, load_optional_weather_textures, update_lightning,
     update_precipitation_scene,
@@ -30,6 +35,8 @@ pub(crate) struct EnvironmentContext {
     pub(crate) camera_biome_identifier: Option<Box<str>>,
     pub(crate) camera_biome_temperature: Option<f32>,
     pub(crate) fog_biomes: Vec<Option<Box<str>>>,
+    /// Known precipitation-admitting cells in the native weather/fog lattice.
+    pub(crate) precipitation_sample_count: Option<usize>,
     pub(crate) render_distance_blocks: Option<f32>,
 }
 
@@ -46,13 +53,20 @@ pub(crate) struct EnvironmentProfileRoute {
 /// Server-authored world-clock snapshot for the active StartGame session.
 ///
 /// This stores the latest server-authored or runtime-transition time anchor and
-/// advances it monotonically only while the daylight cycle is enabled.
+/// advances it only while the daylight cycle is enabled and its named clock is
+/// not paused.
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct WorldClock {
     session_generation: u64,
     server_time: Option<f64>,
     server_time_anchor_seconds: Option<f64>,
     daylight_cycle_enabled: bool,
+    /// Independent pause state from SyncWorldClocks, not doDaylightCycle.
+    paused: bool,
+    /// Native built-in hashed clock ID, pre-registered with the client level.
+    overworld_clock_id: Option<u64>,
+    ignored_clock_records: u64,
+    last_diagnostic_seconds: Option<f64>,
     last_update_sequence: Option<u64>,
 }
 
@@ -94,6 +108,7 @@ pub(crate) struct WeatherState {
     session_generation: u64,
     rain_level: f32,
     lightning_level: f32,
+    weather_cycle_enabled: bool,
     last_update_sequence: Option<u64>,
 }
 
@@ -140,18 +155,23 @@ pub(crate) fn replace_session(
     *clock = WorldClock {
         session_generation,
         server_time: Some(if bootstrap.daylight_cycle_enabled {
-            bedrock_ticks_as_f64(bootstrap.initial_time)
+            0.0
         } else {
             f64::from(bootstrap.day_cycle_lock_time)
         }),
         server_time_anchor_seconds: Some(finite_nonnegative(elapsed_seconds)),
         daylight_cycle_enabled: bootstrap.daylight_cycle_enabled,
+        paused: false,
+        overworld_clock_id: Some(protocol::OVERWORLD_CLOCK_ID),
+        ignored_clock_records: 0,
+        last_diagnostic_seconds: None,
         last_update_sequence: None,
     };
     *weather = WeatherState {
         session_generation,
         rain_level: bootstrap.rain_level,
         lightning_level: bootstrap.lightning_level,
+        weather_cycle_enabled: bootstrap.weather_cycle_enabled,
         last_update_sequence: None,
     };
 }
@@ -178,9 +198,14 @@ pub(crate) fn apply_environment_control(
 ) -> bool {
     match control {
         CommittedControlEvent::SetTime { sequence, update } => {
-            clock.server_time = Some(f64::from(update.time));
-            clock.server_time_anchor_seconds = Some(finite_nonnegative(elapsed_seconds));
+            world_clocks::apply_legacy_time(clock, update.time, elapsed_seconds);
             clock.last_update_sequence = Some(sequence);
+            world_clocks::trace_clock(clock, "SetTime", elapsed_seconds);
+            true
+        }
+        CommittedControlEvent::WorldClocks { sequence, update } => {
+            world_clocks::apply_clock_update(clock, update, sequence, elapsed_seconds);
+            world_clocks::trace_clock(clock, "SyncWorldClocks", elapsed_seconds);
             true
         }
         CommittedControlEvent::DaylightCycle { sequence, update } => {
@@ -190,6 +215,7 @@ pub(crate) fn apply_environment_control(
             clock.server_time_anchor_seconds = Some(elapsed_seconds);
             clock.daylight_cycle_enabled = update.enabled;
             clock.last_update_sequence = Some(sequence);
+            world_clocks::trace_clock(clock, "GameRulesChanged", elapsed_seconds);
             true
         }
         CommittedControlEvent::Weather { sequence, update } => {
@@ -197,6 +223,11 @@ pub(crate) fn apply_environment_control(
                 WeatherChannel::Rain => weather.rain_level = update.level,
                 WeatherChannel::Lightning => weather.lightning_level = update.level,
             }
+            weather.last_update_sequence = Some(sequence);
+            true
+        }
+        CommittedControlEvent::WeatherCycle { sequence, enabled } => {
+            weather.weather_cycle_enabled = enabled;
             weather.last_update_sequence = Some(sequence);
             true
         }
@@ -217,9 +248,9 @@ pub(crate) fn apply_environment_control(
 /// Returns the absolute Bedrock tick used for this rendered frame.
 ///
 /// A disabled daylight cycle freezes the current anchor, initially
-/// StartGame's explicit lock tick. StartGame current time, SetTime, and runtime
-/// daylight-cycle transitions all re-anchor this value. Enabled clocks advance
-/// from the anchor at Bedrock's twenty ticks per second.
+/// StartGame's explicit lock tick. Named clock initialization, SetTime, and
+/// runtime daylight-cycle transitions re-anchor this value; StartGame elapsed
+/// world ticks do not. Enabled, unpaused clocks advance at Bedrock's tick rate.
 #[must_use]
 pub(crate) fn visual_world_time(clock: WorldClock, elapsed_seconds: f64) -> f64 {
     let Some((server_time, anchor)) = clock.server_time.zip(clock.server_time_anchor_seconds)
@@ -227,19 +258,11 @@ pub(crate) fn visual_world_time(clock: WorldClock, elapsed_seconds: f64) -> f64 
         return 0.0;
     };
     let elapsed_seconds = finite_nonnegative(elapsed_seconds);
-    if clock.daylight_cycle_enabled {
-        server_time + (elapsed_seconds - anchor).max(0.0) * 20.0
+    if clock.daylight_cycle_enabled && !clock.paused {
+        server_time + (elapsed_seconds - anchor).max(0.0) * f64::from(world::TICKS_PER_SECOND)
     } else {
         server_time
     }
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "Bedrock world ticks are rendered as a continuous f64 timeline"
-)]
-fn bedrock_ticks_as_f64(ticks: i64) -> f64 {
-    ticks as f64
 }
 
 #[cfg(test)]

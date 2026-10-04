@@ -143,7 +143,7 @@ impl Plugin for ParticleRenderPlugin {
             app,
             PARTICLE_SHADER_HANDLE,
             "particles.wgsl",
-            Shader::from_wgsl
+            crate::shader_safety::from_wgsl
         );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;

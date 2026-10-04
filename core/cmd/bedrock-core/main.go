@@ -86,6 +86,10 @@ type options struct {
 	bdsDir                    string
 	bdsVersion                string
 	bdsImage                  string
+	bdsMaxPlayers             int
+	bdsHostPort               int
+	bdsLANVisible             bool
+	bdsLANHostPort            int
 	docker                    string
 }
 
@@ -109,6 +113,16 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.bdsDir, "bds-dir", "", "directory for downloaded Bedrock Dedicated Server builds (default: bds beside the worlds directory)")
 	flags.StringVar(&opts.bdsVersion, "bds-version", "", "exact Bedrock Dedicated Server build to download (the client passes its target manifest's server_version)")
 	flags.StringVar(&opts.bdsImage, "bds-image", "", "digest-pinned container image that runs the Linux Bedrock Dedicated Server where no native build exists")
+	flags.IntVar(
+		&opts.bdsMaxPlayers,
+		"bds-max-players",
+		0,
+		"maximum players in a local Bedrock Dedicated Server (zero uses the single-player default)",
+	)
+	flags.IntVar(&opts.bdsHostPort, "bds-host-port", 0,
+		fmt.Sprintf("local BDS loopback host port (zero selects an available port; conventional port is %d)", localworld.DefaultBDSPort))
+	flags.BoolVar(&opts.bdsLANVisible, "bds-lan-visible", false, "enable local BDS LAN discovery (container discovery remains published only on loopback)")
+	flags.IntVar(&opts.bdsLANHostPort, "bds-lan-host-port", 0, "container BDS loopback LAN discovery port (zero uses the pinned NetherNet discovery port)")
 	flags.StringVar(&opts.docker, "docker", "docker", "Docker-compatible CLI used to run the Linux Bedrock Dedicated Server where no native build exists")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -123,6 +137,15 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if opts.localServerBin != "" && opts.localWorldsDir == "" {
 		return options{}, errors.New("local-server-bin requires -local-worlds-dir")
+	}
+	if opts.bdsMaxPlayers < 0 {
+		return options{}, errors.New("bds-max-players must not be negative")
+	}
+	if opts.bdsHostPort < 0 || opts.bdsHostPort != int(uint16(opts.bdsHostPort)) {
+		return options{}, errors.New("bds-host-port must be zero or a valid TCP/UDP port")
+	}
+	if opts.bdsLANHostPort < 0 || opts.bdsLANHostPort != int(uint16(opts.bdsLANHostPort)) {
+		return options{}, errors.New("bds-lan-host-port must be zero or a valid UDP port")
 	}
 	flags.Visit(func(value *flag.Flag) {
 		if value.Name == "resource-pack-cache-quota-bytes" {
@@ -266,7 +289,7 @@ func runWithResourcePackCacheFactory(
 			}
 			return err
 		}
-		localTarget = localWorlds.Target
+		localTarget = localWorlds.ConnectionTarget
 	}
 	var resourcePackAdmissionUpdate func(proxy.ResourcePackAdmissionSnapshot)
 	var connectProgress func(proxy.ConnectProgress)

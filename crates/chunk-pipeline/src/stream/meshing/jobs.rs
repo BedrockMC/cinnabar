@@ -419,6 +419,18 @@ impl WorldStream {
             center,
             biomes: self.biome_neighbourhood(key),
             adjacent,
+            column_above: self
+                .authority
+                .terrain()
+                .chunk(key.chunk())
+                .into_iter()
+                .flat_map(|chunk| chunk.sub_chunks())
+                .filter_map(|(y, chunk)| {
+                    y.checked_sub(key.y)
+                        .filter(|&offset| offset >= 2)
+                        .map(|offset| (offset, chunk))
+                })
+                .collect(),
             light_halo,
         }
     }

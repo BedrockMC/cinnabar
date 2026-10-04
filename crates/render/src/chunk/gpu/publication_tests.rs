@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "publication_removal_tests.rs"]
+mod removal_pressure;
+
 fn noop_gpu_publication_app(
     acknowledgements: ChunkUploadAcknowledgements,
     gpu_removals: ChunkGpuRemovalQueue,

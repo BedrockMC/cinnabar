@@ -1,4 +1,5 @@
 mod block;
+mod fixed_tint;
 mod flipbook;
 mod parse;
 mod terrain;

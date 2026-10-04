@@ -18,5 +18,5 @@ pub(super) fn from_wgsl(raw: &str, path: impl Into<String>) -> Shader {
             "NAMETAG_HORIZONTAL_ZERO_VALUE",
             &NAMETAG_HORIZONTAL_ZERO.to_string(),
         );
-    Shader::from_wgsl(source, path)
+    crate::shader_safety::from_wgsl(source, path)
 }

@@ -1,5 +1,7 @@
 #[path = "../src/nametag.rs"]
 pub mod nametag;
+#[path = "../src/shader_safety.rs"]
+mod shader_safety;
 #[path = "../src/ui.rs"]
 pub mod ui;
 #[path = "../src/ui_textures.rs"]

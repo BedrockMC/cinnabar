@@ -71,20 +71,9 @@ impl BlockSelectionFrame {
                             for face in quads.iter() {
                                 let corners =
                                     face.corners.map(|corner| block + Vec3::from_array(corner));
-                                let normal = (corners[1] - corners[0])
-                                    .cross(corners[2] - corners[0])
-                                    .normalize_or_zero();
-                                let outward = if normal.dot(
-                                    corners.iter().sum::<Vec3>() * 0.25 - block - Vec3::splat(0.5),
-                                ) < 0.0
-                                {
-                                    -normal
-                                } else {
-                                    normal
-                                };
                                 quad(
                                     &mut surface,
-                                    corners.map(|corner| corner + outward * FACE_OFFSET),
+                                    corners.map(|corner| corner + face.outward_offset()),
                                     HIGHLIGHT_COLOR,
                                 );
                             }

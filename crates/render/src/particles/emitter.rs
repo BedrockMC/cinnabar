@@ -12,6 +12,8 @@ use super::{
     particle::Particle,
 };
 
+mod manual;
+
 /// Pixels for one dynamic terrain tile.
 #[derive(Clone, Debug)]
 pub struct TileRequest {
@@ -80,6 +82,8 @@ pub struct Emitter {
     was_active: bool,
     accum: f32,
     manual_pending: u32,
+    /// Native biome-tinted effects share a manual emitter for each effect/RGBA8 pair.
+    pub(super) biome_tinted_key: Option<[u8; 4]>,
 }
 
 fn set_var(vars: &mut Vec<f32>, slot: u16, value: f32) {
@@ -165,6 +169,7 @@ impl Emitter {
             was_active: false,
             accum: 0.0,
             manual_pending: request.manual_count.unwrap_or(1),
+            biome_tinted_key: None,
         }
     }
 
@@ -239,8 +244,11 @@ impl Emitter {
                     let room = (max - self.particles.len() as f32).max(0.0);
                     to_spawn = (self.manual_pending as f32).min(room);
                     self.manual_pending = 0;
-                    // Manual emitters emit once, then only age out their particles.
-                    self.done = true;
+                    // Ordinary manual bursts finish after one request. Native cached
+                    // biome-tinted emitters remain available for later block origins.
+                    if self.biome_tinted_key.is_none() {
+                        self.done = true;
+                    }
                 }
             }
         }

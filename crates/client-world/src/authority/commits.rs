@@ -33,12 +33,27 @@ impl WorldAuthority {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
             }
+            WorldEvent::WorldClocks(updates) => {
+                let sequence = sequence.expect("sequenced world clocks commit through submit");
+                for update in updates {
+                    self.push_committed_control(CommittedControlEvent::WorldClocks {
+                        sequence,
+                        update,
+                    });
+                }
+            }
             WorldEvent::GameRules(rules) => {
                 let sequence = sequence.expect("sequenced game rules commit through submit");
                 if let Some(update) = rules.daylight_cycle {
                     self.push_committed_control(CommittedControlEvent::DaylightCycle {
                         sequence,
                         update,
+                    });
+                }
+                if let Some(enabled) = rules.weather_cycle {
+                    self.push_committed_control(CommittedControlEvent::WeatherCycle {
+                        sequence,
+                        enabled,
                     });
                 }
                 if !rules.hud.is_empty() {

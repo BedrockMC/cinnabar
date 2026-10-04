@@ -1,5 +1,37 @@
 //! Activation roots a rig plays, distinct from the alias lookup dictionary.
+use std::collections::BTreeMap;
+
+use assets::AssetError;
 use serde_json::Value;
+
+#[cfg(test)]
+#[path = "roots_tests.rs"]
+mod tests;
+
+fn legacy_controller_alias(alias: &str) -> Box<str> {
+    format!("controller__{alias}").into_boxed_str()
+}
+
+pub(super) fn legacy_controller_aliases(
+    value: Option<&Value>,
+) -> Result<BTreeMap<Box<str>, Box<str>>, AssetError> {
+    Ok(super::environment::parse_aliases(value)?
+        .into_iter()
+        .map(|(alias, target)| (legacy_controller_alias(&alias), target))
+        .collect())
+}
+
+pub(super) fn animation_aliases(
+    description: &serde_json::Map<String, Value>,
+) -> Result<BTreeMap<Box<str>, Box<str>>, AssetError> {
+    let mut aliases = super::environment::parse_aliases(description.get("animations"))?;
+    // The native conversion assigns the generated controller target into this dictionary,
+    // replacing an existing generated-name alias rather than scheduling both targets.
+    aliases.extend(legacy_controller_aliases(
+        description.get("animation_controllers"),
+    )?);
+    Ok(aliases)
+}
 
 pub(crate) fn description(value: &Value) -> Option<&serde_json::Map<String, Value>> {
     value
@@ -33,7 +65,7 @@ pub(crate) fn activation_roots(value: &Value) -> Option<Vec<ActivationRoot>> {
     if let Some(entries) = description.get("animation_controllers") {
         for entry in entries.as_array()? {
             for alias in entry.as_object()?.keys() {
-                push(alias, None);
+                push(&legacy_controller_alias(alias), None);
             }
         }
     }

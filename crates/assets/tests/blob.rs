@@ -105,7 +105,7 @@ fn world_carrier_exact_bytes() {
     assert_eq!(bytes.len(), 1_576_296);
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "496abc3b465d65fc5e3aa6264c0121d1eec7acdd0da636933c898c3828435b0e",
+        "a26e9817f3d46f262b1fa7588d085daef3da16f81fdb57a2c89de0b05d59d7e6",
         "the complete every-table fixture is the byte-exact world carrier golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
@@ -825,7 +825,7 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
     ));
 
     for invalid in [
-        BlockFlags::from_bits_retain(0x10),
+        BlockFlags::from_bits_retain(!BlockFlags::all().bits()),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
         BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,
