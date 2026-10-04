@@ -88,6 +88,11 @@ impl PackPaths {
     pub fn is_unpacked(&self) -> bool {
         self.cache.join(MARKER).is_file()
     }
+
+    /// Removes staging directories abandoned beside the cache by killed runs; returns how many.
+    pub fn reclaim_stale_staging(&self) -> usize {
+        publish::reclaim_stale_staging(&self.cache, std::time::SystemTime::now())
+    }
 }
 
 impl VanillaSource {
@@ -114,9 +119,7 @@ impl VanillaSource {
             }
         }
         let archive = &*self.archive;
-        let drive =
-            archive.as_bytes().get(1) == Some(&b':') && archive.as_bytes()[0].is_ascii_alphabetic();
-        if matches!(archive, "" | "." | "..") || archive.contains(['/', '\\']) || drive {
+        if !is_plain_component(archive) {
             return Err(rejected("archive must be exactly one nonempty basename"));
         }
         if &*self.artifact_policy != "local-only" {
@@ -143,15 +146,40 @@ impl VanillaSource {
                 "cache_dir must not contain empty or traversal components: {cache}"
             )));
         }
+        if !suffix.split('/').all(is_plain_component) {
+            return Err(rejected(format!(
+                "cache_dir must not contain drive, UNC or stream components: {cache}"
+            )));
+        }
+        let root = workspace.join(CACHE_ROOT);
+        let cache_path = suffix
+            .split('/')
+            .fold(root.clone(), |path, part| path.join(part));
         let archive_path = workspace.join(DOWNLOAD_DIR).join(archive);
+        // Belt and braces over the component rules: a prefix component would replace the base.
+        if !cache_path.starts_with(&root) || !archive_path.starts_with(workspace.join(DOWNLOAD_DIR))
+        {
+            return Err(rejected(format!(
+                "cache_dir must stay below .local/assets: {cache}"
+            )));
+        }
         Ok(PackPaths {
             partial: archive_path.with_file_name(format!("{archive}.partial")),
             archive: archive_path,
-            cache: suffix
-                .split('/')
-                .fold(workspace.join(CACHE_ROOT), |path, part| path.join(part)),
+            cache: cache_path,
         })
     }
+}
+
+/// One ordinary path component on every platform: no separators, traversal, or `:`, which
+/// Windows reads as a drive prefix (`C:x`) or an alternate data stream.
+fn is_plain_component(part: &str) -> bool {
+    !matches!(part, "" | "." | "..")
+        && !part.contains(['/', '\\', ':'])
+        && matches!(
+            Path::new(part).components().collect::<Vec<_>>().as_slice(),
+            [std::path::Component::Normal(_)]
+        )
 }
 
 /// Lowercase hex SHA-256 of the file at `path`.
@@ -182,7 +210,7 @@ pub fn unpack(
     limits: &UnpackLimits,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<Unpacked, UnpackError> {
-    publish::reclaim_stale_staging(&paths.cache, std::time::SystemTime::now());
+    paths.reclaim_stale_staging();
     if paths.is_unpacked() {
         return Ok(Unpacked::AlreadyPresent);
     }

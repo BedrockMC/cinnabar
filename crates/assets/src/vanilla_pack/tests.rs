@@ -352,6 +352,18 @@ fn manifest_paths_stay_below_the_local_asset_root() {
             "empty or traversal components",
         ),
         (manifest("x.zip", ".local/assets/a\\b"), "forward-slash"),
+        (
+            manifest("x.zip", ".local/assets/C:escaped/full"),
+            "drive, UNC or stream components",
+        ),
+        (
+            manifest("x.zip", ".local/assets/pack/full:stream"),
+            "drive, UNC or stream components",
+        ),
+        (
+            manifest("x:y.zip", ".local/assets/a"),
+            "exactly one nonempty basename",
+        ),
     ] {
         let error = source.local_paths(workspace).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
