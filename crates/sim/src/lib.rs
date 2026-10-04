@@ -3,6 +3,7 @@
 mod aabb;
 mod conformance;
 mod destroy;
+mod fluid;
 mod math;
 mod prediction;
 mod simulator;
@@ -18,6 +19,7 @@ pub use destroy::{
     BlockDestroyInfo, DestroyConditions, HeldTool, ToolKind, ToolTier, block_destroy_info,
     destroy_progress_per_tick,
 };
+pub use fluid::sample_actor_liquids;
 pub use math::{Vec3, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
