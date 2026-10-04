@@ -327,12 +327,7 @@ fn store_screen(
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
-    let profile = &view.feeds.profile;
-    let gamertag = if profile.gamertag.is_empty() {
-        view.display_name.clone()
-    } else {
-        profile.gamertag.clone()
-    };
+    let gamertag = super::accounts::current_name(view).to_owned();
     data.set_global("#playername", text(gamertag.clone()));
     data.set_global("#gamertag_label", text(gamertag));
     let portrait = super::accounts::current_picture(view).is_some()

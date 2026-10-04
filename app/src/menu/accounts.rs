@@ -8,7 +8,7 @@ pub(super) struct Manager {
     remembered: Option<(String, Option<String>)>,
     pub pending_ready: bool,
     pub skip_control: bool,
-    pub work: Option<crossbeam_channel::Receiver<bool>>,
+    pub work: Option<crossbeam_channel::Receiver<(bool, bool)>>,
     remember: Option<crossbeam_channel::Receiver<bool>>,
     remember_retry: Option<std::time::Instant>,
 }
@@ -18,6 +18,7 @@ pub(super) enum Operation {
     Switch(String),
     Commit(AccountProfile),
     Restore,
+    SignOut,
 }
 
 impl MenuRuntime {
@@ -117,13 +118,13 @@ impl MenuRuntime {
     pub(super) fn poll_accounts(&mut self) {
         if let Some(receiver) = &self.accounts.work {
             match receiver.try_recv() {
-                Ok(success) => {
+                Ok((success, signed_out)) => {
                     self.accounts.work = None;
-                    self.finish_account_operation(success);
+                    self.finish_account_operation(success, signed_out);
                 }
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     self.accounts.work = None;
-                    self.finish_account_operation(false);
+                    self.finish_account_operation(false, false);
                 }
                 Err(crossbeam_channel::TryRecvError::Empty) => {}
             }
@@ -156,6 +157,9 @@ impl MenuRuntime {
             }
         }
         let profile = &self.feeds.profile;
+        if self.feeds.account_adding && self.accounts.pending_ready && profile.unavailable {
+            self.feeds.account_error = Some("Xbox profile unavailable. Retrying…".into());
+        }
         if !profile.loaded || profile.xuid.is_empty() || profile.gamertag.is_empty() {
             return;
         }
@@ -214,6 +218,7 @@ impl MenuRuntime {
         let (sender, receiver) = crossbeam_channel::bounded(1);
         self.accounts.work = Some(receiver);
         move || {
+            let signed_out = matches!(&operation, Operation::SignOut);
             let result = match operation {
                 Operation::Switch(id) => store.activate(&id),
                 Operation::Commit(profile) => store
@@ -224,13 +229,14 @@ impl MenuRuntime {
                     )
                     .map(|_| ()),
                 Operation::Restore => Ok(()),
+                Operation::SignOut => store.sign_out(),
             };
             let _ = store.discard_pending();
-            let _ = sender.send(result.is_ok());
+            let _ = sender.send((result.is_ok(), signed_out));
         }
     }
 
-    fn finish_account_operation(&mut self, success: bool) {
+    fn finish_account_operation(&mut self, success: bool, signed_out: bool) {
         if !success {
             self.feeds.account_error = Some("Could not switch accounts. Try again.".into());
         }
@@ -246,7 +252,9 @@ impl MenuRuntime {
         self.control_auth = None;
         self.sign_in_page_code = None;
         self.reload_accounts();
-        self.start_sign_in();
+        if !signed_out {
+            self.start_sign_in();
+        }
         if self.dialog.is_some() {
             self.dialog = Some(MenuDialog::Accounts);
         }
@@ -290,6 +298,7 @@ mod tests {
     #[test]
     fn account_management_cannot_change_the_account_owning_a_live_world() {
         let mut menu = MenuRuntime::new(true, 2, "First".into());
+        menu.set_visible(false);
         menu.open_pause();
         menu.feeds.accounts = vec![AccountProfile {
             id: "42".into(),

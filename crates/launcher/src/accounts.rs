@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
-const DERIVED_SUFFIX: &str = ".join-auth-v1";
+const DERIVED_SUFFIX: &str = include_str!("../../../core/authcache/derived_suffix.txt");
+const PICTURE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "bmp"];
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -141,6 +142,23 @@ impl AccountStore {
         remove_optional(&derived_path(&pending))
     }
 
+    /// The caller stops its cores before removing the selected account's saved credentials.
+    pub fn sign_out(&self) -> io::Result<()> {
+        let _lease = self.lease()?;
+        let _active = cache_leases(&self.active_cache)?;
+        remove_optional(&self.active_cache)?;
+        remove_optional(&derived_path(&self.active_cache))?;
+        let mut index = self.index()?;
+        if let Some(id) = index.active.take() {
+            remove_optional(&self.directory.join(format!("{id}.json")))?;
+            for extension in PICTURE_EXTENSIONS {
+                remove_optional(&self.directory.join(format!("{id}-picture.{extension}")))?;
+            }
+            index.profiles.remove(&id);
+        }
+        self.write_index(&index)
+    }
+
     fn activate_locked(
         &self,
         index: &mut Index,
@@ -255,8 +273,8 @@ impl AccountStore {
         let extension = path
             .extension()
             .and_then(|extension| extension.to_str())
-            .filter(|extension| matches!(*extension, "png" | "jpg" | "jpeg" | "gif" | "bmp"))
-            .unwrap_or("png");
+            .filter(|extension| PICTURE_EXTENSIONS.contains(extension))
+            .unwrap_or(PICTURE_EXTENSIONS[0]);
         let target = self
             .directory
             .join(format!("{}-picture.{extension}", profile.id));
@@ -627,6 +645,44 @@ mod tests {
         assert_eq!(fixture.active_generation(), "two-refreshed");
         assert_eq!(fixture.store.active_id().unwrap().as_deref(), Some("2"));
         assert_eq!(fixture.store.list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn signing_out_forgets_only_the_selected_account_and_its_owned_picture() {
+        let fixture = Fixture::new();
+        fixture.sign_in(&fixture.store.active_cache, "one");
+        let source = fixture.directory.join("gamerpic.png");
+        fs::write(&source, b"picture fixture").unwrap();
+        let first = fixture
+            .store
+            .remember_current("1", "First", source.to_str())
+            .unwrap();
+        fixture.sign_in(&fixture.store.pending_cache(), "two");
+        fixture.store.commit_pending("2", "Second", None).unwrap();
+        fixture.store.activate("1").unwrap();
+        write_private(&derived_path(&fixture.store.active_cache), b"{}").unwrap();
+        fixture.store.sign_out().unwrap();
+        assert!(!fixture.store.active_cache.exists());
+        assert!(!derived_path(&fixture.store.active_cache).exists());
+        assert!(!fixture.store.directory.join("1.json").exists());
+        assert!(!Path::new(first.picture_path.as_ref().unwrap()).exists());
+        assert!(source.exists());
+        assert_eq!(fixture.store.active_id().unwrap(), None);
+        assert_eq!(fixture.store.list().unwrap()[0].id, "2");
+        fixture.store.sign_out().unwrap();
+        fixture.store.activate("2").unwrap();
+        assert_eq!(fixture.active_generation(), "two");
+    }
+
+    #[test]
+    fn signing_out_clears_credentials_before_a_profile_has_been_saved() {
+        let fixture = Fixture::new();
+        fixture.sign_in(&fixture.store.active_cache, "one");
+        write_private(&derived_path(&fixture.store.active_cache), b"{}").unwrap();
+        fixture.store.sign_out().unwrap();
+        assert!(!fixture.store.active_cache.exists());
+        assert!(!derived_path(&fixture.store.active_cache).exists());
+        assert!(fixture.store.list().unwrap().is_empty());
     }
 
     #[test]

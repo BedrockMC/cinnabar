@@ -4,7 +4,7 @@ use json_ui::{Catalog, CollectionItem, DataSource, HitRegion, Scalar};
 
 use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
-pub(super) const SCREEN: &str = "cinnabar_accounts.screen";
+pub(super) use json_ui::ACCOUNTS_SCREEN as SCREEN;
 
 pub(super) fn extend_catalog(catalog: &mut Catalog) {
     catalog.overlay_text("ui/cinnabar_accounts.json", include_str!("accounts.json"));
@@ -82,6 +82,19 @@ pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> 
     })
 }
 
+pub(super) fn current_name(view: &MenuView) -> &str {
+    if !view.feeds.profile.gamertag.is_empty() {
+        return &view.feeds.profile.gamertag;
+    }
+    view.feeds
+        .accounts
+        .iter()
+        .find(|account| Some(&account.id) == view.feeds.account_active_id.as_ref())
+        .map_or(view.display_name.as_str(), |account| {
+            account.gamertag.as_str()
+        })
+}
+
 pub(super) fn current_picture(view: &MenuView) -> Option<&str> {
     if !view.feeds.profile.picture_path.is_empty() {
         return Some(&view.feeds.profile.picture_path);
@@ -96,7 +109,10 @@ pub(super) fn current_picture(view: &MenuView) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{pack_harness::engine_presentation, test_support::draw_menu_actions};
+    use super::super::{
+        pack_harness::{drawn_texts, engine_presentation, menu_nodes},
+        test_support::draw_menu_actions,
+    };
     use super::*;
     use crate::menu::MenuDialog;
 
@@ -124,11 +140,15 @@ mod tests {
     fn home_portrait_uses_the_saved_xbox_picture_until_profile_arrives() {
         let mut view = manager_view();
         assert_eq!(current_picture(&view), Some("first.png"));
+        assert_eq!(current_name(&view), "First");
         view.feeds.profile.picture_path = "fresh.png".into();
         assert_eq!(current_picture(&view), Some("fresh.png"));
         view.feeds.profile.picture_path.clear();
         view.feeds.account_active_id = Some("second".into());
         assert_eq!(current_picture(&view), Some("second.png"));
+        assert_eq!(current_name(&view), "Second");
+        view.feeds.profile.gamertag = "Fresh name".into();
+        assert_eq!(current_name(&view), "Fresh name");
     }
 
     #[test]
@@ -141,6 +161,12 @@ mod tests {
             &player_state::PlayerState::new(1),
             &mut presentation,
             &manager_view(),
+        );
+        let texts = drawn_texts(menu_nodes(&presentation));
+        assert!(texts.iter().any(|text| text.contains("First")), "{texts:?}");
+        assert!(
+            texts.iter().any(|text| text.contains("Second")),
+            "{texts:?}"
         );
         assert!(
             actions.contains(&MenuAction::SwitchAccount(1)),
@@ -177,6 +203,8 @@ mod tests {
         };
         let actions =
             draw_menu_actions(&player_state::PlayerState::new(1), &mut presentation, &view);
+        let texts = drawn_texts(menu_nodes(&presentation));
+        assert!(texts.iter().any(|text| text.contains("TEST")), "{texts:?}");
         assert!(actions.contains(&MenuAction::CancelSignIn), "{actions:?}");
         assert!(!actions.iter().any(|action| matches!(
             action,
