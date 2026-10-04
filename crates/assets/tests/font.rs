@@ -179,3 +179,43 @@ fn review_glyph_identity_includes_bearings_and_exact_draw_sizes() {
     resized.draw_size_64[0] += 1;
     assert_ne!(first, catalog.with_glyphs(&[resized], |_| true).identity());
 }
+
+#[test]
+fn attached_named_font_keeps_default_metrics_and_rebases_private_pages() {
+    let base = RuntimeFontCatalog::decode(&carrier(), SOURCE_MANIFEST_SHA256).unwrap();
+    let mut private_page = page();
+    private_page.rgba8[3] = 128;
+    private_page.pixels_sha256 = Sha256::digest(&private_page.rgba8).into();
+    let glyph = GlyphMetrics {
+        advance_64: 192,
+        ..*base.glyph('A').unwrap()
+    };
+    let private_bytes =
+        encode_font_catalog(SOURCE_MANIFEST_SHA256, &[glyph], &[private_page]).unwrap();
+    let private = RuntimeFontCatalog::decode(&private_bytes, SOURCE_MANIFEST_SHA256)
+        .unwrap()
+        .with_linear_sampling();
+    let combined = base.with_named_font("private_controls", &private).unwrap();
+    assert_eq!(combined.glyphs(), base.glyphs());
+    assert_eq!(combined.pages()[0], base.pages()[0]);
+    assert_eq!(combined.pages().len(), 2);
+    let alias = combined.font_named("private_controls");
+    assert!(!combined.linear_sampling());
+    assert!(alias.linear_sampling());
+    assert_eq!(alias.glyph('A').unwrap().page, 1);
+    assert_eq!(alias.glyph('A').unwrap().advance_64, 192);
+    assert_eq!(combined.pages()[1].rgba8[3], 128);
+    assert_eq!(combined.font_named("unknown").glyph('A'), base.glyph('A'));
+    let next = combined
+        .with_named_font("second_controls", &private)
+        .unwrap();
+    assert_eq!(
+        next.font_named("second_controls").glyph('A').unwrap().page,
+        2
+    );
+    assert_ne!(
+        alias.identity(),
+        next.font_named("second_controls").identity()
+    );
+    assert!(base.with_named_font("", &private).is_err());
+}

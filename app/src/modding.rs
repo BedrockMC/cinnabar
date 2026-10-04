@@ -1,5 +1,8 @@
 //! Opt-in component spike. The default client registers no extension runtime.
 
+#[cfg(feature = "local-mods")]
+pub(crate) mod font;
+
 use bevy::prelude::*;
 #[cfg(feature = "local-mods")]
 use {
@@ -19,6 +22,12 @@ const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
 #[cfg(feature = "local-mods")]
 const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
 #[cfg(feature = "local-mods")]
+const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
+#[cfg(feature = "local-mods")]
+const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
+#[cfg(feature = "local-mods")]
+const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
@@ -29,6 +38,7 @@ struct ModRuntime {
     host: ModHost,
     last_reload: Instant,
     grants: ModGrants,
+    controls: mod_host::ControlFrame,
 }
 
 /// Installs the developer extension only when its component path is explicit.
@@ -50,6 +60,9 @@ fn configure(app: &mut App, path: Option<&Path>) {
         environment: true,
         players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
+        controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
+        interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
+        settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
     };
     configure_with_grants(app, path, grants);
 }
@@ -65,7 +78,13 @@ fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) 
                     host,
                     last_reload: Instant::now(),
                     grants,
+                    controls: mod_host::empty_controls(),
                 })
+                .init_resource::<interaction::ModInteraction>()
+                .add_systems(
+                    Update,
+                    input::prepare_mod_input.before(ClientFrameSet::RawInput),
+                )
                 .add_systems(
                     Update,
                     drive_mod
@@ -95,6 +114,7 @@ fn drive_mod(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut time_override: ResMut<VisualTimeOverride>,
     mut gameplay: gameplay::GameplayContext,
+    mut interaction: ResMut<interaction::ModInteraction>,
 ) {
     if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
@@ -114,11 +134,21 @@ fn drive_mod(
         cursor.is_some_and(|cursor| crate::camera::input_is_active(window, cursor))
     });
     let snapshot = gameplay.snapshot(captured && !absorbed, extension.grants);
+    let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    controls.gameplay = snapshot.is_some();
     if extension.host.is_active()
-        && let Err(error) = extension.host.frame_with_gameplay(pressed, snapshot)
+        && let Err(error) = extension
+            .host
+            .frame_with_controls(pressed, snapshot, controls)
     {
-        eprintln!("Cinnabar extension callback disabled: {error:#}");
+        eprintln!("Cinnabar extension callback failed: {error:#}");
     }
+    if let Some(error) = extension.host.take_settings_error() {
+        eprintln!("Cinnabar extension preferences could not be saved: {error}");
+    }
+    let output = extension.host.take_interaction();
+    interaction.attack_reach = output.attack_reach;
+    interaction.attack_pulse = output.attack_pulse && gameplay.pulse_attack();
     if let Some(delta) = extension.host.take_camera_delta() {
         gameplay.apply(delta);
     }
@@ -126,6 +156,11 @@ fn drive_mod(
     if let Err(error) = presentation.set_mod_label(extension.host.label()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
     }
+    if let Err(error) = presentation.set_mod_panel(extension.host.panel()) {
+        eprintln!("Cinnabar extension panel rejected: {error}");
+        extension.host.set_panel_open(false);
+    }
+    presentation.set_mod_panel_open(extension.host.panel_open());
 }
 
 /// A mod keybind is unavailable while another UI or an unfocused window owns input.
@@ -224,3 +259,7 @@ mod time_changer_tests;
 
 #[cfg(feature = "local-mods")]
 mod gameplay;
+#[cfg(feature = "local-mods")]
+mod input;
+#[cfg(feature = "local-mods")]
+pub(crate) mod interaction;

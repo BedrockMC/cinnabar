@@ -53,6 +53,7 @@ pub struct CompiledFontCatalog {
     /// Drawn size in 1/64 px for glyphs that are not drawn at their texel size.
     draw_sizes_64: Arc<BTreeMap<char, [u32; 2]>>,
     named: Arc<BTreeMap<String, Self>>,
+    linear_sampling: bool,
 }
 
 pub type RuntimeFontCatalog = CompiledFontCatalog;
@@ -83,6 +84,7 @@ impl CompiledFontCatalog {
             pages: pages.into(),
             draw_sizes_64: Arc::default(),
             named: Arc::default(),
+            linear_sampling: false,
         })
     }
 
@@ -126,7 +128,24 @@ impl CompiledFontCatalog {
             pages: Arc::clone(&self.pages),
             draw_sizes_64: Arc::new(draw_sizes_64),
             named: Arc::clone(&self.named),
+            linear_sampling: self.linear_sampling,
         }
+    }
+
+    /// Selects filtered sampling for a runtime outline raster; decoded carriers remain nearest.
+    pub fn with_linear_sampling(mut self) -> Self {
+        if !self.linear_sampling {
+            let mut hash = Sha256::new();
+            hash.update(self.identity.carrier_sha256);
+            hash.update(b"linear outline sampling");
+            self.identity.carrier_sha256 = hash.finalize().into();
+            self.linear_sampling = true;
+        }
+        self
+    }
+
+    pub const fn linear_sampling(&self) -> bool {
+        self.linear_sampling
     }
 
     /// Adds runtime font aliases without changing the pinned carrier format.
@@ -140,6 +159,50 @@ impl CompiledFontCatalog {
         self.identity.carrier_sha256 = hash.finalize().into();
         self.named = Arc::new(fonts);
         self
+    }
+
+    /// Attaches an authenticated font's pages and rebases its alias without changing default glyphs.
+    pub fn with_named_font(&self, name: &str, font: &Self) -> Result<Self, FontCatalogError> {
+        if name.is_empty()
+            || name.len() > MAX_FONT_PATH_BYTES
+            || self.pages.len() + font.pages.len() > MAX_FONT_PAGES
+        {
+            return Err(invalid_catalog("named font exceeds catalog bounds"));
+        }
+        let offset = u16::try_from(self.pages.len())
+            .map_err(|_| invalid_catalog("named font page offset exceeds bounds"))?;
+        let mut alias = font.clone();
+        for glyph in alias.glyphs.iter_mut() {
+            glyph.page = glyph
+                .page
+                .checked_add(offset)
+                .ok_or_else(|| invalid_catalog("named font page offset exceeds bounds"))?;
+        }
+        let mut identity = Sha256::new();
+        identity.update(font.identity.carrier_sha256);
+        identity.update(offset.to_le_bytes());
+        alias.identity.carrier_sha256 = identity.finalize().into();
+        let mut pages = self.pages.to_vec();
+        pages.extend_from_slice(&font.pages);
+        let bytes = pages
+            .iter()
+            .try_fold(0usize, |total, page| total.checked_add(page.rgba8.len()));
+        if bytes.is_none_or(|bytes| bytes > MAX_FONT_DECODED_BYTES) {
+            return Err(invalid_catalog(
+                "named font pages exceed decoded byte bounds",
+            ));
+        }
+        let pages: Arc<[FontTexturePage]> = pages.into();
+        alias.pages = Arc::clone(&pages);
+        let mut aliases = (*self.named).clone();
+        aliases.insert(name.into(), alias);
+        let mut result = self.clone();
+        result.pages = pages;
+        Ok(result.with_named_fonts(aliases))
+    }
+
+    pub fn named_fonts(&self) -> &BTreeMap<String, Self> {
+        &self.named
     }
 
     /// Unknown aliases use the default font, as do callers without a font selection.

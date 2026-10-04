@@ -19,6 +19,11 @@ use client_ui::ui_runtime::UiRuntime;
 pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
 
 impl SemanticInputSnapshot {
+    #[cfg(all(test, feature = "local-mods"))]
+    pub(crate) fn from_finalized(snapshot: ActionSnapshot) -> Self {
+        Self(Some(snapshot))
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> Option<&ActionSnapshot> {
         self.0.as_ref()
@@ -57,6 +62,20 @@ impl SemanticInputSnapshot {
         self.0.as_ref().map_or(ActionPhase::default(), |snapshot| {
             snapshot.phases[action as usize]
         })
+    }
+
+    /// Adds one attack edge to an existing held input without changing its authority.
+    #[cfg(feature = "local-mods")]
+    pub fn request_mod_attack_press(&mut self) -> bool {
+        let Some(snapshot) = self.0.as_mut() else {
+            return false;
+        };
+        let attack = &mut snapshot.phases[Action::Attack as usize];
+        if !attack.held || attack.pressed {
+            return false;
+        }
+        attack.pressed = true;
+        true
     }
 
     fn replace(&mut self, snapshot: ActionSnapshot) {
@@ -424,6 +443,37 @@ mod tests {
         assert_eq!(snapshot.movement(), [0.6, 0.8]);
         assert_eq!(snapshot.raw_movement(), [1.0, 0.8]);
         assert_eq!(snapshot.analogue_movement(), [0.6, 0.8]);
+    }
+
+    #[cfg(feature = "local-mods")]
+    #[test]
+    fn personal_attack_pulse_requires_current_held_input() {
+        let mut missing = SemanticInputSnapshot::default();
+        assert!(!missing.request_mod_attack_press());
+        assert!(missing.snapshot().is_none());
+
+        let mut released = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        released.0.as_mut().unwrap().phases[Action::Attack as usize].released = true;
+        let before = released.snapshot().unwrap().clone();
+        assert!(!released.request_mod_attack_press());
+        assert_eq!(released.snapshot(), Some(&before));
+    }
+
+    #[cfg(feature = "local-mods")]
+    #[test]
+    fn personal_attack_pulse_only_adds_one_attack_edge() {
+        let mut input = snapshot_with_carriers([0.6, 0.8], [1.0, 0.8], [0.6, 0.8]);
+        let snapshot = input.0.as_mut().unwrap();
+        snapshot.phases[Action::Attack as usize].held = true;
+        snapshot.phases[Action::Jump as usize].pressed = true;
+        snapshot.look_delta = [1.0, -2.0];
+        let mut expected = snapshot.clone();
+        expected.phases[Action::Attack as usize].pressed = true;
+
+        assert!(input.request_mod_attack_press());
+        assert_eq!(input.snapshot(), Some(&expected));
+        assert!(!input.request_mod_attack_press());
+        assert_eq!(input.snapshot(), Some(&expected));
     }
 
     #[test]

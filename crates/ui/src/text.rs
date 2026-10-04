@@ -221,9 +221,14 @@ pub struct TextLayout {
     line_count: u16,
     size_64: [u32; 2],
     ellipsized: bool,
+    linear_sampling: bool,
 }
 
 impl TextLayout {
+    pub const fn linear_sampling(&self) -> bool {
+        self.linear_sampling
+    }
+
     /// Whether a line limit cut the text short and ended it in `...`.
     pub const fn ellipsized(&self) -> bool {
         self.ellipsized

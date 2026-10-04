@@ -4066,6 +4066,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "ui",
  "wasmtime",
  "wit-component",
 ]
@@ -6526,6 +6527,7 @@ version = "0.1.4"
 dependencies = [
  "assets",
  "semantic-input",
+ "serde",
  "sha2",
 ]
 

@@ -401,6 +401,10 @@ fn solid_node(id: u32, parent: Option<u32>) -> UiNode {
 }
 
 fn text_layout() -> Arc<TextLayout> {
+    text_layout_sampling(false)
+}
+
+fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
     let rgba8 = vec![255; 8].into_boxed_slice();
     let pages = [
         FontTexturePage {
@@ -448,6 +452,11 @@ fn text_layout() -> Arc<TextLayout> {
     let identity = [9; 32];
     let bytes = encode_font_catalog(identity, &glyphs, &pages).unwrap();
     let font = CompiledFontCatalog::decode(&bytes, identity).unwrap();
+    let font = if linear {
+        font.with_linear_sampling()
+    } else {
+        font
+    };
     TextLayoutCache::new(1, 64 * 1024)
         .layout(TextLayoutRequest {
             text: "AB",
@@ -460,6 +469,36 @@ fn text_layout() -> Arc<TextLayout> {
             wrap: Default::default(),
         })
         .unwrap()
+}
+
+#[test]
+fn outline_text_selects_linear_sampler_without_changing_default_text_geometry() {
+    let draw = |linear| {
+        draw_list(UiVisual::Text {
+            layout: text_layout_sampling(linear),
+            color: [255; 4],
+            shadow: TextShadow::None,
+        })
+    };
+    let nearest = draw(false);
+    let linear = draw(true);
+    assert!(
+        nearest
+            .vertices
+            .iter()
+            .all(|vertex| vertex.style_flags == 0)
+    );
+    assert!(
+        linear
+            .vertices
+            .iter()
+            .all(|vertex| vertex.style_flags == ui::UI_STYLE_BILINEAR)
+    );
+    assert_eq!(nearest.indices, linear.indices);
+    for (nearest, linear) in nearest.vertices.iter().zip(&linear.vertices) {
+        assert_eq!(nearest.position, linear.position);
+        assert_eq!(nearest.uv, linear.uv);
+    }
 }
 
 fn node(id: u32) -> UiNodeId {
