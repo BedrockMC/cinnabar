@@ -233,7 +233,8 @@ pub use registry::{
 };
 pub use runtime::{
     BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,
-    SequentialIdRemap,
+    SequentialIdRemap, ServerDefinedBlock, server_defined_blocks,
+    server_defined_blocks_for_registry,
 };
 pub use seasonal_foliage::{
     SEASONAL_FOLIAGE_COLD_THRESHOLD, SEASONAL_FOLIAGE_COUNT, SEASONAL_FOLIAGE_EXPOSED_OFFSET,

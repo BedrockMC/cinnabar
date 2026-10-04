@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
+	_ "embed"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -37,8 +38,10 @@ import (
 
 const (
 	derivedCacheVersion = 1
-	derivedCacheSuffix  = ".join-auth-v1"
 )
+
+//go:embed derived_suffix.txt
+var derivedCacheSuffix string
 
 // DerivedCachePath returns the private cache path used for authentication
 // state derived from the Microsoft token at oauthPath.
