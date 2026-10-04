@@ -7,9 +7,9 @@ use protocol::{
 };
 use valentine::bedrock::version::v1_26_51::{McpePacketData, McpePacketName, PlaySoundPacket};
 
-const PLAY_SOUND: &[u8] = include_bytes!("../fixtures/play_sound.bin");
-const STOP_SOUND: &[u8] = include_bytes!("../fixtures/stop_sound.bin");
-const LEVEL_SOUND_EVENT: &[u8] = include_bytes!("../fixtures/level_sound_event.bin");
+const PLAY_SOUND: &[u8] = include_bytes!("../../fixtures/play_sound.bin");
+const STOP_SOUND: &[u8] = include_bytes!("../../fixtures/stop_sound.bin");
+const LEVEL_SOUND_EVENT: &[u8] = include_bytes!("../../fixtures/level_sound_event.bin");
 
 fn session() -> BedrockSession {
     BedrockSession { shield_item_id: 0 }

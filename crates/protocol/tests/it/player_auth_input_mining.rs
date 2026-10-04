@@ -81,11 +81,12 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
     for (predict, fixture) in [
         (
             false,
-            include_bytes!("../fixtures/player_auth_input_mine_block.bin").as_slice(),
+            include_bytes!("../../fixtures/player_auth_input_mine_block.bin").as_slice(),
         ),
         (
             true,
-            include_bytes!("../fixtures/player_auth_input_mine_block_and_predict.bin").as_slice(),
+            include_bytes!("../../fixtures/player_auth_input_mine_block_and_predict.bin")
+                .as_slice(),
         ),
     ] {
         let mut built = player_auth_input_with_mining_request(
@@ -202,7 +203,7 @@ fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
     absent.header.to_subclient = 2;
     assert_eq!(
         encode(&absent, &session).unwrap().as_ref(),
-        include_bytes!("../fixtures/player_auth_input.bin")
+        include_bytes!("../../fixtures/player_auth_input.bin")
     );
 }
 

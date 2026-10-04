@@ -3,9 +3,9 @@ use bytes::{Buf, Bytes};
 use protocol::{BedrockSession, decode_batch, encode};
 use valentine::bedrock::version::v1_26_51::{BorrowedMcpePacket, McpePacketArgs, McpePacketData};
 
-const VISIBLE: &[u8] = include_bytes!("../fixtures/disconnect_visible.bin");
-const FILTERED: &[u8] = include_bytes!("../fixtures/disconnect_filtered.bin");
-const HIDDEN: &[u8] = include_bytes!("../fixtures/disconnect_hidden.bin");
+const VISIBLE: &[u8] = include_bytes!("../../fixtures/disconnect_visible.bin");
+const FILTERED: &[u8] = include_bytes!("../../fixtures/disconnect_filtered.bin");
+const HIDDEN: &[u8] = include_bytes!("../../fixtures/disconnect_hidden.bin");
 
 #[test]
 fn server_disconnect_wire_preserves_conditional_messages() {

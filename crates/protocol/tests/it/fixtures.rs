@@ -19,12 +19,12 @@ use valentine::bedrock::version::v1_26_51::{
     Vec2, Vec3,
 };
 
-const NETWORK_SETTINGS: &[u8] = include_bytes!("../fixtures/network_settings.bin");
-const START_GAME: &[u8] = include_bytes!("../fixtures/start_game.bin");
-const LEVEL_CHUNK: &[u8] = include_bytes!("../fixtures/level_chunk.bin");
-const MOVE_PLAYER: &[u8] = include_bytes!("../fixtures/move_player.bin");
-const PLAYER_AUTH_INPUT: &[u8] = include_bytes!("../fixtures/player_auth_input.bin");
-const ADD_ACTOR: &[u8] = include_bytes!("../fixtures/add_actor.bin");
+const NETWORK_SETTINGS: &[u8] = include_bytes!("../../fixtures/network_settings.bin");
+const START_GAME: &[u8] = include_bytes!("../../fixtures/start_game.bin");
+const LEVEL_CHUNK: &[u8] = include_bytes!("../../fixtures/level_chunk.bin");
+const MOVE_PLAYER: &[u8] = include_bytes!("../../fixtures/move_player.bin");
+const PLAYER_AUTH_INPUT: &[u8] = include_bytes!("../../fixtures/player_auth_input.bin");
+const ADD_ACTOR: &[u8] = include_bytes!("../../fixtures/add_actor.bin");
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const MAX_BATCH_PACKETS: usize = 1_600;
 
@@ -527,9 +527,9 @@ fn encode_rejects_out_of_range_subclient_ids() {
 }
 
 const PLAYER_AUTH_INPUT_BLOCK_ACTIONS: &[u8] =
-    include_bytes!("../fixtures/player_auth_input_block_actions.bin");
+    include_bytes!("../../fixtures/player_auth_input_block_actions.bin");
 const PLAYER_AUTH_INPUT_BREAK_BLOCK: &[u8] =
-    include_bytes!("../fixtures/player_auth_input_break_block.bin");
+    include_bytes!("../../fixtures/player_auth_input_break_block.bin");
 
 /// The movement half shared by every PlayerAuthInput fixture.
 fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
@@ -804,7 +804,7 @@ fn directly_asserted_interaction_flags_are_rejected() {
 }
 
 const PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK: &[u8] =
-    include_bytes!("../fixtures/player_auth_input_block_actions_and_break_block.bin");
+    include_bytes!("../../fixtures/player_auth_input_block_actions_and_break_block.bin");
 
 /// The verified selected item carried by the break-block fixtures.
 fn fixture_break_block_item() -> protocol::VerifiedNetworkItemStack {
