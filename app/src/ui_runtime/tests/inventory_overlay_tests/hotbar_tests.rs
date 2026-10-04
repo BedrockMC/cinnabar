@@ -156,7 +156,7 @@ fn session_reset_presents_no_hotbar_cells_from_either_store() {
     let mut runtime = drained_inventory_runtime(&mut player_runtime);
     assert!(presented_hotbar_stacks(&player_runtime, &mut runtime)[3].is_some());
 
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
     let reset = presented_hotbar_stacks(&player_runtime, &mut runtime);
     assert!(

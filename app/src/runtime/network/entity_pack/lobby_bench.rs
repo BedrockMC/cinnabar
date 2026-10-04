@@ -295,7 +295,8 @@ fn build_world(
         super::set_vanilla_refs(refs);
     }
     let view = super::super::local_pack::local_pack_view_at(pack_path).unwrap();
-    let pack = super::compile(&view).expect("the pack defines entities");
+    let pack =
+        super::compile(&view, super::vanilla_refs().as_deref()).expect("the pack defines entities");
 
     let mut stream = WorldStream::new_with_asset_sets(
         capture.bootstrap,

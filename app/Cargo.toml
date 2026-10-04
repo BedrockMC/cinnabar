@@ -36,6 +36,7 @@ image.workspace = true
 json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
 mod-host = { path = "../crates/mod-host", default-features = false }
+particles = { path = "../crates/particles" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
 server-experience = { path = "../crates/server-experience" }

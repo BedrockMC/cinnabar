@@ -30,7 +30,8 @@ fn mining_negotiation_distinguishes_false_from_unknown_and_resets_by_session() {
         player_runtime.facts.server_authoritative_block_breaking(),
         Some(false)
     );
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert_eq!(
         player_runtime.facts.server_authoritative_block_breaking(),
         None
@@ -38,7 +39,8 @@ fn mining_negotiation_distinguishes_false_from_unknown_and_resets_by_session() {
     player_runtime
         .facts
         .install_block_breaking_mode(2, true, true);
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert_eq!(
         player_runtime.facts.server_authoritative_block_breaking(),
         Some(true)

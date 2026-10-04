@@ -9,7 +9,7 @@ use crate::{
     camera::CameraSettingsAuthority,
     environment::{WeatherState, bind_session_generation},
     local_player::{InteractionOriginSnapshot, LocalPlayerFrameCarrier, LocalViewPose},
-    menu::{CoreProcessGuard, MenuClipboard, MenuRuntime},
+    menu::{MenuClipboard, MenuRuntime},
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
         MovementTicker, PhysicsCollisionRegistries,
@@ -680,7 +680,7 @@ fn fixture_app() -> (App, Entity) {
         .init_resource::<InteractionOriginSnapshot>()
         .init_resource::<Phase3EvidenceEmitter>()
         .init_resource::<ServerCameraInstructions>()
-        .init_resource::<CoreProcessGuard>()
+        .init_resource::<crate::session::SessionController>()
         .init_resource::<ClientBlobCacheOwner>()
         .init_resource::<ResourcePackAdmissionState>()
         .init_resource::<MenuClipboard>()
@@ -870,9 +870,7 @@ fn new_session_with_same_initial_epoch_retires_old_form_authority() {
     app.insert_resource(clock).insert_resource(weather);
     app.world_mut()
         .resource_scope(|world, mut player: Mut<PlayerRuntime>| {
-            world
-                .resource_mut::<UiRuntime>()
-                .begin_session(&mut player, 2);
+            crate::session::begin_session(&mut world.resource_mut::<UiRuntime>(), &mut player, 2);
         });
     submit_form(&mut app, 1);
     app.update();

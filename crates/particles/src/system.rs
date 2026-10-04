@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use assets::RuntimeParticleAssets;
-use bevy::prelude::Resource;
 
 use super::{
     atlas::{ParticleAtlas, Placement},
@@ -46,7 +45,7 @@ const TILE_VARIABLE_NAMES: [(&str, &str); 5] = [
 /// Undrained sound requests kept before the oldest are dropped.
 const MAX_QUEUED_SOUNDS: usize = 256;
 
-#[derive(Resource, Default)]
+#[derive(Default)]
 pub struct ParticleSystem {
     library: EffectLibrary,
     atlas: ParticleAtlas,
@@ -116,7 +115,8 @@ impl ParticleSystem {
         self.sounds.clear();
     }
 
-    pub(super) fn atlas_base(&mut self) -> std::sync::Arc<[u8]> {
+    /// The atlas's static-region snapshot; see [`ParticleAtlas::base`].
+    pub fn atlas_base(&mut self) -> std::sync::Arc<[u8]> {
         self.atlas.base()
     }
 
@@ -335,7 +335,7 @@ impl ParticleSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::particles::world::EmptyWorld;
+    use crate::world::EmptyWorld;
 
     const EFFECT: &str = r#"{"particle_effect":{"description":{"identifier":"minecraft:burst","basic_render_parameters":{"material":"particles_alpha","texture":"x"}},
       "components":{

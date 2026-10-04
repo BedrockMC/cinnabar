@@ -18,7 +18,6 @@ use crate::local_player::{
     publish_interaction_origin, publish_local_player_frame, resolve_camera_pose,
 };
 use crate::melee::produce_melee;
-use crate::menu::recover_menu_session_failure;
 use crate::movement::advance_local_physics;
 use crate::runtime::network::{
     prepare_actor_render_frame, publish_actor_render_frame, receive_network_events,
@@ -38,6 +37,7 @@ use crate::semantic_controls::{
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
     synchronize_semantic_input_authority,
 };
+use crate::session::recover_session_failure;
 use crate::survival_mining::produce_survival_mining;
 use crate::ui_runtime::presentation::{prepare_ui_runtime, publish_ui_runtime};
 use chunk_pipeline::{PublicationServiceConfig, WorldMeshChange};
@@ -319,11 +319,7 @@ fn acceptance_terminal_runs_after_the_authoritative_network_send_stage() {
         schedule_precedes(
             graph,
             stage_node(graph, ClientFrameSet::NetworkSend),
-            system_node(
-                graph,
-                recover_menu_session_failure,
-                "recover_menu_session_failure",
-            ),
+            system_node(graph, recover_session_failure, "recover_session_failure",),
         ),
         "launcher recovery must observe send-side failures from the same frame before fatal exit",
     );

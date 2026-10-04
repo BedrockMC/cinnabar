@@ -14,14 +14,12 @@ use crate::{
         ClientBlobCacheOwner, configure_acceptance_finish_system, configure_client_frame_schedule,
         configure_client_production_frame_systems,
     },
-    menu::{
-        CoreProcessGuard, MenuAction, MenuRuntime, drive_menu_connection, follow_server_transfer,
-        recover_menu_session_failure,
-    },
+    menu::{MenuAction, MenuRuntime},
     runtime::{
         network::{NetworkHandle, ResourcePackAdmissionState},
         world::{ClientWorld, TransferNotice, reconcile_world_stream_before_physics},
     },
+    session::{drive_session, follow_server_transfer, recover_session_failure},
     session_audio::{SessionAudio, SessionAudioCatalog, drain_sequenced_audio_into_session},
 };
 use client_presentation::audio_ingress::SequencedAudioEvent;
@@ -352,7 +350,7 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(retained_session_audio())
         .insert_resource(client_world)
         .insert_resource(menu)
-        .insert_resource(CoreProcessGuard::default())
+        .insert_resource(crate::session::SessionController::default())
         .insert_resource(NetworkHandle::disconnected())
         .insert_resource(ResourcePackAdmissionState::default())
         .insert_resource(UiRuntime::new(1))
@@ -374,8 +372,8 @@ fn menu_disconnect_clears_audio_in_its_production_frame() {
         .add_systems(
             Update,
             (
-                drive_menu_connection,
-                drain_sequenced_audio_into_session.after(drive_menu_connection),
+                drive_session,
+                drain_sequenced_audio_into_session.after(drive_session),
             ),
         );
 
@@ -399,8 +397,8 @@ fn failure_recovery_clears_audio_in_its_production_frame() {
     app.add_systems(
         Update,
         (
-            recover_menu_session_failure,
-            drain_sequenced_audio_into_session.after(recover_menu_session_failure),
+            recover_session_failure,
+            drain_sequenced_audio_into_session.after(recover_session_failure),
         ),
     );
 
@@ -471,7 +469,7 @@ fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
     );
     for (teardown, label) in [
         (
-            IntoSystemSet::into_system_set(drive_menu_connection).intern(),
+            IntoSystemSet::into_system_set(drive_session).intern(),
             "menu disconnect",
         ),
         (
@@ -479,7 +477,7 @@ fn production_schedule_reads_session_audio_after_the_world_stream_writer() {
             "server transfer",
         ),
         (
-            IntoSystemSet::into_system_set(recover_menu_session_failure).intern(),
+            IntoSystemSet::into_system_set(recover_session_failure).intern(),
             "failure recovery",
         ),
     ] {
