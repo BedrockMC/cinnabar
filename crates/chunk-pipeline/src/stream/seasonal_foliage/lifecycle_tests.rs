@@ -27,7 +27,7 @@ fn seasonal_palette_refresh_changes_colours_not_dense_identity_or_meshes() {
     let mut stream = stream(0.0);
     let before = stream.resolved_biome_tints_snapshot();
     let identity = stream.biome_tint_identity();
-    let pending = stream.pending_mesh.len();
+    let pending = stream.mesh_jobs.pending.len();
     let changes = stream.mesh_changes.len();
     let generation = stream.connectivity_generation;
     let dense = before.dense_index(7) as usize;
@@ -59,7 +59,7 @@ fn seasonal_palette_refresh_changes_colours_not_dense_identity_or_meshes() {
         after.records[dense].seasonal_foliage[covered..],
         before.records[dense].seasonal_foliage[covered..]
     );
-    assert_eq!(stream.pending_mesh.len(), pending);
+    assert_eq!(stream.mesh_jobs.pending.len(), pending);
     assert_eq!(stream.mesh_changes.len(), changes);
     assert_eq!(stream.connectivity_generation, generation);
     // The original authoritative definition is not a mutable palette-row alias.

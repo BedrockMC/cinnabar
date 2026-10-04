@@ -417,7 +417,7 @@ impl Emitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::particles::{
+    use crate::{
         atlas::ParticleAtlas, def::parse_effect, emitter::SpawnRequest, world::EmptyWorld,
     };
 

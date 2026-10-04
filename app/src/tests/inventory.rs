@@ -160,7 +160,7 @@ fn session_replacement_clears_published_identity_and_local_selection() {
         EquipmentIngress::CommitOnly { fifo_sequence: 1 }
     );
 
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
     assert!(runtime.local_selected_equipment(&player_runtime).is_none());
     assert_eq!(
         route_equipment_ingress(
@@ -273,7 +273,7 @@ fn inventory_handoff_is_bounded_session_scoped_and_fifo_ordered() {
             .is_err()
     );
 
-    runtime.begin_session(&mut player_runtime, 8);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 8);
     assert!(runtime.pop_inventory_event(&mut player_runtime).is_none());
 }
 

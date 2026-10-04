@@ -30,7 +30,7 @@ fn leaf_particle_gamma_colour_uses_each_shared_covered_and_exposed_species_colum
             let gamma = seasonal_tint(&record, flags, exposed);
             assert_eq!(
                 gamma[0],
-                crate::particles::tiles::linear_to_srgb(record.seasonal_foliage[index][0])
+                super::linear_to_srgb(record.seasonal_foliage[index][0])
             );
             assert_eq!(gamma[3], 1.0);
         }

@@ -36,16 +36,18 @@ use bevy::{
     },
 };
 
-use super::{
-    atlas::{ATLAS_SIDE, AtlasPatch},
-    draw::{DrawLists, ParticleInstance, ParticleView},
-    system::ParticleSystem,
-    world::ParticleWorld,
+use particles::{
+    ATLAS_SIDE, AtlasPatch, DrawLists, ParticleInstance, ParticleSystem, ParticleView,
+    ParticleWorld,
 };
 
 const PARTICLE_SHADER_HANDLE: Handle<Shader> = uuid_handle!("6b2f9c3e-4d1a-4e8b-9a57-3c0f1d7a2b64");
 const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
 const MIN_CAPACITY: usize = 256;
+
+/// The particle simulation as a Bevy resource.
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct ParticleSimulation(pub ParticleSystem);
 
 /// The frame's particle draw data, extracted to the render world each frame.
 #[derive(Resource, ExtractResource, Clone, Default)]
@@ -137,7 +139,7 @@ pub struct ParticleRenderPlugin;
 impl Plugin for ParticleRenderPlugin {
     fn build(&self, app: &mut App) {
         crate::lighting::install(app);
-        app.init_resource::<ParticleSystem>()
+        app.init_resource::<ParticleSimulation>()
             .init_resource::<ParticleGpuFrame>()
             .add_plugins(ExtractResourcePlugin::<ParticleGpuFrame>::default());
         load_internal_asset!(

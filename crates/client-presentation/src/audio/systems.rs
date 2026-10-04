@@ -9,7 +9,7 @@ use crate::{
 use std::collections::HashSet;
 
 use bevy::prelude::{Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Vec3};
-use render::{ParticleSystem, PrecipitationMix};
+use render::{ParticleSimulation, PrecipitationMix};
 use sim::PaletteWorld;
 
 use super::{
@@ -505,7 +505,7 @@ pub fn drive_weather_and_particles(
     world: crate::observations::WorldObservation<'_>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
     mix: Option<Res<PrecipitationMix>>,
-    particles: Option<ResMut<ParticleSystem>>,
+    particles: Option<ResMut<ParticleSimulation>>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
     mut engine: ResMut<AudioEngine>,
     mut seen_bolts: Local<HashSet<i64>>,

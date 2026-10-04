@@ -121,7 +121,7 @@ impl MenuRuntime {
         for event in std::mem::take(&mut self.feeds.inbox_state.pending) {
             control.report_message(event);
         }
-        let targets = if self.visible && !self.connecting {
+        let targets = if self.visible && !self.is_connecting() {
             let mut seen = std::collections::HashSet::new();
             // Gatherings have no server until joined, so only featured and saved servers are pinged.
             self.featured
@@ -138,8 +138,8 @@ impl MenuRuntime {
         if let Some(pings) = control.pings() {
             self.feeds.pings.extend(pings);
         }
-        control.set_joining(self.connecting);
-        if self.connecting {
+        control.set_joining(self.is_connecting());
+        if self.is_connecting() {
             self.feeds.join.observe(control.join_stage());
         }
         if let Some(status) = control.account_status() {
@@ -247,7 +247,10 @@ mod tests {
     fn join_progress_follows_the_core_until_handoff() {
         use launcher::menu::view::{JoinKind, JoinProgress};
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        menu.mark_connecting();
+        menu.observe_session(crate::session::SessionStatus {
+            connecting: true,
+            owns_directory: false,
+        });
         menu.feeds.join = JoinProgress::new(JoinKind::Realm);
         let mut control = Staged(None);
         let mut step = |menu: &mut MenuRuntime, stage| {
@@ -277,7 +280,6 @@ mod tests {
         );
         assert!(menu.absorb_session_failure(&error));
         let view = menu.view();
-        assert!(!view.connecting);
         assert_eq!(
             super::super::disconnect::describe(&view.disconnect_message.unwrap()).body,
             super::super::disconnect::DisconnectBody::Key("disconnectionScreen.cantConnectToRealm")

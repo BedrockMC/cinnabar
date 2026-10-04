@@ -576,6 +576,7 @@ dependencies = [
  "meshing",
  "mod-host",
  "pack-compiler",
+ "particles",
  "player-state",
  "protocol",
  "rayon",
@@ -4753,6 +4754,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "particles"
+version = "0.1.2"
+dependencies = [
+ "assets",
+ "bytemuck",
+ "serde_json",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5376,6 +5386,7 @@ dependencies = [
  "naga",
  "naga_oil",
  "pack-compiler",
+ "particles",
  "rayon",
  "render-api",
  "serde_json",

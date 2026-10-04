@@ -59,7 +59,8 @@ fn session_language_overrides_per_key_and_restores_the_immutable_base() {
         runtime.localized_item_name("minecraft:stone"),
         "Overlay item"
     );
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert_eq!(runtime.localized_item_name("minecraft:stone"), "Base item");
     assert_eq!(runtime.resolve_raw_text(&document).text, "Base message");
 }
@@ -167,7 +168,8 @@ fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
         build(&player_runtime, &mut presentation, &runtime),
         baseline
     );
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     runtime
         .apply(&mut player_runtime, envelope(2, 1, raw_text_event(json)))
         .unwrap();
@@ -285,7 +287,8 @@ fn local_effects_metadata_armor_and_mount_fan_into_gameplay_hud_state() {
     assert_eq!(runtime.gameplay_hud().mount_unique_id(), None);
 
     // Session replacement clears every retained gameplay-HUD surface.
-    runtime.begin_session(&mut player_runtime, 5);
+    player_runtime.begin_session(5);
+    runtime.begin_session(5);
     assert!(runtime.gameplay_hud().effects().is_empty());
     assert_eq!(runtime.gameplay_hud().air_ticks(), None);
     assert_eq!(runtime.gameplay_hud().mount_unique_id(), None);
