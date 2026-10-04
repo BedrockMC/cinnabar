@@ -236,12 +236,11 @@ pub fn dispatch_chat_ui_action(
     }
 }
 
-pub fn is_chat_paste_shortcut(key: KeyCode, keys: &ButtonInput<KeyCode>) -> bool {
-    key == KeyCode::KeyV
-        && (keys.pressed(KeyCode::ControlLeft)
-            || keys.pressed(KeyCode::ControlRight)
-            || keys.pressed(KeyCode::SuperLeft)
-            || keys.pressed(KeyCode::SuperRight))
+pub fn is_chat_edit_shortcut(keys: &ButtonInput<KeyCode>) -> bool {
+    (keys.pressed(KeyCode::ControlLeft)
+        || keys.pressed(KeyCode::ControlRight)
+        || keys.pressed(KeyCode::SuperLeft)
+        || keys.pressed(KeyCode::SuperRight))
         && !keys.pressed(KeyCode::AltLeft)
         && !keys.pressed(KeyCode::AltRight)
 }
@@ -252,7 +251,7 @@ pub fn paste_chat_shortcut<C: ChatClipboard>(
     keys: &ButtonInput<KeyCode>,
     clipboard: &mut C,
 ) -> bool {
-    if !is_chat_paste_shortcut(key, keys) {
+    if key != KeyCode::KeyV || !is_chat_edit_shortcut(keys) {
         return false;
     }
     let _ = runtime.paste_chat_text(clipboard);
