@@ -1,5 +1,5 @@
 //! Offline menu frames through the native GPU and production UI pass.
-use super::{pack_harness, panorama, play_flow_snapshots};
+use super::{pack_harness, play_flow_snapshots};
 use crate::menu::MenuScreen;
 use bevy::{
     asset::AssetPlugin,
@@ -15,6 +15,7 @@ use bevy::{
     },
     window::WindowPlugin,
 };
+use client_ui::ui_runtime::presentation::forms::panorama;
 use std::{sync::Arc, time::Instant};
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -167,10 +168,9 @@ fn menu_frames_on_native_gpu() {
             let preview_done = Instant::now();
             if matches!(name, "paper-doll" | "inventory") {
                 presentation.set_menu_view(None);
-                runtime.publish_player_game_mode(
-                    &mut player_runtime,
-                    protocol::PlayerGameMode::Survival,
-                );
+                player_runtime
+                    .facts
+                    .publish_player_game_mode(protocol::PlayerGameMode::Survival);
                 presentation.hud_frame_mut().player_preview = presentation.player_preview_icon();
                 presentation.hud_frame_mut().paper_doll_visible = true;
             }
@@ -256,7 +256,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
         if phase != 0 {
             presentation.set_menu_view(None);
             presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
-            runtime.begin_session(&mut player_runtime, phase + 1);
+            crate::session::begin_session(&mut runtime, &mut player_runtime, phase + 1);
             runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
                 pack.clone(),
             ))));
@@ -351,9 +351,9 @@ fn profile_frames_on_native_gpu() {
             crate::menu::auth::AuthState::Authenticated
         };
         view.profile_tab = if matches!(state, "stats" | "empty") {
-            ui::ProfileTab::Stats
+            launcher::menu::ProfileTab::Stats
         } else {
-            ui::ProfileTab::Overview
+            launcher::menu::ProfileTab::Overview
         };
         let profile = &mut view.feeds.profile;
         profile.loaded = state != "loading";

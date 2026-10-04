@@ -5,6 +5,7 @@ mod lightmap;
 mod shader_test_support;
 pub use lighting::WorldLighting;
 pub use lightmap::{LightmapInputs, darkness_pulse};
+pub use render_api::fancy_actor_shade;
 
 mod actor;
 mod actor_render;
@@ -22,26 +23,33 @@ pub use enhanced::{
     ENHANCED_RENDERING_ENABLED, EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES,
 };
 mod dropped_item_render;
+pub mod equipment;
 mod hand_rig_render;
 mod item_geometry;
 mod lightning;
 mod lightning_render;
 mod media;
 pub use media::MediaTexture;
+mod material_shader;
 mod nametag;
 mod nametag_render;
+mod native_sunlight;
+mod native_trig;
+pub use native_sunlight::AtmosphereViewInputs;
 mod panorama;
 mod panorama_render;
-mod particles;
+mod particle_render;
 mod present_mode;
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
 mod screen_overlay;
 mod screen_overlay_render;
+mod shader_safety;
 #[cfg(test)]
 #[path = "../tests/support/shader_source.rs"]
 mod shader_source;
+mod surface_lifecycle;
 mod ui;
 mod ui_textures;
 
@@ -59,13 +67,9 @@ pub use hand_rig_render::{
     HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAtlas, HandRigLight,
     HandRigRenderPlugin, HandRigScene,
 };
-pub use particles::{
-    ATLAS_SIDE as PARTICLE_ATLAS_SIDE, DrawLists as ParticleDrawLists,
-    EmptyWorld as EmptyParticleWorld, Fluid as ParticleFluid, LevelParticle, MAX_LIVE_PARTICLES,
-    ParticleGpuFrame, ParticleInstance, ParticleRenderPlugin, ParticleSound, ParticleSystem,
-    ParticleView, ParticleWorld, SpawnRequest, TileRequest, block_break_request,
-    block_crack_request, classify_level_event, is_particle_level_event, item_icon_request,
-    named_request, parse_molang_variables, particle_view, terrain_request, update_particle_frame,
+pub use particle_render::{
+    ParticleGpuFrame, ParticleRenderPlugin, ParticleSimulation, particle_view,
+    update_particle_frame,
 };
 pub use viewmodel::{
     MAX_VIEWMODEL_DEPTH_BYTES, ViewmodelCompletionGate, ViewmodelGeometry, ViewmodelMode,
@@ -77,8 +81,8 @@ mod weather;
 mod weather_render;
 
 use meshing::{
-    ChunkMesh, PackedBiomeRecord, PackedCloudQuad, PackedLiquidQuad, PackedModelDrawRef,
-    PackedModelRef, PackedQuad, PackedQuadLighting, mesh_cloud_texture,
+    ChunkMesh, PackedBiomeRecord, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad,
+    PackedQuadLighting,
 };
 
 pub use actor::{
@@ -115,19 +119,20 @@ pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{
     AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
     BedModel, BellAttachment, BellModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame,
-    BlockEntityKind, BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission,
-    BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget, ChestModel, ChestPair,
-    ChestVariant, ConduitModel, CopperAge, CrackInstance, CrackQuad, CrackShape, DecoratedPotModel,
-    Facing, ItemFrameModel, MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS,
-    SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind, SkullModel, SkullMount,
-    SpawnerModel, StaticItemPlacement, StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL,
-    TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
-    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
-    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, swing_degrees,
+    BlockEntityKind, BlockEntityLight, BlockEntityRenderPlugin, BlockEntityScene,
+    BlockEntitySubmission, BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget,
+    ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance, CrackQuad,
+    CrackShape, CrystalBeamModel, DecoratedPotModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
+    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
+    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
+    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
+    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
+    sherd_pattern, shulker_color_from_block_name, swing_degrees,
 };
 pub use celestial::{
-    NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, fog_brightness, star_brightness,
-    sun_direction, sunrise_band,
+    NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,
+    star_brightness, sun_direction, sunrise_band,
 };
 pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
@@ -162,7 +167,8 @@ pub use chunk::{
 pub use cloud_config::{
     CloudCalibrationError, CloudCalibrationHarness, CloudCalibrationRecord, CloudCalibrationReport,
     CloudCoverageSemantics, CloudGeometryDiagnostic, CloudGeometryDiagnosticError,
-    CloudMatchingView, CloudQuality, CloudRenderConfig,
+    CloudMatchingView, CloudQuality, CloudRenderConfig, adjusted_cloud_distance_blocks,
+    adjusted_player_render_distance_blocks,
 };
 pub use dropped_item::{
     DroppedItemCube, DroppedItemInstance, DroppedItemModel, DroppedItemScene, DroppedItemShape,
@@ -212,12 +218,13 @@ pub use visibility_diagnostics::{
 pub use weather::{
     ColumnSample, ColumnSampler, LAYERS_PER_KIND, MAX_PRECIPITATION_LAYERS, OCCLUSION_BLOCKED,
     OCCLUSION_OPEN, OCCLUSION_SIDE, OcclusionGrid, PARTICLE_BOX, PARTICLE_MESH_QUADS,
-    PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_SAMPLE_OFFSETS,
-    PRECIPITATION_TICKS_PER_SECOND, Precipitation, PrecipitationLayerRecord, PrecipitationMix,
-    PrecipitationParams, PrecipitationScene, PrecipitationSim, RAIN_PARAMS, RainSplashQueue,
-    SNOW_PARAMS, WeatherTextureAssets, altitude_adjusted_temperature, approach_level,
-    average_precipitation, classify_precipitation, column_heights, particle_mesh,
-    particles_per_layer, pick_rain_splashes, precipitation_forward_offset,
+    PARTICLE_POOL, PRECIPITATION_LEVEL_PER_SECOND, PRECIPITATION_LEVEL_PER_TICK,
+    PRECIPITATION_SAMPLE_OFFSETS, PRECIPITATION_TICKS_PER_SECOND, Precipitation,
+    PrecipitationLayerRecord, PrecipitationMix, PrecipitationParams, PrecipitationScene,
+    PrecipitationSim, RAIN_PARAMS, RainSplashQueue, SNOW_PARAMS, WeatherTextureAssets,
+    altitude_adjusted_temperature, approach_level, average_precipitation, classify_precipitation,
+    column_heights, particle_mesh, particles_per_layer, pick_rain_splashes,
+    precipitation_forward_offset,
 };
 
 mod opaque_phase;

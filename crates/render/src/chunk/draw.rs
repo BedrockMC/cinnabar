@@ -53,7 +53,7 @@ pub(in crate::chunk) fn queue_chunks(
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
-        Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
+        Backends::from(render_adapter.get_info().backend),
         cfg!(debug_assertions),
     );
     let diagnostic_timer = probes
@@ -426,15 +426,21 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     views: Query<ChunkViewQuery>,
     allocations: Query<&GpuChunkAllocation>,
     runtime: Res<TransparentSortRuntime>,
+    instances: Query<&ChunkRenderInstance>,
+    model_runtime: Res<TransparentModelSortRuntime>,
+    texture_assets: Res<ChunkTextureAssets>,
+    mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
+    mixed.begin_frame();
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::TransparentQueue));
     let draw_mode = select_chunk_draw_mode(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
-        Backends::from(render_adapter.get_info().backend).contains(Backends::DX12),
+        Backends::from(render_adapter.get_info().backend),
         cfg!(debug_assertions),
     );
     if draw_mode == ChunkDrawMode::Unsupported {
@@ -443,6 +449,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let draw_functions = draw_functions.read();
     let transparent_model_draw = draw_functions.id::<DrawTransparentModelCommands>();
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
+    let mixed_draw = draw_functions.id::<DrawMixedTerrainCommands>();
     for (view_entity, main_entity, view, visible_entities, msaa, enhanced) in &views {
         if runtime.view_entity != Some(view_entity) {
             continue;
@@ -456,59 +463,96 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             enhanced: enhanced.is_some(),
         };
         let rangefinder = view.rangefinder3d();
-        if let Ok(model_pipeline_id) = pipeline
+        let model_pipeline_id = pipeline
             .transparent_model_variants
             .specialize(&pipeline_cache, key)
+            .ok();
+        let models = visible_entities
+            .get::<ChunkRenderInstance>()
+            .iter()
+            .filter_map(|&(entity, main)| {
+                let allocation = allocations.get(entity).ok()?;
+                transparent_model_direct_draw_command(allocation)?;
+                Some((allocation.key, (entity, main)))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut merged = HashSet::new();
+        if let Some(snapshot) = runtime.state.committed()
+            && let Ok(water_pipeline_id) = pipeline.liquid_variants.specialize(&pipeline_cache, key)
         {
-            for &(render_entity, main_entity) in visible_entities.get::<ChunkRenderInstance>() {
-                let Ok(allocation) = allocations.get(render_entity) else {
-                    continue;
-                };
-                if transparent_model_direct_draw_command(allocation).is_none() {
+            if let Some(groups) = transparent_liquid_phase_groups(snapshot) {
+                let (_, _, camera) = view.world_from_view.to_scale_rotation_translation();
+                for group in groups {
+                    // Native deferred water uses layer 2, not ordinary blend layer 3.
+                    if enhanced.is_none()
+                        && let Some(model_pipeline_id) = model_pipeline_id
+                        && let Some(&(entity, main)) = models.get(&group.key)
+                        && let (Ok(instance), Ok(allocation)) =
+                            (instances.get(entity), allocations.get(entity))
+                        && let Some(index) = mixed.plan(
+                            view_entity,
+                            camera,
+                            entity,
+                            instance,
+                            allocation,
+                            &model_runtime,
+                            &texture_assets,
+                            snapshot,
+                            &group,
+                            water_pipeline_id,
+                            model_pipeline_id,
+                        )
+                    {
+                        merged.insert(entity);
+                        phase.add(Transparent3d {
+                            entity: (entity, main),
+                            pipeline: model_pipeline_id,
+                            draw_function: mixed_draw,
+                            distance: transparent_model_phase_distance(&rangefinder, group.key),
+                            batch_range: 0..1,
+                            extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                                range: index..index + 1,
+                                batch_set_index: None,
+                            },
+                            indexed: true,
+                        });
+                        continue;
+                    }
+                    phase.add(Transparent3d {
+                        entity: (view_entity, *main_entity),
+                        pipeline: water_pipeline_id,
+                        draw_function: direct_draw,
+                        distance: transparent_liquid_phase_distance(&rangefinder, group.key),
+                        batch_range: 0..1,
+                        extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                            range: group.ref_range,
+                            batch_set_index: None,
+                        },
+                        indexed: true,
+                    });
+                }
+            } else {
+                bevy::log::error!(
+                    "committed transparent-liquid snapshot is not an exact contiguous sub-chunk partition"
+                );
+            }
+        }
+        if let Some(model_pipeline_id) = model_pipeline_id {
+            for (&model_key, &(entity, main)) in &models {
+                if merged.contains(&entity) {
                     continue;
                 }
                 phase.add(Transparent3d {
-                    entity: (render_entity, main_entity),
+                    entity: (entity, main),
                     pipeline: model_pipeline_id,
                     draw_function: transparent_model_draw,
-                    distance: transparent_model_phase_distance(&rangefinder, allocation.key),
+                    distance: transparent_model_phase_distance(&rangefinder, model_key),
                     batch_range: 0..1,
                     extra_index: PhaseItemExtraIndex::None,
                     indexed: true,
                 });
             }
         }
-
-        let Some(snapshot) = runtime.state.committed() else {
-            continue;
-        };
-        if snapshot.refs().is_empty() || runtime.view_entity != Some(view_entity) {
-            continue;
-        }
-        let Some(groups) = transparent_liquid_phase_groups(snapshot) else {
-            bevy::log::error!(
-                "committed transparent-liquid snapshot is not an exact contiguous sub-chunk partition"
-            );
-            continue;
-        };
-        let Ok(pipeline_id) = pipeline.liquid_variants.specialize(&pipeline_cache, key) else {
-            continue;
-        };
-        // Keep each sub-chunk's worker-sorted water refs contiguous while
-        // giving water and blend models the same phase-distance contract.
-        for group in groups {
-            phase.add(Transparent3d {
-                entity: (view_entity, *main_entity),
-                pipeline: pipeline_id,
-                draw_function: direct_draw,
-                distance: transparent_liquid_phase_distance(&rangefinder, group.key),
-                batch_range: 0..1,
-                extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                    range: group.ref_range,
-                    batch_set_index: None,
-                },
-                indexed: true,
-            });
-        }
     }
+    mixed.finish_frame();
 }

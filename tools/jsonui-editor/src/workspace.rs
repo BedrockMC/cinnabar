@@ -157,7 +157,9 @@ pub enum TextureFile {
 pub struct Workspace {
     layers: Vec<Layer>,
     /// Catalog after layers `0..=i`, with the generation sum it was built from.
-    prefix: Vec<Option<(u64, Arc<Catalog>)>>,
+    // Initialize empty generations too: copying an unspecified inactive Option
+    // payload triggered a macOS allocator classification failure in export tests.
+    prefix: Vec<(u64, Option<Arc<Catalog>>)>,
     lang: Option<(u64, Arc<HashMap<String, String>>)>,
     /// Why the bottom layer loaded as an overlay rather than by its index files.
     base_error: Option<String>,
@@ -187,7 +189,7 @@ impl Workspace {
                 ..Layer::default()
             },
         );
-        self.prefix = vec![None; self.layers.len()];
+        self.prefix = vec![(0, None); self.layers.len()];
         self.lang = None;
         index
     }
@@ -210,7 +212,7 @@ impl Workspace {
                     scratch: true,
                     ..Layer::default()
                 });
-                self.prefix.push(None);
+                self.prefix.push((0, None));
                 let layer = self.layers.len() - 1;
                 self.edit(layer, GLOBALS, "{}\n");
                 layer
@@ -249,7 +251,7 @@ impl Workspace {
         if index < self.layers.len() {
             self.layers.remove(index);
             self.structure_generation = self.structure_generation.wrapping_add(1);
-            self.prefix = vec![None; self.layers.len()];
+            self.prefix = vec![(0, None); self.layers.len()];
             self.lang = None;
         }
     }
@@ -373,7 +375,8 @@ impl Workspace {
 
     fn catalog_upto(&mut self, index: usize) -> Arc<Catalog> {
         let generation = self.generation_upto(index + 1);
-        if let Some((built, catalog)) = &self.prefix[index]
+        let (built, cached) = &self.prefix[index];
+        if let Some(catalog) = cached
             && *built == generation
         {
             return Arc::clone(catalog);
@@ -388,7 +391,7 @@ impl Workspace {
             catalog
         };
         let catalog = Arc::new(catalog);
-        self.prefix[index] = Some((generation, Arc::clone(&catalog)));
+        self.prefix[index] = (generation, Some(Arc::clone(&catalog)));
         catalog
     }
 
@@ -559,6 +562,9 @@ fn parse_lang(text: &str, table: &mut HashMap<String, String>) {
         }
     }
 }
+
+#[cfg(test)]
+mod cache_tests;
 
 #[cfg(test)]
 mod tests {

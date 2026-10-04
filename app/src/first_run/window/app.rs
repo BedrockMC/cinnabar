@@ -202,7 +202,7 @@ impl ApplicationHandler for SetupApp {
             return;
         }
         let attributes = Window::default_attributes()
-            .with_title("Cinnabar")
+            .with_title(launcher::PRODUCT_NAME)
             .with_inner_size(LogicalSize::new(1024.0, 640.0))
             .with_min_inner_size(LogicalSize::new(560.0, 420.0));
         let Ok(window) = event_loop.create_window(attributes) else {
@@ -283,7 +283,7 @@ impl ApplicationHandler for SetupApp {
                 let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
                 let seconds = self.epoch.elapsed().as_secs_f32();
                 if let Err(error) =
-                    gpu.draw(&crate::ui_runtime::presentation::forms::launcher_view(
+                    gpu.draw(&client_ui::ui_runtime::presentation::forms::launcher_view(
                         seconds,
                         aspect,
                         PANORAMA_TINT,

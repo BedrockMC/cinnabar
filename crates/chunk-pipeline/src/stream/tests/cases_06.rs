@@ -142,7 +142,7 @@ fn local_attributes_commit_without_requiring_a_local_actor_spawn() {
         )
         .unwrap();
 
-    assert!(stream.actor(42).is_none());
+    assert!(stream.authority().actor(42).is_none());
     assert_eq!(
         stream.take_committed_ui(),
         vec![CommittedUiEvent::LocalAttributes {
@@ -199,7 +199,7 @@ fn movement_attribute(current: f32) -> ActorAttribute {
 }
 
 #[test]
-fn movement_authority_removes_only_identified_sprint_multiplier_once() {
+fn movement_authority_retains_effective_current_and_identifies_only_native_sprint() {
     let modifier = protocol::ActorAttributeModifier {
         id: Arc::from("D208FC00-42AA-4AAD-9276-D5446530DE43"),
         name: Arc::from("unrelated label"),
@@ -210,37 +210,43 @@ fn movement_authority_removes_only_identified_sprint_multiplier_once() {
     };
     let mut stream = riding_stream();
     let mut sequence = 0;
-    let mut submit =
-        |modifiers: Arc<[protocol::ActorAttributeModifier]>, current: f32, expected: f32| {
-            sequence += 1;
-            let mut attribute = movement_attribute(current);
-            attribute.modifiers = modifiers;
-            stream
-                .submit(
-                    sequence,
-                    WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
-                        dimension: 0,
-                        runtime_id: 1,
-                        attributes: Arc::from([attribute]),
-                        tick: sequence,
-                    })),
-                )
-                .unwrap();
-            assert_eq!(stream.local_movement_speed(), Some(f64::from(expected)));
-        };
-    submit(Arc::from([modifier.clone()]), 0.13, 0.13_f32 / 1.3);
-    submit(Arc::from([modifier.clone()]), 0.156, 0.156_f32 / 1.3);
-    submit(Arc::from([modifier.clone()]), 0.0, 0.0);
+    let mut submit = |modifiers: Arc<[protocol::ActorAttributeModifier]>,
+                      current: f32,
+                      expected_modifier: Option<f32>| {
+        sequence += 1;
+        let mut attribute = movement_attribute(current);
+        attribute.modifiers = modifiers;
+        stream
+            .submit(
+                sequence,
+                WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    attributes: Arc::from([attribute]),
+                    tick: sequence,
+                })),
+            )
+            .unwrap();
+        assert_eq!(stream.local_movement_speed(), Some(f64::from(current)));
+        assert!(matches!(stream.take_committed_controls().as_slice(), [
+                CommittedControlEvent::LocalMovementSpeed { current: value, sprint_modifier, .. }
+            ] if *value == f64::from(current) && *sprint_modifier == expected_modifier));
+    };
+    let factor = Some(1.0 + modifier.amount);
+    submit(Arc::from([modifier.clone()]), 0.13, factor);
+    submit(Arc::from([modifier.clone()]), 0.156, factor);
+    submit(Arc::from([modifier.clone()]), 0.0, factor);
+    submit(Arc::from([]), 0.13, None);
     let mut custom = modifier.clone();
     custom.id = Arc::from("custom-speed");
     custom.name = Arc::from("Sprinting speed boost");
-    submit(Arc::from([custom]), 0.13, 0.13);
+    submit(Arc::from([custom]), 0.13, None);
     let mut different_operation = modifier.clone();
     different_operation.operation = 1;
-    submit(Arc::from([different_operation]), 0.13, 0.13);
+    submit(Arc::from([different_operation]), 0.13, None);
     let mut different_operand = modifier;
     different_operand.operand = 1;
-    submit(Arc::from([different_operand]), 0.13, 0.13);
+    submit(Arc::from([different_operand]), 0.13, None);
 }
 
 #[test]
@@ -323,6 +329,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
                 sequence: 2,
                 dimension: 0,
                 current: 0.0,
+                sprint_modifier: None,
                 tick: 2,
             }
         ]
@@ -491,7 +498,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     stream.resident.insert(key);
     let old_revision = stream.mark_dirty_exact(key, Instant::now());
     let current_revision = stream.mark_dirty_exact(key, Instant::now());
-    stream.in_flight.insert(key, old_revision);
+    stream.mesh_jobs.in_flight.insert(key, old_revision);
     let classifier = BlockClassifier::new(12_530);
     let mesh = mesh_sub_chunk(
         &classifier,
@@ -523,7 +530,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
     assert_eq!(stream.stats().stale_mesh_jobs, 1);
     assert!(stream.take_mesh_changes().is_empty());
     assert_eq!(stream.mesh_dependency_mask(key), None);
-    assert_eq!(stream.pending_mesh[&key].revision, current_revision);
+    assert_eq!(stream.mesh_jobs.pending[&key].revision, current_revision);
 }
 
 #[test]
@@ -555,12 +562,16 @@ fn mesh_dispatch_never_exceeds_the_bounded_worker_window() {
     stream.mark_changed(key, Instant::now());
     for index in 0..super::WORK_RESULT_CAPACITY {
         stream
+            .mesh_jobs
             .in_flight
             .insert(SubChunkKey::new(7, index as i32, 0, 0), index as u64 + 1);
     }
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 1), 0);
-    assert_eq!(stream.in_flight.len(), super::WORK_RESULT_CAPACITY);
+    assert_eq!(
+        stream.mesh_jobs.in_flight.len(),
+        super::WORK_RESULT_CAPACITY
+    );
 }
 
 #[test]
@@ -578,6 +589,7 @@ fn mesh_removals_are_not_blocked_by_a_full_worker_window() {
     stream.mark_dirty_exact(removed, Instant::now());
     for index in 0..super::WORK_RESULT_CAPACITY {
         stream
+            .mesh_jobs
             .in_flight
             .insert(SubChunkKey::new(7, index as i32, 0, 0), index as u64 + 1);
     }
@@ -667,18 +679,22 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
     stream.resident.insert(real);
     let block_generation = 7;
     let light_revision = 11;
-    stream.block_generations.insert(real, block_generation);
     stream
-        .light_store
+        .lighting
+        .block_generations
+        .insert(real, block_generation);
+    stream
+        .lighting
+        .store
         .insert_resident(real, SubChunkLight::dark(light_revision));
-    stream.light_ownership.insert(
+    stream.lighting.ownership.insert(
         real,
         LightOwnership {
             block_generation,
             light_revision,
         },
     );
-    stream.direct_sky.insert(
+    stream.lighting.direct_sky.insert(
         real,
         StoredDirectSky {
             light_revision,
@@ -697,11 +713,15 @@ fn removal_heavy_mesh_work_prioritizes_real_meshes_and_respects_poll_budget() {
     }
 
     assert_eq!(stream.dispatch_mesh_jobs([0.0; 3], 2), 1);
-    assert_eq!(stream.in_flight.get(&real).copied(), Some(real_revision));
+    assert_eq!(
+        stream.mesh_jobs.in_flight.get(&real).copied(),
+        Some(real_revision)
+    );
     assert!(stream.pending_mesh_change_count() <= 2);
     assert_eq!(
         stream
-            .pending_mesh
+            .mesh_jobs
+            .pending
             .keys()
             .filter(|key| removals.contains(key))
             .count(),
@@ -889,10 +909,10 @@ fn inline_zero_storage_is_a_graph_node_until_column_eviction() {
     assert!(stream.authority.terrain().sub_chunk(key).is_none());
     assert!(stream.resident.contains(&key));
     assert!(stream.known_air.contains(&key));
-    assert!(stream.block_generations.contains_key(&key));
-    assert!(stream.pending_light.contains_key(&key));
+    assert!(stream.lighting.block_generations.contains_key(&key));
+    assert!(stream.lighting.jobs.pending.contains_key(&key));
     assert_eq!(
-        stream.light_store.kind(key),
+        stream.lighting.store.kind(key),
         world::LightSubChunkKind::KnownAir
     );
     assert_eq!(
@@ -919,11 +939,13 @@ fn explicit_all_air_result_is_counted_as_a_resident_graph_node() {
     });
     let key = SubChunkKey::new(1, -8, 3, 12);
     stream
-        .requested_sub_chunks
+        .requests
+        .requested
         .insert(key.chunk(), BTreeMap::from([(key.y, Default::default())]));
     stream.apply_prepared(super::PreparedWorldEvent::SubChunks {
         dimension: key.dimension,
         entries: vec![super::PreparedSubChunk {
+            diagnostics: None,
             position: [key.x, key.y, key.z],
             result: super::PreparedSubChunkResult::AllAir,
         }],
@@ -1067,8 +1089,11 @@ fn actor_ingestion_is_fifo_visible_without_dirtying_chunk_meshes() {
         )
         .unwrap();
 
-    assert_eq!(stream.actor_count(), 1);
-    assert_eq!(stream.actor(8).unwrap().position, [1.0, 2.0, 3.0]);
+    assert_eq!(stream.authority().actor_count(), 1);
+    assert_eq!(
+        stream.authority().actor(8).unwrap().position,
+        [1.0, 2.0, 3.0]
+    );
     assert!(stream.take_mesh_changes().is_empty());
     let after = stream.stats();
     assert_eq!(after.pending_mesh_jobs, before.pending_mesh_jobs);
@@ -1123,7 +1148,10 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
         )
         .unwrap();
     stream.advance_actor_interpolation_ticks(3);
-    assert_eq!(stream.actor(8).unwrap().position, [1.0, 64.0, 2.0]);
+    assert_eq!(
+        stream.authority().actor(8).unwrap().position,
+        [1.0, 64.0, 2.0]
+    );
 
     stream
         .submit(
@@ -1143,7 +1171,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
             })),
         )
         .unwrap();
-    let actor = stream.actor(8).unwrap();
+    let actor = stream.authority().actor(8).unwrap();
     assert_eq!(actor.previous_pose.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.position, [1.0, 64.0, 2.0]);
     assert_eq!(actor.received_pose.position, [1.0, 64.0, 2.0]);

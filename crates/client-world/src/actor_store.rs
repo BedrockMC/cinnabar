@@ -101,6 +101,11 @@ pub struct ActorSnapshot {
 }
 
 impl ActorSnapshot {
+    /// Native StateVector units for tick-driven engine animation components.
+    pub(crate) fn native_velocity(&self) -> [f32; 3] {
+        self.status.native_velocity
+    }
+
     /// These actors animate their full yaw through the target-rotation queries.
     #[must_use]
     pub fn target_rotation_is_absolute(&self) -> bool {
@@ -152,7 +157,10 @@ impl ActorSnapshot {
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
-            status: ActorStatus::default(),
+            status: ActorStatus {
+                native_velocity: spawn.velocity,
+                ..ActorStatus::default()
+            },
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -200,7 +208,10 @@ impl ActorSnapshot {
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
-            status: ActorStatus::default(),
+            status: ActorStatus {
+                native_velocity: feed.velocity,
+                ..ActorStatus::default()
+            },
         };
         snapshot.apply_local_flags(feed);
         snapshot
@@ -278,7 +289,7 @@ impl ActorSnapshot {
         ))
     }
 
-    /// Samples 0.66 of the body height above interpolated feet (Lens 1.26.50.26 0x1c0e520).
+    /// Samples 0.66 of the body height above interpolated feet.
     /// Network position offsets have already been removed by the actor store.
     pub fn brightness_sample_position(&self, mut feet: [f32; 3]) -> [f32; 3] {
         if let Some((min, max)) = self.bounding_box() {
@@ -514,6 +525,7 @@ pub struct LocalPlayerFeed {
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
     pub skin: PlayerSkin,
     pub position: [f32; 3],
+    /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
     /// Look-input yaw driving the body target, not the camera boom.
@@ -527,6 +539,8 @@ pub struct LocalPlayerFeed {
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
     pub first_person: bool,
+    /// View-bobbing preference driving the local player's authored hand animations.
+    pub view_bobbing: bool,
     /// Predicted movement state; overrides the streamed sneak and sprint flags on the local rig.
     pub sneaking: bool,
     pub sprinting: bool,
@@ -574,6 +588,7 @@ pub(crate) struct ActorStore {
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
+    local_view_bobbing: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
@@ -591,6 +606,8 @@ pub(crate) struct ActorStore {
     status_notices: Vec<ActorStatusNotice>,
 }
 
+mod crystal_beam;
+pub use crystal_beam::CrystalBeamView;
 mod dropped;
 mod entities;
 mod hurt;
@@ -608,7 +625,7 @@ pub use hurt::{
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-pub use placement::{RideSeat, SeatDefaults, SeatRequirement};
+pub use placement::{ActorFluidProbe, RideSeat, SeatDefaults, SeatRequirement};
 pub use properties::PropertyDefault;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
@@ -654,3 +671,6 @@ mod projectile_tests;
 
 #[cfg(test)]
 mod review_tests;
+
+#[cfg(test)]
+mod velocity_tests;

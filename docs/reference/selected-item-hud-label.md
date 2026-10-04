@@ -4,8 +4,20 @@ The selected-item name uses Bedrock's JSON-UI factory and label template. Its
 placement is the repository's approved Java-look HUD exception, not a claimed
 native Bedrock pixel placement. Server HUD overrides retain their own templates.
 
-## Native references
+Stack-name precedence, custom formatting and slot-change refresh behavior are
+documented in [Stack display names](item-display-names.md).
 
+## Vanilla rules
+
+- The resource pack pinned by `assets/vanilla-source.json`, `ui/hud_screen.json`:
+  `item_name_text_root` is a bottom-middle, child-measured panel. Its
+  `item_text_aligner` stacks the bound `item_text_label` above the optional
+  `survival_buffer`. The label owns its selected-item binding, center alignment,
+  shadow and item-name animation. The classic item-name factory is under a
+  positioned `item_text` panel rather than relying on the factory's geometry.
+- The HUD controller feeds the `item_text` role into `item_text_factory`, with
+  the item name’s lifetime/background/interact/survival creation variables.
+Retain that factory/template path and the pack’s geometry for the JSON-UI label.
 
 ## Correction
 

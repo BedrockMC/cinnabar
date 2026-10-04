@@ -22,7 +22,7 @@ impl MenuRuntime {
     /// Opens `screen` over the current one, or returns to it when it is already
     /// open below; a tab of an open vanilla screen takes that screen's place.
     pub(super) fn enter(&mut self, screen: MenuScreen) {
-        use crate::ui_runtime::presentation::forms::menu_reference;
+        use launcher::menu::menu_reference;
         let same = |open: MenuScreen| {
             open == screen
                 || menu_reference(open).is_some_and(|r| menu_reference(screen) == Some(r))
@@ -51,6 +51,9 @@ impl MenuRuntime {
             self.store_snapshot = None;
         }
         self.screen = screen;
+        if screen == MenuScreen::Profile {
+            self.feeds.profile_refresh_requested = true;
+        }
         self.focused = 0;
         self.hovered = None;
         self.field = None;
@@ -74,8 +77,8 @@ impl MenuRuntime {
             return;
         }
         // Back on the join progress screen is its cancel button, where vanilla offers one.
-        if self.connecting {
-            self.disconnect_requested |= self.feeds.join.cancellable();
+        if self.is_connecting() {
+            self.intents.disconnect |= self.feeds.join.cancellable();
             return;
         }
         match self.screen {

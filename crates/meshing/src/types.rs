@@ -1,6 +1,7 @@
 use world::SubChunk;
 
 use crate::SIDE;
+use crate::liquid::{LIQUID_DEPTH_WRITE_BIT, LIQUID_TOP_INSET_BIT, LIQUID_TWO_SIDED_BIT};
 
 const CONNECTIVITY_MASK: u64 = (1_u64 << (Face::ALL.len() * Face::ALL.len())) - 1;
 
@@ -278,15 +279,15 @@ impl PackedQuadLighting {
 /// NW/SW/SE/NE; -X bottom-N/top-N/top-S/bottom-S; +X
 /// bottom-S/top-S/top-N/bottom-N; -Z bottom-E/top-E/top-W/bottom-W; and +Z
 /// bottom-W/top-W/top-E/bottom-E. Word 2 stores the selected material in bits
-/// 0..30 and the immutable depth-writing route in bit 31; word 3 stores the
+/// 0..28, opposite-winding admission in bit 29, top-emitted corner-height inset
+/// in bit 30, and the immutable
+/// depth-writing route in bit 31; word 3 stores the
 /// relative index in the independently allocated liquid-light stream.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PackedLiquidQuad([u32; 4]);
 
 impl PackedLiquidQuad {
-    const DEPTH_WRITE_BIT: u32 = 1 << 31;
-
     #[must_use]
     pub const fn words(self) -> [u32; 4] {
         self.0
@@ -310,7 +311,8 @@ impl PackedLiquidQuad {
         if origin[0] >= 16
             || origin[1] >= 16
             || origin[2] >= 16
-            || material_id & Self::DEPTH_WRITE_BIT != 0
+            || material_id & (LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BIT | LIQUID_TWO_SIDED_BIT)
+                != 0
         {
             return None;
         }
@@ -372,21 +374,53 @@ impl PackedLiquidQuad {
 
     #[must_use]
     pub const fn material_id(self) -> u32 {
-        self.0[2] & !Self::DEPTH_WRITE_BIT
+        self.0[2] & !(LIQUID_DEPTH_WRITE_BIT | LIQUID_TOP_INSET_BIT | LIQUID_TWO_SIDED_BIT)
     }
 
     /// Returns whether this record belongs to the opaque depth-writing liquid route.
     #[must_use]
     pub const fn is_depth_writing(self) -> bool {
-        self.0[2] & Self::DEPTH_WRITE_BIT != 0
+        self.0[2] & LIQUID_DEPTH_WRITE_BIT != 0
     }
 
     #[must_use]
     pub(crate) const fn with_depth_write(mut self, enabled: bool) -> Self {
         if enabled {
-            self.0[2] |= Self::DEPTH_WRITE_BIT;
+            self.0[2] |= LIQUID_DEPTH_WRITE_BIT;
         } else {
-            self.0[2] &= !Self::DEPTH_WRITE_BIT;
+            self.0[2] &= !LIQUID_DEPTH_WRITE_BIT;
+        }
+        self
+    }
+
+    /// Whether visible top emission lowered the top and adjoining side heights.
+    #[must_use]
+    pub const fn has_top_height_inset(self) -> bool {
+        self.0[2] & LIQUID_TOP_INSET_BIT != 0
+    }
+
+    #[must_use]
+    pub(crate) const fn with_top_height_inset(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.0[2] |= LIQUID_TOP_INSET_BIT;
+        } else {
+            self.0[2] &= !LIQUID_TOP_INSET_BIT;
+        }
+        self
+    }
+
+    /// Whether native face metadata admits both the original and opposite winding.
+    #[must_use]
+    pub const fn is_two_sided(self) -> bool {
+        self.0[2] & LIQUID_TWO_SIDED_BIT != 0
+    }
+
+    #[must_use]
+    pub(crate) const fn with_two_sided(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.0[2] |= LIQUID_TWO_SIDED_BIT;
+        } else {
+            self.0[2] &= !LIQUID_TWO_SIDED_BIT;
         }
         self
     }

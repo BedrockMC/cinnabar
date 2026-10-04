@@ -16,9 +16,9 @@ const (
 	unknownBlockFilter   = 15
 )
 
-// applyRetailLightCorrections replaces every unimplemented-block default in properties
-// (emission | filter<<4, parallel to records) with the retail table's values and returns
-// how many states changed. Names absent from the table keep their value.
+// applyRetailLightCorrections applies identified native corrections, then replaces
+// unimplemented-block defaults in properties (emission | filter<<4, parallel to
+// records) with retail values. It returns the number of changed states.
 func applyRetailLightCorrections(records []Record, properties []byte, retail map[string]PMMPLightProperties) (int, error) {
 	if len(records) != len(properties) {
 		return 0, errors.New("light property count does not match records")
@@ -29,6 +29,39 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 			continue
 		}
 		current := properties[index]
+		// TopSnowBlock sets light dampening to zero. Its
+		// inherited light getter and height-specific connection
+		// component leave that value intact, unlike Dragonfly's filter=2.
+		// Ice constructors start at zero, but final native registrations
+		// set light dampening to three before the inherited
+		// getter reads it. Packed/blue ice remain excluded.
+		isSnowLayer := record.Name == "minecraft:snow_layer"
+		isTransparentIce := record.Name == "minecraft:ice" || record.Name == "minecraft:frosted_ice"
+		isStillWater := record.Name == "minecraft:water"
+		isFlowingWater := record.Name == "minecraft:flowing_water"
+		if isSnowLayer || isTransparentIce || isStillWater || isFlowingWater {
+			var filter byte
+			switch {
+			case isTransparentIce:
+				filter = 3
+			case isStillWater:
+				// Final registration uses one for a
+				// current BaseGameVersion (>= native gate 1.21.130).
+				// Older level compatibility retains two; this projection
+				// targets the current registry-foundation game version.
+				filter = 1
+			case isFlowingWater:
+				// DynamicLiquidBlock final registration has
+				// no version gate: still and flowing types differ.
+				filter = 2
+			}
+			next := current&0x0f | filter<<4
+			if next != current {
+				properties[index] = next
+				changed++
+			}
+			continue
+		}
 		emission, stateResolved, err := stateEmission(record)
 		if err != nil {
 			return 0, err

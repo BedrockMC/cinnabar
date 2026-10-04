@@ -1,7 +1,6 @@
 use super::*;
 use crate::item::EquipmentOutcome;
 
-#[path = "lifecycle/interpolation.rs"]
 mod interpolation;
 
 impl ActorStore {
@@ -93,6 +92,7 @@ impl ActorStore {
             synthetic_local_uuid: None,
             synthetic_local_revision: 0,
             local_first_person: false,
+            local_view_bobbing: true,
             local_hands: [None, None],
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
@@ -131,6 +131,7 @@ impl ActorStore {
             return;
         }
         self.local_first_person = feed.first_person;
+        self.local_view_bobbing = feed.view_bobbing;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
         let pose = ActorPose {
             position: feed.position,
@@ -154,6 +155,7 @@ impl ActorStore {
             }
             actor.received_pose = pose;
             actor.velocity = feed.velocity;
+            actor.status.native_velocity = feed.velocity;
             actor.on_ground = Some(feed.on_ground);
             actor.movement_revision = revision;
             actor.teleported = feed.teleported;

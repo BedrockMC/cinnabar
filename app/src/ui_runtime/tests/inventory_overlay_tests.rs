@@ -13,14 +13,12 @@ use protocol::{
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::ui_runtime::inventory_ledger::{
+use crate::ui_runtime::presentation::tests::fixture_font;
+use client_ui::ui_runtime::inventory_ledger::{
     GENERIC_STORAGE_SLOT_TYPE, GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS,
     PLAYER_INVENTORY_SLOT_COUNT, SMALL_STORAGE_SLOT_COUNT,
 };
-use crate::{
-    camera::CameraSettingsAuthority,
-    ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame, tests::fixture_font},
-};
+use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
 
 fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
@@ -77,7 +75,7 @@ fn admit_personal_inventory(
         .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(2),
-            window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            window_type: client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
             position: [0, 0, 0],
             runtime_entity_id: -1,
         }));
@@ -492,7 +490,7 @@ fn session_reset_discards_every_retained_overlay() {
             .is_some()
     );
 
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
     assert_eq!(
         runtime.inventory_ledger(&player_runtime).slot_overlay(0),
@@ -605,8 +603,8 @@ fn selected_item_name_prefers_the_authoritative_custom_name() {
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     player_runtime.inventory.set_local_selected_slot(0);
     assert_eq!(
-        runtime
-            .selected_stack_custom_name(&player_runtime)
+        player_runtime
+            .selected_stack_custom_name()
             .map(|name| name.to_string()),
         Some("Renamed Blade".to_owned())
     );
@@ -618,7 +616,7 @@ fn selected_item_name_prefers_the_authoritative_custom_name() {
         0,
         ledger_stack(745, 41, 3),
     );
-    assert_eq!(runtime.selected_stack_custom_name(&player_runtime), None);
+    assert_eq!(player_runtime.selected_stack_custom_name(), None);
 }
 
 #[test]
@@ -877,8 +875,8 @@ fn damaged_sword(damage: i32) -> NetworkItemStack {
     }
 }
 
-fn world_stream() -> client_world::WorldStream {
-    client_world::WorldStream::new(WorldBootstrap {
+fn world_stream() -> chunk_pipeline::WorldStream {
+    chunk_pipeline::WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
         local_player_runtime_id: 42,
@@ -893,7 +891,7 @@ fn world_stream() -> client_world::WorldStream {
 fn presented_selected_durability(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     runtime: &mut UiRuntime,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
 ) -> Option<f32> {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     refresh_hud_frame(
@@ -901,7 +899,7 @@ fn presented_selected_durability(
         runtime,
         &mut presentation,
         Some(stream),
-        &CameraSettingsAuthority::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     presentation.hud_frame().hotbar_durability[0]

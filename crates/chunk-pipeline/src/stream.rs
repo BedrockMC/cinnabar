@@ -18,9 +18,9 @@ use assets::{
     LiveBiomeDefinition, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAssets,
 };
 use client_world::ingestion::{
-    ActorHandedness, BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange,
-    LevelChunkEvent, LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
-    WorldBootstrap, WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange, LevelChunkEvent,
+    LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, WorldBootstrap,
+    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 use hashbrown::HashMap as FastHashMap;
@@ -35,10 +35,8 @@ use world::{
     solve_light,
 };
 
-use super::{ActorArmorSnapshot, ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats};
+use client_world::LocalPlayerFeed;
 use client_world::ResolvedServerPosition;
-use client_world::{ActorAnimationStats, ActorRigSnapshot};
-use client_world::{ActorSnapshot, LocalPlayerFeed, PlayerProfile};
 use client_world::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
@@ -55,6 +53,7 @@ mod decode;
 mod diagnostics;
 mod dirty;
 mod helpers;
+mod light_diagnostics;
 mod lighting;
 mod map_data;
 mod meshing;
@@ -71,7 +70,8 @@ mod residency;
 mod resource_reload;
 pub use resource_reload::ResourceMeshSnapshot;
 mod retries;
-mod scheduler_refresh;
+mod scheduler;
+mod seasonal_foliage;
 mod sequencing;
 mod sign_edit;
 mod workers;
@@ -104,7 +104,7 @@ pub const WORK_RESULT_CAPACITY: usize = 512;
 pub use client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS};
 pub const MAX_IN_FLIGHT_DECODE_JOBS: usize = MAX_ADMITTED_HEAVY_EVENTS;
 pub const DECODE_DISPATCH_BUDGET_PER_POLL: usize = MAX_ADMITTED_HEAVY_EVENTS;
-pub const PHASE0_MAX_VIEW_RADIUS_CHUNKS: i32 = 16;
+pub use render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS;
 pub const OUTBOUND_REQUEST_CAPACITY: usize = 64;
 pub const DEFERRED_RETRY_CAPACITY: usize = 64;
 pub const MAX_SUB_CHUNK_RETRIES: u8 = 2;
@@ -239,26 +239,24 @@ impl SchedulerView {
 }
 
 use model::{
-    CorrelatedSubChunkAttempts, MeshCompletion, NormalizationErrorReason, OutboundRequestSlot,
-    PendingMesh, PendingSubChunk, PendingSubChunkColumn, RetrySchedule, RevisionTracker,
-    queue_wait, split_block_update,
+    CorrelatedSubChunkAttempts, MeshCompletion, NormalizationErrorReason, PendingMesh,
+    PendingSubChunk, PendingSubChunkColumn, RetrySchedule, RevisionTracker, queue_wait,
+    split_block_update,
 };
 
 pub use block_cracks::{
     ActiveBlockCrack, BlockCrackSnapshot, BlockCrackStatus, MAX_ACTIVE_BLOCK_CRACKS,
 };
-pub use block_events::BlockEventCue;
-pub use map_data::MapImage;
 pub use model::{
     ForcedRemeshManifest, ForcedRemeshManifestState, PendingSubChunkRequest, ViewCohortStatus,
     WorldMeshChange, WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll,
     WorldStreamStats,
 };
-pub use sign_edit::SignEditRequest;
 
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {
     authority: client_world::WorldAuthority,
+    light_diagnostics: light_diagnostics::LightingDiagnostics,
     order: client_world::ingestion::OrderedCommitState,
     block_cracks: block_cracks::BlockCracks,
     block_entity_visuals: BlockEntityVisualDiagnostics,
@@ -266,50 +264,22 @@ pub struct WorldStream {
     /// Whether the server sent terrain before spawn; when it did not, startup
     /// has no view to wait for until the server publishes one.
     startup_terrain_announced: bool,
+    seasonal_foliage: seasonal_foliage::SeasonalFoliage,
     pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     predictions: prediction::DeferredPredictions,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
-    light_tx: Sender<LightCompletion>,
-    light_rx: Receiver<LightCompletion>,
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
-    next_block_generation: u64,
-    block_generations: HashMap<SubChunkKey, u64>,
-    light_store: LightStore,
-    light_ownership: HashMap<SubChunkKey, LightOwnership>,
-    direct_sky: BTreeMap<SubChunkKey, StoredDirectSky>,
-    light_failures: HashMap<SubChunkKey, LightFailure>,
-    light_revisions: RevisionTracker,
-    pending_light: HashMap<SubChunkKey, PendingLight>,
-    pending_light_scan: VecDeque<(SubChunkKey, u64)>,
-    pending_light_ready: BinaryHeap<PendingSchedulerCandidate>,
-    pending_light_deferred: BinaryHeap<PendingSchedulerCandidate>,
-    light_priority_wakeups: HashMap<SubChunkKey, u64>,
-    light_scheduler_refresh: scheduler_refresh::SchedulerRefresh<2>,
-    in_flight_light: HashMap<SubChunkKey, LightJobIdentity>,
-    next_light_batch_id: u64,
-    in_flight_light_batches: HashMap<u64, usize>,
-    /// Solves still executing, including ones whose keys were evicted meanwhile.
-    running_light_jobs: Arc<AtomicUsize>,
-    last_dispatched_light_batch: HashMap<SubChunkKey, u64>,
-    light_waiters: HashMap<SubChunkKey, BTreeSet<SubChunkKey>>,
-    fatal_light_failure: bool,
+    lighting: lighting::Lighting,
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
-    pending_mesh: HashMap<SubChunkKey, PendingMesh>,
-    pending_mesh_scan: VecDeque<(SubChunkKey, u64)>,
-    pending_resident_mesh_deferred: BinaryHeap<PendingSchedulerCandidate>,
-    pending_resident_mesh_ready: BinaryHeap<PendingSchedulerCandidate>,
-    pending_mesh_removal_deferred: BinaryHeap<PendingSchedulerCandidate>,
-    pending_mesh_removal_ready: BinaryHeap<PendingSchedulerCandidate>,
-    mesh_scheduler_refresh: scheduler_refresh::SchedulerRefresh<4>,
+    mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
-    in_flight: HashMap<SubChunkKey, u64>,
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
@@ -319,19 +289,9 @@ pub struct WorldStream {
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
-    requested_sub_chunks: HashMap<ChunkKey, PendingSubChunkColumn>,
-    request_collision_failures: HashSet<ChunkKey>,
-    sub_chunk_deadlines: BTreeSet<(Instant, SubChunkKey)>,
-    correlated_sub_chunk_attempts: HashMap<SubChunkKey, CorrelatedSubChunkAttempts>,
-    admitted_sub_chunk_replies: HashMap<SubChunkKey, u8>,
-    deferred_retries: VecDeque<SubChunkKey>,
-    deferred_retry_set: HashSet<SubChunkKey>,
-    deferred_recovery_requests: VecDeque<PendingSubChunkRequest>,
     connectivity: FastHashMap<SubChunkKey, FaceConnectivity>,
     connectivity_generation: u64,
-    requests: RequestQueue,
-    transport_pending_requests: usize,
-    last_request_player_chunk: Option<ChunkKey>,
+    requests: requests::SubChunkRequests,
     unsent_column_deadlines: HashMap<ChunkKey, Instant>,
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
@@ -339,21 +299,7 @@ pub struct WorldStream {
     polling: bool,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
-    publisher_center: Option<[i32; 3]>,
-    publisher_radius_blocks: Option<u32>,
-    publisher_radius_chunks: Option<i32>,
-    committed_view_cohort: Option<ViewCohort>,
-    provisional_publisher_rebase: bool,
-    local_resets_armed: u64,
-    local_resets_consumed: u64,
-    local_reset_dispatch_count: u8,
-    local_reset_dispatch_total: u64,
-    local_reset_dispatch_active: bool,
-    local_reset_dispatch_classes: [Option<RequestClass>; MAX_LOCAL_RESET_DISPATCH_EVIDENCE],
-    publisher_epoch: u64,
-    required_columns: BTreeSet<ChunkKey>,
-    source_columns: BTreeSet<ChunkKey>,
-    source_capture_sequence: Option<u64>,
+    publisher: cohort::PublisherScope,
     chunk_radius: Option<i32>,
     last_retention_center: Option<ChunkKey>,
     last_retention_radius: Option<i32>,
@@ -363,11 +309,7 @@ pub struct WorldStream {
 #[cfg(test)]
 mod tests;
 
-pub use client_world::{
-    COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
-};
-
-pub use client_world::{
+use client_world::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
-    CommittedUiEvent, PublisherViewGeometry, ViewCohort,
+    CommittedUiEvent, ViewCohort,
 };

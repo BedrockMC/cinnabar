@@ -1,9 +1,7 @@
 //! [`AccountControl`] over the core's launcher control endpoint. Workers poll
-//! `events.v1` and `account_status.v1` often, the slow catalog calls
-//! (`realms_list.v1`, `friends_list.v1`) rarely and the screen feeds
-//! (`featured_servers.v1`, `gatherings.v1`, `profile.v1`) more rarely still,
-//! each on its own thread, so neither the menu nor a fast feed waits on a slow
-//! one; sign-out requests queue to the events worker.
+//! auth/events often, catalogs and Home/public feeds rarely. Profile has an
+//! independent worker woken by opening, retry and account changes, so it never
+//! waits on unrelated feeds. Sign-out requests queue to the events worker.
 
 use std::{
     collections::HashSet,
@@ -21,16 +19,20 @@ use protocol::launcher_control::{
 };
 
 use super::account_control::{AccountControl, AccountEvent};
-use super::view::{
+use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
+use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
     ServerDetails,
 };
-use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 
 #[cfg(test)]
 mod home_promo;
 
 mod message_reports;
+pub(super) mod profile_worker;
+
+#[cfg(all(test, unix))]
+mod profile_polling_tests;
 
 /// How often auth state and events refresh.
 const EVENT_INTERVAL: Duration = Duration::from_secs(1);
@@ -51,6 +53,8 @@ struct Snapshot {
     auth_generation: u64,
     /// Wakes the catalog worker when its account identity changes.
     catalog_wake: Option<Sender<()>>,
+    /// Wakes Profile independently when its account identity changes.
+    profile_wake: Option<Sender<()>>,
     account: Option<Account>,
     realms: Option<Vec<Realm>>,
     friends: Option<Vec<Friend>>,
@@ -79,6 +83,9 @@ impl Snapshot {
         self.gatherings = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
+            let _ = wake.try_send(());
+        }
+        if let Some(wake) = &self.profile_wake {
             let _ = wake.try_send(());
         }
     }
@@ -114,21 +121,24 @@ impl LauncherAccount {
     /// poll on their own worker, publishing every answer as it arrives.
     pub(crate) fn new(socket_dir: PathBuf) -> Self {
         let (catalog_wake, catalog_changes) = bounded(1);
+        let (profile_refresh, profile_requests) = bounded(1);
         let snapshot = Arc::new(Mutex::new(Snapshot {
             catalog_wake: Some(catalog_wake),
+            profile_wake: Some(profile_refresh.clone()),
             ..Default::default()
         }));
         let (sign_out, requests) = bounded(1);
         let (alive, stop) = bounded(0);
-        let (profile_refresh, profile_requests) = bounded(1);
         let message_reports = message_reports::start(socket_dir.clone(), stop.clone());
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
         thread::spawn(move || poll_events(&dir, &shared, &requests));
         let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
         thread::spawn(move || poll_catalog(&dir, &shared, &until, &catalog_changes));
+        let (shared, dir, until) = (Arc::clone(&snapshot), socket_dir.clone(), stop.clone());
+        thread::spawn(move || poll_feeds(&dir, &shared, &until));
         let (shared, dir) = (Arc::clone(&snapshot), socket_dir.clone());
-        thread::spawn(move || poll_feeds(&dir, &shared, &stop, &profile_requests));
+        thread::spawn(move || profile_worker::poll(&dir, &shared, &stop, &profile_requests));
         Self {
             snapshot,
             sign_out,
@@ -302,13 +312,8 @@ fn poll_catalog(
     }
 }
 
-/// Polls service feeds, waking early when the Profile screen requests a retry.
-fn poll_feeds(
-    socket_dir: &std::path::Path,
-    shared: &Mutex<Snapshot>,
-    stop: &Receiver<()>,
-    profile_requests: &Receiver<()>,
-) {
+/// Polls Home and public catalogs without delaying the independent Profile worker.
+fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Receiver<()>) {
     let Some(runtime) = runtime() else {
         return;
     };
@@ -334,18 +339,8 @@ fn poll_feeds(
                 snapshot.gatherings = Some(gatherings)
             });
         }
-        let generation = auth_generation(shared);
-        let profile = runtime.block_on(launcher_control::profile(socket_dir));
-        let profile = settle("profile", profile, &mut failed).ok_or(());
-        publish_account(shared, generation, |snapshot| {
-            snapshot.profile = Some(profile);
-        });
-        crossbeam_channel::select! {
-            recv(stop) -> _ => return,
-            recv(profile_requests) -> request => {
-                if request.is_err() { return; }
-            }
-            default(if failed { FEED_RETRY } else { FEED_INTERVAL }) => {}
+        if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
+            return;
         }
     }
 }
@@ -673,27 +668,21 @@ impl AccountControl for LauncherAccount {
         )
     }
 
-    /// Wakes the feed worker when the user retries an unavailable profile.
+    /// Wakes only Profile when opened or retried, without replaying Home impressions.
     fn refresh_profile(&mut self) {
-        let _ = self.profile_refresh.try_send(());
+        if matches!(
+            self.profile_refresh.try_send(()),
+            Err(crossbeam_channel::TrySendError::Disconnected(_))
+        ) {
+            self.with(|snapshot| snapshot.profile = Some(Err(())));
+            profile_worker::log_unavailable("worker_unavailable");
+        }
     }
 
     fn profile(&mut self) -> Option<MenuProfile> {
         let profile = self.with(|snapshot| snapshot.profile.take())?;
         let Ok(profile) = profile else {
-            return Some(MenuProfile {
-                loaded: true,
-                unavailable: true,
-                avatar_loaded: true,
-                avatar_error: true,
-                featured_screenshot_loaded: true,
-                featured_screenshot_error: true,
-                statistics_loaded: true,
-                statistics_error: true,
-                achievements_loaded: true,
-                achievements_error: true,
-                ..MenuProfile::default()
-            });
+            return Some(MenuProfile::unavailable());
         };
         Some(MenuProfile {
             loaded: true,

@@ -118,6 +118,7 @@ fn geometry_fixture() -> CompiledEntityAssets {
             parent: None,
             pivot: Some([scalar(0.5), scalar(4.0), scalar(1.0)]),
             rotation: Some([scalar(0.0), scalar(15.0), scalar(0.0)]),
+            bind_pose_rotation: None,
             mirror: None,
             inflate: None,
             never_render: None,
@@ -235,6 +236,7 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
         parent: Some("missing".into()),
         pivot: None,
         rotation: None,
+        bind_pose_rotation: None,
         mirror: None,
         inflate: None,
         never_render: None,
@@ -500,6 +502,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 parent: None,
                 pivot: None,
                 rotation: None,
+                bind_pose_rotation: None,
                 mirror: None,
                 inflate: None,
                 never_render: None,
@@ -520,6 +523,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             source: 1,
             override_previous: false,
             geometry: None,
+            anim_time_update: None,
         }]
         .into_boxed_slice(),
         animation_channels: vec![EntityAnimationChannel {
@@ -527,6 +531,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             property: EntityAnimationProperty::Rotation,
             first_keyframe: 0,
             keyframe_count: 1,
+            rotation_relative_to_entity: false,
         }]
         .into_boxed_slice(),
         animation_keyframes: vec![EntityAnimationKeyframe {
@@ -697,7 +702,8 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
 
 #[test]
 fn carrier_v4_round_trips_every_extended_section_byte_identically() {
-    let compiled = carrier_v4_fixture();
+    let mut compiled = carrier_v4_fixture();
+    compiled.animation_channels[0].rotation_relative_to_entity = true;
     let encoded = entity::encode_entity_blob(&compiled).expect("encode version-4 carrier");
     assert_eq!(&encoded[..8], b"MCBEENT3");
     assert_eq!(
@@ -707,6 +713,10 @@ fn carrier_v4_round_trips_every_extended_section_byte_identically() {
 
     let runtime = RuntimeEntityAssetsV4::decode(&encoded).expect("decode version-4 carrier");
     assert_eq!(runtime.animation_clips(), compiled.animation_clips.as_ref());
+    assert_eq!(
+        runtime.animation_channels(),
+        compiled.animation_channels.as_ref()
+    );
     assert_eq!(runtime.controllers(), compiled.controllers.as_ref());
     assert_eq!(runtime.rig_bindings(), compiled.rig_bindings.as_ref());
     assert_eq!(runtime.item_visuals(), compiled.item_visuals.as_ref());
@@ -772,6 +782,7 @@ fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
         .map(|index| EntityAnimationChannel {
             first_keyframe: u32::from(index != 0),
             keyframe_count: u32::from(index == 0),
+            rotation_relative_to_entity: false,
             ..compiled.animation_channels[0]
         })
         .collect();

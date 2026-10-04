@@ -10,14 +10,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, bail};
-use bevy::prelude::Resource;
-
 use crate::{
     install_layout::InstallLayout,
     lifecycle::children::{self, Spawned, StopOutcome},
     runtime::endpoint::{bridge_endpoint_exists, bridge_endpoint_path},
 };
+use anyhow::{Context, Result, bail};
 
 /// Bounds the graceful-stop wait before SIGTERM, then SIGKILL, fire.
 ///
@@ -26,7 +24,7 @@ use crate::{
 /// into a watchdog `process::exit` that skips the stop.
 const CORE_GRACEFUL_STOP_DEADLINE: Duration = children::EXIT_GRACE;
 /// How long a freshly spawned core has to publish its bridge endpoint.
-pub(crate) const CORE_START_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) use client_session::connection::CORE_START_TIMEOUT;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CoreStopOutcome {
@@ -38,7 +36,7 @@ pub(crate) enum CoreStopOutcome {
     Unreaped,
 }
 
-#[derive(Debug, Resource, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct CoreProcessGuard {
     child: Option<Spawned>,
 }
@@ -239,7 +237,7 @@ mod tests {
 
     #[test]
     fn fallback_core_normalizes_the_same_raknet_address_as_the_launcher() {
-        let layout = InstallLayout::scratch("fallback-target");
+        let layout = crate::install_layout::scratch("fallback-target");
         for address in ["example.test", "example.test:19133", "::1", "realm_id/42"] {
             let command = core_command_for_address(
                 &layout,

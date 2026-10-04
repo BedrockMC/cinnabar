@@ -15,10 +15,8 @@ pub(in crate::compiler) fn compile_rule(
     }
     let mut visual = diagnostic_visual(record);
     if let Some(materials) = inputs.materials(record)
-        && let Some(orientation @ 0..=3) = record.model_state.get(ModelStateField::Orientation)
-        && let Some(upside @ 0..=1) = record.model_state.get(ModelStateField::Half)
+        && let Some((rotation, upside, fixed_shape)) = stair_state(record)
     {
-        let rotation = (orientation + 2) & 3;
         let canonical = canonical_stair_materials(materials, rotation);
         let key = [
             canonical[0],
@@ -27,7 +25,7 @@ pub(in crate::compiler) fn compile_rule(
             canonical[3],
             canonical[4],
             canonical[5],
-            upside,
+            upside | (u32::from(fixed_shape.is_some()) << 1),
         ];
         let base = if let Some(&base) = templates.get(&key) {
             base
@@ -40,7 +38,11 @@ pub(in crate::compiler) fn compile_rule(
             for shape in 0..5 {
                 push_model_template(
                     stair_quads(canonical, 2, upside != 0, shape),
-                    MODEL_TEMPLATE_FLAG_STAIR,
+                    if fixed_shape.is_some() {
+                        0
+                    } else {
+                        MODEL_TEMPLATE_FLAG_STAIR
+                    },
                     storage.templates,
                     storage.quads,
                 )?;
@@ -48,10 +50,51 @@ pub(in crate::compiler) fn compile_rule(
             templates.insert(key, base);
             base
         };
-        set_model_visual(&mut visual, materials, base);
+        // Modern corner state is authoritative. An ordinary model template prevents
+        // the legacy neighbour selector from changing a server-selected corner.
+        set_model_visual(&mut visual, materials, base + fixed_shape.unwrap_or(0));
         visual.variant = rotation | (upside << 2);
     }
     Ok(CompileRuleResult::Compiled(visual))
+}
+
+/// Current native step/inner-piece helpers
+/// read `minecraft:corner` directly. Cornerless legacy registries retain their
+/// neighbour-dependent template group; never silently treat an odd modern state
+/// as legacy.
+fn stair_state(record: &RegistryRecord) -> Option<(u32, u32, Option<u32>)> {
+    use super::carpets::typed_model_state_value;
+    let state =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
+            .ok()?;
+    let orientation = record.model_state.get(ModelStateField::Orientation)?;
+    let half = record.model_state.get(ModelStateField::Half)?;
+    if orientation > 3 || half > 1 {
+        return None;
+    }
+    if !state.contains_key("minecraft:corner") {
+        return Some(((orientation + 2) & 3, half, None));
+    }
+    let expected_mask =
+        (1 << (ModelStateField::Orientation as u8 - 1)) | (1 << (ModelStateField::Half as u8 - 1));
+    if state.len() != 3 || record.model_state.mask() != expected_mask {
+        return None;
+    }
+    let raw_direction = typed_model_state_value(&state, "weirdo_direction", "int")?.as_u64()?;
+    let raw_half = typed_model_state_value(&state, "upside_down_bit", "byte")?.as_u64()?;
+    if raw_direction != u64::from(orientation) || raw_half != u64::from(half) {
+        return None;
+    }
+    let shape = match typed_model_state_value(&state, "minecraft:corner", "string")?.as_str()? {
+        "none" => 0,
+        "inner_left" => 2,
+        "inner_right" => 1,
+        "outer_left" => 3,
+        "outer_right" => 4,
+        _ => return None,
+    };
+    let direction = assets::StairDirection::from_raw(u32::try_from(raw_direction).ok()?)?;
+    Some((direction.turns_from_north(), half, Some(shape)))
 }
 
 pub(in crate::compiler) fn stair_quads(

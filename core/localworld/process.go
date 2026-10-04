@@ -132,7 +132,7 @@ func launch(ctx context.Context, ls launchSpec) (Instance, error) {
 }
 
 func freeLoopbackAddress() (string, error) {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	conn, err := net.ListenPacket("udp", net.JoinHostPort(localServerHost, "0"))
 	if err != nil {
 		return "", fmt.Errorf("localworld: reserve loopback port: %w", err)
 	}

@@ -122,6 +122,11 @@ pub(super) fn prepare(
         bytemuck::bytes_of(&transparent_indirect_args(snapshot)?),
     );
     liquids.last_indirect_identity = Some((snapshot.buffer_slot(), snapshot.refs().len()));
+    model_manifest.sort_by_key(|entry| (entry.key, entry.draw_range.start));
+    let model_address = TransparentModelAddressIdentity {
+        asset_identity: assets.identity(),
+        allocations: model_manifest.into(),
+    };
     for batch in sort_transparent_model_candidates(matrix, model_candidates.into()) {
         write_geometry_stream_words(
             arena,
@@ -129,15 +134,13 @@ pub(super) fn prepare(
             u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
             bytemuck::cast_slice(&batch.words),
         );
+        models.draw_orders.publish(&model_address, batch);
     }
-    model_manifest.sort_by_key(|entry| (entry.key, entry.draw_range.start));
     models.committed = Some(TransparentModelSortKey {
         view_entity: view.entity,
         rotation_bits: canonical_transparent_rotation_bits(rotation)?,
-        address: TransparentModelAddressIdentity {
-            asset_identity: assets.identity(),
-            allocations: model_manifest.into(),
-        },
+        camera_position_bits: crate::chunk::transparent::model::camera_position_bits(translation)?,
+        address: model_address,
     });
     Some((liquids, models))
 }

@@ -73,7 +73,7 @@ fn install(app: &mut App) {
         app,
         ITEM_SHADER_HANDLE,
         "dropped_item.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
@@ -683,15 +683,18 @@ mod tests {
     // The item fragment stage reads the view for distance fog; a vertex-only binding fails validation.
     #[test]
     fn fragment_view_reads_are_visible_to_the_fragment_stage() {
-        let lighting =
-            include_str!("lighting.wgsl").replacen("#define_import_path cinnabar::lighting", "", 1);
+        let lighting = crate::material_shader::source(include_str!("lighting.wgsl")).replacen(
+            "#define_import_path cinnabar::lighting",
+            "",
+            1,
+        );
         let source = include_str!("dropped_item.wgsl")
             .replace(
                 "#import bevy_render::view::View",
                 "struct View { clip_from_world: mat4x4<f32>, world_position: vec3<f32>, }",
             )
             .replace(
-                "#import cinnabar::lighting::{lit_colour, light_colour, world_distance_fog}",
+                "#import cinnabar::lighting::{actor_light_colour, actor_distance_fog, tint_to_gamma, tint_to_linear}",
                 &lighting,
             );
         assert!(crate::shader_test_support::fragment_reads_binding(

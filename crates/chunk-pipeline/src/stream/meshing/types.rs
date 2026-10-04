@@ -4,6 +4,7 @@ pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) center: Arc<SubChunk>,
     pub(in crate::stream) biomes: BiomeNeighbourhood,
     pub(in crate::stream) adjacent: [Option<Arc<SubChunk>>; 27],
+    pub(in crate::stream) column_above: Vec<(i32, Arc<SubChunk>)>,
     pub(in crate::stream) light_halo: MeshLightHalo,
 }
 
@@ -84,6 +85,10 @@ impl MeshSnapshot {
                 debug_assert!(inserted);
             }
         }
+        for &(offset_y, ref sub_chunk) in &self.column_above {
+            let inserted = neighbourhood.insert_column_above(offset_y, sub_chunk);
+            debug_assert!(inserted);
+        }
         neighbourhood
     }
 
@@ -115,3 +120,7 @@ impl MeshSnapshot {
 pub(in crate::stream) fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
     (usize::from((x + 1) as u8) * 3 + usize::from((y + 1) as u8)) * 3 + usize::from((z + 1) as u8)
 }
+
+/// Mesh scheduler lanes: resident geometry, and removals for evicted or known-air keys.
+pub(in crate::stream) const RESIDENT_MESH_LANE: usize = 0;
+pub(in crate::stream) const MESH_REMOVAL_LANE: usize = 1;

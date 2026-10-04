@@ -76,7 +76,10 @@ fn diagnostic_submission(runtime_id: u64, spawn_revision: u64) -> ActorRigSubmis
 fn shader_layouts_are_exact_and_the_dual_pose_arena_is_bounded() {
     // Bone poses reach the GPU as 48-byte affine matrices, not in this CPU form.
     assert_eq!(size_of::<RenderBoneTransform>(), 48);
-    assert_eq!(size_of::<ActorGpuInstance>(), 100);
+    assert_eq!(
+        size_of::<ActorGpuInstance>(),
+        render::ACTOR_GPU_INSTANCE_WORDS * 4
+    );
     assert_eq!(MAX_RENDER_BONES_PER_ACTOR, 96);
     assert_eq!(
         MAX_ACTOR_BONE_ARENA_BYTES,

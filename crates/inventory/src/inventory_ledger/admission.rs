@@ -78,6 +78,9 @@ impl PlayerInventoryLedger {
                         deadline_millis,
                         ..
                     } => {
+                        // Native LegacyClientNetworkHandler::handle routes a response to the screen manager
+                        // without inspecting its container id or type. Those
+                        // payload fields are not acknowledgement correlation.
                         if !close.server_initiated && deadline_millis.is_some() {
                             Some(true)
                         } else if close.server_initiated
@@ -148,6 +151,17 @@ impl PlayerInventoryLedger {
     /// projection. A content payload addresses its surface from index zero,
     /// so the projected first cell identifies the surface.
     fn apply_content(&mut self, content: &InventoryContentEvent) {
+        let resolved;
+        let identity = self.storage_wire_identity(content.container);
+        let content = if identity != content.container {
+            resolved = InventoryContentEvent {
+                container: identity,
+                ..content.clone()
+            };
+            &resolved
+        } else {
+            content
+        };
         if content.container.slot_type == Some(protocol::CONTAINER_NAME_DYNAMIC)
             && let Some(dynamic_id) = content.container.dynamic_id
         {
@@ -291,6 +305,14 @@ impl PlayerInventoryLedger {
 
     /// Admits one authoritative slot update through the canonical projection.
     fn apply_slot_update(&mut self, identity: SlotIdentity, stack: &NetworkItemStack) {
+        let identity = SlotIdentity {
+            container: if identity.container.slot_type.is_some() {
+                self.storage_wire_identity(identity.container)
+            } else {
+                identity.container
+            },
+            ..identity
+        };
         if identity.container.slot_type == Some(protocol::CONTAINER_NAME_DYNAMIC)
             && let Some(dynamic_id) = identity.container.dynamic_id
         {

@@ -43,9 +43,9 @@ use bevy::{
             BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer,
             BufferBindingType, BufferDescriptor, BufferId, BufferInitDescriptor, BufferUsages,
             Canonical, ColorTargetState, ColorWrites, CommandEncoderDescriptor, CompareFunction,
-            DepthStencilState, DownlevelFlags, DrawIndexedIndirectArgs, Extent3d, Face as CullFace,
-            FilterMode, FragmentState, IndexFormat, Origin3d, PipelineCache, PollType,
-            PrimitiveState, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+            DepthStencilState, DownlevelFlags, DrawIndexedIndirectArgs, Extent3d, FilterMode,
+            FragmentState, IndexFormat, Origin3d, PipelineCache, PollType, PrimitiveState,
+            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
             SamplerDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
             TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
@@ -80,10 +80,11 @@ mod api;
 mod biome_tints;
 mod constants;
 mod draw;
+#[cfg(feature = "enhanced")]
 pub(crate) mod enhanced;
 mod extract;
 mod gpu;
-mod pipeline;
+pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
 mod plugin;
 mod presentation;

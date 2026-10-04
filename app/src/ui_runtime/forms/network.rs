@@ -1,9 +1,7 @@
 use super::{FormTransportError, flush_form_response};
-use crate::{
-    runtime::network::{NetworkHandle, PacketSendError},
-    ui_runtime::UiRuntime,
-};
+use crate::runtime::network::{NetworkHandle, PacketSendError};
 use bevy::prelude::{Res, ResMut};
+use client_ui::ui_runtime::UiRuntime;
 
 pub(crate) fn flush_server_form_network(
     mut runtime: ResMut<UiRuntime>,
@@ -20,15 +18,11 @@ pub(crate) fn flush_server_form_network(
         menu.is_visible() && menu.screen() == crate::menu::MenuScreen::Settings
     });
     let store = runtime.server_forms_mut();
-    if !in_settings {
-        store.settings_requested = false;
-    } else if !store.settings_requested
-        && network
+    store.flush_settings_request(in_settings, || {
+        network
             .send_form_packet(session, protocol::server_settings_request_packet())
             .is_ok()
-    {
-        store.settings_requested = true;
-    }
+    });
     let _ = flush_form_response(&mut runtime, |packet| {
         network
             .send_form_packet(session, packet)

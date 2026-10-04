@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "shared GPU helpers serve different shader test targets"
+)]
+
 use std::{
     borrow::Cow,
     future::Future,
@@ -5,6 +10,8 @@ use std::{
     task::{Context, Poll, Waker},
 };
 use wgpu::util::DeviceExt;
+
+pub const SNAPSHOT_SIDE: u32 = 256;
 
 pub struct Gpu {
     pub device: wgpu::Device,
@@ -17,6 +24,22 @@ pub struct Draw<'a> {
     pub bindings: &'a [wgpu::BindGroupEntry<'a>],
     pub blend: Option<wgpu::BlendState>,
     pub write_depth: bool,
+}
+
+pub struct RasterState {
+    pub primitive: wgpu::PrimitiveState,
+    pub depth_compare: wgpu::CompareFunction,
+    pub write_mask: wgpu::ColorWrites,
+}
+
+impl Default for RasterState {
+    fn default() -> Self {
+        Self {
+            primitive: Default::default(),
+            depth_compare: wgpu::CompareFunction::GreaterEqual,
+            write_mask: wgpu::ColorWrites::ALL,
+        }
+    }
 }
 
 /// Polls wgpu futures without an additional executor dependency.
@@ -59,6 +82,44 @@ impl Gpu {
 
     /// Renders production entry points with reverse depth, then reads their actual pixels.
     pub fn render(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
+        self.render_with_state(source, vertex, draws, RasterState::default())
+    }
+
+    pub fn render_with_state(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        state: RasterState,
+    ) -> Vec<u8> {
+        self.render_to_format(
+            source,
+            vertex,
+            draws,
+            wgpu::TextureFormat::Rgba8Unorm,
+            state,
+        )
+    }
+
+    /// Exercises the same hardware transfer as Bevy's ordinary sRGB target.
+    pub fn render_srgb(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
+        self.render_to_format(
+            source,
+            vertex,
+            draws,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            RasterState::default(),
+        )
+    }
+
+    fn render_to_format(
+        &self,
+        source: &str,
+        vertex: &str,
+        draws: &[Draw<'_>],
+        target_format: wgpu::TextureFormat,
+        state: RasterState,
+    ) -> Vec<u8> {
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -66,8 +127,8 @@ impl Gpu {
                 source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
             });
         let size = wgpu::Extent3d {
-            width: 256,
-            height: 256,
+            width: SNAPSHOT_SIDE,
+            height: SNAPSHOT_SIDE,
             depth_or_array_layers: 1,
         };
         let texture = |format, usage| {
@@ -83,7 +144,7 @@ impl Gpu {
             })
         };
         let target = texture(
-            wgpu::TextureFormat::Rgba8Unorm,
+            target_format,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         );
         let depth = texture(
@@ -105,11 +166,11 @@ impl Gpu {
                         compilation_options: Default::default(),
                         buffers: &[],
                     },
-                    primitive: Default::default(),
+                    primitive: state.primitive,
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: draw.write_depth,
-                        depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        depth_compare: state.depth_compare,
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -119,9 +180,9 @@ impl Gpu {
                         entry_point: Some(draw.fragment),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            format: target_format,
                             blend: draw.blend,
-                            write_mask: wgpu::ColorWrites::ALL,
+                            write_mask: state.write_mask,
                         })],
                     }),
                     multiview: None,
@@ -173,7 +234,7 @@ impl Gpu {
         }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 256 * 256 * 4,
+            size: u64::from(SNAPSHOT_SIDE) * u64::from(SNAPSHOT_SIDE) * 4,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -188,8 +249,8 @@ impl Gpu {
                 buffer: &readback,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(1024),
-                    rows_per_image: Some(256),
+                    bytes_per_row: Some(SNAPSHOT_SIDE * 4),
+                    rows_per_image: Some(SNAPSHOT_SIDE),
                 },
             },
             size,
@@ -213,8 +274,8 @@ pub fn save(name: &str, pixels: &[u8]) {
         image::save_buffer(
             std::path::PathBuf::from(directory).join(format!("{name}.png")),
             pixels,
-            256,
-            256,
+            SNAPSHOT_SIDE,
+            SNAPSHOT_SIDE,
             image::ColorType::Rgba8,
         )
         .unwrap();
@@ -227,6 +288,15 @@ pub fn view(matrix: bevy::math::Mat4, eye: bevy::math::Vec3) -> Vec<f32> {
     for _ in 0..5 {
         words.extend(bevy::math::Mat4::IDENTITY.to_cols_array());
     }
-    words.extend([eye.x, eye.y, eye.z, 1.0, 0.0, 0.0, 256.0, 256.0]);
+    words.extend([
+        eye.x,
+        eye.y,
+        eye.z,
+        1.0,
+        0.0,
+        0.0,
+        SNAPSHOT_SIDE as f32,
+        SNAPSHOT_SIDE as f32,
+    ]);
     words
 }

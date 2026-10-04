@@ -98,10 +98,24 @@ fn bootstrap(
         initial_time,
         day_cycle_lock_time,
         daylight_cycle_enabled,
+        weather_cycle_enabled: true,
         rain_level,
         lightning_level,
     }
 }
+
+fn set_time(clock: &mut WorldClock, weather: &mut WeatherState, time: i32, elapsed: f64) {
+    assert!(apply_environment_control(
+        CommittedControlEvent::SetTime {
+            sequence: 1,
+            update: SetTimeEvent { time },
+        },
+        clock,
+        weather,
+        elapsed,
+    ));
+}
+
 #[test]
 fn start_game_replacement_resets_time_and_replaces_exact_environment_snapshot() {
     let mut clock = WorldClock::default();
@@ -114,14 +128,15 @@ fn start_game_replacement_resets_time_and_replaces_exact_environment_snapshot() 
         10.0,
     );
     assert_eq!(clock.session_generation(), 1);
-    assert_eq!(clock.server_time(), Some(6_000.0));
+    assert_eq!(clock.server_time(), Some(0.0));
     assert!(clock.daylight_cycle_enabled());
-    assert_eq!(visual_world_time(clock, 10.0), 6_000.0);
-    assert_eq!(visual_world_time(clock, 12.5), 6_050.0);
+    assert_eq!(visual_world_time(clock, 10.0), 0.0);
+    assert_eq!(visual_world_time(clock, 12.5), 50.0);
+    set_time(&mut clock, &mut weather, 6_000, 10.0);
     assert_eq!(
         derive_atmosphere_frame(clock, weather, 10.0).sun_direction(),
         [0.0, 1.0, 0.0],
-        "StartGame noon must begin at full overhead daylight"
+        "the authoritative noon packet, not elapsed world age, places the sun overhead"
     );
     assert_eq!(weather.session_generation(), 1);
     assert_eq!(weather.rain_level(), 0.25);
@@ -254,7 +269,7 @@ fn running_clock_anchors_each_set_time_and_advances_at_twenty_ticks_per_second()
         bootstrap(6_000, 0, true, 0.0, 0.0),
         10.0,
     );
-    assert_eq!(visual_world_time(clock, 12.5), 6_050.0);
+    assert_eq!(visual_world_time(clock, 12.5), 50.0);
 
     assert!(apply_environment_control(
         CommittedControlEvent::SetTime {
@@ -330,6 +345,7 @@ fn daylight_cycle_changes_freeze_current_tick_and_resume_from_that_anchor() {
         bootstrap(6_000, 0, true, 0.0, 0.0),
         10.0,
     );
+    set_time(&mut clock, &mut weather, 6_000, 10.0);
     assert_eq!(visual_world_time(clock, 12.5), 6_050.0);
 
     assert!(apply_environment_control(
@@ -417,7 +433,7 @@ fn cardinal_bedrock_times_drive_exact_sun_quadrants_and_moon_phases() {
     }
 }
 #[test]
-fn atmosphere_bounds_weather_and_session_replacement_reanchors_initial_time() {
+fn atmosphere_bounds_weather_and_session_replacement_resets_the_named_clock() {
     let mut clock = WorldClock::default();
     let mut weather = WeatherState::default();
     replace_session(
@@ -447,8 +463,8 @@ fn atmosphere_bounds_weather_and_session_replacement_reanchors_initial_time() {
         bootstrap(12_000, 0, true, 1.0, 0.0),
         50_000.0,
     );
-    assert_eq!(clock.server_time(), Some(12_000.0));
-    assert_eq!(visual_world_time(clock, 50_000.0), 12_000.0);
+    assert_eq!(clock.server_time(), Some(0.0));
+    assert_eq!(visual_world_time(clock, 50_000.0), 0.0);
     assert_eq!(
         derive_atmosphere_frame(clock, weather, 50_000.0).moon_phase(),
         0
@@ -464,6 +480,7 @@ fn active_camera_medium_is_applied_after_clock_and_weather_derivation() {
         bootstrap(6_000, 0, true, 0.25, 0.75),
         10.0,
     );
+    set_time(&mut clock, &mut weather, 6_000, 10.0);
 
     let frame =
         derive_atmosphere_frame_for_medium(clock, weather, 10.0, meshing::CameraMedium::Water);
@@ -483,9 +500,11 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
         bootstrap(18_000, 0, true, 0.0, 0.0),
         10.0,
     );
+    set_time(&mut clock, &mut weather, 18_000, 10.0);
     let context = EnvironmentContext {
         dimension: 2,
         fog_biomes: Vec::new(),
+        precipitation_sample_count: None,
         camera_biome_identifier: None,
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
@@ -502,6 +521,7 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
         &biomes,
         &fogs,
         None,
+        0.0,
     );
 
     assert_eq!(frame.sky_zenith(), [0.0; 3]);
@@ -526,6 +546,7 @@ fn known_camera_biome_takes_precedence_over_dimension_fallback() {
     let context = EnvironmentContext {
         dimension: 1,
         fog_biomes: Vec::new(),
+        precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
@@ -539,6 +560,7 @@ fn known_camera_biome_takes_precedence_over_dimension_fallback() {
         &profiles(),
         &fog_profiles(),
         None,
+        0.0,
     );
     assert_eq!(route.biome_identifier.as_deref(), Some("minecraft:plains"));
     assert_eq!(frame.fog_end(), 256.0);
@@ -548,6 +570,7 @@ fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
     let context = EnvironmentContext {
         dimension: 0,
         fog_biomes: Vec::new(),
+        precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
@@ -561,6 +584,7 @@ fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
         &profiles(),
         &fog_profiles(),
         None,
+        0.0,
     );
     assert_eq!(frame.fog_start(), 235.52);
     assert_eq!(frame.fog_end(), 256.0);
@@ -570,6 +594,7 @@ fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
     let context = EnvironmentContext {
         dimension: 0,
         fog_biomes: Vec::new(),
+        precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
@@ -594,6 +619,7 @@ fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
         &profiles(),
         &fogs,
         None,
+        0.0,
     );
     assert_eq!(frame.fog_end(), 60.0);
 }
@@ -610,6 +636,7 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
     let context = EnvironmentContext {
         dimension: 0,
         fog_biomes: Vec::new(),
+        precipitation_sample_count: None,
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
@@ -623,6 +650,7 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
         &profiles(),
         &fog_profiles(),
         None,
+        1.0,
     );
     assert_eq!(frame.fog_start(), 58.88);
     assert_eq!(frame.fog_end(), 179.2);

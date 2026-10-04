@@ -5,15 +5,13 @@
 use bevy::prelude::{App, ButtonInput, KeyCode, MouseButton, Vec2, Window};
 use ui::{DpiScale, UiNode, UiVisual};
 
+use super::super::UiPresentationRuntime;
 use super::super::forms::pack_harness::{drawn_texts, engine_presentation};
-use super::super::{TextMetrics, UiPresentationRuntime};
 use crate::{
     menu::{LocalWorldAction, MenuAction, MenuClipboard, MenuField, MenuRuntime, MenuScreen},
-    ui_runtime::{
-        UiRuntime,
-        tests::menu_input_tests::{menu_input_app_with, press_key},
-    },
+    ui_runtime::tests::menu_input_tests::{menu_input_app_with, press_key},
 };
+use client_ui::ui_runtime::UiRuntime;
 
 const SIZE: [u32; 2] = [1280, 720];
 
@@ -34,7 +32,7 @@ fn frame(app: &mut App, now_millis: u64) -> Vec<UiNode> {
                     dpi,
                 )
                 .unwrap();
-            let metrics = TextMetrics::for_viewport(SIZE, dpi, None);
+            let metrics = client_ui::test_support::text_metrics(SIZE, dpi, None);
             let (mut nodes, mut next) = (Vec::new(), 1);
             presentation
                 .append_menu(
@@ -195,11 +193,9 @@ fn a_press_inside_a_box_places_the_caret_at_the_nearest_character() {
     );
 
     let (_, h) = glyphs[0];
-    let hits = app
-        .world()
-        .resource::<UiPresentationRuntime>()
-        .menu_hit_targets
-        .clone();
+    let hits =
+        client_ui::test_support::menu_hit_targets(app.world().resource::<UiPresentationRuntime>())
+            .to_vec();
     let (_, name_box) = hits
         .iter()
         .find(|(action, _)| *action == MenuAction::AddName)

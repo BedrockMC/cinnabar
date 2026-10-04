@@ -1,11 +1,26 @@
 # Core join startup evidence
 
+The initial outbound sequence is `RequestChunkRadius`, `ServerboundLoadingScreen(Start)`,
+then, after local loading completes, `ServerboundLoadingScreen(End)` and
+`SetLocalPlayerAsInitialized`. Receiving `PlayerSpawn` alone does not complete loading.
+This documents control flow, not a captured retail wire trace.
 
-## Vanilla references
+## Vanilla rules
 
-Lens references below use the source-backed raw view of artifact 6, version **1.26.50.26**.
-`R:` references use the named 26.30 reconstruction under `reference/26.30/src/by-owner/`.
+| Rule | Behaviour |
+| --- | --- |
+| Radius first | StartGame directly requests and sends the chunk radius. |
+| Loading transitions | Scheduled loading-screen transitions queue start/end packets. Start follows the direct radius request; end follows closing the screen. |
+| Initialization | Send the local runtime ID once after loading state `0x10`, stable dimension state `0`, and `isInWorldAndNotShowingAnyMenuScreens` are satisfied. This is local readiness after the screen closes, rather than a direct PlayerSpawn response. |
+| Pack acquisition and selection | Check compatibility and the required bit of the selected stack; incompatible required content is fatal. Acquisition separately handles required and optional downloads. |
+| Transfer | Pass the packet's address and port to the server-transfer initiator to build the destination connection. This does not establish a bridge shutdown algorithm or spawn prerequisite. |
 
+The vanilla **1.26.50.4 resource pack** at
+`full/resource_pack/texts/en_US.lang:8242`–`:8245` has distinct optional, required
+and server-required download prompts. `ui/progress_screen.json:1209` defines the
+world-loading screen independently. These files do not establish packet order.
+`texts/en_US.lang:1546` describes transfer as moving a player to another server,
+and `:8237` labels the transfer screen “Loading World”.
 
 ## Implementation and regression coverage
 
@@ -22,12 +37,11 @@ server received 0 chunks before initialized and 637 in the 8 s after. Jolyne the
 whether a publisher update, level chunk or sub-chunk preceded spawn. When none did, the startup
 view is empty until the server publishes one, so the gate releases once received work drains.
 **Provisional:** vanilla must also complete loading without terrain here (it joins Dragonfly),
-but the reconstruction does not show which path does it. In
-`R:c/ClientLoadingProgressTickingSystem.cpp:649-716`, loading state 4 completes (0x10) only once
-loaded chunks reach the needed count or, after a deadline, every `_mChunksNeededForLoadOffsets`
-chunk is loaded, and a position check passes; state 0x200 completes directly unless the view's
-`bool` argument is set (`:809-810`); `R:l/LocalPlayer.cpp:11646-11685` (`stopLoading`) sets 0x10 directly,
-through callers not resolved here.
+but the path that does so remains unresolved. Loading state 4 completes (0x10) only
+once loaded chunks reach the needed count or, after a deadline, every
+`_mChunksNeededForLoadOffsets` chunk is loaded, and a position check passes.
+State 0x200 completes directly unless the view's `bool` argument is set;
+`stopLoading` sets 0x10 directly, through callers not resolved here.
 
 `offline_core_preserves_spawn_order_and_startup_transfer` starts the production Go relay
 against a local scripted upstream and runs the actual Rust socket login. The upstream
@@ -60,8 +74,13 @@ requiring a fully drained view when the visible opaque count is below the dense
 threshold. `fa7af5ed` connected the initialization notification to that older gate;
 it is not proof that the BDS in the supplied screenshot withheld replies.
 
-Vanilla references:
+Vanilla tests the spawn neighborhood when the full view is incomplete. Nine
+`ChunkPos` offsets cover x/z −1 through 1. Loading completion leads to the
+initialization notification; the notification worker is separate from the
+neighborhood readiness calculation.
 
+- Vanilla pack `ui/progress_screen.json:1215` and
+  `texts/en_US.lang:8153`, `:8179` supply the retained loading presentation.
 
 `bds_local_startup_completes_with_distant_replies_withheld` runs real requests,
 decoding, lighting, meshing and upload acknowledgements. Near terrain becomes

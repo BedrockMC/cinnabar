@@ -13,8 +13,8 @@ use crate::{
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
     settings_runtime::RuntimeSettings,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 #[derive(SystemParam)]
 struct SelectionContext<'w> {
@@ -51,7 +51,10 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
     );
 }
 
-/// Resolves outline bounds from the same shapes that admitted the nearest block pick.
+/// Resolves reviewed visual bounds from the same shapes that admitted the pick.
+/// StairBlock::getOutline deliberately returns a full
+/// unit box: unioning its slab/step/inner collision pieces preserves that native
+/// wire outline. Model highlighting below uses the separate actual surface.
 fn target(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     context: &SelectionContext,
@@ -65,14 +68,14 @@ fn target(
     let stream = context.world.stream.as_ref()?;
     let ray = context.origin.outbound_ray()?;
     if !ray_is_current(ray, context.ui.session_id(), stream)
-        || context.ui.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Spectator)
+        || player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator)
     {
         return None;
     }
     let mode = protocol_input_mode(context.input.snapshot()?.input_mode);
-    let reach = if context
-        .ui
-        .game_mode_capabilities(player_runtime)?
+    let reach = if player_runtime
+        .facts
+        .game_mode_capabilities()?
         .creative_reach
     {
         creative_reach(mode)
@@ -112,10 +115,10 @@ fn target(
     );
     let point = |point: sim::Vec3| [point.x as f32, point.y as f32, point.z as f32];
     let assets = stream.runtime_assets();
-    let shape = assets
-        .resolve(stream.network_id_mode(), hit.runtime_id)
+    let visual = assets.resolve(stream.network_id_mode(), hit.runtime_id);
+    let shape = visual
         .model_template()
-        .and_then(|template| crack_shape_from_template(assets, template))
+        .and_then(|template| crack_shape_from_template(assets, template, visual.variant()))
         .unwrap_or(CrackShape::Cube);
     Some(BlockSelectionTarget {
         block: hit.block_pos,

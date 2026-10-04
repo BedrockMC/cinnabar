@@ -1,6 +1,9 @@
 use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
 
+#[cfg(test)]
+mod water_tint_tests;
+
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
     pub(in crate::chunk) view: BufferId,
@@ -41,11 +44,12 @@ pub(in crate::chunk) struct AnimationGpu {
     pub(in crate::chunk) frame_count: u32,
     pub(in crate::chunk) ticks_per_frame: u32,
     pub(in crate::chunk) flags: u32,
+    pub(in crate::chunk) uv_scale: f32,
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 16);
+pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<AnimationGpu>() == 5 * 4);
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) grass: u32,
@@ -56,9 +60,11 @@ pub(in crate::chunk) struct BiomeTintGpu {
     pub(in crate::chunk) water: u32,
     pub(in crate::chunk) flags: u32,
     pub(in crate::chunk) water_opacity: f32,
+    pub(in crate::chunk) seasonal_foliage: [[f32; 4]; assets::SEASONAL_FOLIAGE_COUNT],
 }
 
-pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<BiomeTintGpu>() == 32);
+pub(in crate::chunk) const _: () =
+    assert!(std::mem::size_of::<BiomeTintGpu>() == 8 * 4 + assets::SEASONAL_FOLIAGE_COUNT * 16);
 
 pub(in crate::chunk) fn pack_linear_rgb10(rgb: [f32; 3]) -> u32 {
     let component = |value: f32| {
@@ -80,9 +86,21 @@ pub(in crate::chunk) fn prepare_biome_tint_entries(entries: &[BiomeTint]) -> Vec
             birch: pack_linear_rgb10(entry.birch),
             evergreen: pack_linear_rgb10(entry.evergreen),
             dry_foliage: pack_linear_rgb10(entry.dry_foliage),
-            water: pack_linear_rgb10(entry.water),
+            // Native water tint is RGB8. Linear RGB10 loses several dark-blue
+            // palette bytes before the ordinary liquid colour is quantized.
+            water: u32::from_le_bytes(
+                Color::linear_rgb(entry.water[0], entry.water[1], entry.water[2])
+                    .to_srgba()
+                    .to_u8_array(),
+            ),
             flags: entry.flags,
             water_opacity: entry.water_opacity,
+            seasonal_foliage: entry.seasonal_foliage.map(|rgb| {
+                // Seasonal world colours can exceed one; only the CPU
+                // particle path clamps doubled palette samples in native.
+                let [r, g, b] = rgb.map(|channel| if channel.is_finite() { channel } else { 0.0 });
+                [r, g, b, 1.0]
+            }),
         })
         .collect()
 }
@@ -142,7 +160,9 @@ pub(in crate::chunk) struct PreparedChunkTextureAssets {
     pub(in crate::chunk) model_template_buffer: Buffer,
     pub(in crate::chunk) _textures: [Texture; 2],
     pub(in crate::chunk) views: [TextureView; 2],
+    pub(in crate::chunk) native_leaf_views: [TextureView; assets::MAX_TEXTURE_PAGES],
     pub(in crate::chunk) sampler: Sampler,
+    pub(in crate::chunk) native_leaf_sampler: Sampler,
 }
 
 #[derive(Resource)]
@@ -341,10 +361,12 @@ fn build_chunk_texture_assets(
             .expect("binding plan includes a diagnostic fallback"),
     });
     let device_limits = render_device.limits();
-    if device_limits.max_sampled_textures_per_shader_stage < 2 {
+    if !crate::material_shader::chunk_atlas_views_fit(&device_limits) {
         bevy::log::error!(
             supported = device_limits.max_sampled_textures_per_shader_stage,
-            "chunk renderer requires two sampled texture bindings"
+            supported_group_entries = device_limits.max_bindings_per_bind_group,
+            required = crate::material_shader::CHUNK_SAMPLED_TEXTURE_BINDINGS,
+            "chunk renderer requires sRGB and native leaf views of each texture page"
         );
         return None;
     }
@@ -392,6 +414,7 @@ fn build_chunk_texture_assets(
             frame_count: animation.frame_count,
             ticks_per_frame: animation.ticks_per_frame,
             flags: animation.flags,
+            uv_scale: 1.0 / animation.replicate as f32,
         })
         .collect::<Vec<_>>();
     let animation_frame_words = assets
@@ -438,6 +461,7 @@ fn build_chunk_texture_assets(
         frame_count: 1,
         ticks_per_frame: 1,
         flags: 0,
+        uv_scale: 1.0,
     }];
     let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk animations"),
@@ -477,7 +501,20 @@ fn build_chunk_texture_assets(
         &upload_plans[1],
         "global chunk texture page 1",
     );
+    // Current atlas upload retains RGBA8_UNORM.
+    // A view of each existing allocation preserves gamma-space filtering for
+    // world leaves without duplicating texture memory or changing other art.
+    let native_leaf_views = [&texture_0, &texture_1].map(|texture| {
+        texture.create_view(&TextureViewDescriptor {
+            label: Some("native world leaf atlas view"),
+            format: Some(TextureFormat::Rgba8Unorm),
+            dimension: Some(TextureViewDimension::D2Array),
+            ..Default::default()
+        })
+    });
     let sampler = render_device.create_sampler(&chunk_sampler_descriptor());
+    let native_leaf_sampler =
+        render_device.create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
 
     let mut stats = ChunkTextureUploadStats {
         upload_count: 1,
@@ -500,6 +537,8 @@ fn build_chunk_texture_assets(
         model_template_buffer,
         _textures: [texture_0, texture_1],
         views: [view_0, view_1],
+        native_leaf_views,
+        native_leaf_sampler,
         sampler,
     };
     Some((prepared, stats))
@@ -581,7 +620,7 @@ pub(in crate::chunk) fn upload_texture_page(
         dimension: TextureDimension::D2,
         format: TextureFormat::Rgba8UnormSrgb,
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        view_formats: &[],
+        view_formats: &[TextureFormat::Rgba8Unorm],
     });
     let mut padded_upload_bytes = 0_u64;
     for (mip, plan) in texture_array.mips.iter().zip(upload_plans) {
@@ -775,6 +814,18 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
             BindGroupEntry {
                 binding: 15,
                 resource: atmosphere.buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
+                resource: BindingResource::TextureView(&texture_assets.native_leaf_views[0]),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[1],
+                resource: BindingResource::TextureView(&texture_assets.native_leaf_views[1]),
+            },
+            BindGroupEntry {
+                binding: crate::material_shader::NATIVE_LEAF_SAMPLER_BINDING,
+                resource: BindingResource::Sampler(&texture_assets.native_leaf_sampler),
             },
         ],
     );

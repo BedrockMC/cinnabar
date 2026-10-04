@@ -13,6 +13,7 @@ mod book;
 mod chest;
 mod conduit;
 mod crack;
+mod crystal_beam;
 mod frame;
 mod gpu;
 mod heads;
@@ -39,6 +40,7 @@ pub use bell::{BellAttachment, BellModel, swing_degrees};
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
+pub use crystal_beam::CrystalBeamModel;
 pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
@@ -49,7 +51,7 @@ pub use mesh::{
 pub use mob::SPAWNER_MOBS;
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
-    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityScene,
+    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight, BlockEntityScene,
     BlockEntitySubmission, CrackInstance, SceneClock,
 };
 pub use selection::{BlockSelectionFrame, BlockSelectionTarget};

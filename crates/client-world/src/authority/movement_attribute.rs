@@ -2,11 +2,11 @@ use protocol::ActorAttribute;
 
 const SPRINT_MODIFIER_ID: &str = "d208fc00-42aa-4aad-9276-d5446530de43";
 
-/// Removes only the identified total/current sprint multiplier. Other
-/// modifiers and effects remain in the effective walk speed. Ambiguous or
+/// Retains effective current and identifies the packet's native sprint modifier.
+/// A packet without it replaces any locally predicted modifier. Ambiguous or
 /// invalid authority is skipped, never promoted into a session error.
-pub(super) fn walk_speed(attribute: &ActorAttribute) -> Option<f64> {
-    let mut speed = attribute.current;
+pub(super) fn effective_speed(attribute: &ActorAttribute) -> Option<(f64, Option<f32>)> {
+    let speed = attribute.current;
     if !speed.is_finite() || speed < 0.0 {
         return None;
     }
@@ -15,7 +15,7 @@ pub(super) fn walk_speed(attribute: &ActorAttribute) -> Option<f64> {
             && modifier.operation == 2
             && modifier.operand == 2
     });
-    if let Some(modifier) = sprint.next() {
+    let sprint_modifier = if let Some(modifier) = sprint.next() {
         if sprint.next().is_some() || !modifier.amount.is_finite() {
             return None;
         }
@@ -23,9 +23,9 @@ pub(super) fn walk_speed(attribute: &ActorAttribute) -> Option<f64> {
         if !denominator.is_finite() || denominator <= 0.0 {
             return None;
         }
-        // Attribute arithmetic is f32 at this boundary, before widening into
-        // the existing f64 simulator. This is not a physics precision change.
-        speed /= denominator;
-    }
-    (speed.is_finite() && speed >= 0.0).then_some(f64::from(speed))
+        Some(denominator)
+    } else {
+        None
+    };
+    Some((f64::from(speed), sprint_modifier))
 }

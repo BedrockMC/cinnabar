@@ -1,16 +1,16 @@
 # Server normal inventory transactions
 
+## Vanilla rules
 
-## Source chain
-
-
-Current `__unmapped/01.cpp` contains receive `014f3120`;
-`__unmapped/02.cpp` contains the normal transaction and execute callbacks.
-The matching PE complex-transaction vtable `14ffd3f00 + 0x20` resolves to
-`02996d00`. Its player/offhand/armor/UI execute tables (`15013d610`,
-`15013d6a0`, `15013d640`, `15013d670`) resolve through their `+0x10`
-function-object operator entries to the callbacks above. These are current-code
-witnesses, not an assumption that every old reference address remains valid.
+| Rule | Behaviour |
+| --- | --- |
+| Receive | Postload `InventoryTransaction` descriptors, call the complex transaction with client mode enabled, and refresh UI. |
+| Execution | Verify normal transaction actions, then execute their final stacks; balancing/recalculation is server-only. |
+| Client verification | Ignore mismatched previous player stacks when client mode is enabled. |
+| Player inventory | Source 0/window 0 writes `toItem` to the player inventory. |
+| Armor | Source 0/armor writes `toItem` to the selected armor cell. |
+| UI | Source 0/UI writes `toItem`; cursor also updates the carried instance; output 50 is specially deferred. |
+| Offhand | Source 0/offhand writes `toItem` to its sole cell. |
 
 ## Observed failure and correction
 
@@ -59,8 +59,7 @@ receive path.
 
 On 2026-10-02 UTC the canonical macOS/Metal client, Retina scale 2, connected
 to offline loopback vanilla BDS; version and image come from
-`assets/bedrock-target.json`. Tested executable SHA-256:
-`b51eb853c4b7f04ba555c0dd0b76e5667addcbbae2ab40711483afce5f75e25f`.
+`assets/bedrock-target.json`.
 No Xbox login or synthetic pickup accounting was used.
 
 - Dirt 64/id 82: Drop -3 Accepted at 00:56:24 gave 63; pickup at 00:56:49

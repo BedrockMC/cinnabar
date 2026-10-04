@@ -423,13 +423,16 @@ fn transparent_indirect_command_upload_is_generation_cached() {
 fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
     let plugin = CHUNK_RENDERER_SOURCE;
     let shader = shader_source::preprocess(include_str!("../../src/model.wgsl"), &[]);
-    assert!(plugin.contains("load_internal_asset!(app, MODEL_SHADER_HANDLE, \"../model.wgsl\""));
+    let compact_plugin: String = plugin.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(compact_plugin.contains(
+        "load_internal_asset!(app,MODEL_SHADER_HANDLE,\"../model.wgsl\",|source,path|{crate::shader_safety::from_wgsl(crate::material_shader::source(source),path)})"
+    ));
     assert!(plugin.contains("\"packed model pipeline\""));
     assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
     assert!(plugin.contains("resource: arena.geometry_stream_buffer.as_entire_binding()"));
     assert!(plugin.contains("resource: texture_assets.model_template_buffer.as_entire_binding()"));
     assert!(
-        include_str!("../../../../app/src/app.rs")
+        include_str!("../../../../app/src/app/render_setup.rs")
             .contains(".max(render::required_vertex_storage_buffers())")
     );
     let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
@@ -479,24 +482,26 @@ fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
 }
 
 #[test]
-fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
+fn transparent_model_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
     let plugin = CHUNK_RENDERER_SOURCE;
+    let blend = include_str!("../../src/chunk/pipeline/layouts/terrain_blend.rs");
     let shader = shader_source::preprocess(include_str!("../../src/model.wgsl"), &[]);
 
     assert!(plugin.contains("packed transparent model pipeline"));
     assert!(plugin.contains("transparent_model_descriptor"));
     assert!(plugin.contains("entry_point = Some(\"fragment_blend\".into())"));
-    assert!(plugin.contains("blend = Some(BlendState::ALPHA_BLENDING)"));
-    assert!(plugin.contains("depth_write_enabled = false"));
+    assert!(plugin.contains("terrain_blend::apply(&mut transparent_model_descriptor)"));
+    assert!(blend.contains("target.blend = Some(BlendState::ALPHA_BLENDING)"));
+    assert!(blend.contains("depth.depth_write_enabled = true"));
 
     let blend_start = shader
         .find("fn fragment_blend(")
         .expect("transparent model fragment entry point");
     let blend_body = &shader[blend_start..];
-    assert!(blend_body.contains("let lit = lit_colour("));
-    assert!(
-        blend_body.contains("return vec4(apply_distance_fog(lit, in.world_position), colour.a);")
-    );
+    assert!(blend_body.contains("return ordinary_world_model_colour(in, sampled);"));
+    assert!(shader.contains("* terrain_light_colour(in.native_light_levels)"));
+    assert!(shader.contains("mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position))"));
+    assert!(shader.contains("sampled_gamma.a);"));
     assert!(
         shader.contains("return vec4(sampled.rgb, sampled.a);")
             && shader
@@ -510,13 +515,15 @@ fn transparent_model_pipeline_blends_without_depth_write_or_alpha_cutoff() {
 }
 
 #[test]
-fn transparent_models_queue_as_distance_sorted_subchunk_phase_items() {
+fn transparent_models_and_water_queue_combined_distance_sorted_subchunk_items() {
     let plugin = CHUNK_RENDERER_SOURCE;
 
     assert!(plugin.contains("add_render_command::<Transparent3d, DrawTransparentModelCommands>()"));
+    assert!(plugin.contains("add_render_command::<Transparent3d, DrawMixedTerrainCommands>()"));
     assert!(plugin.contains(".transparent_model_variants"));
     assert!(plugin.contains(".specialize(&pipeline_cache, key)"));
-    assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, allocation.key)"));
+    assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, model_key)"));
+    assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, group.key)"));
     assert!(plugin.contains("prepare_transparent_model_sorts"));
     assert!(plugin.contains("spawn_transparent_model_sort"));
     assert!(plugin.contains("DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME"));
@@ -525,7 +532,13 @@ fn transparent_models_queue_as_distance_sorted_subchunk_phase_items() {
     assert!(plugin.contains("range: group.ref_range"));
     assert!(!plugin.contains("distance: 0.0,"));
     assert!(plugin.contains("draw_function: transparent_model_draw"));
-    assert!(plugin.contains("entity: (render_entity, main_entity)"));
+    assert!(plugin.contains("draw_function: mixed_draw"));
+    assert!(plugin.contains("entity: (entity, main)"));
+    let mixed = include_str!("../../src/chunk/transparent/mixed/command.rs");
+    assert!(mixed.contains("identity.model.generation != allocation.generation"));
+    assert!(mixed.contains("snapshot.generation() != identity.water_generation"));
+    assert!(mixed.contains("snapshot.buffer_slot() != draw.water_slot"));
+    assert!(mixed.contains("order.revision != identity.model_revision"));
 }
 
 #[test]

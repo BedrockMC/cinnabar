@@ -8,8 +8,9 @@ use super::atlas::{AtlasRect, TextureRef};
 
 /// Hard ceiling on vertices per layer per frame; further quads are counted as rejected.
 pub const MAX_BLOCK_ENTITY_VERTICES: usize = 393_216;
-/// `f32` words per [`BlockEntityVertex`] as read by the shader.
-pub const BLOCK_ENTITY_VERTEX_WORDS: usize = 9;
+/// Packed 32-bit words per [`BlockEntityVertex`] as read by the shader.
+pub const BLOCK_ENTITY_VERTEX_WORDS: usize =
+    std::mem::size_of::<BlockEntityVertex>() / std::mem::size_of::<u32>();
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -17,8 +18,12 @@ pub struct BlockEntityVertex {
     pub position: [f32; 3],
     /// Normalized atlas coordinates.
     pub uv: [f32; 2],
-    /// Linear RGBA multiplier: face shade and tint folded together.
+    /// Tint and scalar-path face shade; native entity materials compose RGB in gamma.
     pub color: [f32; 4],
+    /// Outward world normal for native entity-material lighting.
+    pub normal: [f32; 3],
+    /// Packed actor light; zero retains the scalar-lit block-entity path.
+    pub actor_light: u32,
 }
 
 /// Which pass a quad is drawn in.
@@ -80,6 +85,7 @@ pub struct MeshBuilder {
     pub additive: Vec<BlockEntityVertex>,
     /// Multiplier applied to every emitted color; carries per-instance light.
     pub light: f32,
+    pub(super) actor_light: u32,
     pub rejected_quads: u64,
 }
 
@@ -93,6 +99,7 @@ impl MeshBuilder {
             crack: Vec::new(),
             additive: Vec::new(),
             light: 1.0,
+            actor_light: 0,
             rejected_quads: 0,
         }
     }
@@ -152,6 +159,7 @@ impl MeshBuilder {
                 continue;
             }
             let uv = texture.rect_uv(texels);
+            let shade = if self.actor_light == 0 { shade } else { 1.0 };
             let color = [tint[0] * shade, tint[1] * shade, tint[2] * shade, tint[3]];
             let world = corners.map(|corner| model.transform_point3(Vec3::from_array(corner)));
             self.quad(layer, world.map(|point| point.to_array()), uv, color);
@@ -178,6 +186,17 @@ impl MeshBuilder {
         uvs: [[f32; 2]; 4],
         color: [f32; 4],
     ) {
+        self.quad_uv_colors(layer, corners, uvs, [color; 4]);
+    }
+
+    /// Emits one quad with UVs and colors per corner, preserving effect gradients.
+    pub(super) fn quad_uv_colors(
+        &mut self,
+        layer: Layer,
+        corners: [[f32; 3]; 4],
+        uvs: [[f32; 2]; 4],
+        colors: [[f32; 4]; 4],
+    ) {
         let target = match layer {
             Layer::Solid => &mut self.solid,
             Layer::Overlay => &mut self.overlay,
@@ -189,20 +208,30 @@ impl MeshBuilder {
             return;
         }
         let light = self.light;
-        let color = [
-            color[0] * light,
-            color[1] * light,
-            color[2] * light,
-            color[3],
-        ];
         let atlas_size = self.atlas_size;
+        let normal = if self.actor_light == 0 {
+            [0.0; 3]
+        } else {
+            let origin = Vec3::from_array(corners[0]);
+            (Vec3::from_array(corners[2]) - origin)
+                .cross(Vec3::from_array(corners[1]) - origin)
+                .normalize_or_zero()
+                .to_array()
+        };
         let vertex = |corner: usize| BlockEntityVertex {
             position: corners[corner],
             uv: [
                 uvs[corner][0] / atlas_size[0],
                 uvs[corner][1] / atlas_size[1],
             ],
-            color,
+            color: [
+                colors[corner][0] * light,
+                colors[corner][1] * light,
+                colors[corner][2] * light,
+                colors[corner][3],
+            ],
+            normal,
+            actor_light: self.actor_light,
         };
         let [first, second, third, fourth] = [vertex(0), vertex(1), vertex(2), vertex(3)];
         target.extend_from_slice(&[second, third, first, first, third, fourth]);

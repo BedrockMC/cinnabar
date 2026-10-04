@@ -9,6 +9,8 @@ use super::{
 pub struct RenderTextureLayer {
     /// Entity-catalog source index of the raster.
     pub source: u32,
+    /// Additional samplers of the witnessed native three-texture material, not extra draws.
+    pub multitexture: Option<[u32; 2]>,
     /// Multiplies the texture; white when the controller sets no colour.
     pub color: [f32; 4],
     /// Blended over the texture; alpha 0 when unset.
@@ -103,14 +105,8 @@ pub(super) fn pose_layers(
             .collect();
         // Keyframe scripts already ran for the rig; a scratch copy keeps them from running twice.
         let mut scratch = variables.clone();
-        let local = sample_clips(
-            evaluator,
-            &mut scratch,
-            skeleton.bones.len(),
-            &mapped,
-            budget,
-        )
-        .unwrap_or_else(|_| vec![LocalDelta::default(); skeleton.bones.len()]);
+        let local = sample_clips(evaluator, &mut scratch, &skeleton.bones, &mapped, budget)
+            .unwrap_or_else(|_| vec![LocalDelta::default(); skeleton.bones.len()]);
         if let Some(pose) = compose_pose(&skeleton.bones, &local) {
             layer.pose = pose.into();
         }
@@ -205,6 +201,7 @@ pub(super) fn evaluate_render(
     let assets = evaluator.assets;
     let render = assets.render_data();
     let mut output = Vec::new();
+    let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
     for layer in assets.render_layers(rig.binding) {
         budget.charge_work()?;
         if let Some(condition) = layer.condition
@@ -283,6 +280,7 @@ pub(super) fn evaluate_render(
                     ..layer.first_slot as usize + usize::from(layer.slot_count),
             )
             .ok_or(EvalError::Invalid)?;
+        let mut selected_sources = Vec::with_capacity(slots.len());
         for slot in slots {
             let candidates = render
                 .candidates
@@ -300,20 +298,37 @@ pub(super) fn evaluate_render(
                         .truthy(),
                 };
                 if selected {
-                    output.push(RenderTextureLayer {
-                        source: candidate.source,
-                        color: tint,
-                        overlay,
-                        hidden_bones: Arc::clone(&hidden_bones),
-                        uv_anim,
-                        geometry,
-                        previous_pose: empty_pose(),
-                        pose: empty_pose(),
-                        ignore_lighting: layer.ignore_lighting,
-                    });
+                    selected_sources.push(candidate.source);
                     break;
                 }
             }
+        }
+        if multitexture && selected_sources.len() != 3 {
+            continue;
+        }
+        let grouped = if multitexture {
+            Some([selected_sources[1], selected_sources[2]])
+        } else {
+            None
+        };
+        let count = if grouped.is_some() {
+            1
+        } else {
+            selected_sources.len()
+        };
+        for &source in selected_sources.iter().take(count) {
+            output.push(RenderTextureLayer {
+                source,
+                multitexture: grouped,
+                color: tint,
+                overlay,
+                hidden_bones: Arc::clone(&hidden_bones),
+                uv_anim,
+                geometry,
+                previous_pose: empty_pose(),
+                pose: empty_pose(),
+                ignore_lighting: layer.ignore_lighting,
+            });
         }
     }
     Ok(output)
@@ -337,3 +352,7 @@ mod tests {
         assert!(pattern_matches("*", "") && !pattern_matches("*ear", "ar"));
     }
 }
+
+#[cfg(test)]
+#[path = "render/multitexture_tests.rs"]
+mod multitexture_tests;

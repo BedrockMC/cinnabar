@@ -17,6 +17,7 @@ use super::{
     chest::ChestModel,
     conduit::ConduitModel,
     crack::{CrackShape, emit_crack},
+    crystal_beam::CrystalBeamModel,
     frame::ItemFrameModel,
     heads::HeadModels,
     mesh::{BlockEntityVertex, MeshBuilder},
@@ -50,6 +51,7 @@ pub enum BlockEntityKind {
     Conduit(ConduitModel),
     DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
+    CrystalBeam(CrystalBeamModel),
     Statue(StatueModel),
     Spawner(SpawnerModel),
     EndPortal,
@@ -74,9 +76,32 @@ impl BlockEntityKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockEntitySubmission {
     pub block: [i32; 3],
-    /// Combined light multiplier in `0.0..=1.0`.
-    pub light: f32,
+    pub light: BlockEntityLight,
     pub kind: BlockEntityKind,
+}
+
+/// Scalar-lit legacy models or the native entity material's block/sky light coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BlockEntityLight {
+    /// Existing authored face shading and a combined linear multiplier.
+    Scalar(f32),
+    /// Native mob-head material: retained levels into the shared environment lightmap.
+    Actor { block: u8, sky: u8 },
+}
+
+impl From<f32> for BlockEntityLight {
+    fn from(value: f32) -> Self {
+        Self::Scalar(value)
+    }
+}
+
+impl BlockEntityLight {
+    fn apply(self, builder: &mut MeshBuilder) {
+        (builder.light, builder.actor_light) = match self {
+            Self::Scalar(value) => (value.clamp(0.0, 1.0), 0),
+            Self::Actor { block, sky } => (1.0, crate::pack_actor_light(block, sky)),
+        };
+    }
 }
 
 /// A block with a break-crack overlay at destroy stage `stage` (`0..=9`).
@@ -244,7 +269,7 @@ impl BlockEntityScene {
             }
             let start = cache::vertex_counts(&builder);
             let rejected_before = builder.rejected_quads;
-            builder.light = submission.light.clamp(0.0, 1.0);
+            submission.light.apply(&mut builder);
             emit_submission(
                 &mut builder,
                 atlas,
@@ -260,7 +285,7 @@ impl BlockEntityScene {
                 CachedSubmission::capture(submission, start, rejected_before, &builder)
             });
         }
-        builder.light = 1.0;
+        BlockEntityLight::Scalar(1.0).apply(&mut builder);
         for crack in cracks {
             emit_crack(&mut builder, atlas, crack);
         }
@@ -293,6 +318,10 @@ impl BlockEntityScene {
 #[path = "scene/cache_tests.rs"]
 mod cache_tests;
 
+#[cfg(test)]
+#[path = "scene/skull_tests.rs"]
+mod skull_tests;
+
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
@@ -322,6 +351,7 @@ fn emit_submission(
         }
         BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
+        BlockEntityKind::CrystalBeam(model) => super::crystal_beam::emit(builder, atlas, model),
         BlockEntityKind::Statue(model) => super::statue::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Spawner(model) => {
             super::spawner::emit(builder, atlas, mobs, block, model, clock);
@@ -369,7 +399,7 @@ mod tests {
         let mut scene = scene_with_chest_and_crack_textures();
         let chest = BlockEntitySubmission {
             block: [1, 2, 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::Chest(ChestModel {
                 variant: ChestVariant::Normal,
                 facing: Facing::North,
@@ -397,7 +427,7 @@ mod tests {
         let mut scene = scene_with_chest_and_crack_textures();
         let chest = |lid: f32| BlockEntitySubmission {
             block: [1, 2, 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::Chest(ChestModel {
                 variant: ChestVariant::Normal,
                 facing: Facing::North,
@@ -424,7 +454,7 @@ mod tests {
         );
         let portal = BlockEntitySubmission {
             block: [0; 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::EndPortal,
         };
         let animated = scene

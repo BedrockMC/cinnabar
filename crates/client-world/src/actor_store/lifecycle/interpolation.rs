@@ -9,7 +9,6 @@ impl ActorStore {
     }
 
     /// Advances all tick state and evaluates visuals once with the full elapsed interval.
-    /// Bedrock 1.26.50.26 AnimationComponent, Lens artifact 6, RVAs 0x1e01770/0x1e13940.
     pub(crate) fn advance_interpolation_frame(&mut self, ticks: u32) {
         self.advance_interpolation(ticks, true);
     }
@@ -21,6 +20,11 @@ impl ActorStore {
                 let current = actor.current_pose();
                 actor.previous_pose = current;
                 let mut next = actor.received_pose;
+                // Native MovementInterpolator tick clears StateVector velocity
+                // before decrementing any positive interpolation count, including its last tick.
+                if actor.interpolation_ticks_remaining > 0 {
+                    actor.status.native_velocity = [0.0; 3];
+                }
                 // The final step lands exactly on the target.
                 if actor.interpolation_ticks_remaining > 1 {
                     // Each step closes 1/n of the remaining gap; angles take the short way.
@@ -64,6 +68,7 @@ impl ActorStore {
                 .remote_state_excluded_runtime_id
                 .filter(|_| self.local_first_person);
             let local_runtime = self.remote_state_excluded_runtime_id;
+            let local_view_bobbing = self.local_view_bobbing;
             let local_hands = self.local_hands.clone();
             let view = self.animation_view.as_ref();
             self.animation.advance_tick(
@@ -130,6 +135,7 @@ impl ActorStore {
                     has_player_rider,
                     attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
+                    view_bobbing: is_local.then_some(local_view_bobbing),
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

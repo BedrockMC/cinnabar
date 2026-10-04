@@ -1,6 +1,6 @@
 name: CI
 
-# Pull requests and main; dev pushes are gated locally first (AGENTS.md).
+# Pull requests and main; ci-cache.yml keeps dev's Rust caches warm for pull requests.
 on:
   push:
     branches:
@@ -35,15 +35,11 @@ jobs:
         with:
           components: clippy
       - name: Cache Rust dependencies and build artifacts
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
+          # Shared with ci-cache.yml, which saves on dev so every pull request starts warm.
+          shared-key: desktop
+          cache-on-failure: true
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
@@ -96,15 +92,11 @@ jobs:
         with:
           components: clippy
       - name: Cache Rust dependencies and build artifacts
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
+          # Shared with ci-cache.yml, which saves on dev so every pull request starts warm.
+          shared-key: windows-acceptance
+          cache-on-failure: true
       - name: Test Rust workspace on Windows
         run: cargo test --workspace --locked --no-fail-fast
       - name: Lint Rust workspace on Windows
@@ -139,15 +131,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Cache Rust dependencies and build artifacts
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}-
+          # Shared with ci-cache.yml, which saves on dev so every pull request starts warm.
+          shared-key: verify
+          cache-on-failure: true
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
@@ -174,6 +162,12 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --workspace --locked --no-fail-fast
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Lint off-by-default features
+        run: |
+          cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods --locked -- -D warnings
+      - name: Test local WASM mod adapters
+        run: cargo test -p bedrock-client --features local-mods --lib modding --locked
       - run: bash scripts/tests/acceptance_test.sh
       # The Windows job above exercises the vanilla-asset fetchers through
       # Windows PowerShell 5.1, where its bash deep legs are conditionally

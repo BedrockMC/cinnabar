@@ -100,7 +100,7 @@ fn install_ui_render(app: &mut App) {
         app,
         composite::UI_COMPOSITE_SHADER_HANDLE,
         "ui_composite.wgsl",
-        Shader::from_wgsl
+        crate::shader_safety::from_wgsl
     );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)

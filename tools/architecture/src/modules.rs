@@ -59,7 +59,7 @@ pub(super) fn check_modules(
                 aliases: BTreeMap::new(),
                 type_aliases: BTreeMap::new(),
                 module: file_module(path),
-                symbols: &symbols,
+                symbols: &symbols[source_root(path)],
                 diagnostics,
             };
             visitor.visit_file(parsed);
@@ -220,6 +220,20 @@ fn production(attrs: &[Attribute]) -> bool {
     })
 }
 
+/// Finds module remapping, including path attributes nested under cfg_attr.
+fn remaps_module(meta: &Meta) -> bool {
+    if meta.path().is_ident("path") {
+        return true;
+    }
+    let Meta::List(list) = meta else {
+        return false;
+    };
+    list.path.is_ident("cfg_attr")
+        && list
+            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+            .is_ok_and(|children| children.iter().skip(1).any(remaps_module))
+}
+
 /// Returns item attributes so cfg(test) also excludes structs, imports and functions.
 fn attributes(item: &Item) -> &[Attribute] {
     match item {
@@ -274,18 +288,29 @@ struct Symbol {
     ty: Type,
 }
 
+/// Keeps crate-relative aliases separate for each package's source directory.
+fn source_root(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|ancestor| {
+            ancestor.file_name().is_some_and(|name| name == "src")
+                && ancestor
+                    .parent()
+                    .is_some_and(|owner| owner.join("Cargo.toml").is_file())
+        })
+        .unwrap_or_else(|| path.parent().unwrap_or(path))
+}
+
 /// Names a source module from its crate's src directory.
 fn file_module(path: &Path) -> Vec<String> {
-    let parts: Vec<_> = path
-        .components()
-        .map(|part| part.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    let start = parts
-        .iter()
-        .rposition(|part| part == "src")
-        .map_or(0, |index| index + 1);
+    let relative = path.strip_prefix(source_root(path)).unwrap_or(path);
     let mut module = vec!["crate".to_owned()];
-    module.extend(parts[start..parts.len() - 1].iter().cloned());
+    if let Some(parent) = relative.parent() {
+        module.extend(
+            parent
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned()),
+        );
+    }
     let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -321,10 +346,11 @@ fn symbol_path(module: &[String], path: &[String]) -> Vec<String> {
 fn collect_symbols(
     parsed: &BTreeMap<PathBuf, syn::File>,
     production: &BTreeSet<PathBuf>,
-) -> BTreeMap<Vec<String>, Symbol> {
+) -> BTreeMap<PathBuf, BTreeMap<Vec<String>, Symbol>> {
     let mut symbols = BTreeMap::new();
     for path in production {
-        collect_item_symbols(&parsed[path].items, &file_module(path), &mut symbols);
+        let crate_symbols = symbols.entry(source_root(path).to_owned()).or_default();
+        collect_item_symbols(&parsed[path].items, &file_module(path), crate_symbols);
     }
     symbols
 }
@@ -427,6 +453,19 @@ impl ModuleVisitor<'_> {
 
     /// Rejects a forbidden module appearing in a qualified path or grouped import.
     fn check_path(&mut self, path: &[String]) {
+        if path.len() > 1 {
+            let absolute = symbol_path(&self.module, path);
+            if let [root, module, ..] = absolute.as_slice()
+                && root == "crate"
+                && self.rule.forbidden_crate_modules.contains(module)
+            {
+                self.diagnostics.push(format!(
+                    "{}: production module path `{}` crosses forbidden crate module `{module}` boundary",
+                    self.relative,
+                    path.join("::"),
+                ));
+            }
+        }
         for segment in path {
             let name = resolved_name(segment, &self.aliases);
             if self.rule.forbidden_modules.contains(&name) {
@@ -495,6 +534,16 @@ impl<'ast> Visit<'ast> for ModuleVisitor<'_> {
 
     /// Checks inline modules in their own alias scope.
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+        if item
+            .attrs
+            .iter()
+            .any(|attribute| remaps_module(&attribute.meta))
+        {
+            self.diagnostics.push(format!(
+                "{}: production module `{}` uses forbidden #[path] remapping in a protected source tree",
+                self.relative, item.ident,
+            ));
+        }
         if let Some((_, items)) = &item.content {
             let saved = (self.aliases.clone(), self.type_aliases.clone());
             self.module.push(item.ident.to_string());

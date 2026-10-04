@@ -42,6 +42,8 @@ mod cake;
 
 #[path = "compiler/farmland.rs"]
 mod farmland;
+#[path = "compiler/farmland_registry.rs"]
+mod farmland_registry;
 
 #[path = "compiler/resin_clump.rs"]
 mod resin_clump;
@@ -58,8 +60,14 @@ mod stairs;
 #[path = "compiler/cross_aquatic.rs"]
 mod cross_aquatic;
 
+#[path = "compiler/wheat.rs"]
+mod wheat;
+
 #[path = "compiler/materials.rs"]
 mod materials;
+
+#[path = "compiler/leaf_metadata.rs"]
+mod leaf_metadata;
 
 #[path = "compiler/special_cubes.rs"]
 mod special_cubes;

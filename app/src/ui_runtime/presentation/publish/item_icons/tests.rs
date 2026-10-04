@@ -83,8 +83,8 @@ fn publish(
     ui.drain_pending_inventory(player_runtime);
 }
 
-fn stream() -> client_world::WorldStream {
-    let mut stream = client_world::WorldStream::new(protocol::WorldBootstrap {
+fn stream() -> chunk_pipeline::WorldStream {
+    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
         local_player_unique_id: 1,
@@ -207,9 +207,11 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
             ui,
             &mut presentation,
             Some(&stream),
-            &CameraSettingsAuthority::default(),
+            semantic_input::PerspectiveMode::FirstPerson,
             tick * 50,
-            Some((item_use, tick)),
+            ItemIconFrames(std::array::from_fn(|slot| {
+                item_use.inventory_animation_frame(player_runtime, &stream, ui, slot as u8, tick)
+            })),
         );
         let frame = presentation.hud_frame();
         assert_eq!(frame.hotbar_icons[2], frame.inventory_icons.0[2]);
@@ -238,7 +240,7 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
     assert!(!item_use.step(&fire).started);
     assert_eq!(capture(&player_runtime, &mut ui, &item_use, 40), corrected);
     assert_eq!(
-        protocol::item_charged_projectile(&ui.selected_stack(&player_runtime).unwrap().extra_data)
+        protocol::item_charged_projectile(&player_runtime.selected_stack().unwrap().extra_data)
             .as_deref(),
         Some("minecraft:arrow")
     );

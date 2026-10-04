@@ -2,8 +2,7 @@
 //!
 //! The last `ResourcePackStack` entry wins: the client builds its stack in list
 //! order (a pack's dependencies first) and resolves a resource from the highest
-//! index down. Behavior taken from the 26.30 Bedrock reconstruction; confirm
-//! with a live two-pack capture.
+//! index down. Confirm this vanilla behavior with a live two-pack capture.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -114,6 +113,24 @@ impl LayeredPackView {
         let mut paths = BTreeSet::new();
         for pack in self.stack.packs() {
             paths.extend(pack.files_under(prefix).iter().copied());
+        }
+        paths.into_iter().collect()
+    }
+
+    /// Lists only matching suffixes, recording that filtered namespace as the dependency.
+    #[must_use]
+    pub fn list_with_suffixes(&self, prefix: &str, suffixes: &[&str]) -> Vec<&str> {
+        if let Some(dependencies) = &self.dependencies {
+            dependencies.directory_with_suffixes(prefix, suffixes);
+        }
+        let mut paths = BTreeSet::new();
+        for pack in self.stack.packs() {
+            paths.extend(
+                pack.files_under(prefix)
+                    .iter()
+                    .copied()
+                    .filter(|path| suffixes.iter().any(|suffix| path.ends_with(suffix))),
+            );
         }
         paths.into_iter().collect()
     }

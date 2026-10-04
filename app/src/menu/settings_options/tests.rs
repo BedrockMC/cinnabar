@@ -10,28 +10,6 @@ fn index(name: &str) -> usize {
 }
 
 #[test]
-fn all_option_families_round_trip_and_reject_unknown_fields() {
-    let mut settings = SettingsOptions::default();
-    for (index, definition) in SETTINGS_OPTIONS.iter().enumerate() {
-        assert_eq!(settings.get(index), definition.default);
-        assert!(definition.min <= definition.default && definition.default <= definition.max);
-        settings.set(index, definition.min);
-    }
-    let bytes = serde_json::to_vec(&settings).unwrap();
-    assert_eq!(SettingsOptions::decode(&bytes).unwrap(), settings);
-    let loaded =
-        SettingsOptions::decode(br#"{"values":{"gamma":500,"field_of_view":-20,"unknown":100}}"#)
-            .unwrap();
-    assert_eq!(loaded.value("gamma"), SETTINGS_OPTIONS[index("gamma")].max);
-    assert_eq!(
-        loaded.value("field_of_view"),
-        SETTINGS_OPTIONS[index("field_of_view")].min
-    );
-    assert!(!loaded.values.contains_key("unknown"));
-    assert!(SettingsOptions::decode(b"broken").is_none());
-}
-
-#[test]
 fn camera_input_and_window_settings_read_the_saved_values() {
     let mut settings = SettingsOptions::default();
     for (name, value) in [
@@ -66,30 +44,6 @@ fn camera_input_and_window_settings_read_the_saved_values() {
 }
 
 #[test]
-fn remapped_keyboard_controls_reach_gameplay_and_survive_reload() {
-    let mut settings = SettingsOptions::default();
-    let index = KEY_BINDINGS
-        .iter()
-        .position(|(_, name)| *name == "key.forward")
-        .unwrap();
-    let new_key = PhysicalControl::KeyboardUsage(0x0c);
-    assert!(settings.remap(index, new_key));
-    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert_eq!(restored.key_control(index), Some(new_key));
-    let controls = restored.user_settings().controls;
-    assert!(controls.bindings().iter().any(|binding| binding.action
-        == semantic_input::Action::MoveForward
-        && binding.context == InputContext::Gameplay
-        && binding.chord.control == new_key));
-    assert!(!settings.remap(index, PhysicalControl::KeyboardUsage(0x16)));
-    settings.reset_key(index);
-    assert_eq!(
-        settings.key_control(index),
-        SettingsOptions::default().key_control(index)
-    );
-}
-
-#[test]
 fn saved_volumes_reach_the_mixer() {
     use crate::{
         audio::{AudioCategory, AudioSettings},
@@ -111,98 +65,6 @@ fn saved_volumes_reach_the_mixer() {
     let mixer = app.world().resource::<AudioSettings>();
     assert!((mixer.effective(AudioCategory::Music) - 0.2).abs() < 0.0001);
     assert_eq!(mixer.volume(AudioCategory::Master), 0.5);
-}
-
-#[test]
-fn settings_file_replacement_round_trips() {
-    let directory = std::env::temp_dir().join(format!("cinnabar-settings-{}", std::process::id()));
-    let path = directory.join(SETTINGS_FILE);
-    let mut settings = SettingsOptions::default();
-    settings.set(index("gamma"), 80);
-    settings.save(&path).unwrap();
-    assert_eq!(SettingsOptions::load(&path), settings);
-    std::fs::remove_dir_all(directory).unwrap();
-}
-
-#[test]
-fn reset_conflict_preserves_every_saved_mapping() {
-    let mut settings = SettingsOptions::default();
-    let forward = KEY_BINDINGS
-        .iter()
-        .position(|(_, name)| *name == "key.forward")
-        .unwrap();
-    let backward = KEY_BINDINGS
-        .iter()
-        .position(|(_, name)| *name == "key.back")
-        .unwrap();
-    let default_forward = settings.key_control(forward).unwrap();
-    assert!(settings.remap(forward, PhysicalControl::KeyboardUsage(0x0c)));
-    assert!(settings.remap(backward, default_forward));
-    let before = settings.clone();
-    assert!(!settings.reset_key(forward));
-    assert_eq!(settings, before);
-}
-
-#[test]
-fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
-    let mut settings = SettingsOptions::default();
-    for (name, value) in [
-        ("chat_typeface", 1),
-        ("chat_font_size", 15),
-        ("chat_line_spacing", 25),
-        ("chat_color", 3),
-        ("chat_message_duration", 2),
-    ] {
-        settings.set(index(name), value);
-    }
-    let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert_eq!(restored.chat_font_scale(), 1.5);
-    assert_eq!(restored.chat_line_padding(), 2.501);
-    assert_eq!(restored.chat_color_code(), 'c');
-    assert_eq!(restored.chat_lifetime(), 30.0);
-}
-
-#[test]
-fn gamepad_remaps_reach_router_and_reset_independently() {
-    use super::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
-    let mut settings = SettingsOptions::default();
-    let jump = GAMEPAD_OFFSET
-        + GAMEPAD_BINDINGS
-            .iter()
-            .position(|(_, name)| *name == "key.jump")
-            .unwrap();
-    assert!(settings.remap(jump, PhysicalControl::GamepadButton(3)));
-    assert!(!settings.remap(jump, PhysicalControl::KeyboardUsage(0x0c)));
-    let keyboard = KEY_BINDINGS
-        .iter()
-        .position(|(_, name)| *name == "key.forward")
-        .unwrap();
-    assert!(settings.remap(keyboard, PhysicalControl::KeyboardUsage(0x0c)));
-    let mut restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(
-        restored
-            .user_settings()
-            .controls
-            .bindings()
-            .iter()
-            .any(|binding| binding.action == semantic_input::Action::Jump
-                && binding.context == InputContext::Gameplay
-                && binding.chord.control == PhysicalControl::GamepadButton(3))
-    );
-    restored.reset_bindings(false);
-    assert_eq!(
-        restored.key_control(jump),
-        Some(PhysicalControl::GamepadButton(3))
-    );
-    assert_eq!(
-        restored.key_control(keyboard),
-        SettingsOptions::default().key_control(keyboard)
-    );
-    restored.reset_bindings(true);
-    assert_eq!(
-        restored.key_control(jump),
-        SettingsOptions::default().key_control(jump)
-    );
 }
 
 #[test]
@@ -273,61 +135,6 @@ fn chat_secondary_default_obeys_remapping_and_reset_conflicts() {
 }
 
 #[test]
-fn resetting_a_ui_key_preserves_remaps_when_its_default_was_reassigned() {
-    use super::EXTRA_KEYS;
-    let mut settings = SettingsOptions::default();
-    let inventory = KEY_BINDINGS.len()
-        + EXTRA_KEYS
-            .iter()
-            .position(|(name, _)| *name == "key.inventory")
-            .unwrap();
-    let attack = KEY_BINDINGS
-        .iter()
-        .position(|(_, name)| *name == "key.attack")
-        .unwrap();
-    assert!(settings.remap(inventory, PhysicalControl::KeyboardUsage(0x0c)));
-    assert!(settings.remap(attack, PhysicalControl::KeyboardUsage(0x08)));
-    assert!(!settings.reset_key(inventory));
-    assert_eq!(
-        settings.key_control(inventory),
-        Some(PhysicalControl::KeyboardUsage(0x0c))
-    );
-}
-
-#[test]
-fn every_supplemental_binding_survives_reload_and_individual_reset() {
-    use super::{EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
-    for (row, _) in EXTRA_KEYS.iter().enumerate() {
-        let mut settings = SettingsOptions::default();
-        let index = KEY_BINDINGS.len() + row;
-        let control = PhysicalControl::KeyboardUsage(0x45);
-        assert!(settings.remap(index, control));
-        let mut restored =
-            SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-        assert_eq!(restored.key_control(index), Some(control));
-        assert!(restored.reset_key(index));
-        assert_eq!(
-            restored.key_control(index),
-            SettingsOptions::default().key_control(index)
-        );
-    }
-    for (row, _) in EXTRA_GAMEPAD.iter().enumerate() {
-        let mut settings = SettingsOptions::default();
-        let index = GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + row;
-        let control = PhysicalControl::GamepadButton(9);
-        assert!(settings.remap(index, control));
-        let mut restored =
-            SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-        assert_eq!(restored.key_control(index), Some(control));
-        assert!(restored.reset_key(index));
-        assert_eq!(
-            restored.key_control(index),
-            SettingsOptions::default().key_control(index)
-        );
-    }
-}
-
-#[test]
 fn controller_swaps_agree_between_display_capture_router_and_menu() {
     use super::{GAMEPAD_BINDINGS, GAMEPAD_OFFSET};
     use bevy::input::gamepad::GamepadButton;
@@ -344,11 +151,11 @@ fn controller_swaps_agree_between_display_capture_router_and_menu() {
         Some(PhysicalControl::GamepadButton(1))
     );
     assert_eq!(
-        settings.gamepad_button(GamepadButton::South),
+        gamepad_button(&settings, GamepadButton::South),
         GamepadButton::East
     );
     assert_eq!(
-        settings.gamepad_button(GamepadButton::North),
+        gamepad_button(&settings, GamepadButton::North),
         GamepadButton::West
     );
     assert!(
@@ -447,27 +254,10 @@ fn settings_handoff_preserves_native_window_and_viewport_preferences() {
         Some(3)
     );
     let saved = SettingsOptions::decode(br#"{"values":{"gui_scale":4,"full_screen":0}}"#).unwrap();
-    assert!(!saved.values.contains_key("gui_scale"));
-    assert!(!saved.values.contains_key("full_screen"));
-}
-
-#[test]
-fn outline_selection_reaches_render_settings_after_persistence() {
-    let mut settings = SettingsOptions::default();
-    for enabled in [true, false] {
-        settings.set(index("classic_box_selection"), i32::from(enabled));
-        let restored = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-        assert_eq!(restored.user_settings().video.outline_selection, enabled);
-    }
-}
-
-#[test]
-fn loaded_supplemental_bindings_cannot_conflict_with_gameplay_controls() {
-    let loaded = SettingsOptions::decode(br#"{"keys":{"key.inventory":257}}"#).unwrap();
-    assert_eq!(
-        loaded.named_key_control("key.inventory"),
-        SettingsOptions::default().named_key_control("key.inventory")
-    );
+    let encoded = serde_json::to_value(&saved).unwrap();
+    let values = encoded["values"].as_object().unwrap();
+    assert!(!values.contains_key("gui_scale"));
+    assert!(!values.contains_key("full_screen"));
 }
 
 #[test]

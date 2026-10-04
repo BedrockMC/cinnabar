@@ -1,4 +1,10 @@
 use bytes::{Buf, Bytes, BytesMut};
+#[path = "world_packets/lighting_diagnostics.rs"]
+mod lighting_diagnostics;
+#[path = "world_packets/weather_cycle.rs"]
+mod weather_cycle;
+#[path = "world_packets/world_clocks.rs"]
+mod world_clocks;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameData, GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode,
@@ -66,6 +72,9 @@ fn biome_packet(
     }
 }
 
+#[path = "world_packets/seasonal_biomes.rs"]
+mod seasonal_biomes;
+
 fn game_data() -> GameData {
     GameData {
         start_game: Default::default(),
@@ -126,6 +135,7 @@ fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
                     temperature: 0.8,
                     downfall: 0.4,
                     snow_foliage: 0.125,
+                    max_snow_accumulation: None,
                     map_water_color: 0xff11_2233,
                 },
                 BiomeDefinitionEvent {
@@ -134,6 +144,7 @@ fn normalizes_live_biomes_by_name_without_synthesizing_packet_order_ids() {
                     temperature: 0.8,
                     downfall: 0.4,
                     snow_foliage: 0.125,
+                    max_snow_accumulation: None,
                     map_water_color: 0xff11_2233,
                 },
             ]
@@ -263,6 +274,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
             initial_time: 123_456,
             day_cycle_lock_time: 18_000,
             daylight_cycle_enabled: false,
+            weather_cycle_enabled: true,
             rain_level: 0.25,
             lightning_level: 0.75,
         }
@@ -1005,6 +1017,7 @@ fn normalizes_only_boolean_daylight_cycle_rule_changes_case_insensitively() {
         into_world_event(packet.into(), 0).unwrap(),
         Some(WorldEvent::GameRules(GameRulesEvent {
             daylight_cycle: Some(DaylightCycleUpdateEvent { enabled: false }),
+            weather_cycle: None,
             hud: HudRules::default(),
         }))
     );
@@ -1035,6 +1048,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
         into_world_event(packet.into(), 0).unwrap(),
         Some(WorldEvent::GameRules(GameRulesEvent {
             daylight_cycle: None,
+            weather_cycle: None,
             hud: HudRules {
                 show_coordinates: Some(true),
                 show_days_played: Some(false),

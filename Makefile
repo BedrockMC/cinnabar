@@ -16,6 +16,7 @@ POWERSHELL ?= powershell
 SOCKET_DIR ?= .local/run-zeqa
 AUTH_CACHE ?= .local/auth/microsoft-token.json
 NO_VSYNC ?= 0
+# Passed to the client at launch only; it is never a compile input.
 RUST_MCBE_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
 DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-client.exe,bedrock-client)
@@ -89,7 +90,7 @@ BLOCK_ENTITY_ASSET_BLOB ?= .local/assets/compiled/vanilla-v1.mcbeben
 BLOCK_ENTITY_ASSET_REPORT ?= .local/assets/compiled/block-entity-assets.json
 CINNABAR_CLOUDS_PNG ?=
 CLOUDS_OVERRIDE_PREREQUISITE = FORCE_CINNABAR_CLOUDS_OVERRIDE
-ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml crates/pack-compiler/Cargo.toml Makefile $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs) $(wildcard crates/pack-compiler/src/*.rs) $(wildcard crates/pack-compiler/src/*/*.rs) $(wildcard crates/pack-compiler/src/*/*/*.rs)
+ASSET_COMPILER_INPUTS := Cargo.toml Cargo.lock $(BEDROCK_TARGET_MANIFEST) crates/assets/Cargo.toml crates/asset-compiler/Cargo.toml crates/pack-compiler/Cargo.toml Makefile $(wildcard crates/assets/data/*.json) $(wildcard crates/assets/src/*.rs) $(wildcard crates/assets/src/*/*.rs) $(wildcard crates/asset-compiler/src/*.rs) $(wildcard crates/asset-compiler/src/*/*.rs) $(wildcard crates/asset-compiler/src/*/*/*.rs) $(wildcard crates/pack-compiler/src/*.rs) $(wildcard crates/pack-compiler/src/*/*.rs) $(wildcard crates/pack-compiler/src/*/*/*.rs)
 VANILLA_FETCH_INPUTS := scripts/fetch-vanilla-assets.ps1 scripts/fetch-vanilla-assets.sh
 PHYSICS_REGISTRY_CHECK = $(GO) -C tools/registrygen run ./cmd/hashcheck -file "$(abspath $(PHYSICS_REGISTRY))" -sha256-file "$(abspath $(PHYSICS_REGISTRY_SHA256))"
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"

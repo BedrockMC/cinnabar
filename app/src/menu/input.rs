@@ -19,10 +19,10 @@ use ui::{ChatClipboard, ChatEditor, UiPoint};
 
 use super::{
     MAX_SERVER_ADDRESS_BYTES, MAX_SERVER_NAME_BYTES, MAX_SERVER_PORT_BYTES, MenuField, MenuRuntime,
-    view::MenuCaret,
 };
 use crate::local_worlds::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
-use crate::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
+use launcher::menu::view::MenuCaret;
 
 #[derive(Resource)]
 pub(crate) struct MenuClipboard(
@@ -42,7 +42,7 @@ impl MenuClipboard {
         (self.0)(maximum_bytes)
     }
 
-    fn write_text(&mut self, text: String) {
+    pub(crate) fn write_text(&mut self, text: String) {
         (self.1)(text);
     }
 }
@@ -63,6 +63,20 @@ impl Default for MenuClipboard {
                 let _ = writer.write_text(text);
             },
         )
+    }
+}
+
+impl ChatClipboard for MenuClipboard {
+    type Error = std::convert::Infallible;
+
+    fn read_text_bounded(
+        &mut self,
+        maximum_bytes: usize,
+    ) -> Result<Option<std::sync::Arc<str>>, Self::Error> {
+        Ok(self
+            .read_text_bounded(maximum_bytes)
+            .filter(|text| text.len() <= maximum_bytes)
+            .map(std::sync::Arc::from))
     }
 }
 
@@ -311,7 +325,7 @@ pub(crate) fn drive_menu_input(
     mut presentation: ResMut<UiPresentationRuntime>,
     mut clipboard: ResMut<MenuClipboard>,
     mut menu: ResMut<MenuRuntime>,
-    runtime: Option<Res<crate::ui_runtime::UiRuntime>>,
+    runtime: Option<Res<client_ui::ui_runtime::UiRuntime>>,
     mut modifiers: Local<MenuModifiers>,
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
@@ -391,7 +405,7 @@ pub(crate) fn drive_menu_input(
             .as_ref()
             .is_none_or(|runtime| !runtime.ui_focused(&player_runtime))
     {
-        // R:v/VanillaClientInputMappingFactory.cpp:10994,11010 uses fixed F1/F8 shortcuts.
+        // VanillaClientInputMappingFactory uses fixed F1/F8 shortcuts.
         for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
             if keys.just_pressed(key) {
                 let value = 1 - menu.settings_options.value(option);
@@ -537,10 +551,16 @@ pub(crate) fn drive_menu_input(
         if gamepad.just_pressed(GamepadButton::DPadDown) {
             menu.move_focus(1);
         }
-        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::South)) {
+        if gamepad.just_pressed(super::settings_options::gamepad_button(
+            &menu.settings_options,
+            GamepadButton::South,
+        )) {
             menu.activate_focused();
         }
-        if gamepad.just_pressed(menu.settings_options.gamepad_button(GamepadButton::East)) {
+        if gamepad.just_pressed(super::settings_options::gamepad_button(
+            &menu.settings_options,
+            GamepadButton::East,
+        )) {
             menu.go_back_from_input();
         }
     }

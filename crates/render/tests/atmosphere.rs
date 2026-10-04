@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+#[path = "support/shader_source.rs"]
+mod shader_source;
+
 use assets::ResolvedFog;
 
 use bevy::{
@@ -14,7 +17,7 @@ use bevy::{
     },
 };
 use render::{
-    AtmosphereFrame, AtmospherePlugin, CLOUD_ALPHA, ChunkRenderPlugin,
+    AtmosphereFrame, AtmospherePlugin, AtmosphereViewInputs, CLOUD_ALPHA, ChunkRenderPlugin,
     PROVISIONAL_BOSS_DARKEN_SKY_STRENGTH, PROVISIONAL_BOSS_WORLD_FOG_END_BLOCKS,
     PROVISIONAL_BOSS_WORLD_FOG_START_BLOCKS, cloud_colour, cloud_distance_fade, cloud_face_shade,
     cloud_texture_offset, cloud_weather_colour, moon_phase_tile,
@@ -75,14 +78,15 @@ fn atmosphere_and_chunk_plugins_compose_in_chunk_first_order() {
 }
 
 #[test]
-fn atmosphere_frame_is_a_uniform_compatible_eight_vec4_abi() {
+fn atmosphere_frame_is_a_uniform_compatible_nine_vec4_abi() {
     AtmosphereFrame::assert_uniform_compat();
     let frame = AtmosphereFrame::from_bedrock_time(6_000.0, 0.25, 0.75);
     let mut encoded = UniformBuffer::new(Vec::<u8>::new());
     encoded.write(&frame).expect("encode atmosphere uniform");
     let encoded = encoded.into_inner();
-    assert_eq!(AtmosphereFrame::min_size().get(), 128);
-    assert_eq!(encoded.len(), 128);
+    let byte_length = std::mem::size_of::<AtmosphereFrame>();
+    assert_eq!(AtmosphereFrame::min_size().get(), byte_length as u64);
+    assert_eq!(encoded.len(), byte_length);
     assert_eq!(encoded.as_slice(), bytemuck::bytes_of(&frame));
 }
 
@@ -275,7 +279,7 @@ fn clouds_drift_west_two_hundredths_of_a_block_per_tick() {
     assert!((moved + 30.0).abs() < 1.0e-3, "{start} -> {later}");
 
     let shader = include_str!("../src/cloud.wgsl");
-    assert!(shader.contains("atmosphere.fog_end_time.z * CLOUD_TEXTURE_WORLD_PERIOD"));
+    assert!(shader.contains("atmosphere.fog_end_time.z * native_cloud.geometry.w"));
 }
 
 #[test]
@@ -283,8 +287,9 @@ fn cloud_weather_colours_use_exact_native_values_and_contributions() {
     let clear = cloud_weather_colour(0.0, 0.0);
     let rain = cloud_weather_colour(1.0, 0.0);
     let thunder = cloud_weather_colour(0.0, 1.0);
-    let rain_native = 191.0_f32 / 255.0;
-    let thunder_native = 30.0_f32 / 255.0;
+    // Current getCloudColor, legacy (non-custom) branch.
+    let rain_native = 0.6_f32;
+    let thunder_native = 0.2_f32;
 
     assert_eq!(clear, [1.0; 3]);
     for channel in rain {
@@ -315,11 +320,179 @@ fn cloud_colour_follows_day_brightness_weather_and_fixed_alpha() {
         assert!((channel - expected).abs() < 1.0e-6, "{night:?}");
     }
     let rain = cloud_colour(0.0, 1.0, 0.0, [0.0; 4]);
-    let tint = 1.0 + (191.0_f32 / 255.0 - 1.0) * 0.95;
+    let tint = 1.0 + (0.6_f32 - 1.0) * 0.95;
     assert!((rain[0] - tint).abs() < 1.0e-6 && (rain[2] - tint).abs() < 1.0e-6);
     let dawn = cloud_colour(0.0, 0.0, 0.0, [1.0, 0.0, 0.0, 1.0]);
     assert!((dawn[1] - 0.65).abs() < 1.0e-6 && (dawn[0] - 1.0).abs() < 1.0e-6);
     assert_eq!(CLOUD_ALPHA, 0.7);
+}
+
+#[test]
+fn cloud_thunder_desaturates_the_day_shaded_colour_not_the_white_prototype() {
+    let night = cloud_colour(0.5, 0.0, 1.0, [0.0; 4]);
+    let grey = (0.1 * 0.3 + 0.1 * 0.59 + 0.15 * 0.11) * 0.2;
+    for (actual, clear) in night[..3].iter().zip([0.1, 0.1, 0.15]) {
+        let expected = clear * 0.05 + grey * 0.95;
+        assert!((actual - expected).abs() < 1e-6, "{night:?}");
+    }
+}
+
+#[test]
+fn native_sky_subtraction_uses_camera_glare_not_rain_level() {
+    let clear = AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0);
+    let rainy = AtmosphereFrame::from_bedrock_time(6000.0, 1.0, 0.0);
+    assert_eq!(clear.sky_zenith(), rainy.sky_zenith());
+    let sunward = clear.with_camera_environment(render::AtmosphereViewInputs {
+        forward: [0.0, 1.0, 0.0],
+        fog_weather_level: 0.0,
+        ..Default::default()
+    });
+    let gamma = |v: f32| {
+        if v <= 0.0031308 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
+    for (clear, sunward) in clear.sky_zenith().into_iter().zip(sunward.sky_zenith()) {
+        assert!((gamma(clear) - 0.2 - gamma(sunward)).abs() < 1e-5);
+    }
+    assert_eq!(
+        clear.cloud_colour_for_view(render::AtmosphereViewInputs::default()),
+        [1.0, 1.0, 1.0, CLOUD_ALPHA]
+    );
+    assert_eq!(
+        clear.cloud_colour_for_view(render::AtmosphereViewInputs {
+            forward: [0.0, 1.0, 0.0],
+            fog_weather_level: 0.0,
+            ..Default::default()
+        }),
+        [0.8, 0.8, 0.8, CLOUD_ALPHA]
+    );
+}
+
+fn assert_sky_gamma(frame: AtmosphereFrame, expected: [f32; 3]) {
+    for (actual, expected) in frame.sky_zenith().into_iter().zip(expected) {
+        let actual = if actual <= 0.003_130_8 {
+            actual * 12.92
+        } else {
+            1.055 * actual.powf(1.0 / 2.4) - 0.055
+        };
+        assert!((actual - expected).abs() < 1.0e-6, "{actual} != {expected}");
+    }
+}
+
+#[test]
+fn native_rain_sky_requires_current_rain_above_threshold_and_precipitation_fog() {
+    let frame = AtmosphereFrame::from_bedrock_time(6000.0, 1.0, 0.0);
+    let wet_view = AtmosphereViewInputs {
+        current_rain_level: 1.0,
+        fog_weather_level: 0.25,
+        ..Default::default()
+    };
+    for current_rain_level in [0.0, 0.2, f32::NAN, f32::INFINITY] {
+        assert_eq!(
+            frame
+                .with_camera_environment(AtmosphereViewInputs {
+                    current_rain_level,
+                    ..wet_view
+                })
+                .sky_zenith(),
+            frame.sky_zenith()
+        );
+    }
+    for fog_weather_level in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert_eq!(
+            frame
+                .with_camera_environment(AtmosphereViewInputs {
+                    fog_weather_level,
+                    ..wet_view
+                })
+                .sky_zenith(),
+            frame.sky_zenith()
+        );
+    }
+    assert_sky_gamma(
+        frame.with_camera_environment(AtmosphereViewInputs {
+            current_rain_level: 0.200_001,
+            ..wet_view
+        }),
+        [0.5; 3],
+    );
+    // Native admission reads Weather+0x38, independently of interpolated frame rain.
+    assert_sky_gamma(
+        AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0).with_camera_environment(wet_view),
+        [0.5; 3],
+    );
+}
+
+#[test]
+fn native_rain_sky_uses_fourfold_fog_weight_and_day_weighted_gray_after_profile() {
+    let view = AtmosphereViewInputs {
+        current_rain_level: 1.0,
+        fog_weather_level: 0.125,
+        ..Default::default()
+    };
+    let day = AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0)
+        .with_environment_profile(Some(0x33_66_cc), None);
+    assert_sky_gamma(day.with_camera_environment(view), [0.35, 0.45, 0.65]);
+    for fog_weather_level in [0.25, 1.0] {
+        assert_sky_gamma(
+            day.with_camera_environment(AtmosphereViewInputs {
+                fog_weather_level,
+                ..view
+            }),
+            [0.5; 3],
+        );
+    }
+    let night = AtmosphereFrame::from_bedrock_time(18000.0, 0.0, 0.0)
+        .with_environment_profile(Some(0x33_66_cc), None);
+    assert_sky_gamma(night.with_camera_environment(view), [0.0; 3]);
+}
+
+#[test]
+fn native_rain_sky_preserves_thunder_after_rain_then_camera_glare() {
+    let view = AtmosphereViewInputs {
+        current_rain_level: 1.0,
+        fog_weather_level: 0.125,
+        ..Default::default()
+    };
+    let day = AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.4)
+        .with_environment_profile(Some(0x33_66_cc), None);
+    let rain_mixed = [0.35, 0.45, 0.65];
+    let gray = (rain_mixed[0] * 0.3 + rain_mixed[1] * 0.59 + rain_mixed[2] * 0.11) * 0.2;
+    assert_sky_gamma(
+        day.with_camera_environment(view),
+        rain_mixed.map(|channel| channel * 0.7 + gray * 0.3),
+    );
+    assert_sky_gamma(
+        AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0).with_camera_environment(
+            AtmosphereViewInputs {
+                forward: [0.0, 1.0, 0.0],
+                fog_weather_level: 0.25,
+                ..view
+            },
+        ),
+        [0.35; 3],
+    );
+}
+
+#[test]
+fn native_rain_sky_keeps_clear_views_and_other_dimensions_unchanged() {
+    let frame = AtmosphereFrame::from_bedrock_time(6000.0, 0.0, 0.0);
+    assert_eq!(
+        frame.with_camera_environment(AtmosphereViewInputs::default()),
+        frame
+    );
+    let wet_view = AtmosphereViewInputs {
+        current_rain_level: 1.0,
+        fog_weather_level: 1.0,
+        ..Default::default()
+    };
+    for kind in [render::SkyKind::Nether, render::SkyKind::End] {
+        let other = frame.with_sky_kind(kind);
+        assert_eq!(other.with_camera_environment(wet_view), other);
+    }
 }
 
 #[test]
@@ -345,29 +518,12 @@ fn cloud_alpha_fades_from_nine_tenths_to_nineteen_tenths_of_the_distance() {
 }
 
 #[test]
-fn sun_and_moon_visibility_overlap_only_inside_the_intentional_horizon_transition() {
-    fn smoothstep(edge0: f32, edge1: f32, value: f32) -> f32 {
-        let amount = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-        amount * amount * (3.0 - 2.0 * amount)
-    }
-    fn visibility(vertical: f32) -> f32 {
-        smoothstep(-0.04, 0.02, vertical)
-    }
-
-    for sun_vertical in [-1.0_f32, -0.5, -0.041, 0.041, 0.5, 1.0] {
-        let sun = visibility(sun_vertical);
-        let moon = visibility(-sun_vertical);
-        assert_eq!(sun * moon, 0.0, "unexpected overlap at {sun_vertical}");
-    }
-    assert!(visibility(0.0) > 0.0 && visibility(-0.0) > 0.0);
-
+fn sun_and_moon_use_native_phase_gates_without_invented_horizon_fading() {
     let shader = include_str!("../src/atmosphere.wgsl");
-    assert!(shader.contains("fn celestial_visibility(direction_y: f32) -> f32"));
-    assert_eq!(
-        shader.matches("celestial_visibility(direction.y)").count(),
-        2,
-        "sun and moon must share one mutually exclusive horizon policy"
-    );
+    assert!(shader.contains("degrees <= 105.0 || degrees >= 255.0"));
+    assert!(shader.contains("celestial_visibility(0.0)"));
+    assert!(shader.contains("celestial_visibility(180.0)"));
+    assert!(!shader.contains("smoothstep(-0.04, 0.02"));
 }
 
 #[test]
@@ -416,23 +572,7 @@ fn dynamic_view_binding_window_keeps_a_nonzero_second_view_offset_in_bounds() {
 
 #[test]
 fn texture_backed_sky_shader_parses_validates_and_has_no_fullscreen_cloud_plane() {
-    let shader = include_str!("../src/atmosphere.wgsl").replacen(
-        "#import bevy_render::view::View",
-        r#"
-struct View {
-    clip_from_world: mat4x4<f32>,
-    unjittered_clip_from_world: mat4x4<f32>,
-    view_from_world: mat4x4<f32>,
-    world_from_view: mat4x4<f32>,
-    clip_from_view: mat4x4<f32>,
-    view_from_clip: mat4x4<f32>,
-    world_position: vec3<f32>,
-    exposure: f32,
-    viewport: vec4<f32>,
-}
-"#,
-        1,
-    );
+    let shader = shader_source::standalone(include_str!("../src/atmosphere.wgsl"), &[]);
     let module = naga::front::wgsl::parse_str(&shader).expect("parse atmosphere WGSL");
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -491,11 +631,10 @@ fn dense_camera_medium_fog_replaces_the_infinite_sky_before_celestial_compositio
 }
 
 #[test]
-fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
+fn sky_shader_draws_native_stars_and_dimension_skies_without_a_sunrise_overlay() {
     let shader = include_str!("../src/atmosphere.wgsl");
     for needle in [
         "var<storage, read> stars: array<vec4<f32>>;",
-        "fn sunrise_glow(",
         "if (kind == 1u)",
         "if (kind == 2u)",
         "sunrise_band: vec4<f32>",
@@ -503,6 +642,7 @@ fn sky_shader_draws_stars_sunrise_glow_and_dimension_skies() {
     ] {
         assert!(shader.contains(needle), "missing {needle}");
     }
+    assert!(!shader.contains("fn sunrise_glow("));
     for (name, shader) in [
         ("chunk", include_str!("../src/chunk.wgsl")),
         ("model", include_str!("../src/model.wgsl")),
@@ -543,3 +683,9 @@ fn transparent_world_shaders_preserve_alpha_for_single_fog_composition() {
     let fogged_composite = composed_before_fog + (fog_colour - composed_before_fog) * fog;
     assert!((composed_after_fog - fogged_composite).abs() < 1.0e-6);
 }
+#[allow(
+    dead_code,
+    reason = "shared shader adapter uses production material definitions"
+)]
+#[path = "../src/material_shader.rs"]
+mod material_shader;

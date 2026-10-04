@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
+#[path = "entity/inherited_cubes.rs"]
+mod inherited_cubes;
 #[path = "entity/texture_mesh.rs"]
 mod texture_mesh;
 #[path = "entity/v4.rs"]
@@ -37,7 +39,8 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-pub const ENTITY_BLOB_VERSION: u32 = 6;
+/// Includes authored clip clocks; invalidates catalogs compiled before `anim_time_update` support.
+pub const ENTITY_BLOB_VERSION: u32 = 8;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).
@@ -164,6 +167,19 @@ pub struct EntityGeometryCube {
 }
 
 impl EntityGeometryCube {
+    /// Native Geometry cube rotations use the uninflated box center when no pivot is authored.
+    /// Geometry::_parseBones and the geometry 1.21 schema agree.
+    #[must_use]
+    pub fn default_rotation_pivot(
+        origin: [EntityGeometryScalar; 3],
+        size: [EntityGeometryScalar; 3],
+    ) -> Option<[EntityGeometryScalar; 3]> {
+        let center: [f32; 3] =
+            std::array::from_fn(|axis| origin[axis].get() + size[axis].get() * 0.5);
+        let [x, y, z] = center.map(EntityGeometryScalar::new);
+        Some([x?, y?, z?])
+    }
+
     /// Default UV sizes for north, south, east, west, up and down faces.
     #[must_use]
     pub fn face_uv_dimensions(&self) -> [[f32; 2]; 6] {
@@ -204,6 +220,9 @@ pub struct EntityGeometryBone {
     pub parent: Option<Box<str>>,
     pub pivot: Option<[EntityGeometryScalar; 3]>,
     pub rotation: Option<[EntityGeometryScalar; 3]>,
+    /// Rotation baked into this part's cubes, independently of the animated bone frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind_pose_rotation: Option<[EntityGeometryScalar; 3]>,
     pub mirror: Option<bool>,
     pub inflate: Option<EntityGeometryScalar>,
     pub never_render: Option<bool>,
@@ -794,6 +813,9 @@ fn validate_geometry_bones(
             validate_scalars(pivot)?;
         }
         if let Some(rotation) = &bone.rotation {
+            validate_scalars(rotation)?;
+        }
+        if let Some(rotation) = &bone.bind_pose_rotation {
             validate_scalars(rotation)?;
         }
         if let Some(inflate) = bone.inflate {

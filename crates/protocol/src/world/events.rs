@@ -107,6 +107,8 @@ pub struct SubChunkEntryEvent {
     /// Absolute sub-chunk coordinates in X/Y/Z order.
     pub position: [i32; 3],
     pub result: SubChunkResult,
+    /// Wire metadata, absent only for inputs without packet provenance.
+    pub diagnostics: Option<super::SubChunkDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,6 +283,7 @@ pub struct DaylightCycleUpdateEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GameRulesEvent {
     pub daylight_cycle: Option<DaylightCycleUpdateEvent>,
+    pub weather_cycle: Option<bool>,
     pub hud: crate::HudRules,
 }
 
@@ -381,6 +384,8 @@ pub struct BiomeDefinitionEvent {
     pub temperature: f32,
     pub downfall: f32,
     pub snow_foliage: f32,
+    /// Optional generation climate; absent does not imply a snowy biome.
+    pub max_snow_accumulation: Option<f32>,
     pub map_water_color: u32,
 }
 
@@ -405,6 +410,8 @@ pub struct ActorPropertySyncEvent {
 /// Small, vendor-independent world events consumed by the Bevy app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvent {
+    /// Advertised vertical bounds retained for diagnostics, without changing world limits.
+    DimensionHeights(Vec<super::DimensionHeightDiagnostic>),
     Experience(crate::ExperienceMessage),
     Abilities(crate::AbilitiesUpdate),
     BiomeDefinitions(BiomeDefinitionsEvent),
@@ -428,6 +435,7 @@ pub enum WorldEvent {
     /// A server probe echoed only after preceding world controls are applied.
     NetworkStackLatency(u64),
     SetTime(SetTimeEvent),
+    WorldClocks(Vec<super::WorldClockUpdateEvent>),
     GameRules(GameRulesEvent),
     Weather(WeatherUpdateEvent),
     Audio(AudioEvent),

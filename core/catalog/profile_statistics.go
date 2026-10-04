@@ -13,6 +13,8 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 )
 
+// The names and order match vanilla profile statistics. The Xbox SDK REST contract is
+// https://github.com/microsoft/xbox-live-api/blob/main/Source/Services/Stats/user_statistics_service.cpp.
 var profileStatisticNames = [...]string{"MinutesPlayed", "BlockBrokenTotal", "MobKilled.IsMonster.1", "DistanceTravelled"}
 
 const profileStatisticsEndpoint = "https://userstats.xboxlive.com"

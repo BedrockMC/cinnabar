@@ -24,10 +24,12 @@ mod item_bindings;
 mod json;
 mod legacy_icons;
 mod molang;
+mod native_bind_pose;
 mod pack;
 mod sanitize;
 mod source;
 mod vanilla_refs;
+mod versions;
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub use pack::{
@@ -126,6 +128,7 @@ pub fn compile_entity_assets_with_report(
         &mut selected,
     )?;
     collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
+    collect_optional_file(root, "manifest.json", &mut selected)?;
     selected.sort_by(|left, right| left.0.cmp(&right.0));
     if selected.is_empty() || selected.len() > MAX_ENTITY_ASSET_SOURCES {
         return Err(invalid("entity asset source count exceeds bound"));
@@ -163,6 +166,9 @@ pub fn compile_entity_assets_with_report(
             &mut symbols,
             &mut geometries,
         )?;
+        // Pinned vanilla samples occasionally omit a legacy cube bind transform that
+        // the shipped native base pack retains. This is never applied to session packs.
+        native_bind_pose::restore_sample_defaults(&relative_path, &bytes, &mut geometries);
         source_payloads.insert(relative_path, bytes.into_boxed_slice());
         debug_assert_eq!(source_index + 1, sources.len());
     }
@@ -210,6 +216,7 @@ pub fn compile_entity_assets_with_report(
         source_bytes: legacy_bytes.len() as u32,
         source_sha256: Sha256::digest(legacy_bytes).into(),
     });
+    versions::select_vanilla_definitions(&mut symbols, &source_payloads)?;
     assemble(
         root,
         sources,
@@ -461,7 +468,10 @@ fn parse_source(
     symbols: &mut BTreeMap<(EntityAssetKind, Box<str>, Box<str>), PendingSymbol>,
     geometry_payloads: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
 ) -> Result<(), AssetError> {
-    if relative_path == "textures/item_texture.json" {
+    if matches!(
+        relative_path,
+        "textures/item_texture.json" | "manifest.json"
+    ) {
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());
     }

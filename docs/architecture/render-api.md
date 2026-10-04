@@ -26,11 +26,20 @@ client-world and protocol follows local production/build edges, starting from al
 render's dependency kinds. It resolves renamed and workspace-inherited dependencies
 and rejects unregistered local paths encountered while checking the boundary.
 
-## Preserved behavior references
+## Vanilla rules
 
 This is a code ownership change, not a new parity claim. The existing skin behavior
-has these references:
+retains these vanilla rules:
 
+| Rule | Behaviour |
+| --- | --- |
+| Classic skins | Validate classic image sizes, expand half-height skins and mirror limb pixels. |
+| Animation geometry | Support `animated_32x32` and `animated_face` slots. |
+
+- The installed vanilla pack at
+  `.local/assets/bedrock-samples/v1.26.50.4/full/resource_pack/`:
+  `render_controllers/persona.render_controllers.json:4,21,38` and `:55,88,121`
+  defines face, 32x32 and 128x128 slots for first- and third-person rendering.
 
 The publication pacing bounds and the 512-pixel admission ceiling remain existing
 Cinnabar policy. They are not newly attributed to vanilla. No source or pack assets

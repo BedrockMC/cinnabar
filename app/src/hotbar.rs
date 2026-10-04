@@ -19,8 +19,8 @@ use crate::{
         world::ClientWorld,
     },
     semantic_controls::SemanticInputSnapshot,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 const HOTBAR_DIGIT_ACTIONS: [Action; 9] = [
     Action::Hotbar1,
@@ -45,7 +45,7 @@ pub(crate) fn select_hotbar_slot(
     input: Res<SemanticInputSnapshot>,
     scroll: Res<AccumulatedMouseScroll>,
     menu: Option<Res<crate::menu::MenuRuntime>>,
-    presentation: Option<Res<crate::ui_runtime::presentation::UiPresentationRuntime>>,
+    presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     runtime: Res<UiRuntime>,
     network: Res<NetworkHandle>,
     mut client_world: ResMut<ClientWorld>,
@@ -211,7 +211,8 @@ mod tests {
             .inventory_ledger_mut(player_runtime)
             .apply(&InventoryEvent::Open(ContainerOpenEvent {
                 container: ContainerIdentity::window(2),
-                window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+                window_type:
+                    client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
                 position: [0, 64, 0],
                 runtime_entity_id: -1,
             }));
@@ -277,10 +278,7 @@ mod tests {
             .world_mut()
             .remove_resource::<crate::player_runtime::PlayerRuntime>()
             .unwrap();
-        app.world()
-            .resource::<UiRuntime>()
-            .selected_hotbar_slot(player_runtime)
-            .unwrap()
+        player_runtime.selected_hotbar_slot().unwrap()
     }
 
     #[test]
@@ -330,8 +328,8 @@ mod tests {
     /// the selected slot and the presentation.
     fn wheel_with_presentation(
         player_runtime: &mut crate::player_runtime::PlayerRuntime,
-        presentation: crate::ui_runtime::presentation::UiPresentationRuntime,
-    ) -> (u8, crate::ui_runtime::presentation::UiPresentationRuntime) {
+        presentation: client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    ) -> (u8, client_ui::ui_runtime::presentation::UiPresentationRuntime) {
         use bevy::{ecs::system::RunSystemOnce, prelude::*};
         let mut app = App::new();
         player_runtime.inventory.set_local_selected_slot(0);
@@ -351,11 +349,7 @@ mod tests {
             .world_mut()
             .remove_resource::<crate::player_runtime::PlayerRuntime>()
             .unwrap();
-        let slot = app
-            .world()
-            .resource::<UiRuntime>()
-            .selected_hotbar_slot(player_runtime)
-            .unwrap();
+        let slot = player_runtime.selected_hotbar_slot().unwrap();
         (slot, app.world_mut().remove_resource().unwrap())
     }
 
@@ -364,9 +358,8 @@ mod tests {
     /// `ui.close-screen`, both of which clear its template) gives them back.
     #[test]
     fn menu_input_leak_client_part_modal_absorbs_gameplay_until_closed() {
-        use crate::ui_runtime::presentation::{
-            ExperienceModal, UiPresentationRuntime, tests::fixture_font,
-        };
+        use client_ui::test_support::fixture_font;
+        use client_ui::ui_runtime::presentation::{ExperienceModal, UiPresentationRuntime};
         use server_experience::screen::{Files, Modal};
 
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
@@ -412,10 +405,11 @@ mod tests {
     fn unknown_slot_retains_pending_selection_without_sending() {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-        let runtime = identified_runtime(&mut player_runtime);
+        identified_runtime(&mut player_runtime);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut sends = 0;
         let mut fatal = None;
 
@@ -425,7 +419,7 @@ mod tests {
         });
 
         assert_eq!(sends, 0);
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(2));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(2));
         assert_eq!(fatal, None);
     }
 
@@ -435,9 +429,10 @@ mod tests {
 
         let mut runtime = identified_runtime(&mut player_runtime);
         let equipment_stack = present_stack();
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         runtime.retain_local_selected_equipment(
             &mut player_runtime,
             1,
@@ -450,11 +445,11 @@ mod tests {
                 handedness: Some(protocol::ActorHandedness::Right),
             },
         );
-        let snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+        let snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(snapshot.slot, 2);
         assert_eq!(
             snapshot.state,
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&equipment_stack)
+            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&equipment_stack)
         );
         let mut sent = None;
         let mut fatal = None;
@@ -470,7 +465,7 @@ mod tests {
             protocol::encode(&sent.unwrap(), &session).unwrap(),
             protocol::encode(&expected, &session).unwrap()
         );
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 
@@ -481,9 +476,10 @@ mod tests {
         let mut runtime = identified_runtime(&mut player_runtime);
         let first = present_stack();
         publish_slot(&mut player_runtime, &mut runtime, 2, first);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut fatal = None;
 
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
@@ -508,7 +504,7 @@ mod tests {
             protocol::encode(&retried.unwrap(), &session).unwrap(),
             protocol::encode(&expected, &session).unwrap()
         );
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 
@@ -523,9 +519,10 @@ mod tests {
             2,
             NetworkItemStack::empty(),
         );
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut attempts = 0;
         let mut fatal = None;
 
@@ -533,7 +530,7 @@ mod tests {
             attempts += 1;
             Err(PacketSendError::Full(packet))
         });
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(2));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(2));
 
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |_| {
             attempts += 1;
@@ -541,7 +538,7 @@ mod tests {
         });
 
         assert_eq!(attempts, 2);
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 
@@ -549,16 +546,17 @@ mod tests {
     fn newer_selection_supersedes_pending_selection() {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
-        let runtime = UiRuntime::new(1);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(7, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(7, game_mode);
 
-        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(7));
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(7));
+        assert_eq!(player_runtime.selected_hotbar_slot(), Some(7));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(7));
     }
 
     #[test]
@@ -572,17 +570,19 @@ mod tests {
             4,
             NetworkItemStack::empty(),
         );
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(4, game_mode);
         let mut fatal = None;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
             Err(PacketSendError::Full(packet))
         });
 
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(4, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(4, game_mode);
         let mut sent = false;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |_| {
             sent = true;
@@ -590,7 +590,7 @@ mod tests {
         });
 
         assert!(sent);
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
     }
 
     #[test]
@@ -598,13 +598,14 @@ mod tests {
         let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
 
         let mut runtime = UiRuntime::new(1);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(5, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(5, game_mode);
 
-        runtime.begin_session(&mut player_runtime, 2);
+        crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
 
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
     }
 
     #[test]
@@ -618,24 +619,25 @@ mod tests {
         open_personal_inventory(&mut player_runtime, &mut runtime);
         let authoritative = present_stack();
         publish_slot(&mut player_runtime, &mut runtime, 0, authoritative.clone());
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(0, player_runtime.facts.player_game_mode());
-        let authoritative_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+            .queue_local_hotbar_selection(0, game_mode);
+        let authoritative_snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(authoritative_snapshot.slot, 0);
         assert_eq!(
             authoritative_snapshot.state,
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
+            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
         let request_id = runtime
             .inventory_ledger_mut(&mut player_runtime)
             .begin_click(0)
             .unwrap();
-        let predicted_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+        let predicted_snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(predicted_snapshot.slot, 0);
         assert_eq!(
             predicted_snapshot.state,
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
+            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Empty
         );
 
         let mut predicted_packet = None;
@@ -661,19 +663,21 @@ mod tests {
                     containers: Arc::from([]),
                 }]),
             }));
-        let restored_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+        let restored_snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(restored_snapshot.slot, 0);
         assert_eq!(
             restored_snapshot.state,
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
+            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&authoritative)
         );
 
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(1, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(1, game_mode);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(0, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(0, game_mode);
         let mut restored_packet = None;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
             restored_packet = Some(packet);
@@ -753,19 +757,17 @@ mod tests {
                     ]),
                 }]),
             }));
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(0, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(0, game_mode);
         let place = runtime
             .inventory_ledger_mut(&mut player_runtime)
             .begin_click(0)
             .unwrap();
         assert!(matches!(
-            runtime
-                .selected_stack_snapshot(&player_runtime)
-                .unwrap()
-                .state,
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
+            player_runtime.selected_stack_snapshot().unwrap().state,
+            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(_)
         ));
 
         let mut fatal = None;
@@ -776,8 +778,8 @@ mod tests {
         });
         assert_eq!(fatal, None, "pending stack identity must not disconnect");
         assert!(sent.is_empty());
-        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(0));
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(0));
+        assert_eq!(player_runtime.selected_hotbar_slot(), Some(0));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(0));
 
         runtime
             .inventory_ledger_mut(&mut player_runtime)
@@ -807,13 +809,13 @@ mod tests {
         let mut corrected = original;
         corrected.count = 2;
         corrected.stack_network_id = 99;
-        let corrected_snapshot = runtime.selected_stack_snapshot(&player_runtime).unwrap();
+        let corrected_snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(corrected_snapshot.slot, 0);
         assert_eq!(
             corrected_snapshot.state,
-            crate::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&corrected)
+            client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot::Present(&corrected)
         );
-        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(0));
+        assert_eq!(player_runtime.selected_hotbar_slot(), Some(0));
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
             sent.push(packet);
             Ok(())
@@ -825,7 +827,7 @@ mod tests {
             protocol::encode(&sent[0], &session).unwrap(),
             protocol::encode(&expected, &session).unwrap()
         );
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 
@@ -853,9 +855,10 @@ mod tests {
             .inventory_ledger_mut(&mut player_runtime)
             .begin_click(1)
             .unwrap();
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(1, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(1, game_mode);
         let mut fatal = None;
         let mut sent = Vec::new();
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |packet| {
@@ -864,8 +867,8 @@ mod tests {
         });
         assert_eq!(fatal, None);
         assert!(sent.is_empty());
-        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(1));
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), Some(1));
+        assert_eq!(player_runtime.selected_hotbar_slot(), Some(1));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), Some(1));
         runtime
             .inventory_ledger_mut(&mut player_runtime)
             .apply(&InventoryEvent::Response(ItemStackResponseEvent {
@@ -886,8 +889,8 @@ mod tests {
             protocol::encode(&sent[0], &session).unwrap(),
             protocol::encode(&expected, &session).unwrap()
         );
-        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(1));
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.selected_hotbar_slot(), Some(1));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 
@@ -899,9 +902,10 @@ mod tests {
         let mut stack = present_stack();
         stack.stack_network_id = -1;
         publish_slot(&mut player_runtime, &mut runtime, 2, stack);
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         let mut fatal = None;
         let mut sends = 0;
         flush_pending_hotbar_selection(&mut player_runtime, &mut fatal, |_| {
@@ -909,7 +913,7 @@ mod tests {
             Ok(())
         });
         assert_eq!(sends, 1);
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);
     }
 
@@ -924,9 +928,10 @@ mod tests {
             2,
             NetworkItemStack::empty(),
         );
+        let game_mode = player_runtime.facts.player_game_mode();
         player_runtime
             .inventory
-            .queue_local_hotbar_selection(2, player_runtime.facts.player_game_mode());
+            .queue_local_hotbar_selection(2, game_mode);
         runtime
             .enqueue_inventory_event(
                 &mut player_runtime,
@@ -948,8 +953,8 @@ mod tests {
             Ok(())
         });
 
-        assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(5));
-        assert_eq!(runtime.pending_hotbar_selection(&player_runtime), None);
+        assert_eq!(player_runtime.selected_hotbar_slot(), Some(5));
+        assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(sends, 0);
         assert_eq!(fatal, None);
     }

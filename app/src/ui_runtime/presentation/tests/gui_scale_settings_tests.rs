@@ -7,11 +7,9 @@ use ui::{DpiScale, UiPoint};
 use super::{engine_hud_tests::engine_presentation, fixture_font, fixture_hud};
 use crate::{
     menu::{MenuAction, MenuRuntime, MenuScreen},
-    ui_runtime::{
-        UiRuntime,
-        presentation::{UiPresentationRuntime, apply_gui_scale_setting},
-    },
+    ui_runtime::presentation::apply_gui_scale_setting,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 fn settings_app(visible: bool, preference: Option<u8>) -> App {
     let mut menu = MenuRuntime::new(visible, 2, "Player".to_owned());
@@ -85,8 +83,7 @@ fn largest_font_quad_height(input: &render::UiRenderInput) -> f32 {
 
 fn native_fullscreen_toggle_height(app: &App, dpi: DpiScale) -> f32 {
     let presentation = app.world().resource::<UiPresentationRuntime>();
-    let (action, bounds) = presentation
-        .menu_hit_targets
+    let (action, bounds) = client_ui::test_support::menu_hit_targets(presentation)
         .iter()
         .find(|(action, _)| matches!(action, MenuAction::SettingsFullscreen(_)))
         .expect("the native video screen renders its fullscreen toggle");
@@ -153,18 +150,20 @@ fn gui_scale_minimum_on_high_dpi_resizes_native_menu_text_controls_and_pointer()
 fn viewport_text_metrics_cover_supported_dpi_and_native_gui_scale_bounds() {
     for dpi in [DpiScale::MIN, 2.0, DpiScale::MAX] {
         for gui in [1, ui::gui_scale([3840, 2160], None) as u8] {
-            let metrics = super::super::TextMetrics::for_viewport(
+            let metrics = client_ui::test_support::text_metrics(
                 [3840, 2160],
                 DpiScale::new(dpi).unwrap(),
                 Some(gui),
             );
             assert_eq!(
-                metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32 * dpi,
+                client_ui::test_support::text_scale(&metrics).get()
+                    * ui::FONT_DESIGN_PIXEL_TEXELS as f32
+                    * dpi,
                 gui as f32,
                 "derived font scale preserves physical GUI scale {gui} at DPI {dpi}"
             );
             for factor in [0.5, 0.75, 1.5] {
-                let styled = metrics.scale.get() * factor;
+                let styled = client_ui::test_support::text_scale(&metrics).get() * factor;
                 assert_eq!(ui::UiScale::new_display(styled).unwrap().get(), styled);
             }
         }
@@ -190,8 +189,8 @@ fn gui_scale_video_action_resizes_rendered_menu_text_and_keeps_hits_aligned() {
     assert_ne!(before.revision, after.revision);
 
     let presentation = app.world().resource::<UiPresentationRuntime>();
-    assert!(!presentation.menu_hit_targets.is_empty());
-    for (action, bounds) in &presentation.menu_hit_targets {
+    assert!(!client_ui::test_support::menu_hit_targets(presentation).is_empty());
+    for (action, bounds) in client_ui::test_support::menu_hit_targets(presentation) {
         let centre = UiPoint::new(
             (bounds.min().x() + bounds.max().x()) / 2.0,
             (bounds.min().y() + bounds.max().y()) / 2.0,
@@ -283,8 +282,10 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
     app.insert_resource(presentation);
     app.update();
 
-    let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     app.insert_resource(player_runtime);
     let physical = [1920, 1080];
     for (offset, physical_scale) in [(-2, 2), (0, 4)] {
@@ -370,8 +371,10 @@ fn gui_scale_minimum_on_high_dpi_relayouts_cached_native_hud() {
             .resolution
             .set_physical_resolution(physical[0], physical[1]);
     }
-    let mut runtime = UiRuntime::new(1);
-    runtime.publish_player_game_mode(&mut player_runtime, protocol::PlayerGameMode::Survival);
+    let runtime = UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     app.insert_resource(player_runtime);
     for (offset, scale) in [(0, 2), (-1, 1), (0, 2)] {
         app.world_mut()

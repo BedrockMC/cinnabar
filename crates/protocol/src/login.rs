@@ -725,6 +725,11 @@ fn decode_world_raw_with(
     decode: impl FnOnce(RawPacket) -> Result<Packet, JolyneError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if raw.id == McpePacketName::ItemRegistryPacket {
+        // Login has already initialized this session's registry. Native 1.26.50
+        // ItemRegistry::matchServerItemIds returns once its
+        // initialization state is complete, including for an empty/custom-only
+        // repeat. Decode the wire first so malformed repeats remain fatal;
+        // neither the inventory ledger nor actor item store may be rebound here.
         decode(raw)?;
         return Ok(None);
     }
@@ -807,6 +812,7 @@ fn decode_world_raw_with(
             | McpePacketName::SetActorMotionPacket
             | McpePacketName::NetworkStackLatencyPacket
             | McpePacketName::SetTimePacket
+            | McpePacketName::SyncWorldClocksPacket
             | McpePacketName::GameRulesChangedPacket
             | McpePacketName::LevelEventPacket
             | McpePacketName::LevelEventGenericPacket

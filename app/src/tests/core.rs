@@ -382,6 +382,7 @@ fn client_world_publication_contract_crosses_the_app_boundary() {
             WorldEvent::SubChunks(SubChunkBatchEvent {
                 dimension: 0,
                 entries: vec![SubChunkEntryEvent {
+                    diagnostics: None,
                     position: [key.x, key.y, key.z],
                     result: SubChunkResult::AllAir,
                 }],
@@ -457,6 +458,7 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
                         temperature: 0.8,
                         downfall: 0.4,
                         snow_foliage: 0.0,
+                        max_snow_accumulation: None,
                         map_water_color: 0xff44_6688,
                     },
                     BiomeDefinitionEvent {
@@ -465,6 +467,7 @@ fn compiled_and_live_biome_tables_preserve_raw_id_water_colour_parity() {
                         temperature: 0.8,
                         downfall: 0.4,
                         snow_foliage: 0.0,
+                        max_snow_accumulation: None,
                         map_water_color: 0xffaa_3300,
                     },
                 ]),
@@ -525,6 +528,7 @@ fn equal_numeric_revisions_from_different_streams_replace_the_active_table() {
                         temperature,
                         downfall: 0.4,
                         snow_foliage: 0.0,
+                        max_snow_accumulation: None,
                         map_water_color: if temperature > 0.5 {
                             0xff11_2233
                         } else {

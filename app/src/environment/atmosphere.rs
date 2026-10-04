@@ -3,14 +3,14 @@
 
 use assets::{BiomeVisualProfile, FogMedium, FogProfile};
 use bevy::{
-    prelude::{Local, Res, ResMut, Time},
+    prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
 };
 use meshing::CameraMedium;
 use render::{AtmosphereFrame, SkyKind};
 use ui::BossBarView;
 
-use crate::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::UiRuntime;
 
 use super::{
     CameraMediumState, EnvironmentContext, EnvironmentProfileRoute, LightningFlashState,
@@ -52,16 +52,30 @@ fn derive_base_frame(
     medium: CameraMedium,
     context: &EnvironmentContext,
 ) -> AtmosphereFrame {
-    let cloud_fade = context.render_distance_blocks.unwrap_or(0.0)
-        * f32::from(render::CloudRenderConfig::default().distance_scale());
+    // Player's packet radius includes one extra chunk before the camera margin.
+    // Ordinary preRenderParameters supplies coefficient1; optional platform
+    // caps need their own admission witness, not a quality multiplier.
+    let adjusted_render_distance = context
+        .render_distance_blocks
+        .and_then(render::adjusted_player_render_distance_blocks)
+        .unwrap_or(0.0);
     let frame = derive_atmosphere_frame_for_medium(clock, weather, elapsed_seconds, medium)
         .with_sky_kind(SkyKind::from_dimension(context.dimension))
-        .with_cloud_fade_distance(cloud_fade);
+        .with_cloud_fade_distance(adjusted_render_distance)
+        .with_liquid_render_distance(adjusted_render_distance);
     match context.camera_biome_temperature {
         Some(temperature) => frame.with_biome_temperature(temperature),
         None => frame,
     }
 }
+
+type AtmosphereOutputs<'w> = (
+    ResMut<'w, AtmosphereFrame>,
+    ResMut<'w, EnvironmentProfileRoute>,
+    ResMut<'w, render::WorldLighting>,
+    ResMut<'w, super::WeatherTickFrame>,
+    ResMut<'w, render::AtmosphereViewInputs>,
+);
 
 #[must_use]
 #[allow(clippy::too_many_arguments)]
@@ -74,6 +88,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     biome_profiles: &[BiomeVisualProfile],
     fog_profiles: &[FogProfile],
     transition_seconds: Option<f32>,
+    fog_weather_level: f32,
 ) -> (AtmosphereFrame, EnvironmentProfileRoute) {
     let base = derive_base_frame(clock, weather, elapsed_seconds, medium, context);
     let profile = context
@@ -88,7 +103,11 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         return (base, EnvironmentProfileRoute::default());
     };
     let resolve = |requested: FogMedium| {
-        let render_distance = context.render_distance_blocks?;
+        // Air fog profiles use the adjusted render distance in the
+        // ordinary above-water route, not the raw packet.
+        // The separate native submerged distance admission remains incomplete.
+        let render_distance =
+            render::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
         let fog = fog_profiles
             .binary_search_by(|fog| fog.identifier.cmp(&profile.fog_identifier))
             .ok()
@@ -124,9 +143,11 @@ pub(crate) fn derive_profiled_atmosphere_frame(
     };
     let profiled = base.with_environment_profile(profile.sky_rgb8, None);
     let frame = match medium {
-        CameraMedium::Air => {
-            profiled.with_blended_fog(resolve(FogMedium::Air), resolve(FogMedium::Weather))
-        }
+        CameraMedium::Air => profiled.with_blended_fog(
+            resolve(FogMedium::Air),
+            resolve(FogMedium::Weather),
+            fog_weather_level,
+        ),
         CameraMedium::Water => profiled.with_environment_profile(None, resolve(FogMedium::Water)),
         CameraMedium::Lava => profiled.with_environment_profile(None, resolve(FogMedium::Lava)),
     };
@@ -153,18 +174,20 @@ pub(crate) fn update_atmosphere_frame(
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
     vision: Res<crate::camera::VisionEffects>,
-    outputs: (
-        ResMut<AtmosphereFrame>,
-        ResMut<EnvironmentProfileRoute>,
-        ResMut<render::WorldLighting>,
-    ),
+    outputs: AtmosphereOutputs,
     settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
+    mut renderer_clock: Local<super::renderer_clock::RendererClock>,
     preferences: (
         Option<Res<crate::menu::MenuRuntime>>,
         Option<ResMut<render::CloudVisibility>>,
     ),
+    cameras: Query<&Transform, With<crate::camera::FlyCamera>>,
 ) {
+    let renderer_ticks = renderer_clock.advance(
+        clock.server_time().map(|_| clock.session_generation),
+        time.elapsed_secs_f64(),
+    );
     let clock = time_override
         .as_ref()
         .map_or(*clock, |value| value.rendering_clock(*clock));
@@ -178,9 +201,18 @@ pub(crate) fn update_atmosphere_frame(
     let darkness_scale = options
         .as_ref()
         .map_or(1.0, |options| options.value("darkness") as f32 / 100.0);
-    let (mut frame, mut route, mut lighting) = outputs;
+    let (mut frame, mut route, mut lighting, mut weather_ticks, mut view_inputs) = outputs;
     let elapsed = time.elapsed_secs_f64();
-    let shown = display.advance(*weather, elapsed);
+    display.set_precipitation_count(context.precipitation_sample_count);
+    let shown = display.advance_in_dimension(*weather, elapsed, context.dimension);
+    *view_inputs = render::AtmosphereViewInputs {
+        forward: cameras
+            .single()
+            .map_or([0.0; 3], |transform| transform.forward().to_array()),
+        fog_weather_level: display.fog_level(),
+        current_rain_level: display.current_rain_level(),
+    };
+    display.publish_ticks(&mut weather_ticks);
     let state = derive_boss_environment_iter(boss_bars.boss_bars().stacked_iter());
     let submerged = display.submerged_seconds(medium.0);
     let (next_frame, next_route) = match atmosphere_assets.runtime() {
@@ -193,6 +225,7 @@ pub(crate) fn update_atmosphere_frame(
             assets.biome_profiles(),
             assets.fog_profiles(),
             Some(submerged),
+            display.fog_level(),
         ),
         None => (
             derive_base_frame(clock, shown, elapsed, medium.0, &context),
@@ -200,6 +233,8 @@ pub(crate) fn update_atmosphere_frame(
         ),
     };
     let next_frame = next_frame
+        .with_camera_environment(*view_inputs)
+        .with_cloud_renderer_ticks(renderer_ticks)
         .with_lightning_flash(flash.level(elapsed))
         .with_vision_effects(
             vision.blindness,
@@ -216,7 +251,15 @@ pub(crate) fn update_atmosphere_frame(
         };
     }
     lighting.0 = render::LightmapInputs {
-        sky_darken: frame.daylight(),
+        // Ordinary native renderer supplies flag1 to update.
+        // buildImage uses it for both ambient stages around gamma;
+        // omitting it crushes shaded terrain at night, despite matching gamma.
+        ambient_adjustment: true,
+        sky_darken: render::lightmap_sky_darken(
+            frame.celestial_angle(),
+            display.fog_level(),
+            shown.lightning_level,
+        ),
         sunrise,
         lightning: frame.lightning_flash() > 0.0,
         brightness: settings.user_settings_update().1.video.brightness,
@@ -275,5 +318,28 @@ pub(crate) fn apply_boss_environment(
     match medium {
         CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
         CameraMedium::Water | CameraMedium::Lava => frame,
+    }
+}
+
+#[cfg(test)]
+mod liquid_distance_tests {
+    use super::*;
+
+    #[test]
+    fn base_frame_uses_native_player_margin_before_camera_distance_adjustment() {
+        let clock = WorldClock::default();
+        let weather = WeatherState::default();
+        for (confirmed, adjusted) in [(32.0, 45.0), (160.0, 160.0), (256.0, 256.0)] {
+            let context = EnvironmentContext {
+                render_distance_blocks: Some(confirmed),
+                ..Default::default()
+            };
+            let actual = derive_base_frame(clock, weather, 0.0, CameraMedium::Air, &context);
+            let expected =
+                derive_atmosphere_frame_for_medium(clock, weather, 0.0, CameraMedium::Air)
+                    .with_cloud_fade_distance(adjusted)
+                    .with_liquid_render_distance(adjusted);
+            assert_eq!(actual, expected);
+        }
     }
 }

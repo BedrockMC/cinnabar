@@ -26,3 +26,8 @@ selects an external PNG path. The ignored lobby test needs externally supplied
 -p bedrock-client --lib enhanced_lobby_replay_on_native_gpu -- --ignored`.
 Neither test opens a socket. Captures, packs and PNGs stay outside git.
 
+The Bloom, first-person and screen composition rules are recorded in
+`enhanced-world-bloom.md`. They identify separate rendering roles, rather than
+a cause for this crash.
+Native validation is evidence for this Metal backend, not a closed parity gate
+or proof that every backend and server payload is safe.

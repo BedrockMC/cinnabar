@@ -42,6 +42,11 @@ pub(super) fn tile(
 }
 
 fn overlay_rgb(source: &str) -> Option<[u8; 3]> {
+    // Matched 26.50 TextureJSONParser keeps the low RGB bytes
+    // of the hexadecimal value and forces opacity to one. The matching
+    // TextureAtlas::updateTextureAtUVs mixes original/tinted RGB
+    // by sample alpha and forces positive-overlay alpha to one.
+    // Malformed pack extensions remain unresolved instead of guessed.
     let hex = source.strip_prefix('#')?;
     if !matches!(hex.len(), 6 | 8) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;

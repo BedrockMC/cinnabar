@@ -51,7 +51,12 @@ fn install(app: &mut App) {
     }
     let gate = app.world().resource::<ViewmodelCompletionGate>().clone();
     app.add_plugins(ExtractResourcePlugin::<ViewmodelScene>::default());
-    load_internal_asset!(app, HAND_SHADER, "viewmodel.wgsl", Shader::from_wgsl);
+    load_internal_asset!(
+        app,
+        HAND_SHADER,
+        "viewmodel.wgsl",
+        crate::shader_safety::from_wgsl
+    );
     let render_app = app.sub_app_mut(RenderApp);
     render_app
         .insert_resource(Installed)
@@ -71,6 +76,7 @@ fn install(app: &mut App) {
 }
 
 /// The hand pass Enhanced views run after Bloom and grading.
+#[cfg(feature = "enhanced")]
 pub(crate) fn enhanced_post_node(world: &mut World) -> impl bevy::render::render_graph::Node {
     ViewNodeRunner::new(
         crate::ui_render::overlay::GradeStage::<_, true>(node::HandViewNode),

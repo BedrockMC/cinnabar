@@ -28,6 +28,20 @@ into the existing counter, not a measurement of 42,238 separately queued meshes.
 
 ## Vanilla evidence
 
+- The brightness callback visits sub-chunks intersecting the changed block's
+  one-cell halo and sets their dirty flag. Coordinate lookup returns an existing
+  entry before allocating.
+- Rebuild start requires no build in progress. Admission checks dirty/build state
+  and the radius-16 column-readiness gate. The existing-geometry path compares two
+  recorded ticks plus 20 and plus 60, with a flag bypass for the former. These are
+  not evidence for a universal lighting debounce or waiting for all world lighting.
+- One dirty-map entry per sub-chunk combines flags; rebuilds cannot overlap.
+- Worker counts and OS priorities are distinct. This does not make every Cinnabar
+  background task real-time or equate queue admission with CPU reservations.
+- The read-only vanilla pack at
+  `bedrock-samples/v1.26.50.4/full/resource_pack/texts/en_US.lang:7010` describes
+  smooth-lighting transitions. `blocks.json` provides visual definitions, not thread
+  scheduling or mesh debounce rules. Pack inspection supplies no scheduling constant.
 
 Cinnabar already requires current light for every known slot in a mesh's 3×3×3 halo.
 Keep that readiness check and the stale-result check; do not publish partially lit

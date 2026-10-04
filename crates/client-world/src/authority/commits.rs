@@ -10,6 +10,8 @@ impl WorldAuthority {
         sequence: Option<u64>,
     ) -> Result<(), WorldEvent> {
         match event {
+            // Advertised bounds are diagnostic facts until custom dimension limits are supported.
+            WorldEvent::DimensionHeights(_) => {}
             WorldEvent::NetworkStackLatency(creation_time) => {
                 let sequence = sequence.expect("latency probes commit through submit");
                 self.push_committed_control(CommittedControlEvent::NetworkStackLatency {
@@ -33,12 +35,27 @@ impl WorldAuthority {
                 let sequence = sequence.expect("sequenced SetTime commits through submit");
                 self.push_committed_control(CommittedControlEvent::SetTime { sequence, update });
             }
+            WorldEvent::WorldClocks(updates) => {
+                let sequence = sequence.expect("sequenced world clocks commit through submit");
+                for update in updates {
+                    self.push_committed_control(CommittedControlEvent::WorldClocks {
+                        sequence,
+                        update,
+                    });
+                }
+            }
             WorldEvent::GameRules(rules) => {
                 let sequence = sequence.expect("sequenced game rules commit through submit");
                 if let Some(update) = rules.daylight_cycle {
                     self.push_committed_control(CommittedControlEvent::DaylightCycle {
                         sequence,
                         update,
+                    });
+                }
+                if let Some(enabled) = rules.weather_cycle {
+                    self.push_committed_control(CommittedControlEvent::WeatherCycle {
+                        sequence,
+                        enabled,
                     });
                 }
                 if !rules.hud.is_empty() {
@@ -79,18 +96,19 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    if let Some(current) = update
+                    if let Some((current, sprint_modifier)) = update
                         .attributes
                         .iter()
                         .rev()
                         .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
-                        .find_map(movement_attribute::walk_speed)
+                        .find_map(movement_attribute::effective_speed)
                     {
                         self.local_movement_speed = Some(current);
                         self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
                             sequence,
                             dimension: update.dimension,
                             current,
+                            sprint_modifier,
                             tick: update.tick,
                         });
                     }
@@ -192,6 +210,8 @@ impl WorldAuthority {
             }
             WorldEvent::Ui(event) => {
                 let sequence = sequence.expect("sequenced UI events commit through submit");
+                // A game-mode update changes the UI only when its unique ID matches
+                // the local player.
                 let event = match event {
                     UiEvent::PlayerGameMode {
                         actor_unique_id,

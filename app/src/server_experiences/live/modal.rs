@@ -1,7 +1,7 @@
 //! The modal screen the client parts draw, and the actions its controls deliver.
 
 use super::{Instance, Live, Worker};
-use crate::ui_runtime::presentation::ExperienceModal;
+use client_ui::ui_runtime::presentation::ExperienceModal;
 use anyhow::Result;
 use mod_host::helper::{Dispatch, Event};
 use server_experience::{
