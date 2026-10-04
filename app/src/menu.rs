@@ -626,8 +626,9 @@ impl MenuRuntime {
             }
             MenuAction::AddName | MenuAction::AddAddress | MenuAction::AddPort => {}
             MenuAction::AddSave => {
+                // Saving pops the form back to the tab that opened it.
                 if self.save_draft() {
-                    self.enter(MenuScreen::Play);
+                    self.go_back();
                 }
             }
             MenuAction::AddSaveConnect => {

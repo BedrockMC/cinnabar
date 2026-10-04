@@ -603,7 +603,7 @@ fn quantize(
 /// Model quad face codes (`1..=6` = down/up/west/east/north/south) by face index.
 const MODEL_FACE_FLAGS: [u32; 6] = [3, 4, 1, 2, 5, 6];
 
-#[cfg(test)]
+#[cfg(all(test, feature = "reports"))]
 mod pack_report;
 #[cfg(test)]
 mod tests;

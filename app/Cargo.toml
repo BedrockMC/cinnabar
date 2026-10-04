@@ -5,12 +5,24 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+# No doctests here; skipping rustdoc's pass over the crate saves a full re-parse.
+[lib]
+doctest = false
+
+# main.rs only dispatches into the library; its tests live there.
+[[bin]]
+name = "bedrock-client"
+path = "src/main.rs"
+test = false
+
 [features]
 default = ["acceptance"]
 acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["mod-host/execution"]
+# Compiles the offline pack reports and benchmarks into the test build.
+reports = []
 
 [dependencies]
 acceptance = { path = "../crates/acceptance", optional = true }

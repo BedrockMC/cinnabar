@@ -45,7 +45,7 @@ mod screen_overlay;
 mod screen_overlay_render;
 mod shader_safety;
 #[cfg(test)]
-#[path = "../tests/support/shader_source.rs"]
+#[path = "../tests/it/support/shader_source.rs"]
 mod shader_source;
 mod surface_lifecycle;
 mod ui_render;

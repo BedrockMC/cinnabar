@@ -20,6 +20,15 @@
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
 
+## Unfilled sub-chunk slots light as air
+
+- Probable cause of reported dark corners on distant stepped terrain: a requested sub-chunk
+  whose retries ended without data stayed unknown, so the column below lost its sky light.
+- Vanilla leaves such a slot empty and lights it as air; the slot is now known air, and a
+  column settled this way no longer blocks its neighbours' first light.
+- Streaming terrace regressions cover both. Incomplete live visual acceptance: a rendered
+  far-terrain frame is pending, as is a check against the open Lifeboat zero-skylight trace.
+
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
 2026-10-04 F5 head flick correction — **Incomplete visual/native acceptance**:
@@ -84,6 +93,16 @@ all eight focused JSON-UI overlay tests, formatting and architecture checks pass
 The user requests latest-dev integration, no further tests and direct publication
 to dev. The final cadence change and integration have no new test-green claim.
 All local test services started for this feature are stopped.
+
+2026-10-04 Lifeboat server forms (compatibility acceptance passed): creation-body
+values, ordered button roles, trailing-close predicates, relative references and
+evaluated grid capacities now follow the native contracts. Descriptions and
+action/header controls render; eight minigame cards fit with the sidebar and
+without extra scroll rows. All 487 JSON-UI tests and the installed server-pack
+layout test pass. A fresh optimized macOS/Metal frame confirms the selector;
+the user tested Lifeboat and accepted the complete result for direct publication.
+See [the form evidence](docs/evidence/lifeboat-forms.md). Broader UI typography and
+performance parity remain open.
 
 2026-10-04 Lifeboat session palette repair (compatibility acceptance passed): a fresh
 join reproduces gray terrain and blocked movement with coherent carriers. The
