@@ -5,7 +5,7 @@ accumulated work and follow-up fixes are committed through `97dccfb3`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
 ownership split and frame diagnostics. Origin/dev `a1c5880d` is integrated
 with the Profile and Marketplace changes; `d2a51dac` is also integrated.
-The subsequent `8d3ca7c5` update is being integrated. Final verification and a fresh post-integration live frame
+The subsequent `8d3ca7c5` update is integrated in `f024d9ec`. Final verification and a fresh post-integration live frame
 remain required. A render binding contract still referenced the old app module
 after its extraction; its assertion now targets the actual render-setup owner.
 The user accepts the rebuilt night snow-layer colour and actor corrections.
@@ -45,8 +45,9 @@ both storage orders, both network modes and direct/cached routes. Covered
 mushroom emission and real emitting-surface shading are retained. The canonical
 integrated client rebuilt and the user accepts the live mushroom correction.
 Final integrated checks remain pending; it is not pushed. The previous final
-gate reached clippy and failed on a test-only unnecessary Vec; that is repaired
-and the complete gate is being rerun, not reported green prematurely.
+gate reached clippy and failed on test-only unnecessary Vecs and a duplicate
+dead-code attribute after upstream integration; these are repaired and the
+complete gate still needs its successful final run.
 The new opaque ice/dark shoreline wedge report has a real carrier witness:
 ice was CUTOUT despite source alpha 190/255. Native IceBlock `071305c0` selects
 layer 3, inherited color is RGBA (1,1,1,1), and `06a07800`/`069e5200` retain
@@ -58,6 +59,16 @@ has BLEND ice and frosted-ice materials and preserves source alpha. Existing AO,
 transparent depth writes, daytime/nighttime and snow behavior are unchanged.
 Fresh canonical live shoreline acceptance and final integrated checks remain
 open; this does not claim whole-renderer or exact-version gallery parity.
+The user rejects the first ice frame: restoring BLEND alone was insufficient.
+The shipped LREG also incorrectly gave ordinary ice and all four frosted ages
+filter 15. Current constructors `071305c0` / `08723f10`, matching executable
+vtable slots and inherited getter `0365cdf0` establish filter zero; packed ice
+deliberately remains 15. A shipped-registry shoreline solver witness reproduces
+zero sky inside and below ice before the fix, and now preserves direct sky 15
+and sheltered lateral sky 14. Exactly five light records are regenerated with
+coherent manifest pins, leaving snow, packed/blue ice, texture alpha and AO
+unchanged. The world carrier is rebuilt; fresh client/frame and final integrated
+verification remain pending. This follow-up is not pushed or visually accepted.
 Separate incomplete partial-face parity: native `06a11a00` bilinearly evaluates
 AO colour at actual face bounds while assigning light records by full corner
 topology. The current midpoint-based corner selection does not close that gate;
