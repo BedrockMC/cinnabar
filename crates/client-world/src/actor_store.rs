@@ -591,6 +591,8 @@ pub(crate) struct ActorStore {
     status_notices: Vec<ActorStatusNotice>,
 }
 
+mod crystal_beam;
+pub use crystal_beam::CrystalBeamView;
 mod dropped;
 mod entities;
 mod hurt;
