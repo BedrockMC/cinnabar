@@ -232,6 +232,66 @@ fn dynamic_atlas_updates_keep_static_meshes_and_asset_installs_invalidate_them()
     assert_ne!(scene.frame.solid, first.solid);
 }
 
+/// Vanilla shows every sign's text: more distinct texts than one page grow the canvas strip,
+/// and an unchanged frame rasterizes and uploads nothing.
+#[test]
+fn every_distinct_sign_text_keeps_its_own_canvas_and_an_unchanged_frame_rasterizes_nothing() {
+    const SIGNS: u64 = 160;
+    let canvas = |key: u64| {
+        [key as u8, (key >> 8) as u8, 7, 255]
+            .into_iter()
+            .cycle()
+            .take(96 * 48 * 4)
+            .collect::<Vec<u8>>()
+    };
+    let sign = |key: u64, rect: AtlasRect| BlockEntitySubmission {
+        block: [key as i32 % 40, 64, key as i32 / 40],
+        light: 1.0.into(),
+        kind: BlockEntityKind::Sign(SignModel {
+            mount: SignMount::Wall(Facing::North),
+            front: Some(SignFace {
+                rect,
+                glowing: false,
+            }),
+            back: None,
+        }),
+    };
+    let mut scene = scene();
+    let rects: Vec<_> = (0..SIGNS)
+        .map(|key| {
+            scene
+                .text_rect(key, || canvas(key))
+                .expect("every sign gets a canvas")
+        })
+        .collect();
+    let submissions: Vec<_> = (0..SIGNS)
+        .map(|key| sign(key, rects[key as usize]))
+        .collect();
+    assert_matches_reference(&mut scene, 0.0, &[], &submissions);
+    let first = scene.frame.clone();
+    let image = first.atlas.as_ref().unwrap();
+    assert!(image.size[1] > scene.atlas.as_ref().unwrap().static_height());
+    for (key, rect) in rects.iter().enumerate() {
+        let row = rect.y as usize - image.static_height as usize;
+        let start = (row * image.size[0] as usize + rect.x as usize) * 4;
+        assert_eq!(
+            &first.dynamic_rgba8[start..start + 4],
+            &canvas(key as u64)[..4],
+            "sign {key} shows another sign's text"
+        );
+    }
+    let again: Vec<_> = (0..SIGNS)
+        .map(|key| scene.text_rect(key, || panic!("an unchanged sign must not rasterize")))
+        .collect();
+    assert_eq!(
+        again.into_iter().map(Option::unwrap).collect::<Vec<_>>(),
+        rects
+    );
+    let second = scene.update(SceneClock { ticks: 1.0 }, &[], &submissions);
+    assert_eq!(second.revision, first.revision);
+    assert_eq!(second.dynamic_revision, first.dynamic_revision);
+}
+
 #[test]
 fn cached_fragments_preserve_vertex_limits_and_rejected_quad_counts() {
     let mut scene = scene();
