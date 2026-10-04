@@ -1,5 +1,6 @@
 mod chat;
 mod chat_coordinates;
+mod chat_modifiers;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{
@@ -635,13 +636,17 @@ pub(crate) fn drive_chat_keyboard_input(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut runtime: ResMut<UiRuntime>,
     mut presentation: Option<ResMut<presentation::UiPresentationRuntime>>,
+    mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
+    mut modifiers: Local<ButtonInput<KeyCode>>,
 ) {
     let (window, mut cursor) = window.into_inner();
     if runtime.server_forms().owns_input() {
+        modifiers.reset_all();
         keyboard_messages.clear();
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
+        modifiers.reset_all();
         if runtime.inventory_open() {
             runtime.close_inventory(&mut player_runtime);
         }
@@ -654,6 +659,8 @@ pub(crate) fn drive_chat_keyboard_input(
         return;
     }
     if !window.focused {
+        modifiers.reset_all();
+        keyboard_messages.clear();
         if runtime.chat_focused() {
             runtime.close_chat();
         }
@@ -691,7 +698,9 @@ pub(crate) fn drive_chat_keyboard_input(
             consumed_gameplay = true;
         }
     }
+    chat_modifiers::capture(&mut modifiers, &keys);
     for input in keyboard_messages.read() {
+        chat_modifiers::track(&mut modifiers, input);
         runtime.inventory_keys.track_modifier(input);
         if input.state != ButtonState::Pressed {
             continue;
@@ -719,12 +728,7 @@ pub(crate) fn drive_chat_keyboard_input(
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(&mut player_runtime, key) => {}
                     _ => {
-                        let modified = keys.pressed(KeyCode::ControlLeft)
-                            || keys.pressed(KeyCode::ControlRight)
-                            || keys.pressed(KeyCode::AltLeft)
-                            || keys.pressed(KeyCode::AltRight)
-                            || keys.pressed(KeyCode::SuperLeft)
-                            || keys.pressed(KeyCode::SuperRight);
+                        let modified = chat_modifiers::text_modified(&modifiers);
                         if !modified && let Some(text) = input.text.as_deref() {
                             runtime.screen_state_mut().type_text(text);
                         }
@@ -786,8 +790,19 @@ pub(crate) fn drive_chat_keyboard_input(
         }
 
         consumed_gameplay = true;
-        let selecting = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-        if paste_chat_shortcut(&mut runtime, input.key_code, &keys, &mut PlatformClipboard) {
+        let selecting =
+            modifiers.pressed(KeyCode::ShiftLeft) || modifiers.pressed(KeyCode::ShiftRight);
+        let pasted = if let Some(clipboard) = clipboard.as_deref_mut() {
+            paste_chat_shortcut(&mut runtime, input.key_code, &modifiers, clipboard)
+        } else {
+            paste_chat_shortcut(
+                &mut runtime,
+                input.key_code,
+                &modifiers,
+                &mut PlatformClipboard,
+            )
+        };
+        if pasted {
             continue;
         }
         match input.key_code {
@@ -841,12 +856,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 });
             }
             _ => {
-                let modified = keys.pressed(KeyCode::ControlLeft)
-                    || keys.pressed(KeyCode::ControlRight)
-                    || keys.pressed(KeyCode::AltLeft)
-                    || keys.pressed(KeyCode::AltRight)
-                    || keys.pressed(KeyCode::SuperLeft)
-                    || keys.pressed(KeyCode::SuperRight);
+                let modified = chat_modifiers::text_modified(&modifiers);
                 if !modified
                     && let Some(text) = input.text.as_deref()
                     && !text.chars().any(char::is_control)
