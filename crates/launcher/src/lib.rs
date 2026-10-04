@@ -11,6 +11,7 @@ macro_rules! product_name {
 /// The product name shown in window titles, defaults and the install directory.
 pub const PRODUCT_NAME: &str = product_name!();
 
+pub mod accounts;
 pub mod global_resources;
 pub mod install_layout;
 pub mod local_worlds;

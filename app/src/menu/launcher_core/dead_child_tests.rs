@@ -43,9 +43,11 @@ fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
             _directory: directory,
             socket_dir: socket_dir.clone(),
             authenticated: false,
+            auth_cache: None,
             attached: true,
         }),
         failed: None,
+        retiring: None,
     };
     let mut menu = MenuRuntime::new_with_layout(
         true,
@@ -148,4 +150,33 @@ fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness()
     assert!(!crate::runtime::endpoint::bridge_endpoint_exists(
         &socket_dir
     ));
+}
+
+#[test]
+fn a_new_account_retires_the_authenticated_core_even_when_sign_in_mode_is_unchanged() {
+    let (mut slot, mut menu, mut world, _) = fixture(false);
+    let core = slot.core.as_mut().unwrap();
+    core.authenticated = true;
+    core.auth_cache = Some(menu.layout.auth_cache());
+    menu.feeds.account_adding = true;
+    menu.accounts.pending_ready = true;
+    drive(&mut slot, &mut menu, &mut world, false);
+    assert!(
+        slot.core.is_some(),
+        "active play keeps its owning account core"
+    );
+    drive(&mut slot, &mut menu, &mut world, true);
+    assert!(slot.core.is_none());
+    assert!(!world.contains_resource::<LauncherAccount>());
+    assert!(
+        menu.accounts.skip_control,
+        "old profile data must not enter the new account"
+    );
+    slot.retiring
+        .as_ref()
+        .unwrap()
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    drive(&mut slot, &mut menu, &mut world, true);
+    assert_eq!(slot.failed, Some(true));
 }

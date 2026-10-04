@@ -8,6 +8,7 @@
 
 mod account;
 mod account_control;
+mod accounts;
 pub(crate) mod auth;
 mod construction;
 pub(crate) mod core_process;
@@ -30,6 +31,7 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
+mod sign_in_popup;
 #[cfg(test)]
 mod transfer_follow_tests;
 mod video_settings;
@@ -145,6 +147,7 @@ pub(crate) struct MenuRuntime {
     /// The device code whose sign-in page was last opened, so each code opens once.
     sign_in_page_code: Option<String>,
     sign_out_requested: bool,
+    accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
     pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
@@ -505,7 +508,10 @@ impl MenuRuntime {
                 self.dialog = None;
                 self.intents.exit = true;
             }
-            MenuAction::DismissDialog => self.dialog = None,
+            MenuAction::DismissDialog => self.dismiss_accounts(),
+            MenuAction::OpenAccounts => self.open_accounts(),
+            MenuAction::AddAccount => self.add_account(),
+            MenuAction::SwitchAccount(index) => self.switch_account(index),
             MenuAction::SelectServerTab(tab) => {
                 self.server_tab = tab;
                 self.focused = 0;
@@ -516,7 +522,13 @@ impl MenuRuntime {
                 self.catalog_message = None;
             }
             MenuAction::StartSignIn => self.start_sign_in(),
-            MenuAction::CancelSignIn => self.stop_sign_in(),
+            MenuAction::CancelSignIn => {
+                if self.feeds.account_adding {
+                    self.cancel_add_account();
+                } else {
+                    self.stop_sign_in();
+                }
+            }
             MenuAction::PlayAddServer => {
                 self.editing = None;
                 self.name.clear();
@@ -799,6 +811,7 @@ pub(crate) fn drive_menu_services(
 ) {
     menu.poll_catalog(launcher_account.is_some());
     menu.poll_saves();
+    menu.poll_accounts();
     menu.sync_audio_settings(audio_settings);
     menu.sync_user_settings(settings);
     menu.sync_language(&mut runtime);
@@ -819,6 +832,9 @@ pub(crate) fn drive_menu_services(
             client_blob_cache.enables_upstream_client_cache(),
             local_worlds.as_deref_mut(),
         );
+    }
+    if std::mem::take(&mut menu.accounts.skip_control) {
+        return;
     }
     match launcher_account {
         Some(mut account) => menu.sync_account_control(&mut *account),

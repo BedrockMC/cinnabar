@@ -133,6 +133,10 @@ impl MenuProfile {
 /// by address, the profile, and the featured server the info panel shows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MenuFeeds {
+    pub accounts: Vec<crate::accounts::AccountProfile>,
+    pub account_active_id: Option<String>,
+    pub account_error: Option<String>,
+    pub account_adding: bool,
     pub inbox_state: super::inbox::InboxState,
     pub details: HashMap<String, ServerDetails>,
     pub profile: MenuProfile,
