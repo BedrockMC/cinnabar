@@ -43,6 +43,8 @@ pub struct ActorPickup {
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
+    /// Native StateVector displacement per tick, distinct from query-derived movement speed.
+    pub(crate) native_velocity: [f32; 3],
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
@@ -59,7 +61,7 @@ pub struct ActorStatus {
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
     pub pickup: Option<ActorPickup>,
-    /// `(in_water, in_lava)` sampled from the block at the actor; `None` before the first sample.
+    /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
     /// Bed orientation in degrees under a sleeping actor, sampled from the world.
     pub sleep_rotation: Option<f32>,

@@ -3995,6 +3995,7 @@ dependencies = [
  "bytemuck",
  "image",
  "pack-compiler",
+ "serde_json",
  "tempfile",
  "world",
 ]

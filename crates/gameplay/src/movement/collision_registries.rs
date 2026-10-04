@@ -15,6 +15,7 @@ use thiserror::Error;
 
 mod connected;
 mod doors;
+mod flow;
 mod scaffolding;
 mod selection;
 mod stairs;
@@ -197,6 +198,8 @@ impl PhysicsCollisionRegistries {
             };
             register(&mut sequential, record.sequential_id, boxes.clone())?;
             register(&mut hashed, record.network_hash, boxes)?;
+            flow::register(&mut sequential, record.sequential_id, record);
+            flow::register(&mut hashed, record.network_hash, record);
             if let Some(shape) = selection::shape(record) {
                 sequential.set_pick_shapes(record.sequential_id, [shape]);
                 hashed.set_pick_shapes(record.network_hash, [shape]);

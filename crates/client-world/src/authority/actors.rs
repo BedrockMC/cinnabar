@@ -64,10 +64,10 @@ impl WorldAuthority {
     pub fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
         self.actors.take_equipment_notices()
     }
-    /// Feet position of every tracked actor, for [`Self::set_actor_fluids`] sampling.
+    /// Body boxes for the native liquid probes backing [`Self::set_actor_fluids`].
     #[must_use]
-    pub fn actor_fluid_sample_points(&self) -> Vec<(u64, [f32; 3])> {
-        self.actors.fluid_sample_points()
+    pub fn actor_fluid_probes(&self) -> Vec<crate::ActorFluidProbe> {
+        self.actors.fluid_probes()
     }
     /// Installs the per-mount seat layouts riders fall back to when the server streams no offset.
     pub fn set_actor_seat_defaults(&mut self, defaults: std::sync::Arc<crate::SeatDefaults>) {
