@@ -1,0 +1,206 @@
+use super::*;
+use crate::{
+    ActorAnimationVariables, ActorLifetimeId, EntityRigId, HandPhase, ItemAnimationState,
+    SkinRenderLayer,
+};
+
+struct Fixture {
+    skin: Arc<assets::SkinGeometry>,
+    names: Vec<Box<str>>,
+    rest: Vec<BoneTransform>,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        // Owned cubeless skeleton, deliberately different from the native player model.
+        let skin = assets::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.emote_test"}}"#,
+            r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{
+                "identifier":"geometry.emote_test","texture_width":16,"texture_height":16},"bones":[
+                {"name":"root","pivot":[0,0,0]},
+                {"name":"waist","parent":"root","pivot":[0,11,0]},
+                {"name":"body","parent":"waist","pivot":[0,22,0]},
+                {"name":"head","parent":"body","pivot":[0,24,0]},
+                {"name":"leftArm","parent":"body","pivot":[4,20,0]},
+                {"name":"rightArm","parent":"body","pivot":[-4,20,0]},
+                {"name":"leftLeg","parent":"root","pivot":[2,11,0]},
+                {"name":"rightLeg","parent":"root","pivot":[-2,11,0]},
+                {"name":"coat","parent":"body","pivot":[0,18,0]}]}]}"#,
+        )
+        .unwrap()
+        .unwrap();
+        Self::from_skin(skin)
+    }
+
+    fn from_skin(skin: assets::SkinGeometry) -> Self {
+        let (bones, names) = geometry::skeleton(&skin.bones).unwrap();
+        let rest = compose_pose(&bones, &[]).unwrap();
+        Self {
+            skin: Arc::new(skin),
+            names,
+            rest,
+        }
+    }
+
+    fn rig(&self) -> ActorRigSnapshot<'_> {
+        ActorRigSnapshot {
+            actor: ActorLifetimeId {
+                session_id: 7,
+                dimension: 0,
+                runtime_id: 42,
+                spawn_revision: 3,
+            },
+            rig: EntityRigId(0),
+            previous: &self.rest,
+            current: &self.rest,
+            rest: &self.rest,
+            rest_completed_tick: 20,
+            rest_reset_generation: 1,
+            completed_tick: 20,
+            reset_generation: 1,
+            fallback: assets::EntityRigFallback::Skip,
+            scale: 1.0,
+            axis_scale: [1.0; 3],
+            previous_body_yaw: 0.0,
+            body_yaw: 0.0,
+            render: &[],
+            bone_names: &self.names,
+            skin_geometry: Some(&self.skin),
+            skin_layers: &[],
+            hand: [HandPhase::default(); 2],
+            item_animation: [ItemAnimationState::default(); 2],
+            off_hand_animation: [ItemAnimationState::default(); 2],
+            animation_variables: ActorAnimationVariables::default(),
+        }
+    }
+
+    fn index(&self, name: &str) -> usize {
+        self.names
+            .iter()
+            .position(|part| part.as_ref() == name)
+            .unwrap()
+    }
+}
+
+#[test]
+fn owned_custom_emote_loops_and_retains_exact_rig_ownership() {
+    let f = Fixture::new();
+    let rig = f.rig();
+    let emote = CustomEmote::Twerk;
+    let pose = sample(&rig, emote, 0.0, emote.duration_seconds()).unwrap();
+    assert_eq!(pose.previous, pose.current);
+    assert_ne!(pose.current.as_ref(), f.rest.as_slice());
+    let sampled = pose.snapshot(rig);
+    assert_eq!(sampled.actor, rig.actor);
+    assert_eq!(sampled.completed_tick, rig.completed_tick);
+    assert_eq!(sampled.reset_generation, rig.reset_generation);
+    assert_eq!(sampled.rest, rig.rest);
+    assert_eq!(sampled.bone_names, rig.bone_names);
+    assert_eq!(
+        rig.current,
+        f.rest.as_slice(),
+        "sampling cannot alter the native hand/body source"
+    );
+    for transform in pose.current.iter() {
+        assert!(
+            transform
+                .rotation
+                .iter()
+                .chain(transform.translation_scale.iter())
+                .chain(transform.axis_scale.iter())
+                .all(|value| value.is_finite())
+        );
+    }
+}
+
+#[test]
+fn owned_custom_emote_named_channels_preserve_hierarchy_and_reordered_models() {
+    let f = Fixture::new();
+    let period = CustomEmote::Twerk.duration_seconds();
+    let pose = sample(&f.rig(), CustomEmote::Twerk, period / 4.0, period / 4.0).unwrap();
+    let body = f.index("body");
+    let coat = f.index("coat");
+    assert_eq!(
+        pose.current[body].rotation, pose.current[coat].rotation,
+        "clothing inherits the tilted torso"
+    );
+    assert_ne!(
+        pose.current[coat].translation_scale,
+        f.rest[coat].translation_scale
+    );
+    assert_eq!(
+        pose.current[f.index("leftleg")].translation_scale[1],
+        pose.current[f.index("rightleg")].translation_scale[1]
+    );
+    let mut reordered = (*f.skin).clone();
+    reordered.bones.reverse();
+    let reordered = Fixture::from_skin(reordered);
+    let other = sample(
+        &reordered.rig(),
+        CustomEmote::Twerk,
+        period / 4.0,
+        period / 4.0,
+    )
+    .unwrap();
+    for name in &f.names {
+        assert_eq!(
+            pose.current[f.index(name)],
+            other.current[reordered.index(name)]
+        );
+    }
+}
+
+#[test]
+fn owned_custom_emote_persona_layer_follows_body_and_keeps_artwork() {
+    let f = Fixture::new();
+    let layer = SkinRenderLayer {
+        image: protocol::SkinAnimation {
+            kind: protocol::SkinAnimationKind::Face,
+            width: 16,
+            height: 16,
+            rgba8: Arc::from([]),
+            frames: 1,
+            blinking: false,
+        },
+        geometry: Arc::clone(&f.skin),
+        previous: Arc::from(f.rest.clone()),
+        current: Arc::from(f.rest.clone()),
+        rest: Arc::from(f.rest.clone()),
+        hidden_bones: Arc::from([f.index("coat") as u32]),
+        uv_anim: [0.0, 0.0, 1.0, 1.0],
+    };
+    let layers = [layer];
+    let mut rig = f.rig();
+    rig.skin_layers = &layers;
+    let pose = sample(
+        &rig,
+        CustomEmote::Twerk,
+        0.0,
+        CustomEmote::Twerk.duration_seconds() / 4.0,
+    )
+    .unwrap();
+    assert_eq!(pose.skin_layers[0].current, pose.current);
+    assert_eq!(pose.skin_layers[0].previous, pose.previous);
+    assert_eq!(pose.skin_layers[0].hidden_bones, layers[0].hidden_bones);
+    assert_eq!(pose.skin_layers[0].uv_anim, layers[0].uv_anim);
+    assert!(Arc::ptr_eq(
+        &pose.skin_layers[0].geometry,
+        &layers[0].geometry
+    ));
+    assert_eq!(layers[0].current.as_ref(), f.rest.as_slice());
+}
+
+#[test]
+fn owned_custom_emote_skips_invalid_phases_and_mismatched_models() {
+    let f = Fixture::new();
+    for invalid in [-1.0, f64::NAN, f64::INFINITY] {
+        assert!(sample(&f.rig(), CustomEmote::Twerk, invalid, 0.0).is_none());
+        assert!(sample(&f.rig(), CustomEmote::Twerk, 0.0, invalid).is_none());
+    }
+    let mut rig = f.rig();
+    rig.bone_names = &[];
+    assert!(sample(&rig, CustomEmote::Twerk, 0.0, 0.0).is_none());
+    rig = f.rig();
+    rig.current = &[];
+    assert!(sample(&rig, CustomEmote::Twerk, 0.0, 0.0).is_none());
+}

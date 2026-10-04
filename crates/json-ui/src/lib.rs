@@ -54,8 +54,8 @@ pub use bind::{
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use component::{
     ButtonEvent, ButtonInput, CARET_BLINK_SECONDS, CARET_GLYPH, Components, Dispatch, Dispatcher,
-    EditMeta, PointerInput, ScreenEvent, SliderMeta, SoundMeta, TextEdit, TextType, ToggleManager,
-    ToggleMeta, Widget,
+    EditMeta, PointerInput, ScreenEvent, SelectionWheelMeta, SliderMeta, SoundMeta, TextEdit,
+    TextType, ToggleManager, ToggleMeta, Widget,
 };
 pub use emit::{
     Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, StateGate, TextAlign, UvRect, color_value,

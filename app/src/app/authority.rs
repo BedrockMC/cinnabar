@@ -31,6 +31,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         .init_resource::<crate::runtime::network::ActorFramePartialTick>()
         .init_resource::<crate::runtime::network::PreparedActorPublication>()
         .init_resource::<crate::ui_runtime::presentation::PreparedUiPublication>()
+        .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)
@@ -47,6 +48,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
                 drive_sign_editor.run_if(crate::server_experiences::input::ordinary_input),
                 drive_server_form_input.run_if(crate::server_experiences::input::ordinary_input),
+                crate::ui_runtime::emotes::drive_emote_input,
                 drive_chat_ui_actions.run_if(crate::server_experiences::input::ordinary_input),
                 drain_inventory_authority,
                 drive_chat_keyboard_input.run_if(crate::server_experiences::input::ordinary_input),
@@ -68,7 +70,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            finalize_semantic_input_after_ui_authority.in_set(ClientFrameSet::SemanticFinalize),
+            (
+                finalize_semantic_input_after_ui_authority,
+                crate::ui_runtime::emotes::cancel_emote_from_gameplay,
+            )
+                .chain()
+                .in_set(ClientFrameSet::SemanticFinalize),
         )
         .add_systems(
             Update,

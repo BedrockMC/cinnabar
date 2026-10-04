@@ -23,6 +23,16 @@ impl UiPresentationRuntime {
         stream: Option<&client_world::WorldStream>,
         swimming: bool,
     ) {
+        self.capture_hud_player_with_emote(stream, swimming, None);
+    }
+
+    /// Projects an optional local render-only emote without changing the world rig or hand.
+    pub fn capture_hud_player_with_emote(
+        &mut self,
+        stream: Option<&client_world::WorldStream>,
+        swimming: bool,
+        emote: Option<(client_world::CustomEmote, f64)>,
+    ) {
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.parts = [None; 6];
@@ -34,7 +44,14 @@ impl UiPresentationRuntime {
         let Some(rig) = stream.actor_rig(id) else {
             return;
         };
-        let Some(pose) = stream.actor_ui_pose(id) else {
+        let emote_pose = emote.and_then(|(emote, phase)| {
+            client_world::sample_custom_emote(&rig, emote, phase, phase)
+        });
+        let Some(pose) = emote_pose
+            .as_ref()
+            .map(|pose| pose.current.as_ref())
+            .or_else(|| stream.actor_ui_pose(id))
+        else {
             return;
         };
         let basis = Affine3A::from_scale(Vec3::new(-1., 1., -1.));

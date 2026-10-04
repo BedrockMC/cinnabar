@@ -38,6 +38,8 @@ fn the_animation_view_admits_everything_the_render_cull_draws() {
 
 use client_world::HandPhase;
 
+mod custom_emotes;
+
 // The swing wraps forward from its last tick to rest, and an eat use counts from its first
 // using tick only while the rig reports the use.
 #[test]

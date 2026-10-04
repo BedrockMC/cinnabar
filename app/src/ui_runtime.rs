@@ -8,6 +8,7 @@ pub use client_ui::ui_runtime::{
     flush_inventory_send, inventory_drag, inventory_ledger, inventory_router, item_facts,
     json_ui_assets, oreui_assets,
 };
+pub(crate) mod emotes;
 pub mod forms;
 pub(crate) mod gameplay_touch;
 pub mod interaction;

@@ -324,7 +324,11 @@ pub(crate) fn drive_world_inventory_keys(
     menu: Option<Res<crate::menu::MenuRuntime>>,
     presentation: Option<Res<presentation::UiPresentationRuntime>>,
     mut runtime: ResMut<UiRuntime>,
+    emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
 ) {
+    if emote_input.is_some_and(|consumed| consumed.0) {
+        return;
+    }
     let drop = binding_pressed(menu.as_deref(), "key.drop", &keys, &mouse)
         || binding_gamepad(menu.as_deref(), "key.drop", &gamepads);
     let use_book = binding_pressed(menu.as_deref(), "key.use", &keys, &mouse);
@@ -370,9 +374,13 @@ pub(crate) fn drive_chat_keyboard_input(
     mut presentation: Option<ResMut<presentation::UiPresentationRuntime>>,
     mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
+    emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
 ) {
     let (window, mut cursor) = window.into_inner();
-    if runtime.server_forms().owns_input() {
+    if runtime.server_forms().owns_input()
+        || runtime.emotes().is_open()
+        || emote_input.is_some_and(|consumed| consumed.0)
+    {
         modifiers.reset_all();
         keyboard_messages.clear();
         return;

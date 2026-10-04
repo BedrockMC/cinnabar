@@ -616,6 +616,9 @@ impl UiPresentationRuntime {
                 Scene::Chat => {
                     self.append_chat_screen(runtime, nodes, next, metrics, content, now_millis)?;
                 }
+                Scene::Emote => {
+                    self.append_emote_screen(runtime, nodes, next, metrics, content, now_millis)?;
+                }
                 Scene::Loading => {
                     if let Some(stage) = self.loading_stage {
                         // An opaque cover under the loading screen: no partial terrain or
@@ -667,6 +670,9 @@ impl UiPresentationRuntime {
         }
         if !scenes.contains(&Scene::Chat) {
             self.close_chat_screen();
+        }
+        if !scenes.contains(&Scene::Emote) {
+            self.close_emote_screen();
         }
         if !scenes.contains(&Scene::SignEditor) {
             self.hide_sign_editor();

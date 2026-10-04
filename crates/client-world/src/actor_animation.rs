@@ -809,6 +809,7 @@ fn resolve_rig(
 }
 
 mod attachable;
+pub(crate) mod custom_emotes;
 mod evaluation;
 mod geometry;
 mod hud;

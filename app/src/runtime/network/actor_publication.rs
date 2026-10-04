@@ -605,6 +605,23 @@ pub(crate) fn prepare_actor_render_frame(
     } else {
         None
     };
+    // Custom emotes are local render poses. The hand above and all remote rigs retain
+    // their native animation; one owned sample also drives clothing/persona layers.
+    let emote_phase = ui
+        .as_deref()
+        .and_then(|ui| ui.emotes().playback())
+        .map(|playback| {
+            let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+            (playback.emote, playback.elapsed(now))
+        });
+    let local_emote_pose = (!first_person)
+        .then(|| {
+            let stream = client_world.stream.as_ref()?;
+            let rig = stream.actor_rig(local_runtime_id)?;
+            let (emote, elapsed) = emote_phase?;
+            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
+        })
+        .flatten();
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -650,6 +667,22 @@ pub(crate) fn prepare_actor_render_frame(
         .and_then(|stream| stream.actor(local_runtime_id))
         .and_then(|actor| actor.status.death_progress(step.partial_tick));
     let local = local.map(|mut local| {
+        if let (Some(pose), Some(stream)) = (&local_emote_pose, &client_world.stream)
+            && let (Some(rig), Some(actor)) = (
+                stream.actor_rig(local_runtime_id),
+                stream.actor(local_runtime_id),
+            )
+            && let Some(animated) = crate::presentation::actors::actor_rig_presentation(
+                &pose.snapshot(rig),
+                actor,
+                stream.actor_player_profile(local_runtime_id),
+                step.partial_tick,
+            )
+        {
+            // Preserve the selected skin geometry, authoritative placement and materials.
+            local.submission.input.previous_bones = animated.submission.input.previous_bones;
+            local.submission.input.current_bones = animated.submission.input.current_bones;
+        }
         local.submission.world_from_actor = crate::presentation::actors::death_tilted(
             local.submission.world_from_actor,
             local_death,
@@ -708,7 +741,17 @@ pub(crate) fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
-            |runtime_id| stream.actor_rig(runtime_id),
+            |runtime_id| {
+                stream.actor_rig(runtime_id).map(|rig| {
+                    if runtime_id == local_runtime_id
+                        && let Some(pose) = &local_emote_pose
+                    {
+                        pose.snapshot(rig)
+                    } else {
+                        rig
+                    }
+                })
+            },
             artwork,
             &mut layer_poses,
         );
@@ -717,7 +760,17 @@ pub(crate) fn prepare_actor_render_frame(
         && let Some(pages) = skin_layers.apply(
             &mut batch,
             artwork,
-            |runtime_id| stream.actor_rig(runtime_id),
+            |runtime_id| {
+                stream.actor_rig(runtime_id).map(|rig| {
+                    if runtime_id == local_runtime_id
+                        && let Some(pose) = &local_emote_pose
+                    {
+                        pose.snapshot(rig)
+                    } else {
+                        rig
+                    }
+                })
+            },
             &mut skin_rigs,
             |geometry| new_geometries.push(geometry),
         )
