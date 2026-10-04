@@ -1,3 +1,10 @@
+## Always Sprint keyboard/mouse extension
+
+- Optional custom setting, off by default, persisted with the existing settings registry.
+- Forward movement requests normal sprint; sneak, hunger and other restrictions still apply.
+- Auth-input sprint flags remain derived from the completed physics state.
+- Windows rendered settings and user movement acceptance pending.
+
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
 2026-10-04 F5 head flick correction — **Incomplete visual/native acceptance**:

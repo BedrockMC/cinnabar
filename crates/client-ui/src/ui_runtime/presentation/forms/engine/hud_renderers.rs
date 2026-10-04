@@ -275,6 +275,7 @@ pub(super) fn with_java_hud(
         .filter(|(_, namespace, _)| !withdrawn.contains(*namespace))
         .map(|(path, _, bytes)| (*path, *bytes));
     super::super::graphics_expander::install(&mut catalog);
+    super::super::always_sprint_setting::install(&mut catalog);
     catalog.apply_pack(kept);
     catalog.apply_pack(
         [(

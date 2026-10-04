@@ -38,6 +38,7 @@ pub mod panorama;
 #[cfg(test)]
 pub mod regression_snapshots;
 pub use panorama::{built_in_faces, launcher_view};
+pub mod always_sprint_setting;
 pub mod enhanced_setting;
 pub mod graphics_expander;
 #[cfg(test)]
