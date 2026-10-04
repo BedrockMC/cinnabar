@@ -14,7 +14,7 @@ networking.
 
 ## Download
 
-Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
+Daily builds of `dev` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
 Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
 the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
 
