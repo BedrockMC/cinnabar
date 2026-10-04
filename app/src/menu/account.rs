@@ -23,10 +23,6 @@ pub(super) fn validated_auth_cache(
     matches!(state, Some(AuthState::Authenticated)).then(|| layout.auth_cache())
 }
 
-/// Live's remote-connect page; `otc` pre-fills the device code.
-#[cfg_attr(test, allow(dead_code))]
-const SIGN_IN_PAGE: &str = "https://login.live.com/oauth20_remoteconnect.srf?otc=";
-
 impl MenuRuntime {
     fn start_catalog(&mut self) {
         if self.catalog_started || !self.visible || self.is_connecting() {
@@ -164,7 +160,12 @@ impl MenuRuntime {
                 Some("bedrock-core executable was not found; sign-in unavailable.".to_owned());
             return;
         };
-        match AuthSupervisor::spawn(&executable, &self.layout.auth_cache()) {
+        let cache = if self.feeds.account_adding {
+            launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
+        } else {
+            self.layout.auth_cache()
+        };
+        match AuthSupervisor::spawn(&executable, &cache) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
                 self.auth_process = None;
@@ -194,7 +195,7 @@ impl MenuRuntime {
         // Device codes are validated alphanumeric by the auth supervisor before reaching here.
         #[cfg(not(test))]
         if code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            crate::local_worlds::open_url(&format!("{SIGN_IN_PAGE}{code}"));
+            super::sign_in_popup::open(&code);
         }
         self.sign_in_page_code = Some(code);
     }

@@ -275,6 +275,13 @@ impl InstallLayout {
             .join(format!("direct-{process_id}"))
     }
 
+    /// Account-core incarnations have separate endpoints from each other and game sessions.
+    #[must_use]
+    pub fn account_socket_dir(&self, pid: u32, incarnation: u64) -> PathBuf {
+        self.transient_runtime_root
+            .join(format!("account-{pid}-{incarnation}"))
+    }
+
     #[must_use]
     pub fn connect_socket_dir(&self, process_id: u32, generation: u64) -> PathBuf {
         self.transient_runtime_root
