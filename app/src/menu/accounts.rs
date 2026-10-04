@@ -245,6 +245,9 @@ impl MenuRuntime {
         self.accounts.remembered = None;
         self.feeds.profile = Default::default();
         self.feeds.home = Default::default();
+        self.feeds.inbox_state = Default::default();
+        self.feeds.selected_realm = None;
+        self.feeds.details.clear();
         self.realms.clear();
         self.friends.clear();
         self.gatherings.clear();
@@ -293,6 +296,29 @@ mod tests {
         assert!(matches!(menu.accounts.operation, Some(Operation::Restore)));
         assert!(!menu.sign_out_requested);
         assert_eq!(menu.feeds.account_active_id.as_deref(), Some("41"));
+    }
+
+    #[test]
+    fn changing_accounts_drops_inbox_actions_and_read_state_from_the_previous_account() {
+        let mut menu = MenuRuntime::new(true, 2, "First".into());
+        let item = launcher::menu::view::InboxItem {
+            instance_id: "shared-message".into(),
+            category: "News".into(),
+            unread: true,
+            ..Default::default()
+        };
+        menu.feeds.home.inbox = vec![item.clone()];
+        menu.feeds
+            .activate_inbox(launcher::menu::inbox::Action::Delete(0));
+        menu.feeds
+            .activate_inbox(launcher::menu::inbox::Action::ConfirmDelete);
+        assert!(!menu.feeds.inbox_state.pending.is_empty());
+        menu.finish_account_operation(true, true);
+        menu.feeds.home.inbox = vec![item];
+        menu.feeds.inbox_state.reconcile(&mut menu.feeds.home);
+        assert_eq!(menu.feeds.home.inbox.len(), 1);
+        assert!(menu.feeds.home.inbox[0].unread);
+        assert!(menu.feeds.inbox_state.pending.is_empty());
     }
 
     #[test]
