@@ -6,25 +6,17 @@ the item's localized default. Inventory content and slot packets can carry
 custom names without any stack-response correction. Those names must reach
 the HUD directly from the presented stack, including during inventory prediction.
 
-## Current native evidence
+## Vanilla rules
 
-
-| Body | Location | Observed behavior |
-| --- | --- | --- |
-| `027d5c20` | `02.cpp:1304297`, `027d.jsonl:101` | Custom-name presence tests the `display.Name` tag; an empty string still counts. |
-| `027d5910` | `02.cpp:1304153`, `027d.jsonl:99` | Reads `Name` and the optional `FilteredName` alternative without stripping format codes. |
-| `027945b0` | `02.cpp:1261057`, `0279.jsonl:95` | Custom names override localized defaults; the hover name ends with `§r`. |
-| `02794260` | `02.cpp:1260874`, `0279.jsonl:90` | Custom names receive `§o` before the item's formatting and literal name. |
-| `01739ba0` | `01.cpp:1283768`, `0173.jsonl:137` | The selected-item popup uses the same hover-name producer at line 1283946. |
-| `01738f10` | `01.cpp:1283271`, `0173.jsonl:132` | The popup refreshes when selected slot/source changes, even between identical item kinds (lines 1283490–1283525). |
-| `056d6870` | `05.cpp:1163740`, `056d.jsonl:106` | HUD item-text creation explicitly disables localization at line 1164013. |
-
-The matching client executable SHA-256 is
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`.
-Its Item vtable at image VA `1501217c0` resolves slots `+300`, `+2f8`, and
-`+2e8` to the custom-name presence, custom-name reader, and default-name reader
-(`027d3f30`) respectively. Image VAs `15006b5d8` and `15006bf90` contain the
-`§o` and `§r` literals. These addresses are research provenance, not runtime constants.
+| Rule | Behavior |
+| --- | --- |
+| Custom-name presence | Determined by the `display.Name` tag; an empty string still counts as a custom name. |
+| Custom-name text | Reads `Name`, or the optional `FilteredName` alternative, without stripping format codes. |
+| Precedence | Custom names override the localized default; the hover name ends with `§r`. |
+| Formatting | Custom names receive `§o` before the item's own formatting and literal name. |
+| Selected-item popup | Uses the same hover-name producer as the inventory tooltip. |
+| Popup refresh | Refreshes when the selected slot or source changes, even between identical item kinds. |
+| Localization | HUD item text is created with localization disabled; names arrive already resolved. |
 
 ## Cinnabar correction
 
