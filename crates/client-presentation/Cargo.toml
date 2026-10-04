@@ -23,6 +23,7 @@ player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
 render = { path = "../render" }
 render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
 resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }
 sim = { path = "../sim" }

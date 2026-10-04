@@ -16,6 +16,7 @@ assets = { path = "../assets" }
 bevy.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 render-api = { path = "../render-api" }
+render-model = { path = "../render-model" }
 meshing = { path = "../meshing" }
 particles = { path = "../particles" }
 rayon.workspace = true

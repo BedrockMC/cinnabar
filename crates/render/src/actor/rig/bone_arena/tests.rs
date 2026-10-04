@@ -2,8 +2,9 @@ use super::*;
 use crate::actor::rig::{
     ActorDrawManifestEntry, ActorGpuInstance, ActorRenderIdentity, ActorRigFrameBuilder,
     ActorRigGeometry, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId, UNIT_AXIS_SCALE,
+    ActorRigSubmission, EntityRigId,
 };
+use render_model::UNIT_AXIS_SCALE;
 use std::sync::Arc;
 
 /// Creates a finite pose with rotation, translation and nonuniform scale.
@@ -190,7 +191,10 @@ fn replacing_geometry_rebinds_a_cached_pose_to_its_new_pivots() {
 
 #[test]
 fn combined_session_pack_replacement_rebinds_cached_poses_to_new_pivots() {
-    for id in [crate::pack_rig_id(0), crate::pack_equipment_rig_id(0)] {
+    for id in [
+        render_model::pack_rig_id(0),
+        render_model::pack_equipment_rig_id(0),
+    ] {
         let geometry = ActorRigGeometry::synthetic_cuboid(id, [0.0; 3], [1.0; 3], 1).unwrap();
         let mut builder = ActorRigFrameBuilder::new([geometry.clone()]).unwrap();
         let mut input = submission(1, 1);
@@ -198,7 +202,7 @@ fn combined_session_pack_replacement_rebinds_cached_poses_to_new_pivots() {
         let before = builder.build(0.5, None, [input.clone()]);
         let mut replacement = geometry;
         replacement.bone_pivots = Arc::from([[0.25, 1.5, -0.5]]);
-        let (entities, equipment) = if id == crate::pack_rig_id(0) {
+        let (entities, equipment) = if id == render_model::pack_rig_id(0) {
             (vec![replacement.clone()], Vec::new())
         } else {
             (Vec::new(), vec![replacement.clone()])

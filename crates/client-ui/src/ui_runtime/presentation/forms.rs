@@ -195,7 +195,7 @@ impl UiPresentationRuntime {
             engine.set_server_pack(&pack.ui_layers);
         }
         // Palette-only reloads can leave every cached text node unchanged.
-        self.last_menu = None;
+        self.last_frame = None;
         let atlas = server_pack::ServerAtlas::new(
             &pack.textures,
             pack.view.clone(),
@@ -311,7 +311,7 @@ impl UiPresentationRuntime {
             .map_or_else(Vec::new, |engine| engine.textures.oversized())
     }
 
-    pub(super) fn server_ui_pages(&self) -> &[render::UiTexturePage] {
+    pub(super) fn server_ui_pages(&self) -> &[render_model::UiTexturePage] {
         self.form_presentation
             .engine
             .as_ref()

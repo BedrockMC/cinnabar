@@ -1,7 +1,7 @@
 //! Near-camera first-person pass that draws the local player's own animated rig (arms + hands)
 //! over the scene, reusing the actor rig's packed buffers with a hand-local view and lighting.
 //! The rendered content is the player's own skin on the standard samples player geometry.
-use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame, ActorRigVertex};
+use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, graph::Core3d},
@@ -16,6 +16,7 @@ use bevy::{
     },
 };
 use render_api::SkinRgba8;
+use render_model::ActorRigVertex;
 use std::{mem::size_of, sync::Arc};
 
 mod node;
@@ -104,7 +105,7 @@ impl HandRigScene {
             || rig.previous_bones.is_empty()
             || rig.previous_bones.len() != rig.current_bones.len()
             || rig.maximum_vertex_count == 0
-            || skin.len() != crate::STANDARD_SKIN_BYTES
+            || skin.len() != render_model::STANDARD_SKIN_BYTES
             || !(fov_radians > 0.0 && fov_radians < std::f32::consts::PI)
             || revision == 0
         {
@@ -459,7 +460,7 @@ fn upload_skin(
     {
         return;
     }
-    let side = crate::STANDARD_SKIN_SIDE as u32;
+    let side = render_model::STANDARD_SKIN_SIDE as u32;
     let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {

@@ -277,7 +277,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
 
 /// Retained nodes from the last published menu frame, including clipping and text.
 pub fn menu_nodes(presentation: &UiPresentationRuntime) -> &[UiNode] {
-    &presentation.last_menu.as_ref().expect("menu frame").nodes
+    &presentation.last_frame.as_ref().expect("menu frame").nodes
 }
 
 /// Every text node with its bounds and its clip parent's bounds, for diagnosis.

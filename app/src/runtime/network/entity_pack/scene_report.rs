@@ -7,7 +7,8 @@ use bevy::math::{EulerRot, Mat4, Quat, Vec3, Vec4};
 use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldEvent,
 };
-use render::{ActorArtworkPages, ActorRenderScene, NAMETAG_ATLAS_SIDE, NametagScene};
+use render::{ActorArtworkPages, ActorRenderScene};
+use render_model::{NAMETAG_ATLAS_SIDE, NametagScene};
 use ui::TextLayoutCache;
 
 use super::render_report::{compile_local_pack, world_for};

@@ -14,8 +14,8 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 use render::{
-    ChunkRenderQueue, ChunkUploadAcknowledgements, UiRenderScene, UiRenderStats,
-    VisibilityDiagnostics, VisibilityDiagnosticsInput,
+    ChunkRenderQueue, ChunkUploadAcknowledgements, VisibilityDiagnostics,
+    VisibilityDiagnosticsInput,
 };
 use ui::{DpiScale, SafeArea};
 

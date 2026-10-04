@@ -1,7 +1,7 @@
 //! Shared item placement for world equipment and inventory previews.
 
 use crate::RenderBoneTransform;
-use bevy::math::{Mat3, Mat4, Quat, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec3};
 
 /// Item-space to hand-bone placement: rotation, translation in blocks and uniform scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -83,7 +83,7 @@ pub fn attach_to_bone(
     display: ItemDisplay,
 ) -> Option<RenderBoneTransform> {
     let [rx, ry, rz, rw] = hand.rotation;
-    let hand_rotation = Quat::from_vec4(bevy::math::Vec4::new(rx, ry, rz, rw).try_normalize()?);
+    let hand_rotation = Quat::from_vec4(glam::Vec4::new(rx, ry, rz, rw).try_normalize()?);
     // A non-uniform hand scale would shear the item; the first axis stands in for it.
     let hand_scale = hand.translation_scale[3] * hand.axis_scale[0];
     let origin = Vec3::new(

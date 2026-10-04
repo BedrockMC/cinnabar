@@ -2,7 +2,7 @@
 use super::*;
 use crate::ui_runtime::presentation::player_preview::{PreviewEquipment, PreviewView};
 use assets::{ItemDisplayScalar, RuntimeEntityAssets, RuntimeEquipmentCatalog};
-use render::equipment::{BoneChannels, attach};
+use render_model::equipment::{BoneChannels, attach};
 use std::sync::Arc;
 
 /// Creates one deterministic icon reference for geometry assertions.
@@ -48,8 +48,13 @@ pub fn assert_installed_shield(
         "native Shield root binds by item-slot expression"
     );
     let texture = equipment.texture(&shield.texture.identifier).unwrap();
-    let geometry =
-        render::attachable_geometry(entities, index, render::item_mesh_rig_id(0), texture).unwrap();
+    let geometry = render_model::attachable_geometry(
+        entities,
+        index,
+        render_model::item_mesh_rig_id(0),
+        texture,
+    )
+    .unwrap();
     let [pivot] = &*geometry.bone_pivots else {
         panic!("single bind pivot")
     };
@@ -67,8 +72,8 @@ pub fn assert_installed_shield(
         })
         .unwrap();
     let player = entities.rig_geometries()[player.first_geometry as usize].geometry as usize;
-    let names = render::geometry_bone_names(entities, player).unwrap();
-    let origins = render::geometry_bone_pivots(entities, player).unwrap();
+    let names = render_model::geometry_bone_names(entities, player).unwrap();
+    let origins = render_model::geometry_bone_pivots(entities, player).unwrap();
     let hand_pivots = ["rightItem", "leftItem"].map(|name| {
         origins[names
             .iter()
@@ -91,7 +96,7 @@ pub fn assert_installed_shield(
         let identity = RenderBoneTransform {
             rotation: Quat::IDENTITY.to_array(),
             translation_scale: [0.0, 0.0, 0.0, 1.0],
-            axis_scale: render::UNIT_AXIS_SCALE,
+            axis_scale: render_model::UNIT_AXIS_SCALE,
         };
         PreviewHeldPlacement::authored(
             attach(identity, *pivot, channels).unwrap(),

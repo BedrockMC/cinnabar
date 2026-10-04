@@ -283,7 +283,7 @@ fn session_reload_publishes_prepared_actor_pages() {
     assert_eq!(pages.identity(), expected.identity());
     assert_eq!(pages.pages(), expected.pages());
     for binding in pack.bindings.iter() {
-        let rig = render::pack_rig_id(binding.geometry_candidate);
+        let rig = render_model::pack_rig_id(binding.geometry_candidate);
         assert_eq!(pages.route(rig), expected.route(rig));
     }
 }

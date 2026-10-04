@@ -95,7 +95,7 @@ impl UiPresentationRuntime {
 fn valid(texture: &ParticleTexture) -> bool {
     texture.path.as_ref() == assets::ACTOR_FLAME_TEXTURE
         && texture.width > 0
-        && texture.width <= render::UI_MODEL_ATLAS_SIDE - 2
+        && texture.width <= render_model::UI_MODEL_ATLAS_SIDE - 2
         && texture.height > 0
         && texture.height.is_multiple_of(texture.width)
         && texture

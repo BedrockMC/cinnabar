@@ -374,7 +374,7 @@ fn gpu_draws(frame: &ActorRenderFrame) -> (usize, u64) {
 fn frame_digest(frame: &ActorRenderFrame) -> u64 {
     use std::hash::{Hash, Hasher};
     let rig = &frame.rig;
-    let skin = render::STANDARD_SKIN_BYTES;
+    let skin = render_model::STANDARD_SKIN_BYTES;
     let mut records: Vec<(u64, u8, u64)> = rig
         .instances
         .iter()

@@ -1,12 +1,7 @@
 //! Rig geometry built from the runtime entity catalog: bone merging, names, and pivots.
 use std::sync::Arc;
 
-use assets::{
-    EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar, EntityGeometryUv,
-    MAX_ENTITY_GEOMETRY_CUBES, RuntimeEntityAssets,
-};
-
-use crate::{BlockEntityAtlas, SkullKind};
+use assets::{EntityGeometryBone, MAX_ENTITY_GEOMETRY_CUBES, RuntimeEntityAssets};
 
 use super::{
     ActorRigGeometry, ActorRigGeometryError, EntityRigId, MAX_ACTOR_RIG_VERTICES,
@@ -25,7 +20,7 @@ mod quadruped_geometry_tests;
 #[path = "skin_geometry_tests.rs"]
 mod skin_geometry_tests;
 
-pub(super) fn geometry_from_runtime_assets(
+pub fn geometry_from_runtime_assets(
     assets: &RuntimeEntityAssets,
     binding_index: usize,
 ) -> Result<ActorRigGeometry, ActorRigGeometryError> {
@@ -55,7 +50,7 @@ pub fn equipment_geometry(
 
 /// Rig geometry for every binding of a session pack catalog, under pack rig ids;
 /// an unbuildable binding is omitted so its actors take the missing-rig route.
-pub(super) fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeometry> {
+pub fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeometry> {
     let mut geometries: Vec<_> = (0..assets.rig_geometries().len())
         .filter_map(|binding| {
             let id = super::pack_rig_id(u32::try_from(binding).ok()?);
@@ -63,7 +58,7 @@ pub(super) fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeome
             geometry_from_geometry_index(assets, geometry, id).ok()
         })
         .collect();
-    geometries.extend(super::rig::layer_geometries(assets, super::pack_rig_id(0)));
+    geometries.extend(super::layer_geometries(assets, super::pack_rig_id(0)));
     geometries
 }
 
@@ -76,7 +71,7 @@ pub fn entity_geometry(
     geometry_from_geometry_index(assets, geometry_index, id)
 }
 
-pub(super) fn geometry_from_geometry_index(
+pub fn geometry_from_geometry_index(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
     id: EntityRigId,
@@ -155,55 +150,6 @@ pub fn skin_geometry(
     }
     let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
-}
-
-/// A worn skull: the player head cube (plus the hat layer for humanoid heads) on one bone, with
-/// its UVs mapped into the block-entity atlas's static region. `None` when the kind has no
-/// packed texture.
-#[must_use]
-pub fn skull_geometry(
-    id: EntityRigId,
-    atlas: &BlockEntityAtlas,
-    kind: SkullKind,
-) -> Option<ActorRigGeometry> {
-    let texture = kind.texture(atlas)?;
-    let [atlas_width, _] = atlas.size();
-    let static_height = atlas.static_height();
-    let rect = texture.rect_uv([0.0, 0.0, texture.logical[0], texture.logical[1]]);
-    let region = [
-        rect[0] / atlas_width as f32,
-        rect[1] / static_height as f32,
-        rect[2] / atlas_width as f32,
-        rect[3] / static_height as f32,
-    ];
-    let logical = (texture.logical[0] as u16, texture.logical[1] as u16);
-    let scalar =
-        |value: f32| EntityGeometryScalar::new(value).unwrap_or(EntityGeometryScalar::ZERO);
-    let cube = |uv: [f32; 2], inflate: f32| EntityGeometryCube {
-        origin: [-4.0, 24.0, -4.0].map(scalar),
-        size: [8.0; 3].map(scalar),
-        pivot: [EntityGeometryScalar::ZERO; 3],
-        rotation: [EntityGeometryScalar::ZERO; 3],
-        uv: EntityGeometryUv::Box(uv.map(scalar)),
-        inflate: scalar(inflate),
-        mirror: false,
-    };
-    let mut vertices = Vec::new();
-    let mut layers = vec![cube([0.0, 0.0], 0.0)];
-    if kind.has_hat_layer() {
-        layers.push(cube([32.0, 0.0], 0.25));
-    }
-    for layer in &layers {
-        super::geometry::append_entity_cube_vertices(&mut vertices, layer, 0, logical, false, 0.0)
-            .ok()?;
-    }
-    for vertex in &mut vertices {
-        for uv in [&mut vertex.uv, &mut vertex.back_uv] {
-            uv[0] = region[0] + uv[0] * (region[2] - region[0]);
-            uv[1] = region[1] + uv[1] * (region[3] - region[1]);
-        }
-    }
-    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(vec![[0.0, 1.5, 0.0]])).ok()
 }
 
 /// Bone names of a geometry in rig order, after inheritance is merged.

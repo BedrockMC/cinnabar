@@ -1,10 +1,11 @@
 //! Retained GPU storage for immutable geometry pages.
 
-use crate::actor::{ActorRigVertex, ActorRigVertexSegments, MAX_ACTOR_RIG_VERTICES};
+use crate::actor::ActorRigVertexSegments;
 use bevy::render::{
     render_resource::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor},
     renderer::{RenderDevice, RenderQueue},
 };
+use render_model::{ActorRigVertex, MAX_ACTOR_RIG_VERTICES};
 use std::collections::BTreeSet;
 
 /// Mirrors changed pages; growth and relocation copy retained GPU bytes instead of uploading them.
