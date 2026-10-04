@@ -1,3 +1,10 @@
+## Barrier selection visibility
+
+- User-requested correction: suppress barrier highlights/outlines outside Creative.
+- Preserve barrier collision, picking and normal block selection in both ID spaces.
+- Incomplete native parity: selection eligibility inspected; remaining comparison
+  service unavailable. Windows rendered barrier acceptance pending.
+
 ## Always Sprint keyboard/mouse extension
 
 - Optional custom setting, off by default, persisted with the existing settings registry.
