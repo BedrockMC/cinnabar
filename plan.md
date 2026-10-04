@@ -1,5 +1,50 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-04 F3 diagnostics (user-accepted developer feature): the supplied Java
+19w05a screenshot is the requested styling reference. F3 is available by default,
+hidden at startup, and the window title contains only the shared product name.
+JSON-UI draws player/world/movement/render/queue diagnostics and target-state
+rows during gameplay; other screens hide the overlay without resetting F3.
+Coordinates use player feet, including third person. A fixed row budget keeps
+font size stable as values change; text sits one GUI pixel lower in each strip.
+Live data refreshes every frame at the user's request; FPS and frame timing use
+a short aggregation window. Data meanings and styling are documented in
+`docs/reference/f3-debug-overlay.md`; this does not close a Bedrock parity gate.
+The updated client built and joined an isolated offline BDS world on local port
+19132 as DebugTest. The user accepts the rendered follow-up on macOS/Metal at
+2560x1440 physical resolution, DPI 2, GUI scale 5. Before the final cadence change,
+all eight focused JSON-UI overlay tests, formatting and architecture checks passed.
+The user requests latest-dev integration, no further tests and direct publication
+to dev. The final cadence change and integration have no new test-green claim.
+All local test services started for this feature are stopped.
+
+2026-10-04 Lifeboat skylight investigation (incomplete): the supplied session
+trace confirms zero solved sky light but does not identify the blocked input.
+Offline chunk-pipeline fixtures already produce sky light 15 when inline upper
+slots are omitted, both over empty space and over opaque terrain. Limited and
+limitless request fixtures also pass with all-air, empty-success and
+out-of-bounds replies. These fixtures do not reproduce the reported failure;
+no lighting behavior has been changed and the parity gate remains open.
+The trace's `Air` samples describe the camera's non-liquid medium, not the
+block's identity or light filter. Its sampled stale jobs were rejected because
+their revisions changed. An offline capture of the failing column's packet
+mode, palette and contents, or equivalent block/filter and column-light
+diagnostics, is still needed to distinguish a missing sky source from filtering
+above or at the sampled cells. No public server or account was used.
+2026-10-04 fox rendering checkpoint: the pinned adult fox sample now retains
+the native inherited body and tail cube bind rotations. Current MCSRC and its
+matching executable establish the hierarchy lookup and separate cube-bind
+contract; the installed near-version native pack supplies the retained angles.
+The repair is restricted by source path, identifier and digest, preserving baby
+geometry, child pivots and custom sources. The corrected entity/actor/equipment
+carriers and fresh Metal client show normal adult red/arctic bodies and tails;
+the user accepts the live standing gallery, with baby foxes retained. Focused
+pinned-source and mesh regressions passed, including a failing-before mesh
+witness. Formatting, architecture and affected compilation passed; the final
+test run was stopped at the user's explicit request to skip further tests and
+push directly to dev. Extended poses/transitions and exact-version native
+side-by-side acceptance remain incomplete. See `docs/reference/fox-rendering.md`.
+
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
 accumulated work and follow-up fixes are committed through `97dccfb3`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
@@ -387,6 +432,19 @@ Opt-in bounded DEBUG admission counters distinguish samples, eligible leaves,
 roll hits, below-material admission, returned emitter IDs and a lower bound on
 actual particle-count increases. Their instrumented adaptive-sampler workload
 is diagnostic evidence, not an uninstrumented performance/parity witness.
+
+2026-10-04 horse rendering: vanilla compilation now selects the greatest compatible
+client-entity minimum before rig/artwork binding, instead of filename order. The
+pinned adult and foal models preserve their neck, head and hip transforms and
+saddle/rein visibility. Horse rearing, grazing, mouth and tail variables now read
+their native tick/state inputs. Regression fixtures reproduced the obsolete-model
+and missing-rearing failures, then passed with the rebuilt carrier and runtime.
+Metal gallery frames show connected adults/foals and correct tack; the user accepted
+horses and pigs. Pig hips match the authored model, including its slight rear-leg
+overhang. Full native render-time sampling, the complete horse state product,
+session-pack version selection and equal-minimum merging remain incomplete; this
+closes the reported model defect, not the broad animal parity gate. See
+`docs/reference/horse-rendering.md` for the vanilla rules and supported scope.
 
 2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
 WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,

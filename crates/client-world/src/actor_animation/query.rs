@@ -60,7 +60,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_sonic_boom", 107),
     ("is_sprinting", 3),
     ("is_stalking", 91),
-    ("is_standing", 39),
+    ("is_standing", FLAG_STANDING),
     ("is_stunned", 83),
     ("is_swimming", 57),
     ("is_tamed", FLAG_TAMED),
@@ -98,7 +98,7 @@ const FLOAT_QUERIES: [(&str, u32, f32); 3] = [
 const KEY_NAME: u32 = 4;
 const KEY_TARGET: u32 = 6;
 const KEY_SWELL: u32 = 19;
-const FLAG_STANDING: u32 = 39;
+pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
 
 // Fuse ticks a swell is normalised by; needs independent measurement.
@@ -277,6 +277,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     let argument = |index: usize| arguments.get(index).map(MolangValue::number);
     if name == "is_in_ui" && evaluator.context.is_in_ui {
         return 1.0;
+    }
+    if name == "is_grazing" && super::horse::is_horse(actor) {
+        return truth(super::horse::is_grazing(actor));
     }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));

@@ -74,6 +74,9 @@ pub(super) struct EngineSlots {
     pub(super) fish_animation_amount_previous: Option<usize>,
     pub(super) tropical_fish_base: Option<usize>,
     pub(super) tropical_fish_pattern: Option<usize>,
+    pub(super) horse_stand_anim: Option<usize>,
+    pub(super) horse_shake_tail: Option<usize>,
+    pub(super) horse_open_mouth: Option<usize>,
 }
 
 // Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
@@ -160,6 +163,9 @@ impl VariableLayout {
                 fish_animation_amount_previous: slot("variable.animationamountprev"),
                 tropical_fish_base: slot("variable.tropicalfish.base"),
                 tropical_fish_pattern: slot("variable.tropicalfish.pattern"),
+                horse_stand_anim: slot("variable.stand_anim"),
+                horse_shake_tail: slot("variable.shake_tail"),
+                horse_open_mouth: slot("variable.open_mouth"),
             },
         }
     }

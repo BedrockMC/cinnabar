@@ -33,7 +33,7 @@ Options:
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
   --render-mode <MODE>         vanilla or enhanced; CINNABAR_RENDER_MODE is the fallback
   --gui-scale <1-4|auto>       Fix the GUI scale (default: auto, the Bedrock desktop rule)
-  --dev-debug-overlay          Enable the non-vanilla F3 developer overlay (default: off)
+  --dev-debug-overlay          Compatibility alias; F3 debug controls are always available
   --language <ll_CC>           UI language (default: from LC_ALL/LC_MESSAGES/LANG, else en_US)
   --full-view-teleport-gate    Measure a dedicated no-overlap teleport
   --require-transparent-presentation
@@ -118,7 +118,8 @@ pub struct ClientArgs {
     pub gui_scale: Option<u8>,
     /// Session-only override of the saved rendering mode.
     pub render_mode: Option<RenderMode>,
-    /// F3 developer overlay; not a vanilla surface.
+    /// Enables F3 debug controls; the overlay starts hidden until F3 is pressed.
+    /// `--dev-debug-overlay` remains accepted for older launch commands.
     pub dev_debug_overlay: bool,
     /// Requested UI language code; `None` follows the environment locale.
     pub language: Option<String>,
@@ -150,7 +151,7 @@ impl Default for ClientArgs {
             frame_cap: None,
             gui_scale: None,
             render_mode: None,
-            dev_debug_overlay: false,
+            dev_debug_overlay: true,
             language: None,
             full_view_teleport_gate: false,
             require_transparent_presentation: false,
@@ -668,7 +669,7 @@ mod tests {
             panic!("--gui-scale must parse into a run outcome");
         };
         assert_eq!(parsed.gui_scale, Some(3));
-        assert!(!parsed.dev_debug_overlay);
+        assert!(parsed.dev_debug_overlay);
         let ParseOutcome::Run(parsed) =
             ClientArgs::parse_from(["client", "--dev-debug-overlay"]).unwrap()
         else {

@@ -108,6 +108,7 @@ impl WorldStream {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
                 };
+                self.diagnose_inline_column(&event, &stored_keys);
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
@@ -173,6 +174,8 @@ impl WorldStream {
                     }
                     self.requests.consume_confirmed_attempt(key);
                     self.requests.disarm_deadline(key);
+                    let mut arrival_source =
+                        self.diagnose_sub_chunk_reply(key, &entry.result, entry.diagnostics);
                     let (completed, committed) = match entry.result {
                         PreparedSubChunkResult::Decoded(decoded) => {
                             self.stats.phase2_outcomes.success =
@@ -250,6 +253,9 @@ impl WorldStream {
                                         && self.record_known_air(key)
                                     {
                                         self.mark_changed(key, Instant::now());
+                                    } else {
+                                        // An out-of-bounds reply preserves data already known here.
+                                        arrival_source = None;
                                     }
                                     (true, true)
                                 }
@@ -262,6 +268,7 @@ impl WorldStream {
                     };
                     committed_any |= committed;
                     if committed {
+                        self.diagnose_sub_chunk_commit(key, arrival_source);
                         self.record_sub_chunk_arrival(key, Instant::now());
                         self.stats.phase2_stages.subchunks_committed = self
                             .stats
@@ -340,6 +347,9 @@ impl WorldStream {
     }
     pub(super) fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
+            WorldEvent::DimensionHeights(heights) => {
+                self.light_diagnostics.heights = heights;
+            }
             WorldEvent::BiomeDefinitions(event) => {
                 self.replace_biome_definitions(event.definitions);
             }
@@ -577,6 +587,7 @@ impl WorldStream {
         } else {
             self.evict_column(key);
         }
+        self.diagnose_request_column(&event);
         let biome_dirty = self.authority.commit_biome_column(key, biomes);
         let now = Instant::now();
         for dirty in biome_dirty {
@@ -606,6 +617,7 @@ impl WorldStream {
                 self.reconcile_block_crack_column(key);
                 let removed = removed.is_some();
                 let became_known = self.record_known_air(air);
+                self.diagnose_request_air_commit(air);
                 if removed {
                     self.refresh_block_entity_visuals_for_sub_chunk(air);
                 }
