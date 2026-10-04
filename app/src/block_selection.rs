@@ -13,8 +13,8 @@ use crate::{
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
     settings_runtime::RuntimeSettings,
-    ui_runtime::UiRuntime,
 };
+use client_ui::ui_runtime::UiRuntime;
 
 #[derive(SystemParam)]
 struct SelectionContext<'w> {
@@ -52,7 +52,7 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
 }
 
 /// Resolves reviewed visual bounds from the same shapes that admitted the pick.
-/// Named StairBlock::getOutline (26.30, 0x0b01f380) deliberately returns a full
+/// StairBlock::getOutline deliberately returns a full
 /// unit box: unioning its slab/step/inner collision pieces preserves that native
 /// wire outline. Model highlighting below uses the separate actual surface.
 fn target(
@@ -68,14 +68,14 @@ fn target(
     let stream = context.world.stream.as_ref()?;
     let ray = context.origin.outbound_ray()?;
     if !ray_is_current(ray, context.ui.session_id(), stream)
-        || context.ui.player_game_mode(player_runtime) == Some(protocol::PlayerGameMode::Spectator)
+        || player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator)
     {
         return None;
     }
     let mode = protocol_input_mode(context.input.snapshot()?.input_mode);
-    let reach = if context
-        .ui
-        .game_mode_capabilities(player_runtime)?
+    let reach = if player_runtime
+        .facts
+        .game_mode_capabilities()?
         .creative_reach
     {
         creative_reach(mode)

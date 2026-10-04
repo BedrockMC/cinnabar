@@ -18,7 +18,6 @@ use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use semantic_input::Action;
 use ui::{UiAction, UiPoint};
 
-use super::{UiRuntime, presentation::UiPresentationRuntime};
 use crate::{
     menu::{
         MenuRuntime,
@@ -28,6 +27,7 @@ use crate::{
     runtime::world::ClientWorld,
     semantic_controls::SemanticInputSnapshot,
 };
+use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 type SlotPreferences = [Option<String>; EMOTE_SLOT_COUNT];
 
@@ -70,7 +70,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         .world
         .as_deref()
         .and_then(|world| world.stream.as_ref());
-    let rig = runtime_id.and_then(|id| stream.and_then(|stream| stream.actor_rig(id)));
+    let rig = runtime_id.and_then(|id| stream.and_then(|stream| stream.authority().actor_rig(id)));
     let identity = runtime_id.map(|id| {
         (
             input.runtime.session_id(),
@@ -99,7 +99,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     let actor_unavailable = runtime_id.is_none()
         || (input.world.is_some() && stream.is_none())
         || runtime_id
-            .and_then(|id| stream.and_then(|stream| stream.actor(id)))
+            .and_then(|id| stream.and_then(|stream| stream.authority().actor(id)))
             .is_some_and(|actor| actor.status.dead);
     let blocked = input.consent.as_ref().is_some_and(|consent| consent.0)
         || !input.window.0.focused

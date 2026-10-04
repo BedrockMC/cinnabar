@@ -2,6 +2,7 @@
 use std::{sync::Arc, time::Duration};
 
 use bevy::{prelude::*, time::Real};
+use client_presentation::actor_publication::PreparedActorPublication;
 use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEvent};
 use semantic_input::PerspectiveMode;
 
@@ -36,7 +37,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     let entities = Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap());
     let assets = Arc::new(assets::RuntimeAssets::diagnostic());
     let anchor = [0.0, 64.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
-    let mut stream = client_world::WorldStream::new_with_asset_sets(
+    let mut stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
@@ -118,14 +119,15 @@ fn fixture_with_skin(with_skin: bool) -> World {
         )
         .unwrap(),
     );
-    let (equipment, artwork, _) = crate::presentation::equipment::EquipmentRuntime::build(
-        entities.clone(),
-        None,
-        icons,
-        None,
-        None,
-        render::ActorArtworkPages::default(),
-    );
+    let (equipment, artwork, _) =
+        client_presentation::presentation::equipment::EquipmentRuntime::build(
+            entities.clone(),
+            None,
+            icons,
+            None,
+            None,
+            render::ActorArtworkPages::default(),
+        );
     let mut world = World::new();
     world.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
     world.insert_resource(client);
@@ -194,7 +196,7 @@ fn body(world: &World, id: u64) -> render::ActorRigSubmission {
 
 fn native_pose(world: &World) -> (u64, Vec<client_world::BoneTransform>) {
     let stream = world.resource::<ClientWorld>().stream.as_ref().unwrap();
-    let rig = stream.actor_rig(1).unwrap();
+    let rig = stream.authority().actor_rig(1).unwrap();
     (rig.completed_tick, rig.current.to_vec())
 }
 

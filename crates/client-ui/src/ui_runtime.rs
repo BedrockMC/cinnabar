@@ -23,7 +23,6 @@ pub use inventory::inventory_ledger;
 pub use inventory::inventory_router;
 pub mod item_facts;
 pub mod json_ui_assets;
-pub mod local_abilities;
 pub mod oreui_assets;
 pub mod platform_clipboard;
 pub mod presentation;
@@ -186,7 +185,7 @@ pub struct UiRuntime {
     book_packets: VecDeque<protocol::Packet>,
     last_health_drop_millis: Option<u64>,
     last_selected_identity_change_millis: Option<u64>,
-    last_selected_identity: Option<(i32, u32)>,
+    last_selected_identity: Option<(u8, i32, u32)>,
     /// Local millis at which the held jump began charging the mounted jump
     /// bar; `None` while jump is released or no mount is ridden.
     mount_jump_hold_started_millis: Option<u64>,
@@ -562,13 +561,13 @@ impl UiRuntime {
         true
     }
 
-    pub fn project_block_cracks(&mut self, snapshot: client_world::BlockCrackSnapshot) {
+    pub fn project_block_cracks(&mut self, snapshot: chunk_pipeline::BlockCrackSnapshot) {
         self.block_cracks.project(snapshot);
         self.block_cracks
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn block_crack_snapshot(&self) -> Option<&client_world::BlockCrackSnapshot> {
+    pub fn block_crack_snapshot(&self) -> Option<&chunk_pipeline::BlockCrackSnapshot> {
         self.block_cracks.snapshot()
     }
 
@@ -582,11 +581,8 @@ impl UiRuntime {
             .report_status(self.session_id, self.block_cracks_status());
     }
 
-    pub fn begin_session(
-        &mut self,
-        player_runtime: &mut player_state::PlayerState,
-        session_id: u64,
-    ) {
+    /// Resets UI session state for `session_id`; the session controller moves player authority with it.
+    pub fn begin_session(&mut self, session_id: u64) {
         if self.session_id == session_id {
             return;
         }
@@ -596,7 +592,6 @@ impl UiRuntime {
         self.book_packets.clear();
         self.screen = screen_state::ScreenState::default();
         self.experiences.reset();
-        player_runtime.begin_session(session_id);
         self.server_lang = None;
         self.session_icons = None;
         self.session_items = None;

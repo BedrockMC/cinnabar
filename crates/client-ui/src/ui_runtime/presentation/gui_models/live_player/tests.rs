@@ -101,8 +101,8 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
 fn player_stream(
     vanilla: Arc<assets::RuntimeEntityAssets>,
     pack: Arc<assets::RuntimeEntityAssets>,
-) -> client_world::WorldStream {
-    let mut stream = client_world::WorldStream::new_with_asset_sets(
+) -> chunk_pipeline::WorldStream {
+    let mut stream = chunk_pipeline::WorldStream::new_with_asset_sets(
         protocol::WorldBootstrap {
             dimension: 0,
             local_player_runtime_id: 1,
@@ -153,7 +153,7 @@ fn hud_uses_the_session_player_geometry_and_refreshes_between_catalogs() {
         UiPresentationRuntime::new(super::super::super::tests::fixture_font()).unwrap();
     for size in [24, 32] {
         let stream = player_stream(Arc::clone(&vanilla), player_catalog(size));
-        let rig = stream.actor_rig(1).expect("pack player rig");
+        let rig = stream.authority().actor_rig(1).expect("pack player rig");
         assert_eq!(rig.rig.0, assets::PACK_RIG_ID_BASE);
         assert!(rig.skin_geometry.is_none());
         presentation.capture_hud_player(Some(&stream), false);

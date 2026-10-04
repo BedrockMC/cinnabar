@@ -1,6 +1,5 @@
 //! Native name-tag extraction and font-pixel records for the retained GPU atlas.
-//! 1.26.50.26 RVAs: actor dispatcher 0x01fb7c60, base renderer 0x0215e3c0,
-//! and world billboard renderer 0x021a6110; see docs/reference/nametag-rendering.md.
+//! See docs/reference/nametag-rendering.md for the vanilla rules.
 
 use std::sync::Arc;
 
@@ -156,7 +155,7 @@ pub fn extract_nametag(
 #[allow(clippy::too_many_arguments)]
 pub fn project_nametags(
     scoreboards: &ui::ScoreboardStore,
-    stream: &client_world::WorldStream,
+    stream: &chunk_pipeline::WorldStream,
     _camera: &Camera,
     camera_transform: &GlobalTransform,
     _logical_size: [f32; 2],
@@ -166,6 +165,7 @@ pub fn project_nametags(
 ) -> Vec<NametagAnchor> {
     let eye = camera_transform.translation();
     let mut anchors: Vec<_> = stream
+        .authority()
         .remote_actors()
         .filter(|actor| show_players || !matches!(actor.kind, ActorKind::Player { .. }))
         .filter_map(|actor| {
@@ -173,7 +173,7 @@ pub fn project_nametags(
                 actor,
                 eye,
                 picked_actor,
-                stream.actor_name_tag(actor.unique_id)?,
+                stream.authority().actor_name_tag(actor.unique_id)?,
                 scoreboards,
                 partial_tick,
             )
