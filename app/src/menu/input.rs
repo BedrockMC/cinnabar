@@ -42,7 +42,7 @@ impl MenuClipboard {
         (self.0)(maximum_bytes)
     }
 
-    fn write_text(&mut self, text: String) {
+    pub(crate) fn write_text(&mut self, text: String) {
         (self.1)(text);
     }
 }
