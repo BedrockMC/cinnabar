@@ -53,6 +53,7 @@ mod decode;
 mod diagnostics;
 mod dirty;
 mod helpers;
+mod light_diagnostics;
 mod lighting;
 mod map_data;
 mod meshing;
@@ -255,6 +256,7 @@ pub use model::{
 /// Ordered Bedrock world ingestion and bounded background meshing.
 pub struct WorldStream {
     authority: client_world::WorldAuthority,
+    light_diagnostics: light_diagnostics::LightingDiagnostics,
     order: client_world::ingestion::OrderedCommitState,
     block_cracks: block_cracks::BlockCracks,
     block_entity_visuals: BlockEntityVisualDiagnostics,

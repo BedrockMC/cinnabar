@@ -815,6 +815,7 @@ mod attachable;
 mod clock;
 mod evaluation;
 mod geometry;
+mod horse;
 mod hud;
 mod motion;
 mod pose;
