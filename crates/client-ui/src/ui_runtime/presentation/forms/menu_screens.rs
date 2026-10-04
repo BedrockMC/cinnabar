@@ -282,7 +282,11 @@ fn local_world_progress(
     match progress.fraction {
         Some(fraction) => {
             flags(data, &["#loading_bar_visible"]);
-            data.set_global("#loading_bar_percentage", Scalar::Num(f64::from(fraction)));
+            // The fancy bar binds this as its `#clip_ratio`: the share clipped away.
+            data.set_global(
+                "#loading_bar_percentage",
+                Scalar::Num(1.0 - f64::from(fraction)),
+            );
             data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
             data.set_global(
                 "#loading_bar_current_amount",
