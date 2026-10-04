@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bevy",
@@ -1766,7 +1766,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-presentation"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "assets",
@@ -1775,7 +1775,7 @@ dependencies = [
  "client-ui",
  "crossbeam-queue",
  "image",
- "inventory 0.1.0",
+ "inventory 0.1.2",
  "launcher",
  "meshing",
  "pack-compiler",
@@ -2439,7 +2439,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "assets",
  "bevy",
