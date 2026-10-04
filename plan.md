@@ -9,11 +9,14 @@ persist through Change Emotes, and gameplay input cancels playback. Identified
 native references, the public product visual reference, and remaining parity
 limits are recorded in [docs/reference/emote-wheel.md](docs/reference/emote-wheel.md).
 Exact Lunar keyframes/assets and full native animation parity are not verified.
-Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, five
+The revised clip follows the reference video's deeper squat and hip pulse,
+retargets both native and independent skin joints, and anchors foot centers.
+Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, seven
 animation tests, the native-carrier wheel/preview tests, and twelve production
 input/actor regressions. The 1280x720 software-rendered wheel/equip frames were
 inspected for readable text and geometry. Live Windows game acceptance remains
-required; the emote change is local and has not been pushed or installed.
+required for the revised clip; the original emote build was installed and its
+wheel accepted by the user. The animation revision is local and not pushed.
 Strict affected-package clippy passes. Required affected verification reaches
 the existing ice/water liquid-face test failure after formatting, architecture
 and compilation pass; that meshing regression is outside this change.
