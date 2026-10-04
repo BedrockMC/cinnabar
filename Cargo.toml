@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "app",
+    "crates/acceptance",
+    "crates/diagnostics",
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
@@ -27,6 +29,7 @@ members = [
     "crates/inventory",
     "crates/launcher",
     "crates/client-ui",
+    "crates/client-presentation",
     "crates/player-state",
     "crates/sim",
     "crates/ui",

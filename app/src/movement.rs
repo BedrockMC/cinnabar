@@ -25,9 +25,9 @@ pub(crate) use runtime_system::advance_local_physics;
 fn configure_diagnostics() {
     gameplay::movement::diagnostics_config::configure(
         gameplay::movement::diagnostics_config::MovementDiagnostics {
-            movement_trace: crate::acceptance::markers::MOVEMENT_TRACE,
-            teleport_ack: crate::acceptance::markers::TELEPORT_ACK,
-            anchor_probe: crate::acceptance::markers::ANCHOR_PROBE,
+            movement_trace: diagnostics::markers::MOVEMENT_TRACE,
+            teleport_ack: diagnostics::markers::TELEPORT_ACK,
+            anchor_probe: diagnostics::markers::ANCHOR_PROBE,
         },
     );
 }
