@@ -44,16 +44,19 @@ the target; layout facts taken from it need a 26.30 screenshot check.
   where the drawn look approximates them. `CINNABAR_OREUI_LOOK=drawn` keeps the drawn look while
   the originals are loaded, so two runs compare side by side. Nothing is copied or packed.
 
-Code: `app/src/ui_runtime/presentation/forms/oreui/` (theme, paint, grid, icons, widgets, one file
-per screen) and `app/src/ui_runtime/oreui_assets.rs` (the dev-mode loader).
+Code: `crates/client-ui/src/ui_runtime/presentation/forms/oreui/` (theme, paint, grid, icons,
+widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.rs`
+(the dev-mode loader). Profile models, feed projections, and value formatting live in
+`crates/launcher/src/menu/`; app owns service polling and command dispatch.
 
 ## Screenshot checks still needed
 
 - Bed: text colour and secondary-button theme colours (unrecovered).
 - Death: the radial vignette (drawn as nested bands), title and button placement, the missing
   death message and hardcore variant.
-- Profile: player-card banner and gamerpic sizes, the Overview rows (the original shows friend,
-  achievement and screenshot summaries), the Stats tab (not built).
+- Profile: the source-backed card, Overview and Stats layout is implemented. Matched vanilla
+  captures, full navigation, screenshot persistence, privacy/offline distinctions and achievement
+  reward/progress metadata remain incomplete; see `profile-parity.md` and `../plan.md`.
 - Inbox: category menu, card layout, the Recent/History split.
 - Friends drawer: search field (not interactive), tab icons, the People list (only friends
   currently in worlds are known).

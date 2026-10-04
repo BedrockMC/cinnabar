@@ -3,12 +3,17 @@
 pub mod auth;
 pub mod disconnect;
 pub mod inbox;
+pub mod profile;
+pub mod profile_achievements;
 pub mod settings_options;
 pub mod settings_storage;
 pub mod settings_support;
 pub mod view;
 pub mod worlds_tab;
 
+pub use profile::{
+    ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
+};
 pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, InboxItem, JoinKind, JoinProgress, JoinStage,
     LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome,
@@ -71,6 +76,8 @@ pub enum MenuAction {
     ConfirmExit,
     DismissDialog,
     SelectServerTab(MenuServerTab),
+    SelectProfileTab(ProfileTab),
+    RefreshProfile,
     RefreshCatalog,
     StartSignIn,
     CancelSignIn,

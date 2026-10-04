@@ -86,13 +86,28 @@ pub struct MenuGameCard {
 /// The signed-in profile as the start screen shows it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MenuProfile {
+    pub loaded: bool,
+    pub unavailable: bool,
+    pub xuid: String,
+    pub statistics_loaded: bool,
+    pub statistics_error: bool,
+    pub achievements_loaded: bool,
+    pub achievements_error: bool,
+    pub achievements: Option<protocol::launcher_control::ProfileAchievements>,
     pub gamertag: String,
     pub picture_path: String,
+    pub avatar_path: String,
+    pub avatar_loaded: bool,
+    pub avatar_error: bool,
+    pub featured_screenshot_path: String,
+    pub featured_screenshot_loaded: bool,
+    pub featured_screenshot_error: bool,
     pub real_name: String,
     pub presence: String,
     pub gamerscore: Option<i64>,
     pub friends: Option<u32>,
     pub followers: Option<u32>,
+    pub statistics: Option<protocol::launcher_control::ProfileStatistics>,
 }
 
 /// Service feed data beyond the catalog cards: featured-server details keyed
@@ -102,6 +117,7 @@ pub struct MenuFeeds {
     pub inbox_state: super::inbox::InboxState,
     pub details: HashMap<String, ServerDetails>,
     pub profile: MenuProfile,
+    pub profile_refresh_requested: bool,
     pub selected_featured: Option<usize>,
     /// The saved server the Servers tab's details show, instead of a featured one.
     pub selected_saved: Option<usize>,
@@ -288,6 +304,7 @@ pub struct MenuView {
     pub hovered: Option<MenuAction>,
     pub pressed: Option<MenuAction>,
     pub server_tab: MenuServerTab,
+    pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
     pub field: Option<MenuField>,
     /// The focused field's caret.
@@ -404,6 +421,7 @@ impl MenuView {
             hovered: None,
             pressed: None,
             server_tab: MenuServerTab::Featured,
+            profile_tab: super::ProfileTab::default(),
             dialog: None,
             field: None,
             caret: MenuCaret {

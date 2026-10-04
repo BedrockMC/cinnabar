@@ -57,6 +57,7 @@ impl MenuRuntime {
             pressed: initial.pressed,
             pointer_down: false,
             server_tab: initial.server_tab,
+            profile_tab: initial.profile_tab,
             dialog: initial.dialog,
             field: initial.field,
             caret_revision: 0,
@@ -163,6 +164,7 @@ mod tests {
             assert_eq!(actual.visible, initial.visible);
             assert_eq!(actual.over_world, initial.over_world);
             assert_eq!(actual.screen, initial.screen);
+            assert_eq!(actual.profile_tab, initial.profile_tab);
             assert_eq!(actual.focused_action, initial.focused_action);
             assert_eq!(actual.caret, initial.caret);
             assert_eq!(actual.name, initial.name);
