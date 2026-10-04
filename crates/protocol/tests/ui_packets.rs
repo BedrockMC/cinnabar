@@ -578,10 +578,8 @@ fn element_button_forms_reject_ambiguous_or_unsupported_controls_without_renumbe
         r#"{"type":"form","elements":["button"]}"#,
         r#"{"type":"form","elements":[{"text":"A","image":null}]}"#,
         r#"{"type":"form","elements":[{"type":7,"text":"A","image":null}]}"#,
-        r#"{"type":"form","elements":[{"type":"button","text":"A"}]}"#,
         r#"{"type":"form","elements":[{"type":"button","image":null}]}"#,
         r#"{"type":"form","elements":[{"type":"button","text":7,"image":null}]}"#,
-        r#"{"type":"form","elements":[{"type":"button","text":"A","image":{"type":"path","data":"ignored"}}]}"#,
         r#"{"type":"form","elements":[{"type":"button","text":"A","image":null,"unknown":true}]}"#,
         r#"{"type":"form","elements":[{"type":"label","image":null}]}"#,
         r#"{"type":"form","elements":[{"type":"header","text":"H","image":{"type":"path","data":"x"}}]}"#,
@@ -673,7 +671,6 @@ fn unsupported_form_controls_are_nonfatal_and_never_fake_text_buttons() {
         r#"{"type":"custom_form","content":[{"type":"toggle"}]}"#,
         r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"unknown","data":"ignored"}}]}"#,
         r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"url","data":5}}]}"#,
-        r#"{"type":"form","buttons":[{"text":"Icon","image":null}]}"#,
         r#"{"type":"form","buttons":[{"text":"Icon","image":{"type":"path","data":"ignored","extra":true}}]}"#,
         r#"{"type":"form","buttons":[{"text":{"rawtext":[{"text":"Rich"}]}}]}"#,
     ] {
@@ -972,13 +969,15 @@ fn element_menus_keep_decorations_and_count_only_buttons() {
         menu.elements.as_ref(),
         [
             protocol::MenuElement::Button {
-                text: Arc::from("A")
+                text: Arc::from("A"),
+                image: None,
             },
             protocol::MenuElement::Label(Arc::from("B")),
             protocol::MenuElement::Divider,
             protocol::MenuElement::Header(Arc::from("H")),
             protocol::MenuElement::Button {
-                text: Arc::from("C")
+                text: Arc::from("C"),
+                image: None,
             },
         ]
     );

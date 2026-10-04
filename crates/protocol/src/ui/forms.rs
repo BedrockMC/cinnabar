@@ -74,7 +74,10 @@ impl ElementMenuForm {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuElement {
-    Button { text: Arc<str> },
+    Button {
+        text: Arc<str>,
+        image: Option<FormButtonImage>,
+    },
     Label(Arc<str>),
     Header(Arc<str>),
     Divider,
@@ -295,13 +298,15 @@ fn text_menu_model(object: &serde_json::Map<String, serde_json::Value>) -> Serve
             return unsupported(UnsupportedForm::Controls);
         }
         if element_controls
-            && (button.get("type").and_then(serde_json::Value::as_str) != Some("button")
-                || button.get("image") != Some(&serde_json::Value::Null))
+            && button.get("type").and_then(serde_json::Value::as_str) != Some("button")
         {
             return unsupported(UnsupportedForm::Controls);
         }
         let mut image = None;
-        if !element_controls && let Some(value) = button.get("image") {
+        // Lens 26.30: ServerFormBindingInformation::createBindingData @0x10312e4f0
+        // normalizes both representations through the same image value. Absent
+        // and null images both mean a text-only button.
+        if let Some(value) = button.get("image").filter(|value| !value.is_null()) {
             let Some(object) = value.as_object() else {
                 return unsupported(UnsupportedForm::Controls);
             };
@@ -332,6 +337,7 @@ fn text_menu_model(object: &serde_json::Map<String, serde_json::Value>) -> Serve
         let label: Arc<str> = Arc::from(label);
         elements.push(MenuElement::Button {
             text: Arc::clone(&label),
+            image: image.clone(),
         });
         labels.push(label);
         images.push(image);
