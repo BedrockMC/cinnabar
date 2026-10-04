@@ -32,7 +32,12 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 		// Current Lens TopSnowBlock 0a5c5fb0 sets type+166 to zero. Its
 		// inherited light getter 0365cdf0 and height-specific connection
 		// component leave that value intact, unlike Dragonfly's filter=2.
-		if record.Name == "minecraft:snow_layer" {
+		// Ordinary IceBlock 071305c0 and FrostedIceBlock 08723f10 also
+		// set that byte to zero and use the same getter. Packed ice is
+		// deliberately excluded: its constructor sets dampening to 15.
+		isSnowLayer := record.Name == "minecraft:snow_layer"
+		isTransparentIce := record.Name == "minecraft:ice" || record.Name == "minecraft:frosted_ice"
+		if isSnowLayer || isTransparentIce {
 			next := current & 0x0f
 			if next != current {
 				properties[index] = next
