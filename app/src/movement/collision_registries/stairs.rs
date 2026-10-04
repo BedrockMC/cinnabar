@@ -20,7 +20,7 @@ pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<Aabb>> {
         "none" => (0.0, 1.0),
         _ => return None,
     };
-    // Lens 0xa5b57f0 emits slab, step, then the optional inner piece.
+    // Vanilla emits slab, step, then the optional inner piece.
     let mut boxes = vec![Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0))];
     let (z_min, z_max) = if corner.starts_with("outer_") {
         side

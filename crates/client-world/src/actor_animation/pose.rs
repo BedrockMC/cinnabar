@@ -2,8 +2,8 @@ use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
 use super::{tick::WeightedClip, *};
 
-// ModelPart loader 26.50.26 RVA 01e61dd0 uses DAT_14ffa90d8 (24), then the model
-// constructor RVA 01e772b0 negates native Y into BoneOrientation default position.
+// ModelPart loader uses 24, then the model
+// constructor negates native Y into BoneOrientation default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
 #[derive(Clone, Copy)]
@@ -95,8 +95,7 @@ pub(super) fn sample_clips(
                 .ok_or(EvalError::Invalid)?;
             let current = bone.property(channel.property);
             // `this` reads BoneOrientation, not an animation-only delta. ModelPart's
-            // defaults are copied into that orientation before channels add their values
-            // (26.50.26 model constructor 01e772b0; KeyFrameTransform 26.30 09e85520).
+            // defaults are copied into that orientation before channels add their values.
             let defaults = default_channel(bones, channel.bone as usize, channel.property)
                 .ok_or(EvalError::Invalid)?;
             let this = std::array::from_fn(|axis| match channel.property {

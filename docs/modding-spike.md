@@ -68,11 +68,8 @@ command opens the launcher; the existing offline adapter and snapshot commands
 also accept this component. The dedicated offline cycle/no-packets test is
 `configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set.
 
-References: Lens client 1.26.50.26, artifact 6, `TimeCommand::_setTime` RVA
-`0xcab23f0` (raw source-backed view: preset lookup and modulo 24000),
-with `read_data` at VA `0x1503f5c18` confirming the six preset ticks;
-`R:d/Dimension.cpp:7531` (26.30 celestial time wrapping) and
-`R:t/TimeCommand.cpp:1704` (preset-table selection). The vanilla 1.26.50.4 pack's
+Vanilla time uses six presets, preset-table lookup and modulo 24000, including
+celestial time wrapping. The vanilla 1.26.50.4 pack's
 `texts/en_US.lang:3665–3671` identifies the time preset labels;
 `:1993–1995` describes freezing the daylight cycle. Existing atmosphere math remains
 subject to its current parity limits; this mod adds no native acceptance claim.

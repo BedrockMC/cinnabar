@@ -13,10 +13,10 @@ may land only when labeled incomplete in `plan.md`; it never closes a parity gat
 
 ## Parity sources and UI
 
-Client references — the 26.30 reconstruction, Lens, and the vanilla packs — may be used
-directly: constants, geometry, formulas, layouts, behavior. Write our own code from them; never
-paste decompiled source. All UI renders through the JSON-UI engine (OreUI screens are drawn in
-our own code), including the HUD and container screens. The one styling exception is the HUD's
+Vanilla client behavior, constants, geometry, formulas, layouts, and vanilla packs may be used
+directly, as long as we write our own code; never paste decompiled source. All UI renders through
+the JSON-UI engine (OreUI screens are drawn in our own code), including the HUD and container
+screens. The one styling exception is the HUD's
 built-in Java-look pack, which sits below server packs so they override it as on Bedrock. The
 open font is an accepted deviation. Our shipped art (panorama, logo) is original; Mojang assets
 are only loaded at runtime from the pack each install fetches.

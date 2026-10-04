@@ -166,9 +166,9 @@ fn top_at(mesh: &meshing::ChunkMesh, block: [u8; 3]) -> PackedLiquidQuad {
         .unwrap()
 }
 
-/// Current getFlow (RVA 0x0395d2f0) only samples the lower neighbour through a
+/// Current getFlow only samples the lower neighbour through a
 /// non-motion-blocking cell. Ice over water must not turn a calm source into a
-/// downhill stream. Current getWaterHeight (0x06a9cf80) skips the ice sample;
+/// downhill stream. Current getWaterHeight skips the ice sample;
 /// it does not average ice as empty space and slope the touching water top.
 #[test]
 fn compiled_ice_over_water_preserves_still_source_and_flat_top() {

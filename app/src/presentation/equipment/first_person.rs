@@ -20,7 +20,7 @@ const FIRST_PERSON_ITEM_SCALE: f32 = 0.4;
 #[cfg(test)]
 const CAMERA_ANCHOR: Vec3 = Vec3::new(0.56, -0.52, -0.72);
 
-/// Current native camera stack 04fa7e50 followed by legacy icon placement 04f9a2e0.
+/// Current native camera stack followed by legacy icon placement.
 pub(super) fn sprite_pose(state: ItemAnimationState) -> Option<RenderBoneTransform> {
     pose(
         state,
@@ -35,11 +35,11 @@ pub(super) fn block_pose(state: ItemAnimationState) -> Option<RenderBoneTransfor
     pose(state, FirstPersonShape::Block)
 }
 
-/// Native renderOffhandItem (04f9e2e0), not the main-hand swing stack. Blocks use
+/// Native renderOffhandItem, not the main-hand swing stack. Blocks use
 /// the default presentation-type-2 matrix; sprites here have a square native icon.
 pub(super) fn offhand_pose(hand_equipped: bool, block: bool) -> Option<RenderBoneTransform> {
     if block {
-        // 07042290's type-2 default has Y=-135; 07040520 negates that component
+        // The type-2 default has Y=-135; icon placement negates that component
         // for the left-hand presentation. Native block geometry is already centered.
         return matrix_bone(
             Mat4::from_translation(Vec3::new(-0.56, -0.52, -0.72))
@@ -61,7 +61,7 @@ pub(super) fn offhand_sprite_pose(
     }
     let long_side = f32::from(width.max(height));
     let height = f32::from(height) / long_side;
-    // TextureTessellator (26.30 RVA044714f0) writes positive column X, depth Y,
+    // TextureTessellator writes positive column X, depth Y,
     // row Z. held_sprite_vertices stores [-column, height-row, -depth]/long_side.
     // This proper rotation + translation preserves the UV-labelled front/back corners.
     let native_from_held = Mat4::from_translation(Vec3::new(0.0, 0.0, height))

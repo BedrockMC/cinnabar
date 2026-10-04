@@ -1,34 +1,22 @@
 # Placed skull lighting
 
-The placed-head brightness correction uses the target-family current client
-reconstruction, with the matching executable as the authority for dispatch,
-material identity and light-coordinate constants. The native installed client
-is a near-version material/shader witness, rather than an identical-version
-acceptance artifact. Game and pack targets remain defined by
-`assets/bedrock-target.json` and `assets/vanilla-source.json`.
+The placed-head brightness correction follows vanilla dispatch, material identity
+and light-coordinate rules. The native installed client is a near-version
+material/shader witness, rather than an identical-version acceptance artifact.
+Game and pack targets remain defined by `assets/bedrock-target.json` and
+`assets/vanilla-source.json`.
 
-## Current-client evidence
+## Vanilla rules
 
-MCSRC `current/1.26.50.26`, matching executable SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`:
-
-| RVA | Observed contract |
+| Rule | Behaviour |
 | --- | --- |
-| `07bf0820` | Skull renderer constructor installs the vtable whose placed-render slot points to `07bf4760`. |
-| `07bf4760` | Placed render supplies the skull's integer block position to light setup `0213efc0`. |
-| `0213efc0` | Reads `BlockSource::getLightColor` through `0319f150`, with minimum block light zero. |
-| `0213ed00` | Divides the two retained brightness levels by 16, samples `LightTexture::getColorForUV` (`07083ac0`), and publishes RGB `TILE_LIGHT_COLOR`. The matched PE verifies the divisor. |
-| `07c04e10` | Head-model constructor selects `mob_head.skinning`; the matching executable verifies the material string and its length. |
-| `0148c360` / `01e889d0` | Piglin and dragon head constructors select `mob_head.skinning` and `dragon_head.skinning`, respectively. Both inherit the ordinary alpha-tested entity material. |
-| `07bf4760` / `07bf4d70` | Uses the backing block's type identity to select the model, material and texture, then submits through the block-actor model renderer. Player head selects model `+0x9f0`. |
-| `0de28e0a` / `0e000300` | Registers `player_head` as SkullBlock. Six companion registrations install the other current head types. |
-| `0bbbc910` / `0319f150` / `05d7d290` | SkullBlock sets light filter zero. Light setup reads the requested cell's retained nibbles directly, without choosing neighbouring cells. |
-| `0ab69990` | The network light component decoder looks up `lightLevel` inside the component compound and retains its byte value. |
-| `0ab6b270` | The light emission decoder retains the distinct nested byte field `emission`. Matching serializer `0ab6b110` uses the same name. |
-
-The current exported bodies are in `src/__unmapped/02.cpp`, `07.cpp` and `0a.cpp`;
-function provenance is in `index/functions`. Recovered owner names are
-navigation aids. No reconstructed bodies or proprietary assets are shipped.
+| Placed render | Supply the skull’s integer block position to light setup. |
+| Light coordinates | Read `BlockSource::getLightColor` with minimum block light zero. Divide the two retained brightness levels by 16, sample `LightTexture::getColorForUV`, and publish RGB `TILE_LIGHT_COLOR`. |
+| Head materials | Ordinary and piglin heads select `mob_head.skinning`; dragon heads select `dragon_head.skinning`. Both inherit the ordinary alpha-tested entity material. |
+| Model selection | Use the backing block’s type identity to select model, material and texture, then submit through the block-actor model renderer. Player heads select the player model. |
+| Registration | Register `player_head` and its six companion head types as SkullBlock. |
+| Light sampling | SkullBlock sets light filter zero. Read the requested cell’s retained nibbles directly without choosing neighbouring cells. |
+| Network light fields | Retain nested byte `lightLevel` for dampening and the distinct nested byte `emission` for emission; serialization uses the same names. |
 
 The installed `1.26.51.01` vanilla material chain is
 `mob_head:entity_alphatest`, with point sampling, no culling and an alpha cutoff
@@ -58,8 +46,7 @@ Network-NBT regressions exercise zero dampening and nonzero emission. The
 overlay regression verifies that explicit zero survives compilation while an
 omitted dampening component still defaults to 15.
 
-The final Rust client build succeeded with executable SHA-256
-`298bf9416a0d0efba1cc7b20b6e254d10f9c0b03a4d27983096b6556f272ab18`.
+The final Rust client build succeeded.
 The user tested the rebuilt client on Zeno Practice on macOS/Metal with ordinary
 controls and confirmed that the heads render perfectly. All seven explicitly
 run Metal shader/readback tests passed. At the user's request, task background

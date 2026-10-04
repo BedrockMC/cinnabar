@@ -50,8 +50,8 @@ pub(crate) struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
-// Native ItemInHandRenderer::tick, current RVA 04f8c0f0: ±0.4 clamp and cached
-// stack replacement at height <= 0.1 (PE VAs 1500d39f0, 14feff2a0, 14ffab644).
+// Native ItemInHandRenderer::tick: ±0.4 clamp and cached
+// stack replacement at height <= 0.1.
 const ARM_HEIGHT_STEP: f32 = 0.4;
 const ARM_SWAP_HEIGHT: f32 = 0.1;
 
@@ -87,8 +87,8 @@ pub(super) fn advance_motion(
         head_yaw: actor.head_yaw,
     });
     // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
-    // a mob: Actor::getInterpolatedBodyYaw returns 0 (26.30 RVA 0997c220), while
-    // query.target_y_rotation reads the actor's absolute rotation (26.50 024d3560).
+    // a mob: Actor::getInterpolatedBodyYaw returns 0, while
+    // query.target_y_rotation reads the actor's absolute rotation.
     if query::is_arrow(actor) {
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;

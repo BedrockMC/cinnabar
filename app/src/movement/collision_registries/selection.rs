@@ -7,9 +7,8 @@
 use assets::{RegistryRecord, TOP_SNOW_LAYER_COUNT};
 use sim::{Aabb, Vec3};
 
-/// Visual bounds from R:TallGrassBlock:59, R:FlowerBlock:45, R:SaplingBlock:120,
-/// R:BushBlock:55 and R:DoublePlantBaseBlock:56; `BlockType::clip` picks these
-/// independently of movement collision (R:BlockType:20090,20728).
+/// Visual bounds for plants; `BlockType::clip` picks these independently
+/// of movement collision.
 pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     let name = record.name.strip_prefix("minecraft:")?;
     if name == "snow_layer" {
@@ -18,7 +17,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         if height >= u64::from(TOP_SNOW_LAYER_COUNT) {
             return None;
         }
-        // Current TopSnowBlock::getVisualShape, RVA 0x0a5c6d40: full X/Z,
+        // TopSnowBlock::getVisualShape: full X/Z,
         // visual/outline height (height + 1)/8, independently of collision.
         return Some(Aabb::new(
             Vec3::ZERO,
@@ -37,14 +36,12 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     }
     let (inset, height, edge): (f32, f32, f32) = match name {
         "short_grass" | "fern" => (0.1, 0.8, 0.9),
-        // R:ShortDryGrassBlock:53, R:MushroomBlock:240, R:NetherSproutsBlock:41,
-        // R:CactusFlowerBlock:53 and R:SugarCaneBlock:40 (Lens reads the referenced f32s).
         "short_dry_grass" => (0.125, 0.625, 0.875),
         "brown_mushroom" | "red_mushroom" => (0.3, 0.4, 0.7),
         "nether_sprouts" => (0.15, 0.3, 0.85),
         "cactus_flower" => (0.0625, 0.875, 0.9375),
         "reeds" => (0.125, 1.0, 0.875),
-        // R:CropBlock:250 and R:NetherWartBlock:102; Lens 0x10dab6d30 is (1, .25).
+        // Crops and nether wart span the cell width and are .25 blocks tall.
         "wheat" | "carrots" | "potatoes" | "beetroot" | "nether_wart" => (0.0, 0.25, 1.0),
         "dandelion" | "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip"
         | "orange_tulip" | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower"
@@ -53,10 +50,10 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         | "acacia_sapling" | "dark_oak_sapling" | "cherry_sapling" | "pale_oak_sapling" => {
             (0.1, 0.8, 0.9)
         }
-        // Named 26.30 DeadBushBlock ctor 0x0aabfb60 overrides inherited
+        // DeadBushBlock constructor overrides inherited
         // flower bounds with grass-sized bounds, including maxY=.8.
         "deadbush" => (0.1, 0.8, 0.9),
-        // Current BushBlock ctor 0x03663ca0: PE VA 0x150077ad0 contains
+        // BushBlock uses
         // minXYZ=(0,0,0), maxX=1; ctor literals set maxY=.8 and maxZ=1.
         "bush" => (0.0, 0.8, 1.0),
         "tall_grass" | "large_fern" | "sunflower" | "lilac" | "rose_bush" | "peony" => {
@@ -69,9 +66,8 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     Some(bounds([inset, 0.0, inset], [edge, height, edge]))
 }
 
-/// R:TorchBlock:880 chooses the visual box by `torch_facing_direction`, independently
-/// of its empty collision (R:TorchBlock:918). Lens `read_data` verifies the four
-/// wall arrays at 0x10e265d40 and the upright vector at 0x10e265880.
+/// TorchBlock chooses the visual box by `torch_facing_direction`, independently
+/// of its empty collision. Four wall boxes and one upright box cover the orientations.
 fn torch_shape(record: &RegistryRecord) -> Option<Aabb> {
     let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
     let facing = state["torch_facing_direction"]["value"].as_str()?;

@@ -636,7 +636,7 @@ fn predicted_placement(
 }
 
 fn held_block_store_id(stream: &client_world::WorldStream, item_block: i32) -> Option<u32> {
-    // BlockItem's descriptor (native RVA 0x09cc4df0) preserves all runtime-id bits.
+    // BlockItem's descriptor preserves all runtime-id bits.
     // Our signed retained field is not a negative-id validity check: hashes may set bit 31.
     let block = u32::from_ne_bytes(item_block.to_ne_bytes());
     if block == 0 || block == u32::MAX {
@@ -648,8 +648,8 @@ fn held_block_store_id(stream: &client_world::WorldStream, item_block: i32) -> O
 
 /// Only a stateless full cube places as the held state itself: oriented, sized
 /// and merging blocks resolve their state from the click, which is not modelled.
-/// Native RVA 0x09cc4aa0 offsets a nonreplaceable clicked block even when it has
-/// the same type as the held cube; RVA 0x09cc3660 then sets the block locally.
+/// Vanilla offsets a nonreplaceable clicked block even when it has
+/// the same type as the held cube, then sets the block locally.
 fn placement_state_is_certain(
     full_cube: bool,
     canonical_state: Option<&str>,

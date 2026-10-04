@@ -160,7 +160,7 @@ pub(super) fn query(
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),
-        // Native query025186e0 requires a string argument; unknown names pass through.
+        // Native query requires a string argument; unknown names pass through.
         "item_slot_to_bone_name" => text(evaluator.context.attachable.and_then(|_| {
             let Some(MolangValue::String(slot)) = arguments.first() else {
                 return None;
@@ -328,7 +328,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
             }
         }
         "hurt_time" => f32::from(actor.status.hurt_time),
-        // 26.50 RVA 02503c80 returns the signed actor shake counter as float.
+        // 26.50 returns the signed actor shake counter as float.
         "shake_time" => actor.status.shake_time as f32,
         "hurt_direction" => actor.status.hurt_direction.unwrap_or(0.0),
         "is_carrying_block" => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),

@@ -9,7 +9,6 @@ impl ActorStore {
     }
 
     /// Advances all tick state and evaluates visuals once with the full elapsed interval.
-    /// Bedrock 1.26.50.26 AnimationComponent, Lens artifact 6, RVAs 0x1e01770/0x1e13940.
     pub(crate) fn advance_interpolation_frame(&mut self, ticks: u32) {
         self.advance_interpolation(ticks, true);
     }

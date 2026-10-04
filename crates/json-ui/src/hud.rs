@@ -2,8 +2,7 @@
 //! mapped onto the `#bindings`, collections, and factory-created controls the
 //! vanilla `hud_screen.json`, `scoreboards.json`, and `hud_crosshair_overlay.json`
 //! read, as the client's HUD and scoreboard screen controllers feed them.
-//! Binding and property-bag names are read from those files and the 26.30
-//! reconstruction of the HUD screen controller.
+//! Binding and property-bag names match those files and the vanilla HUD controller.
 
 use serde_json::Value;
 

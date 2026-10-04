@@ -22,7 +22,7 @@ const LLAMA_SAMPLE_SHA256: [u8; 32] = [
 // Shipped iOS vanilla/__brarchive/models/entity.brarchive, polar_bear.geo.json:
 // the body cube bind pose is +90 X, independently of its bone's default rotation.
 // llama.geo.json has the same bind. Native GeometryGroup keeps same-identifier history;
-// Geometry::_parseBones (named 26.30 RVA 02e39370) reads missing bind fields through
+// Geometry::_parseBones reads missing bind fields through
 // JsonValueHierarchy::get, retaining the older shipped bind under the modern sample.
 const NATIVE_BODY_BIND_ROTATION: [f32; 3] = [90.0, 0.0, 0.0];
 
