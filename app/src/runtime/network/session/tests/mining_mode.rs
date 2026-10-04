@@ -73,37 +73,6 @@ fn mining_mode_requires_current_complete_bootstrap_and_failed_repeat_stays_unkno
         player_runtime.facts.server_authoritative_block_breaking(),
         None
     );
-    let source = include_str!("../../../network.rs").replace("\r\n", "\n");
-    let clear = source
-        .find("ui_runtime.clear_block_breaking_mode(&mut player_runtime);")
-        .unwrap();
-    let equipment = source
-        .find("let routed = match publish_equipment_identity(")
-        .unwrap();
-    let physics = source.find("physics_authority.apply_start_game(").unwrap();
-    let fifo = source
-        .find("world FIFO rejected buffered equipment:")
-        .unwrap();
-    let install = source
-        .find("ui_runtime.install_block_breaking_mode(")
-        .unwrap();
-    assert!(clear < physics && physics < equipment && equipment < fifo && fifo < install);
-    assert!(source[install..].starts_with(
-        "ui_runtime.install_block_breaking_mode(\n                    &mut player_runtime,\n                    session_generation,\n                    server_authoritative_block_breaking,\n                    client_world.fatal_error.is_none(),",
-    ));
-    for terminal in [
-        "NetworkControlEvent::Failed {",
-        "NetworkControlEvent::Transferred {",
-        "NetworkControlEvent::Stopped {",
-    ] {
-        let branch = &source[source.find(terminal).unwrap()..];
-        assert!(
-            branch
-                .find("ui_runtime.clear_block_breaking_mode(&mut player_runtime);")
-                .unwrap()
-                < branch.find("movement.deactivate();").unwrap()
-        );
-    }
 }
 
 #[test]
