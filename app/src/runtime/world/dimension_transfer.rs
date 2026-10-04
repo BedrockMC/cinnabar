@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use client_world::WorldStream;
+use chunk_pipeline::WorldStream;
 
 use crate::{movement::MovementTicker, runtime::network::NetworkHandle};
 
