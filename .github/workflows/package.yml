@@ -98,6 +98,8 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
+      - name: Resolve the downloadable artifact name
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env macos "${{ matrix.arch }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -157,11 +159,11 @@ jobs:
           bash "$tools/make-dmg.sh" .local/dist/macos-release/Cinnabar.app ".local/dist/macos-release/Cinnabar-$version.dmg"
           bash "$tools/sign-notarize.sh" ".local/dist/macos-release/Cinnabar-$version.dmg"
       - name: Name the artifact by architecture
-        run: mv .local/dist/macos-release/Cinnabar-*.dmg "$RUNNER_TEMP/Cinnabar-${{ matrix.arch }}.dmg"
+        run: mv .local/dist/macos-release/Cinnabar-*.dmg "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the DMG against the payload allowlist
         run: |
           mount="$RUNNER_TEMP/dmg"
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$RUNNER_TEMP/Cinnabar-${{ matrix.arch }}.dmg"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$RUNNER_TEMP/$RELEASE_ASSET"
           status=0
           bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" macos "$mount" || status=$?
           hdiutil detach "$mount"
@@ -169,7 +171,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: ${{ runner.temp }}/Cinnabar-${{ matrix.arch }}.dmg
+          path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
 
   windows:
@@ -179,6 +181,7 @@ jobs:
     defaults:
       run:
         shell: bash
+        working-directory: source
     steps:
       - uses: actions/checkout@v4
         with:
@@ -190,6 +193,8 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
+      - name: Resolve the downloadable artifact name
+        run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -224,25 +229,25 @@ jobs:
           make package-binaries
           bash scripts/fetch-ui-font.sh
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
-          mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/Cinnabar-x64.msi"
-          mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/Cinnabar-x64-setup.exe"
+          mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
+          mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Extract the MSI
         shell: pwsh
         run: |
           $image = Join-Path $env:RUNNER_TEMP "msi-image"
-          $msi = Join-Path $env:RUNNER_TEMP "Cinnabar-x64.msi"
+          $msi = Join-Path $env:RUNNER_TEMP $env:AUXILIARY_ASSET
           & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/extract-msi.ps1" -Msi $msi -Out $image
       - name: Check the MSI against the payload allowlist
         run: bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" windows "$(cygpath -u "$RUNNER_TEMP")/msi-image"
       - name: Check the setup embeds the verified MSI
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/check-setup.ps1" -Setup "$env:RUNNER_TEMP/Cinnabar-x64-setup.exe" `
-            -Msi "$env:RUNNER_TEMP/Cinnabar-x64.msi" -Out "$env:RUNNER_TEMP/setup-image"
+          & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/check-setup.ps1" -Setup (Join-Path $env:RUNNER_TEMP $env:RELEASE_ASSET) `
+            -Msi (Join-Path $env:RUNNER_TEMP $env:AUXILIARY_ASSET) -Out "$env:RUNNER_TEMP/setup-image"
       - name: Smoke test the setup engine without installing
         shell: pwsh
         run: |
-          $setup = Join-Path $env:RUNNER_TEMP "Cinnabar-x64-setup.exe"
+          $setup = Join-Path $env:RUNNER_TEMP $env:RELEASE_ASSET
           $layout = Join-Path $env:RUNNER_TEMP "setup-layout"
           $log = Join-Path $env:RUNNER_TEMP "setup-layout.log"
           $process = Start-Process -FilePath $setup -ArgumentList @('/layout', ('"' + $layout + '"'),
@@ -252,8 +257,8 @@ jobs:
         with:
           name: windows-x64
           path: |
-            ${{ runner.temp }}/Cinnabar-x64.msi
-            ${{ runner.temp }}/Cinnabar-x64-setup.exe
+            ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
+            ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
 
   linux:
@@ -278,6 +283,8 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
+      - name: Resolve the downloadable artifact name
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env linux x86_64 >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -309,16 +316,16 @@ jobs:
           make package-binaries
           bash scripts/fetch-ui-font.sh
           bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
-          mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/Cinnabar-x86_64.AppImage"
+          mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the AppImage against the payload allowlist
         run: |
           cd "$RUNNER_TEMP"
-          ./Cinnabar-x86_64.AppImage --appimage-extract > /dev/null
+          "./$RELEASE_ASSET" --appimage-extract > /dev/null
           bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" linux "$RUNNER_TEMP/squashfs-root"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
-          path: ${{ runner.temp }}/Cinnabar-x86_64.AppImage
+          path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
 
   release:
@@ -350,9 +357,13 @@ jobs:
         with:
           path: source/dist
           merge-multiple: true
-      - name: Checksum the installers
-        working-directory: source/dist
-        run: sha256sum -- * > SHA256SUMS.txt
+      - name: Resolve release metadata names
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env >> "$GITHUB_ENV"
+      - name: Add the standalone Linux installer
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" install-script --output "dist/$INSTALL_SCRIPT"
+      - name: Verify all downloads and checksum the nightly release
+        if: needs.prepare.outputs.channel == 'nightly'
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist
       - name: Publish the nightly prerelease
         if: needs.prepare.outputs.channel == 'nightly'
         run: |
@@ -388,25 +399,31 @@ jobs:
           fi
           base="${{ github.server_url }}/${{ github.repository }}/releases/download/$RELEASE_TAG"
           args=()
-          for spec in macos-arm64=Cinnabar-arm64.dmg macos-x86_64=Cinnabar-x86_64.dmg \
-            windows-x86_64=Cinnabar-x64-setup.exe linux-x86_64=Cinnabar-x86_64.AppImage; do
-            file="${spec#*=}"
-            args+=(-artifact "${spec%%=*}=$base/$file=$GITHUB_WORKSPACE/source/dist/$file")
-          done
+          while IFS= read -r spec; do
+            args+=(-artifact "$spec")
+          done < <(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" update-artifacts "$base" "$GITHUB_WORKSPACE/source/dist")
           go -C core run ./cmd/release-manifest sign -version "$RELEASE_VERSION" -channel stable "${args[@]}" \
-            > "$RUNNER_TEMP/update-stable.json"
-          mv "$RUNNER_TEMP/update-stable.json" dist/
+            > "$RUNNER_TEMP/$UPDATE_MANIFEST"
+          mv "$RUNNER_TEMP/$UPDATE_MANIFEST" "dist/$UPDATE_MANIFEST"
+      - name: Verify all downloads and checksum the stable release
+        if: needs.prepare.outputs.channel == 'stable'
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist
       - name: Publish the stable release
         if: needs.prepare.outputs.channel == 'stable'
         run: |
           bash "$GITHUB_WORKSPACE/release-tools/packaging/release-notes.sh" release > "$RUNNER_TEMP/notes.md"
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            if [[ ! -e dist/update-stable.json ]]; then
+            # Keep a replacement private until every artifact and checksum agrees.
+            gh release edit "$RELEASE_TAG" --draft=true
+            if [[ ! -e "dist/$UPDATE_MANIFEST" ]]; then
               gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
-                [[ "$name" != update-stable.json ]] || gh release delete-asset "$RELEASE_TAG" "$name" --yes
+                [[ "$name" != "$UPDATE_MANIFEST" ]] || gh release delete-asset "$RELEASE_TAG" "$name" --yes
               done
             fi
             gh release upload "$RELEASE_TAG" dist/* --clobber
+            gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | while IFS= read -r name; do
+              [[ -e "dist/$name" ]] || gh release delete-asset "$RELEASE_TAG" "$name" --yes
+            done
             gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
               --notes-file "$RUNNER_TEMP/notes.md" --draft=false --prerelease=false
           else
