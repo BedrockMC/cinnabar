@@ -104,15 +104,23 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 			continue
 		}
 		want, ok := legacyLights[factKey(record)]
-		// The current native TopSnow getter overrides Dragonfly dampening,
-		// including full-height snow. Emission remains the fact-source value.
-		if record.Name == "minecraft:snow_layer" {
+		// Final native registrations override the legacy filter for these
+		// types. Keep the independent emission nibble from the fact source.
+		switch record.Name {
+		case "minecraft:snow_layer":
 			want &= 0x0f
+		case "minecraft:water":
+			want = want&0x0f | 1<<4
+		case "minecraft:flowing_water":
+			want = want&0x0f | 2<<4
+		case "minecraft:ice", "minecraft:frosted_ice":
+			want = want&0x0f | 3<<4
 		}
 		// A legacy unimplemented-block default (emission 0, filter 15) may be corrected.
 		defaulted := want == unknownBlockEmission|unknownBlockFilter<<4
 		if !ok || (properties[index] != want && !defaulted) {
-			t.Fatalf("runtime ID %d is not a legacy fact-source light transplant", index)
+			t.Fatalf("runtime ID %d (%s) light = %#x, want %#x after native overrides",
+				index, record.Name, properties[index], want)
 		}
 		transplanted++
 	}
