@@ -46,6 +46,14 @@ pub struct CustomEmotePose {
     pub current: Arc<[BoneTransform]>,
     pub render: Vec<RenderTextureLayer>,
     pub skin_layers: Vec<SkinRenderLayer>,
+    pub(crate) articulated: Option<CustomEmoteRig>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CustomEmoteRig {
+    pub geometry: Arc<assets::SkinGeometry>,
+    pub names: Arc<[Box<str>]>,
+    pub rest: Arc<[BoneTransform]>,
 }
 
 impl CustomEmotePose {
@@ -54,6 +62,11 @@ impl CustomEmotePose {
         original.current = &self.current;
         original.render = &self.render;
         original.skin_layers = &self.skin_layers;
+        if let Some(rig) = &self.articulated {
+            original.skin_geometry = Some(&rig.geometry);
+            original.bone_names = &rig.names;
+            original.rest = &rig.rest;
+        }
         original
     }
 }

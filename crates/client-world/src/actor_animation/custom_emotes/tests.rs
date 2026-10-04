@@ -4,10 +4,10 @@ use crate::{
     SkinRenderLayer,
 };
 
-struct Fixture {
+pub(super) struct Fixture {
     skin: Arc<assets::SkinGeometry>,
     names: Vec<Box<str>>,
-    rest: Vec<BoneTransform>,
+    pub(super) rest: Vec<BoneTransform>,
 }
 
 impl Fixture {
@@ -32,7 +32,7 @@ impl Fixture {
         Self::from_skin(skin)
     }
 
-    fn from_skin(skin: assets::SkinGeometry) -> Self {
+    pub(super) fn from_skin(skin: assets::SkinGeometry) -> Self {
         let (bones, names) = geometry::skeleton(&skin.bones).unwrap();
         let rest = compose_pose(&bones, &[]).unwrap();
         Self {
@@ -42,7 +42,7 @@ impl Fixture {
         }
     }
 
-    fn rig(&self) -> ActorRigSnapshot<'_> {
+    pub(super) fn rig(&self) -> ActorRigSnapshot<'_> {
         ActorRigSnapshot {
             actor: ActorLifetimeId {
                 session_id: 7,
@@ -82,12 +82,12 @@ impl Fixture {
     }
 }
 
-fn point(bone: BoneTransform, relative: [f32; 3]) -> [f32; 3] {
+pub(super) fn point(bone: BoneTransform, relative: [f32; 3]) -> [f32; 3] {
     let rotated = rotate_vector(bone.rotation, relative);
     std::array::from_fn(|axis| bone.translation_scale[axis] + rotated[axis])
 }
 
-fn near(a: [f32; 3], b: [f32; 3]) {
+pub(super) fn near(a: [f32; 3], b: [f32; 3]) {
     for axis in 0..3 {
         assert!((a[axis] - b[axis]).abs() < 1e-4, "{a:?} != {b:?}");
     }

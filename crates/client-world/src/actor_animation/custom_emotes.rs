@@ -12,6 +12,7 @@ use crate::{
 use std::sync::Arc;
 
 type PosePair = (Arc<[BoneTransform]>, Arc<[BoneTransform]>);
+mod articulated;
 
 pub(crate) fn sample(
     rig: &ActorRigSnapshot<'_>,
@@ -42,6 +43,21 @@ pub(crate) fn sample(
     }
     let leg_height =
         bones[names.iter().position(|name| name.as_ref() == "leftleg")?].pivot[1].abs();
+    let articulated_geometry = rig.skin_geometry.and_then(articulated::model);
+    let (bones, names) = if let Some(model) = &articulated_geometry {
+        geometry::skeleton(&model.bones)?
+    } else {
+        (bones, names)
+    };
+    let articulated = if let Some(geometry) = articulated_geometry {
+        Some(crate::custom_emotes::CustomEmoteRig {
+            geometry,
+            names: names.clone().into(),
+            rest: compose_pose(&bones, &[])?.into(),
+        })
+    } else {
+        None
+    };
     let (previous, current) = pair(
         &bones,
         &names,
@@ -69,6 +85,9 @@ pub(crate) fn sample(
     }
     let mut skin_layers = rig.skin_layers.to_vec();
     for layer in &mut skin_layers {
+        if let Some(model) = articulated::model(&layer.geometry) {
+            layer.geometry = model;
+        }
         let (bones, names) = geometry::skeleton(&layer.geometry.bones)?;
         let (previous, current) = pair(
             &bones,
@@ -78,6 +97,7 @@ pub(crate) fn sample(
             current_seconds,
             leg_height,
         )?;
+        layer.rest = compose_pose(&bones, &[])?.into();
         layer.previous = previous;
         layer.current = current;
     }
@@ -86,6 +106,7 @@ pub(crate) fn sample(
         current,
         render,
         skin_layers,
+        articulated,
     })
 }
 
@@ -126,9 +147,110 @@ fn targets(
     seconds: f64,
     leg_height: f32,
 ) -> Vec<Option<BoneTransform>> {
+    if names
+        .iter()
+        .any(|name| name.as_ref() == "leftleg.cinnabar_knee")
+    {
+        return bent_knee_targets(bones, names, rest, emote, seconds, leg_height);
+    }
     match emote {
         CustomEmote::Twerk => twerk_targets(bones, names, rest, emote, seconds, leg_height),
     }
+}
+
+fn bent_knee_targets(
+    bones: &[RuntimeBone],
+    names: &[Box<str>],
+    rest: &[BoneTransform],
+    emote: CustomEmote,
+    seconds: f64,
+    height: f32,
+) -> Vec<Option<BoneTransform>> {
+    let angle = (seconds.rem_euclid(emote.duration_seconds()) / emote.duration_seconds()
+        * std::f64::consts::TAU) as f32;
+    let hip_y = height * (0.625 + 0.04 * angle.cos());
+    let hip_z = height * (0.33 + 0.10 * angle.cos());
+    let body = names
+        .iter()
+        .position(|name| name.as_ref() == "body")
+        .unwrap();
+    let torso_height = rest[body].translation_scale[1] - height;
+    let shoulder_y = height * 0.625 + torso_height * 37.0_f32.to_radians().cos();
+    let lean = ((shoulder_y - hip_y) / torso_height)
+        .clamp(-1.0, 1.0)
+        .acos();
+    let twist = 6.0 * angle.sin();
+    let torso = quat_from_euler([-lean.to_degrees(), twist, 0.0]);
+    let offset = [0.0, hip_y - height, hip_z];
+    let mut targets: Vec<_> = bones
+        .iter()
+        .zip(names)
+        .zip(rest)
+        .map(|((bone, name), rest)| {
+            let rotation = match name.as_ref() {
+                "waist" | "body" => torso,
+                "head" => [0.0, 0.0, 0.0, 1.0],
+                "leftarm" => quat_from_euler([-16.0, twist, -3.0]),
+                "rightarm" => quat_from_euler([-16.0, twist, 3.0]),
+                _ if bone.parent.is_none() => [0.0, 0.0, 0.0, 1.0],
+                _ => return None,
+            };
+            let mut target = *rest;
+            let pivot = std::array::from_fn(|axis| rest.translation_scale[axis]);
+            let relative = [pivot[0], pivot[1] - height, pivot[2]];
+            let pivot = if matches!(
+                name.as_ref(),
+                "waist" | "body" | "head" | "leftarm" | "rightarm"
+            ) {
+                let tilted = rotate_vector(torso, relative);
+                [tilted[0], height + tilted[1], tilted[2]]
+            } else {
+                pivot
+            };
+            target.rotation = quat_multiply(rotation, rest.rotation);
+            for axis in 0..3 {
+                target.translation_scale[axis] = pivot[axis] + offset[axis];
+            }
+            Some(target)
+        })
+        .collect();
+    for name in ["leftleg", "rightleg"] {
+        let leg = names.iter().position(|part| part.as_ref() == name).unwrap();
+        let knee = names
+            .iter()
+            .position(|part| part.as_ref() == format!("{name}.cinnabar_knee"))
+            .unwrap();
+        let x = rest[leg].translation_scale[0];
+        let hip = [x, hip_y, hip_z];
+        let foot = [x + x.signum() * height * 0.16, 0.0, 0.0];
+        let delta: [f32; 3] = std::array::from_fn(|axis| foot[axis] - hip[axis]);
+        let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let direction = delta.map(|v| v / distance);
+        // Two equal rigid segments: choose the forward-facing knee solution.
+        let perpendicular = [
+            direction[0] * direction[2],
+            direction[1] * direction[2],
+            -1.0 + direction[2] * direction[2],
+        ];
+        let length = perpendicular.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let bend = (height * height * 0.25 - distance * distance * 0.25)
+            .max(0.0)
+            .sqrt();
+        let joint: [f32; 3] = std::array::from_fn(|axis| {
+            hip[axis] + delta[axis] * 0.5 + perpendicular[axis] * bend / length
+        });
+        for (index, from, to) in [(leg, hip, joint), (knee, joint, foot)] {
+            let direction: [f32; 3] =
+                std::array::from_fn(|axis| (to[axis] - from[axis]) / (height * 0.5));
+            let quaternion = [-direction[2], 0.0, direction[0], 1.0 - direction[1]];
+            let length = quaternion.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let mut target = rest[index];
+            target.rotation = quaternion.map(|v| v / length);
+            target.translation_scale[..3].copy_from_slice(&from);
+            targets[index] = Some(target);
+        }
+    }
+    targets
 }
 
 fn twerk_targets(

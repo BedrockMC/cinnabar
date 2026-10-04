@@ -1,4 +1,5 @@
 mod commit;
+mod emote_geometry;
 mod hand;
 pub(crate) use commit::{PreparedActorPublication, publish_actor_render_frame};
 #[cfg(test)]
@@ -679,9 +680,14 @@ pub(crate) fn prepare_actor_render_frame(
                 step.partial_tick,
             )
         {
-            // Preserve the selected skin geometry, authoritative placement and materials.
-            local.submission.input.previous_bones = animated.submission.input.previous_bones;
-            local.submission.input.current_bones = animated.submission.input.current_bones;
+            emote_geometry::apply(
+                &pose.snapshot(rig),
+                &mut skin_rigs,
+                equipment.as_deref_mut(),
+                &mut new_geometries,
+                &mut local.submission,
+                animated.submission,
+            );
         }
         local.submission.world_from_actor = crate::presentation::actors::death_tilted(
             local.submission.world_from_actor,

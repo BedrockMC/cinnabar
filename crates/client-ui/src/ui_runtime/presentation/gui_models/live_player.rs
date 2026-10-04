@@ -4,7 +4,7 @@ use super::super::UiPresentationRuntime;
 use bevy::math::{Affine3A, Quat, Vec3, Vec4};
 use render::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 
-type GeometryIdentity = (u32, Option<usize>, Option<[u8; 32]>);
+type GeometryIdentity = (u32, Option<[u8; 32]>, Option<[u8; 32]>);
 
 #[derive(Default)]
 pub(super) struct LivePlayer {
@@ -47,6 +47,7 @@ impl UiPresentationRuntime {
         let emote_pose = emote.and_then(|(emote, phase)| {
             client_world::sample_custom_emote(&rig, emote, phase, phase)
         });
+        let rig = emote_pose.as_ref().map_or(rig, |pose| pose.snapshot(rig));
         let Some(pose) = emote_pose
             .as_ref()
             .map(|pose| pose.current.as_ref())
@@ -80,8 +81,7 @@ impl UiPresentationRuntime {
         let catalog = rig.geometry_source();
         let source = (
             rig.rig.0,
-            rig.skin_geometry
-                .map(|skin| std::sync::Arc::as_ptr(skin) as usize),
+            rig.skin_geometry.map(|skin| skin.digest),
             catalog.map(|(assets, _)| assets.source_manifest_sha256()),
         );
         if live.source != Some(source) {
