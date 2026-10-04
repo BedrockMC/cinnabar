@@ -28,6 +28,7 @@ use world::ChunkKey;
 
 mod cursor_changes;
 mod front_input;
+mod projection;
 
 #[derive(Default)]
 struct CameraCollisionFixture {
@@ -727,14 +728,6 @@ fn stable_presentation_pause_ignores_held_movement_and_look_input() {
 }
 
 #[test]
-fn horizontal_fov_converts_to_aspect_correct_vertical_fov() {
-    let horizontal = 90.0_f32.to_radians();
-    let sixteen_nine = camera::horizontal_fov_to_vertical(horizontal, 16.0 / 9.0);
-    let four_three = camera::horizontal_fov_to_vertical(horizontal, 4.0 / 3.0);
-    assert!(four_three > sixteen_nine);
-}
-
-#[test]
 fn perspective_cycle_matches_bedrock_settings_order() {
     assert_eq!(
         camera::next_perspective(PerspectiveMode::FirstPerson),
@@ -956,148 +949,6 @@ fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
         PerspectiveMode::ThirdPersonBack,
         "the synthetic one-frame tap must not repeat"
     );
-}
-
-#[test]
-fn replacing_user_settings_updates_the_live_projection() {
-    let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
-    app.init_resource::<Time>()
-        .add_plugins(FlyCameraPlugin::default());
-    app.world_mut().spawn((
-        Window {
-            resolution: WindowResolution::new(1600, 900),
-            focused: true,
-            ..default()
-        },
-        CursorOptions::default(),
-        PrimaryWindow,
-    ));
-    app.update();
-
-    let mut settings = UserSettings::default();
-    settings.video.horizontal_fov_degrees = 82.0;
-    app.world_mut()
-        .resource_mut::<RuntimeSettings>()
-        .replace_user_settings(settings);
-    app.update();
-
-    let projection = app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    let Projection::Perspective(perspective) = projection else {
-        panic!("fly camera projection is not perspective");
-    };
-    assert_eq!(
-        app.world()
-            .resource::<CameraSettingsAuthority>()
-            .generation(),
-        1
-    );
-    let expected = camera::horizontal_fov_to_vertical(82.0_f32.to_radians(), 16.0 / 9.0);
-    assert!((perspective.fov - expected).abs() < 1.0e-6);
-}
-
-#[test]
-fn horizontal_fov_conversion_is_finite_and_bounded_for_bad_inputs() {
-    for horizontal in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, 999.0] {
-        for aspect in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0] {
-            let vertical = camera::horizontal_fov_to_vertical(horizontal, aspect);
-            assert!(vertical.is_finite());
-            assert!(vertical > 0.0 && vertical < std::f32::consts::PI);
-        }
-    }
-}
-
-#[test]
-fn plugin_spawns_camera_with_default_horizontal_fov() {
-    let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
-    app.init_resource::<Time>()
-        .add_plugins(FlyCameraPlugin::default());
-    app.world_mut().spawn((
-        Window {
-            focused: true,
-            ..default()
-        },
-        CursorOptions::default(),
-        PrimaryWindow,
-    ));
-
-    app.update();
-    let projection = app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap();
-    let Projection::Perspective(perspective) = projection else {
-        panic!("fly camera projection is not perspective");
-    };
-    let expected = camera::horizontal_fov_to_vertical(90.0_f32.to_radians(), 16.0 / 9.0);
-    assert!(
-        (perspective.fov - expected).abs() <= 1.0e-6,
-        "vertical FOV = {} degrees, want aspect-correct 90-degree horizontal FOV",
-        perspective.fov.to_degrees()
-    );
-}
-
-#[test]
-fn camera_vertical_fov_tracks_primary_window_aspect_changes() {
-    let mut app = App::new();
-    app.insert_resource(crate::player_runtime::PlayerRuntime::new(1));
-    app.init_resource::<Time>()
-        .add_plugins(FlyCameraPlugin::default());
-    let window = app
-        .world_mut()
-        .spawn((
-            Window {
-                resolution: WindowResolution::new(1600, 900),
-                focused: true,
-                ..default()
-            },
-            CursorOptions::default(),
-            PrimaryWindow,
-        ))
-        .id();
-
-    app.update();
-    let fov_16_9 = match app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap()
-    {
-        Projection::Perspective(perspective) => perspective.fov,
-        _ => panic!("fly camera projection is not perspective"),
-    };
-    assert!(
-        (fov_16_9 - camera::horizontal_fov_to_vertical(90.0_f32.to_radians(), 16.0 / 9.0)).abs()
-            < 1.0e-6
-    );
-
-    app.world_mut()
-        .get_mut::<Window>(window)
-        .unwrap()
-        .resolution
-        .set_physical_resolution(1200, 900);
-    app.update();
-
-    let fov_4_3 = match app
-        .world_mut()
-        .query_filtered::<&Projection, (With<Camera3d>, With<FlyCamera>)>()
-        .single(app.world())
-        .unwrap()
-    {
-        Projection::Perspective(perspective) => perspective.fov,
-        _ => panic!("fly camera projection is not perspective"),
-    };
-    assert!(
-        (fov_4_3 - camera::horizontal_fov_to_vertical(90.0_f32.to_radians(), 4.0 / 3.0)).abs()
-            < 1.0e-6
-    );
-    assert!(fov_4_3 > fov_16_9);
 }
 
 #[test]
