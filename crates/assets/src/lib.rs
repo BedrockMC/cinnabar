@@ -241,3 +241,11 @@ pub use weather_textures::{
 
 mod biome_noise;
 pub use biome_noise::{ClientRandom, grass_noise_permutation};
+
+mod session_entities;
+pub use session_entities::SessionEntityPack;
+
+mod pinned_content;
+pub use pinned_content::{
+    active_content_registry_protocol, pinned_block_registry_bytes, pinned_world_provenance,
+};
