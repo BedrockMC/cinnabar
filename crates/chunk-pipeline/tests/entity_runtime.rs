@@ -159,6 +159,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             property: EntityAnimationProperty::Translation,
             first_keyframe: 0,
             keyframe_count: 2,
+            rotation_relative_to_entity: false,
         }]
         .into_boxed_slice(),
         animation_keyframes: vec![

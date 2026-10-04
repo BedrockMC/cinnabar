@@ -398,14 +398,18 @@ mod tests {
         );
         let pack_dir = plan::cache_dir(&kit).unwrap();
         let pack = file_sha256(&kit.join(VANILLA_MANIFEST)).unwrap();
+        let compiler =
+            file_sha256(&kit.join("bin").join(super::super::runner::assetc_name())).unwrap();
         let resolve = |arg: &str| super::super::runner::kit_file(&kit, arg);
         let mut invalidated = 0;
         for step in &steps {
             let Action::Assetc(args) = &step.action else {
                 continue;
             };
-            let (key, current) = identity(args, &pack_dir, &pack, &resolve, &earlier).unwrap();
-            let (_, updated) = identity(args, &pack_dir, &pack, &resolve, &changed).unwrap();
+            let (key, current) =
+                identity(args, &pack_dir, &pack, &compiler, &resolve, &earlier).unwrap();
+            let (_, updated) =
+                identity(args, &pack_dir, &pack, &compiler, &resolve, &changed).unwrap();
             let (magic, _) = carrier_type(&key);
             if magic == assets::ACTOR_CARRIER_MAGIC.as_slice()
                 || magic == assets::EQUIPMENT_CARRIER_MAGIC.as_slice()
@@ -435,6 +439,6 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert!(identity(actor, &pack_dir, &pack, &resolve, &earlier).is_err());
+        assert!(identity(actor, &pack_dir, &pack, &compiler, &resolve, &earlier).is_err());
     }
 }
