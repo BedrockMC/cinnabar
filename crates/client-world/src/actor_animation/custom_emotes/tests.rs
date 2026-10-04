@@ -106,7 +106,7 @@ fn owned_custom_emote_deep_squat_keeps_feet_and_attached_level_head() {
         let pose = sample(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
         let body = pose.current[f.index("body")];
         let hips = point(body, [0.0, -12.0, 0.0]);
-        assert!(hips[1] < 8.0, "the squat must lower the hips substantially");
+        assert!(hips[1] < 9.5, "the squat must lower the hips substantially");
         near(hips, point(pose.current[f.index("waist")], [0.0; 3]));
         let head = pose.current[f.index("head")];
         near(point(body, [0.0; 3]), point(head, [0.0; 3]));
@@ -132,7 +132,37 @@ fn owned_custom_emote_deep_squat_keeps_feet_and_attached_level_head() {
             );
         }
     }
-    assert!(hip_travel > 0.5, "the hips must still rock forward/back");
+    assert!(
+        hip_travel > 2.0,
+        "the hip thrust must remain clearly visible"
+    );
+}
+
+#[test]
+fn owned_custom_emote_twists_torso_without_turning_head_or_sliding_feet() {
+    let f = Fixture::new();
+    let period = CustomEmote::Twerk.duration_seconds();
+    let a = sample(&f.rig(), CustomEmote::Twerk, period / 4.0, period / 4.0).unwrap();
+    let b = sample(&f.rig(), CustomEmote::Twerk, period * 0.75, period * 0.75).unwrap();
+    let forward = |pose: &CustomEmotePose| {
+        rotate_vector(pose.current[f.index("body")].rotation, [0.0, 0.0, 1.0])
+    };
+    assert!(forward(&a)[0] * forward(&b)[0] < 0.0);
+    assert!((forward(&a)[0] - forward(&b)[0]).abs() > 0.1);
+    near(
+        point(a.current[f.index("head")], [0.0; 3]),
+        point(a.current[f.index("body")], [0.0; 3]),
+    );
+    assert_eq!(
+        a.current[f.index("head")].rotation,
+        b.current[f.index("head")].rotation
+    );
+    for name in ["leftleg", "rightleg"] {
+        near(
+            point(a.current[f.index(name)], [0.0, -12.0, 0.0]),
+            point(b.current[f.index(name)], [0.0, -12.0, 0.0]),
+        );
+    }
 }
 
 #[test]

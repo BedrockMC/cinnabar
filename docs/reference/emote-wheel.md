@@ -54,6 +54,13 @@ shoulder/head height steady as the pelvis rocks; varying spread keeps the foot
 centers fixed laterally as well. Rigid tilted foot corners
 are not articulated soles, and exact visual parity remains incomplete.
 
+The user rejected the initial steady-head revision as still reading as a crouch.
+The next owned revision doubles the leg-driven hip excursion, makes the torso
+more upright, adds a small alternating torso twist, and brings the hands toward
+the thighs. Foot centers and head height remain anchored. This is still an
+approximation on the existing rigid limb model, not verified Lunar keyframes
+or an articulated knee rig; live visual acceptance of this revision is pending.
+
 Sampling resolves named bones in the player's actual geometry and applies
 channels before skeleton composition. Body, clothing/persona layers and armor
 share that pose. The native first-person hand and other actors keep their normal
@@ -77,8 +84,9 @@ tests cover saved slots/bindings, skeleton/clothing sampling, native wheel/equip
 rendering and radial hits, GUI player vertices, current-frame cancellation,
 same-frame input consumption, controller opening, session/focus retirement,
 and production actor publication with native hand/remote ownership preserved.
-Seven custom-animation tests pass, including native joint landmarks, foot-center
+Eight custom-animation tests pass, including native joint landmarks, foot-center
 anchoring, attached arms/head and equivalent flat-biped/clothing retargeting.
+The twist regression also checks level head ownership and planted feet.
 Controller regressions also cover equipping/playing the left slot without
 retriggering the wheel opener, and closing-frame inventory consumption followed
 by fresh real drop/book actions.

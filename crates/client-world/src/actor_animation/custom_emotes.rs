@@ -144,10 +144,11 @@ fn twerk_targets(
     // Owned clip from the public video: a sustained deep squat, level head and
     // hands beside the thighs, with a hip pulse instead of a standing side sway.
     let wave = angle.cos();
-    let base_pitch = 52.0_f32.to_radians();
+    let base_pitch = 48.0_f32.to_radians();
     let base_spread = 15.0_f32.to_radians();
-    let base_lean = 46.0_f32.to_radians();
-    let leg_pitch = base_pitch + (4.0 * wave).to_radians();
+    let base_lean = 37.0_f32.to_radians();
+    let leg_pitch = base_pitch + (8.0 * wave).to_radians();
+    let twist = 6.0 * angle.sin();
     // Counter the leg pitch with spread so the stance does not slide sideways.
     let lateral = base_pitch.cos() * base_spread.sin();
     let spread = (lateral / leg_pitch.cos()).clamp(-1.0, 1.0).asin();
@@ -172,7 +173,7 @@ fn twerk_targets(
     // Keep the leg bottom-face centers fixed in all three axes throughout the pulse.
     let offset = [0.0, hip_height - leg_height, leg_height * leg_pitch.sin()];
     let hips = [0.0, leg_height, 0.0];
-    let torso = quat_from_euler([-lean.to_degrees(), 0.0, 0.0]);
+    let torso = quat_from_euler([-lean.to_degrees(), twist, 0.0]);
     bones
         .iter()
         .zip(names)
@@ -181,8 +182,8 @@ fn twerk_targets(
             let (rotation, tilt_position) = match name.as_ref() {
                 "waist" | "body" => (torso, true),
                 "head" => ([0.0, 0.0, 0.0, 1.0], true),
-                "leftarm" => (quat_from_euler([-8.0, 0.0, -3.0]), true),
-                "rightarm" => (quat_from_euler([-8.0, 0.0, 3.0]), true),
+                "leftarm" => (quat_from_euler([-16.0, twist, -3.0]), true),
+                "rightarm" => (quat_from_euler([-16.0, twist, 3.0]), true),
                 "leftleg" => (
                     quat_from_euler([leg_pitch.to_degrees(), 0.0, -spread.to_degrees()]),
                     false,

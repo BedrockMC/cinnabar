@@ -13,8 +13,12 @@ The revised clip follows the reference video's deeper squat and hip pulse,
 retargets both native and independent skin joints, and anchors foot centers.
 The pelvis rocks under steady shoulders/head, avoiding a whole-body jumping
 pulse; stance compensation keeps foot centers fixed on all three axes.
+The user rejected that first steady-head revision as still looking like a crouch.
+The next local revision increases the hip thrust, reduces the base torso lean,
+adds alternating torso twist and brings the hands closer to the thighs. It
+retains rigid legs; exact resemblance remains incomplete pending live/user review.
 Focused checks pass: 480 JSON-UI tests, four saved-binding/slot tests, seven
-animation tests, the native-carrier wheel/preview tests, and twelve production
+animation tests (eight after the thrust/twist revision), the native-carrier wheel/preview tests, and twelve production
 input/actor regressions. The 1280x720 software-rendered wheel/equip frames were
 inspected for readable text and geometry. Live Windows game acceptance remains
 required for the revised clip; the original emote build was installed and its
