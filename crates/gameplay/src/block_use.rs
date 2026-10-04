@@ -474,9 +474,9 @@ pub fn placement_state_is_certain(
     full_cube && stateless && placed_identifier.is_some()
 }
 
-/// A successful local use swings before its transaction, which is always sent.
+/// A successful local use swings before its transaction, using the supplied wire identity.
 pub fn use_packets(
-    observed: &FrozenBlockObservation,
+    (observed, block_network_id): (&FrozenBlockObservation, u32),
     player_position: [f32; 3],
     trigger: ItemUseTrigger,
     local_use: LocalUse,
@@ -495,7 +495,7 @@ pub fn use_packets(
         selected_item: observed.selection.item.clone(),
         player_position,
         relative_hit: observed.target.relative_hit,
-        block_runtime_id: u64::from(observed.target.runtime_id),
+        block_runtime_id: u64::from(block_network_id),
     };
     let predicted = local_use != LocalUse::Nothing;
     if let Ok(packet) = protocol::click_block_transaction_packet(request, trigger, predicted) {
