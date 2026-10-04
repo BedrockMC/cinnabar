@@ -37,6 +37,8 @@ fn fixture(exited: bool) -> (LauncherCoreSlot, MenuRuntime, World, PathBuf) {
         [],
     )
     .unwrap();
+    #[cfg(unix)]
+    std::fs::write(launcher_control::control_endpoint_path(&socket_dir), []).unwrap();
     let slot = LauncherCoreSlot {
         core: Some(LauncherCore {
             _guard: child_guard(exited),
@@ -150,6 +152,8 @@ fn dead_child_is_replaced_without_a_sign_in_change_and_waits_for_new_readiness()
     assert!(!crate::runtime::endpoint::bridge_endpoint_exists(
         &socket_dir
     ));
+    #[cfg(unix)]
+    assert!(!launcher_control::control_endpoint_path(&socket_dir).exists());
 }
 
 #[test]
