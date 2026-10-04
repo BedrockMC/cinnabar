@@ -23,7 +23,7 @@ impl CustomEmote {
     }
     pub const fn duration_seconds(self) -> f64 {
         match self {
-            Self::Twerk => 0.7,
+            Self::Twerk => 0.45,
         }
     }
     pub const fn looping(self) -> bool {

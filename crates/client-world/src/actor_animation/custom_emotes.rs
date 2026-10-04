@@ -168,7 +168,7 @@ fn bent_knee_targets(
 ) -> Vec<Option<BoneTransform>> {
     let angle = (seconds.rem_euclid(emote.duration_seconds()) / emote.duration_seconds()
         * std::f64::consts::TAU) as f32;
-    let hip_y = height * (0.625 + 0.04 * angle.cos());
+    let hip_y = height * (0.625 + 0.10 * angle.cos());
     let hip_z = height * (0.33 + 0.10 * angle.cos());
     let body = names
         .iter()

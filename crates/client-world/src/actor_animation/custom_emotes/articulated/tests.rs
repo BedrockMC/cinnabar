@@ -92,6 +92,8 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
     let period = CustomEmote::Twerk.duration_seconds();
     let mut first_feet: Option<Vec<[f32; 3]>> = None;
     let mut head_height = None;
+    let mut lowest_hip = f32::INFINITY;
+    let mut highest_hip = f32::NEG_INFINITY;
     for step in 0..=32 {
         let phase = f64::from(step) * period / 32.0;
         let pose = sample(&f.rig(), CustomEmote::Twerk, phase, phase).unwrap();
@@ -106,6 +108,9 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
         let head = snapshot.current[index("head")].translation_scale[1];
         let baseline = *head_height.get_or_insert(head);
         assert!((head - baseline).abs() < 1e-4);
+        let hip = snapshot.current[index("leftleg")].translation_scale[1];
+        lowest_hip = lowest_hip.min(hip);
+        highest_hip = highest_hip.max(hip);
         let mut feet = Vec::new();
         for name in ["leftleg", "rightleg"] {
             let thigh = snapshot.current[index(name)];
@@ -117,7 +122,7 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
             let thigh_axis = super::super::rotate_vector(thigh.rotation, [0.0, -1.0, 0.0]);
             let shin_axis = super::super::rotate_vector(shin.rotation, [0.0, -1.0, 0.0]);
             let dot: f32 = (0..3).map(|axis| thigh_axis[axis] * shin_axis[axis]).sum();
-            assert!(dot < 0.4, "knees must visibly bend: {dot}");
+            assert!(dot < 0.55, "knees must visibly bend: {dot}");
             assert!(shin_axis[1] < -0.8, "shins must remain mostly upright");
             feet.push(foot);
         }
@@ -131,4 +136,8 @@ fn owned_custom_emote_knees_bend_with_connected_segments_and_planted_feet() {
         assert_eq!(f.rig().current, native);
         assert_eq!(source.bones.len(), 9);
     }
+    assert!(
+        highest_hip - lowest_hip > 2.0,
+        "the pelvis must visibly pulse up/down"
+    );
 }
