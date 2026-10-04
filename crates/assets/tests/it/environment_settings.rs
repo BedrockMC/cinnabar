@@ -1,4 +1,4 @@
-#[path = "../src/environment_settings.rs"]
+#[path = "../../src/environment_settings.rs"]
 mod environment_settings;
 
 use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};

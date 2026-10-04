@@ -7,7 +7,7 @@ use assets::{
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
-const BREG: &[u8] = include_bytes!("../data/block-registry-v1001.bin");
+const BREG: &[u8] = include_bytes!("../../data/block-registry-v1001.bin");
 
 fn valid_preg(records: &[RegistryRecord]) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -209,8 +209,8 @@ fn rejects_stale_or_malformed_carriers_without_partial_acceptance() {
     assert!(read_physics_registry(&valid, &stale_breg, &records).is_err());
 }
 
-const BREG_V2193: &[u8] = include_bytes!("../data/block-registry-v2193.bin");
-const PREG_V2193: &[u8] = include_bytes!("../data/block-physics-v2193.bin");
+const BREG_V2193: &[u8] = include_bytes!("../../data/block-registry-v2193.bin");
+const PREG_V2193: &[u8] = include_bytes!("../../data/block-physics-v2193.bin");
 
 /// Pinned sidecar digest of `crates/assets/data/block-physics-v2193.bin`
 /// (`block-physics-v2193.sha256`); guards the committed artifact against drift.

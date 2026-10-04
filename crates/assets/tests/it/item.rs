@@ -267,7 +267,7 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
     }
 }
 
-const DEFAULT_BINDINGS: &[u8] = include_bytes!("../data/default-sprite-bindings-1.26.50.json");
+const DEFAULT_BINDINGS: &[u8] = include_bytes!("../../data/default-sprite-bindings-1.26.50.json");
 
 fn default_binding_fixture() -> CompiledEntityAssetsV4 {
     let mut compiled = item_carrier_fixture();
