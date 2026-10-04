@@ -120,7 +120,7 @@ pub fn env_pack() -> Option<ServerUiPack> {
             Err(error) => panic!("read pack fixture {}: {error}", path.display()),
         }
     }
-    Some(dir_pack(&dirs))
+    Some(dir_pack(dirs.split(':').filter(|dir| !dir.is_empty())))
 }
 
 /// Installs the real pack's Unicode cells alongside its JSON-UI textures.
@@ -153,13 +153,13 @@ pub fn env_glyphs() -> Option<Arc<super::super::SessionGlyphSheets>> {
     )))
 }
 
-/// The unpacked packs `dirs` lists (`:`-separated, lowest first) as a session pack.
-pub fn dir_pack(dirs: &str) -> ServerUiPack {
+/// Loads unpacked directories in layer order, lowest first, keeping each path intact.
+pub fn dir_pack(dirs: impl IntoIterator<Item = impl AsRef<Path>>) -> ServerUiPack {
     let mut pack = ServerUiPack::default();
     let mut all = Vec::new();
     let mut declared = BTreeSet::new();
-    for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
-        let files = pack_files(Path::new(dir));
+    for dir in dirs {
+        let files = pack_files(dir.as_ref());
         if let Some((_, bytes)) = files.iter().find(|(path, _)| path == "ui/_ui_defs.json")
             && let Ok(paths) = json_ui::Catalog::declared_paths(bytes)
         {
