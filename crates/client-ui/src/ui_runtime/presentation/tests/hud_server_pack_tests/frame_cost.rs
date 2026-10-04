@@ -69,3 +69,186 @@ fn report(changing: bool, samples: &mut [Duration], passes: usize) {
         samples[(samples.len() - 1) * 99 / 100].as_secs_f64() * 1e3
     );
 }
+
+/// Per-frame publication on a busy lobby: a full sidebar, chat, a hotbar and thirty name tags.
+#[test]
+fn lobby_ui_publication_cost() {
+    use super::super::super::forms::pack_harness;
+    use crate::ui_runtime::presentation::{
+        PendingUiPublication, PreviewCapture, nametags::NametagAnchor, render_prepared_ui,
+    };
+    if std::env::var_os("CINNABAR_LOBBY_BENCH").is_none() {
+        eprintln!("LOBBY_PUBLICATION skipped: set CINNABAR_LOBBY_BENCH=1");
+        return;
+    }
+    let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
+    let read = |name: &str| std::fs::read(compiled.join(name)).ok();
+    let (Some(hud), Some(icons), Some(carrier)) = (
+        read("vanilla-v1.mcbehud"),
+        read("vanilla-v1.mcbeico"),
+        pack_harness::carrier(),
+    ) else {
+        eprintln!("LOBBY_PUBLICATION skipped: no installed carriers");
+        return;
+    };
+    let icons = Arc::new(assets::RuntimeIconCatalog::decode(&icons).unwrap());
+    let hotbar: Vec<_> = icons.entries()[..9]
+        .iter()
+        .map(|entry| entry.identifier.to_string())
+        .collect();
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        pack_harness::font(),
+        Arc::new(RuntimeHudCatalog::decode(&hud).unwrap()),
+        icons,
+    )
+    .unwrap();
+    presentation.enable_json_ui(carrier).unwrap();
+    if let Some(pack) = pack_harness::env_pack() {
+        presentation.set_server_ui_pack(&pack);
+    }
+    // The client always installs GUI models, which compare skins instead of hashing them.
+    presentation.gui_models.enabled = true;
+    let hotbar_icons: Vec<_> = hotbar
+        .iter()
+        .map(|identifier| presentation.item_icon(identifier, 0))
+        .collect();
+    let frame = presentation.hud_frame_mut();
+    frame.first_person = true;
+    for (slot, icon) in hotbar_icons.into_iter().enumerate() {
+        frame.hotbar_icons[slot] = icon;
+        frame.hotbar_stacks[slot] = Some(protocol::NetworkItemStack {
+            network_id: 1 + slot as i32,
+            metadata: 0,
+            stack_network_id: -1,
+            count: 1,
+            nbt_digest: [0; 32],
+            block_runtime_id: 0,
+            extra_data: Arc::from([]),
+        });
+    }
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = session(&mut player, "§l§bZEQA §fLOBBY");
+    runtime.set_session_glyphs(pack_harness::env_glyphs());
+    let entries = (0..15)
+        .map(|row| ProtocolScoreEntry {
+            action: ProtocolScoreAction::Change,
+            scoreboard_id: i64::from(row) + 100,
+            objective_name: Arc::from("objective"),
+            score: row,
+            identity: ProtocolScoreIdentity::FakePlayer(Arc::from(format!(
+                "§7» §fStat {row}: §b{}§r",
+                row * 37
+            ))),
+        })
+        .collect();
+    runtime
+        .apply(
+            &mut player,
+            SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 100,
+                local_millis: 0,
+                server_tick: None,
+                event: UiEvent::Score(ScoreEvent { entries }),
+            },
+        )
+        .unwrap();
+    for line in 0..40u64 {
+        runtime
+            .apply(
+                &mut player,
+                SequencedUiEvent {
+                    session_id: 1,
+                    fifo_sequence: 200 + line,
+                    local_millis: 0,
+                    server_tick: None,
+                    event: chat_event(&format!("§7[§bMember§7] §fPlayer{line}§7: hello lobby {line}")),
+                },
+            )
+            .unwrap();
+    }
+    let anchors: Vec<_> = (0..30u64)
+        .map(|index| NametagAnchor {
+            runtime_id: index + 10,
+            position: bevy::math::Vec3::new(index as f32 * 0.7, 66.0, 4.0 + index as f32),
+            lines: vec![
+                Arc::from(format!("§a[Member] §fPlayer{index}")),
+                Arc::from(format!("§c{} ❤", 20 - index % 20)),
+            ],
+            depth_tested: false,
+            text_alpha: 1.0,
+            distance: 4.0 + index as f32,
+        })
+        .collect();
+    let mut scene = render::UiRenderScene::default();
+    let stats = render::UiRenderStats::default();
+    let samples = std::env::var("CINNABAR_LOBBY_SAMPLES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(SAMPLES);
+    // Lobby chat arrives about twice a second.
+    let chatty = std::env::var_os("CINNABAR_LOBBY_CHAT").is_some();
+    let mut stages = [const { Vec::new() }; 4];
+    for sample in 0..=samples {
+        let now = 1_000 + sample as u64 * 16;
+        if chatty && sample % 30 == 0 {
+            runtime
+                .apply(
+                    &mut player,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: 1_000 + sample as u64,
+                        local_millis: now,
+                        server_tick: None,
+                        event: chat_event(&format!("§7[§bMember§7] §fNew{sample}§7: gg")),
+                    },
+                )
+                .unwrap();
+        }
+        let started = Instant::now();
+        let prepared = PendingUiPublication {
+            inventory: runtime.capture_presentation_inventory(&player),
+            preview: PreviewCapture {
+                skin: None,
+                pose: Default::default(),
+                shown: false,
+                hands: false,
+            },
+            item_icons: (None, None),
+            now_millis: now,
+            physical_size: [2560, 1440],
+            dpi_scale: DpiScale::new(2.0).unwrap(),
+        };
+        let captured = started.elapsed();
+        let input = render_prepared_ui(&player, &mut runtime, &mut presentation, prepared).unwrap();
+        let built = started.elapsed();
+        presentation.set_nametag_anchors(anchors.clone());
+        let _tags = presentation.nametag_scene();
+        let tagged = started.elapsed();
+        scene.publish(input, &stats).unwrap();
+        let published = started.elapsed();
+        if sample > 0 {
+            for (stage, elapsed) in stages.iter_mut().zip([
+                captured,
+                built - captured,
+                tagged - built,
+                published - tagged,
+            ]) {
+                stage.push(elapsed);
+            }
+        }
+    }
+    for (name, samples) in ["capture", "build", "nametags", "publish"]
+        .into_iter()
+        .zip(&mut stages)
+    {
+        samples.sort_unstable();
+        let mean = samples.iter().sum::<Duration>() / samples.len() as u32;
+        eprintln!(
+            "LOBBY_PUBLICATION stage={name} mean_ms={:.3} median_ms={:.3} p99_ms={:.3}",
+            mean.as_secs_f64() * 1e3,
+            samples[(samples.len() - 1) / 2].as_secs_f64() * 1e3,
+            samples[(samples.len() - 1) * 99 / 100].as_secs_f64() * 1e3
+        );
+    }
+}
