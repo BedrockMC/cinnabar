@@ -573,6 +573,32 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert_eq!((sizes[0].as_str(), ids[0].as_str()), ("14", "Some(41)"));
 }
 
+/// Only a throw of the last item, predicted or authoritative, reports its slot and revision, once.
+#[test]
+fn throwing_the_last_item_reports_its_emptied_slot() {
+    let snowballs = |tick, count| UseFrame {
+        inventory_revision: Some(7),
+        ..item_frame(tick, false, stack(3, SNOWBALL, count), "minecraft:snowball")
+    };
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    assert!(runtime.step(&snowballs(100, 2)).swung);
+    assert_eq!(runtime.take_emptied_slot(), None);
+    // The server has not restated the slot, so this throws the predicted last snowball.
+    runtime.observe_press(true);
+    assert!(runtime.step(&snowballs(110, 2)).swung);
+    assert_eq!(runtime.take_emptied_slot(), Some((3, 7)));
+    assert_eq!(runtime.take_emptied_slot(), None);
+
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    runtime.step(&UseFrame {
+        creative: true,
+        ..snowballs(100, 1)
+    });
+    assert_eq!(runtime.take_emptied_slot(), None);
+}
+
 /// Creative throws swing but change no stack, so they carry no action or legacy request.
 #[test]
 fn a_creative_throw_reports_no_inventory_change() {
