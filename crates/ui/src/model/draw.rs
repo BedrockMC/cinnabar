@@ -1,8 +1,8 @@
 use crate::{BedrockColor, GlyphQuad, UiLimits, UiPoint, UiRect};
 
 use super::{
-    TextEffects, TextShadow, UiBlendMode, UiDrawBatch, UiError, UiVertex, UiVisual,
-    UiWorldProjection,
+    TextEffects, TextShadow, UI_STYLE_BILINEAR, UiBlendMode, UiDrawBatch, UiError, UiVertex,
+    UiVisual, UiWorldProjection,
 };
 
 mod mesh;
@@ -314,6 +314,7 @@ fn emit_text(
                 uv,
                 page,
                 glyph_color,
+                u8::from(layout.linear_sampling()) * UI_STYLE_BILINEAR,
                 shear,
                 bold_offset,
                 rotation,
@@ -368,6 +369,7 @@ fn emit_text_glyph(
     uv: [u16; 4],
     page: u16,
     color: [u8; 4],
+    style_flags: u8,
     shear: f32,
     bold_offset: Option<f32>,
     rotation: Option<Rotation>,
@@ -399,7 +401,7 @@ fn emit_text_glyph(
             uv_corners,
             page,
             color,
-            0,
+            style_flags,
             UiBlendMode::Alpha,
             clip,
             vertices,

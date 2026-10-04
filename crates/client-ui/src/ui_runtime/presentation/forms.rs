@@ -28,6 +28,7 @@ pub mod menu_latency;
 pub mod menu_screens;
 pub mod menus;
 pub mod mod_hud;
+pub mod mod_panel;
 pub mod model;
 pub mod npc;
 pub mod oreui;
@@ -117,6 +118,7 @@ pub(super) struct FormPresentation {
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
     player_list: Option<player_list::PlayerList>,
+    mod_panel: Option<mod_panel::ModPanel>,
     experience: Option<experience::ExperienceChrome>,
     /// The last container screen's layout; carried across the per-frame reset.
     container_cache: Option<containers::ScreenCache>,
@@ -429,6 +431,7 @@ impl UiPresentationRuntime {
             hud: state.hud,
             mod_hud: state.mod_hud,
             player_list: state.player_list,
+            mod_panel: state.mod_panel,
             experience: state.experience,
             container_cache: state.container_cache,
             book_cache: state.book_cache,

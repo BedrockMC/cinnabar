@@ -13,7 +13,7 @@ use crate::{runtime::world::ClientWorld, semantic_controls::SemanticInputSnapsho
 pub(super) struct GameplayContext<'w> {
     world: Option<Res<'w, ClientWorld>>,
     view: Option<ResMut<'w, LocalViewPose>>,
-    input: Option<Res<'w, SemanticInputSnapshot>>,
+    input: Option<ResMut<'w, SemanticInputSnapshot>>,
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
@@ -23,7 +23,7 @@ impl GameplayContext<'_> {
     /// No snapshot exists outside captured gameplay or without explicit grants.
     pub(super) fn snapshot(&self, allowed: bool, grants: ModGrants) -> Option<GameplaySnapshot> {
         if !allowed
-            || !(grants.players || grants.camera)
+            || !(grants.players || grants.camera || grants.interaction)
             || self
                 .auto_fly
                 .as_ref()
@@ -35,6 +35,7 @@ impl GameplayContext<'_> {
         {
             return None;
         }
+        let input = self.input.as_ref()?.snapshot()?;
         let authority = self.world.as_ref()?.stream.as_ref()?.authority();
         let view = self.view.as_ref()?;
         let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
@@ -54,10 +55,7 @@ impl GameplayContext<'_> {
                 .time
                 .as_ref()
                 .map_or(0.0, |time| time.delta_secs().clamp(0.0, 1.0)),
-            attack_held: self
-                .input
-                .as_ref()
-                .is_some_and(|input| input.phase(semantic_input::Action::Attack).held),
+            attack_held: input.phases[semantic_input::Action::Attack as usize].held,
             players,
         })
     }
@@ -67,6 +65,12 @@ impl GameplayContext<'_> {
         if let Some(view) = self.view.as_mut() {
             apply_delta(view, delta);
         }
+    }
+
+    pub(super) fn pulse_attack(&mut self) -> bool {
+        self.input
+            .as_mut()
+            .is_some_and(|input| input.request_mod_attack_press())
     }
 }
 
