@@ -1,4 +1,4 @@
-//! Visual state for edit boxes whose text is owned by the launcher.
+//! Visual state for edit boxes whose text is owned by the host's editors.
 
 use super::ScreenArt;
 use crate::menu::{MenuField, MenuView};
@@ -9,6 +9,12 @@ pub(in super::super) struct Feedback {
 }
 
 impl Feedback {
+    pub(in super::super) fn from_chat(editor: &ui::ChatEditor) -> Self {
+        Self {
+            selection: editor.selection().map(|range| [range.start, range.end]),
+        }
+    }
+
     /// Uses the launcher's editor selection; its shared caret state owns blink and placement.
     pub(in super::super) fn from_view(view: &MenuView) -> Option<Self> {
         match view.field? {
