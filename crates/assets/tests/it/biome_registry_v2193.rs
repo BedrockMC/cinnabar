@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use assets::read_biome_registry;
 use sha2::{Digest, Sha256};
 
-const REGISTRY: &[u8] = include_bytes!("../data/biome-registry-v2193.bin");
-const ALLOWLIST: &str = include_str!("../../protocol/data/retail_biomes_1_26_50.txt");
+const REGISTRY: &[u8] = include_bytes!("../../data/biome-registry-v2193.bin");
+const ALLOWLIST: &str = include_str!("../../../protocol/data/retail_biomes_1_26_50.txt");
 
 #[test]
 fn checked_in_v2193_biome_registry_exactly_matches_the_retail_allowlist() {
@@ -13,7 +13,7 @@ fn checked_in_v2193_biome_registry_exactly_matches_the_retail_allowlist() {
     assert_eq!(
         format!("{:x}", Sha256::digest(REGISTRY)),
         serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../../assets/bedrock-target.json"
+            "../../../../assets/bedrock-target.json"
         ))
         .unwrap()["hashes"]["biome_registry"]
             .as_str()

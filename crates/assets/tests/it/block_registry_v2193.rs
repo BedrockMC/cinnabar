@@ -4,9 +4,9 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
-const BREG: &[u8] = include_bytes!("../data/block-registry-v2193.bin");
-const LREG: &[u8] = include_bytes!("../data/block-light-registry-v2193.bin");
-const LEGACY_BREG: &[u8] = include_bytes!("../data/block-registry-v1001.bin");
+const BREG: &[u8] = include_bytes!("../../data/block-registry-v2193.bin");
+const LREG: &[u8] = include_bytes!("../../data/block-light-registry-v2193.bin");
+const LEGACY_BREG: &[u8] = include_bytes!("../../data/block-registry-v1001.bin");
 
 #[test]
 fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
@@ -24,7 +24,7 @@ fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
     assert_eq!(
         format!("{:x}", Sha256::digest(BREG)),
         serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../../assets/bedrock-target.json"
+            "../../../../assets/bedrock-target.json"
         ))
         .unwrap()["hashes"]["block_registry"]
             .as_str()
@@ -33,7 +33,7 @@ fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
     assert_eq!(
         format!("{:x}", Sha256::digest(LREG)),
         serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../../assets/bedrock-target.json"
+            "../../../../assets/bedrock-target.json"
         ))
         .unwrap()["hashes"]["light_registry"]
             .as_str()

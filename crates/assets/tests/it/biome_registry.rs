@@ -1,7 +1,7 @@
 use assets::read_biome_registry;
 use sha2::{Digest, Sha256};
 
-const REGISTRY: &[u8] = include_bytes!("../data/biome-registry-v1001.bin");
+const REGISTRY: &[u8] = include_bytes!("../../data/biome-registry-v1001.bin");
 
 #[test]
 fn checked_in_biome_registry_is_the_exact_retail_projection() {
