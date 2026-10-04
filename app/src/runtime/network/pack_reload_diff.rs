@@ -118,6 +118,16 @@ fn dependency_fingerprint(
                         populated = true;
                     }
                 }
+                PackDependency::DirectoryWithSuffixes { prefix, suffixes } => {
+                    for path in pack.files_under(prefix) {
+                        if suffixes.iter().any(|suffix| path.ends_with(suffix)) {
+                            layer.update([3]);
+                            hash_part(&mut layer, prefix.as_bytes());
+                            hash_part(&mut layer, path.as_bytes());
+                            populated = true;
+                        }
+                    }
+                }
                 PackDependency::Contents(prefix) => {
                     for path in pack.files_under(prefix) {
                         layer.update([2]);
