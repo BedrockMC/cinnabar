@@ -97,7 +97,7 @@ fn run(
         .zip(&selection.run)
         .filter_map(|(step, run)| run.then_some(step))
         .collect();
-    let exec = runner::ProcessExec {
+    let exec = runner::StepExec {
         workspace: workspace.clone(),
         kit,
         log,

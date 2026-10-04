@@ -388,11 +388,13 @@ dependencies = [
  "clap",
  "image",
  "pack-compiler",
+ "reqwest",
  "same-file",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -401,11 +403,15 @@ version = "0.1.4"
 dependencies = [
  "bitflags 2.13.0",
  "lewton",
+ "rayon",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+ "windows-sys 0.61.2",
+ "zip",
 ]
 
 [[package]]

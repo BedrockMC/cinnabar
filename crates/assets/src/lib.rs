@@ -44,6 +44,7 @@ mod sound_events;
 mod stair;
 mod texture;
 mod ui;
+pub mod vanilla_pack;
 mod vanilla_refs;
 mod weather_textures;
 

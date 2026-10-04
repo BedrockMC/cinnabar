@@ -962,10 +962,7 @@ fn diagnostic_top_reporting_is_bounded_and_deterministic() {
 
 #[test]
 fn documented_commands_target_only_ignored_local_asset_paths() {
-    assert_eq!(
-        FETCH_COMMAND,
-        "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula"
-    );
+    assert_eq!(FETCH_COMMAND, "make vanilla-assets");
     assert_eq!(
         COMPILE_COMMAND.as_str(),
         format!(

@@ -41,8 +41,7 @@ pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
 pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
-pub const FETCH_COMMAND: &str =
-    "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
+pub const FETCH_COMMAND: &str = "make vanilla-assets";
 pub static COMPILE_COMMAND: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!(
         "cargo run -p asset-compiler --bin assetc -- compile --pack {} \
