@@ -5,6 +5,8 @@
 
 use sim::{CollisionWorld, MovementMode, Vec3, WorldQueryError, pose_fits};
 
+mod swimming_trigger;
+
 /// What the local player is mounted on; only the steering-relevant classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RideKind {
@@ -56,6 +58,8 @@ pub struct ModeIntent {
     /// Boot enchantment levels the simulator reads.
     pub depth_strider: u8,
     pub soul_speed: u8,
+    /// Native sprint-stop request caused by unavailable/low hunger without flight permission.
+    pub swim_hunger_blocked: bool,
 }
 
 /// Per-tick simulation facts read before the tick runs.
@@ -67,7 +71,13 @@ pub(super) struct ModeObservation {
     pub in_water: bool,
     pub in_lava: bool,
     pub sprinting: bool,
-    pub moving_forward: bool,
+    pub move_sideways: f32,
+    pub move_forward: f32,
+    pub sneaking: bool,
+    pub pitch: f32,
+    pub yaw: f32,
+    /// Retained pre-tick pose offset, shared with swimming steering and replay.
+    pub liquid_attach_height: f32,
     pub jumping: bool,
     /// A fresh jump press arrived this tick.
     pub jump_edge: bool,
@@ -78,22 +88,41 @@ pub(super) struct ModeObservation {
 pub(super) struct ModeChoice {
     pub mode: MovementMode,
     pub forced_sneak: bool,
+    pub sprinting: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
     last_server_flying: bool,
+    sprinting: bool,
+    sneaking: bool,
 }
 
 impl ModeTracker {
     pub(super) fn reset(&mut self) {
-        self.mode = MovementMode::Walking;
-        self.last_server_flying = false;
+        *self = Self::default();
     }
 
     pub(super) const fn mode(&self) -> MovementMode {
         self.mode
+    }
+
+    pub(super) fn contact_height(&self) -> f64 {
+        self.mode.hitbox_height(self.sneaking)
+    }
+
+    pub(super) const fn sneaking(&self) -> bool {
+        self.sneaking
+    }
+
+    pub(super) const fn sprinting(&self) -> bool {
+        self.sprinting
+    }
+
+    pub(super) fn restore_controls(&mut self, sprinting: bool, sneaking: bool) {
+        self.sprinting = sprinting;
+        self.sneaking = sneaking;
     }
 
     /// Restores a retained authoritative mode override during correction replay.
@@ -119,9 +148,12 @@ impl ModeTracker {
         if intent.ride.is_some() {
             self.last_server_flying = intent.server_flying;
             self.mode = MovementMode::Riding;
+            self.sprinting = false;
+            self.sneaking = observed.sneaking;
             return Ok(ModeChoice {
                 mode: MovementMode::Riding,
                 forced_sneak: false,
+                sprinting: false,
             });
         }
         // Server ability edges override locally retained flight.
@@ -136,6 +168,22 @@ impl ModeTracker {
                 }
                 _ => fly_toggle || server_rise,
             };
+        let sampled = sim::Simulator::default().movement_environment(
+            observed.feet,
+            self.mode,
+            self.sneaking,
+            world,
+        )?;
+        let observed = ModeObservation {
+            in_water: sampled.value.in_water,
+            in_lava: sampled.value.in_lava,
+            ..observed
+        };
+        // SprintTrigger runs before SwimTrigger and keeps the previous actor
+        // sprint flag while its previous swimming pose still contacts water.
+        let sprinting =
+            (self.mode == MovementMode::Swimming && observed.in_water && self.sprinting)
+                || (observed.sprinting && observed.move_forward > 0.0 && !observed.sneaking);
         let liquid = observed.in_water || observed.in_lava;
         let gliding = !flying
             && intent.elytra_ready
@@ -145,13 +193,8 @@ impl ModeTracker {
                 MovementMode::Gliding => true,
                 _ => observed.jump_edge && observed.velocity_y < 0.0,
             };
-        // `SwimTriggerSystem` only starts a swim with the head in water.
-        let swimming = !flying
-            && !gliding
-            && observed.in_water
-            && observed.sprinting
-            && observed.moving_forward
-            && (self.mode == MovementMode::Swimming || head_in_water(world, observed.feet)?);
+        let swimming =
+            !flying && !gliding && swimming_trigger::select(self.mode, intent, observed, world)?;
 
         let (mode, forced_sneak) = if intent.ride.is_some() {
             (MovementMode::Riding, false)
@@ -175,22 +218,18 @@ impl ModeTracker {
         };
         self.last_server_flying = intent.server_flying;
         self.mode = mode;
-        Ok(ModeChoice { mode, forced_sneak })
+        self.sneaking = observed.sneaking || forced_sneak;
+        self.sprinting = sprinting
+            && !matches!(
+                mode,
+                MovementMode::Crawling | MovementMode::Gliding | MovementMode::Riding
+            );
+        Ok(ModeChoice {
+            mode,
+            forced_sneak,
+            sprinting: self.sprinting,
+        })
     }
-}
-
-/// Whether the standing eye sits below the water surface of its block.
-fn head_in_water(
-    world: &(impl CollisionWorld + ?Sized),
-    feet: Vec3,
-) -> Result<bool, WorldQueryError> {
-    let eye_y = feet.y + f64::from(protocol::STANDING_PLAYER_EYE_HEIGHT);
-    let block = [feet.x, eye_y, feet.z].map(|axis| axis.floor() as i32);
-    let sample = world.block_physics(block)?;
-    Ok(sample.layers.iter().any(|facts| {
-        facts.flags.contains(sim::BlockPhysicsFlags::WATER)
-            && eye_y < f64::from(block[1]) + facts.fluid_height_blocks
-    }))
 }
 
 #[cfg(test)]
@@ -202,6 +241,15 @@ mod tests {
     struct Ceiling(Option<f64>);
 
     impl CollisionWorld for Ceiling {
+        fn primary_is_air(
+            &self,
+            block: [i32; 3],
+        ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+            Ok(Some(CollisionQuery::synthetic(
+                self.0.is_none_or(|height| f64::from(block[1]) < height),
+            )))
+        }
+
         fn collision_boxes(
             &self,
             query: Aabb,
@@ -220,6 +268,15 @@ mod tests {
     struct Pool(f64);
 
     impl CollisionWorld for Pool {
+        fn primary_is_air(
+            &self,
+            block: [i32; 3],
+        ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+            Ok(Some(CollisionQuery::synthetic(
+                f64::from(block[1]) >= self.0,
+            )))
+        }
+
         fn collision_boxes(
             &self,
             _query: Aabb,
@@ -251,7 +308,12 @@ mod tests {
             in_water: false,
             in_lava: false,
             sprinting: false,
-            moving_forward: false,
+            move_sideways: 0.0,
+            move_forward: 0.0,
+            sneaking: false,
+            pitch: 0.0,
+            yaw: 0.0,
+            liquid_attach_height: protocol::STANDING_PLAYER_EYE_HEIGHT,
             jumping: false,
             jump_edge: false,
         }
@@ -289,6 +351,7 @@ mod tests {
         let mut tracker = ModeTracker {
             mode: MovementMode::Flying,
             last_server_flying: true,
+            ..ModeTracker::default()
         };
         let intent = ModeIntent {
             can_fly: true,
@@ -315,7 +378,6 @@ mod tests {
         let observed = ModeObservation {
             in_water: true,
             sprinting: true,
-            moving_forward: true,
             ..airborne()
         };
         assert_eq!(
@@ -471,7 +533,10 @@ mod tests {
             ..airborne()
         };
         assert_eq!(
-            pick(&mut tracker, intent, false, wet),
+            tracker
+                .select(intent, false, wet, &Pool(20.0))
+                .unwrap()
+                .mode,
             MovementMode::Walking
         );
 
@@ -513,12 +578,12 @@ mod tests {
     }
 
     #[test]
-    fn sprinting_forward_in_water_swims_and_stops_with_sprint() {
+    fn sprint_starts_swimming_and_continuation_survives_sprint_clear() {
         let mut tracker = ModeTracker::default();
         let swim = ModeObservation {
             in_water: true,
             sprinting: true,
-            moving_forward: true,
+            move_forward: 1.0,
             ..airborne()
         };
         let intent = ModeIntent::default();
@@ -533,12 +598,20 @@ mod tests {
         };
         assert_eq!(
             tracker.select(intent, false, stopped, &deep).unwrap().mode,
+            MovementMode::Swimming
+        );
+        let idle = ModeObservation {
+            move_forward: 0.0,
+            ..stopped
+        };
+        assert_eq!(
+            tracker.select(intent, false, idle, &deep).unwrap().mode,
             MovementMode::Walking
         );
     }
 
     #[test]
-    fn a_gap_too_low_to_stand_or_sneak_in_squeezes_a_swimmer_into_crawling() {
+    fn a_swimmer_retains_its_horizontal_pose_until_standing_fits() {
         let mut tracker = ModeTracker {
             mode: MovementMode::Swimming,
             ..ModeTracker::default()
@@ -551,7 +624,7 @@ mod tests {
         let low = tracker
             .select(ModeIntent::default(), false, observed, &Ceiling(Some(1.0)))
             .unwrap();
-        assert_eq!(low.mode, MovementMode::Crawling);
+        assert_eq!(low.mode, MovementMode::Swimming);
         let open = tracker
             .select(ModeIntent::default(), false, observed, &Ceiling(None))
             .unwrap();
@@ -594,7 +667,7 @@ mod tests {
         let sprinting = ModeObservation {
             in_water: true,
             sprinting: true,
-            moving_forward: true,
+            move_forward: 1.0,
             ..airborne()
         };
         let shallow = Pool(10.9);

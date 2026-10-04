@@ -3824,12 +3824,33 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Touch parity remains an explicit open closure item. Its owner-deprioritized witness does
   not gate the Phase 3 scenario verdict, and a passing candidate run does not close touch.
   **Provisional (incomplete, closes no acceptance gate):** sprint latch/double-tap/toggle
-  options, forced sneak and crawl under low ceilings, ability flight, pose-swimming and elytra
-  gliding are client-selected simulator modes whose coefficients (fly/swim/glide constants,
-  double-tap window, scaffolding descent) have no oracle and need native measurement. Wire
-  edges for swim/glide/crawl/fly and `PersistSneak`/`Ascend`/`Descend` semantics are unverified
-  against a native client. Flight, swim and glide follow the public movement-physics notes'
-  BedSim candidates (still unvalidated for 1.26.30). Honey jump/slide, soul speed and depth
+  options, forced sneak and crawl under low ceilings, mode entry/exit timing, elytra
+  gliding, the double-tap window and scaffolding descent still need native measurement.
+  **Flight and liquid correction (2026-10-04, full parity gate remains incomplete):**
+  the current mcsrc client and matching PE identify independent flight vertical drag,
+  creative hover before movement, sprint water drag, independent water vertical drag,
+  held liquid ascent/descent and swimming pitch steering. The simulator now implements
+  those ordinary-player paths with source-derived float regressions. Keyboard input now
+  carries the missing processed `WantUp`/`WantDown` lanes read by the current server
+  movement handler; in-session position snaps preserve the locomotion tracker. Swimming
+  upward steering samples the primary liquid material at the tick-captured pose eye anchor.
+  Desktop swim entry now checks head water and view direction; continuation follows the
+  native input, hunger, surface and standing-space conditions rather than requiring sprint
+  or forward input. Body sensing uses the current position and previous pose. Liquid ledge
+  escape uses the resolved pose box for swimming as well as ordinary water/lava travel,
+  and retained dry swimming uses ordinary travel. Prediction and correction replay retain
+  the native swim blend and previous pose flag, with blend updates before swim triggers and
+  transition jump suppression. Standing-space probes use the native box inset.
+  See `docs/reference/flight-control-corrections.md` and
+  `docs/reference/liquid-movement.md` and `docs/reference/swimming-trigger.md` for identified
+  bodies and boundaries. Touch and stalled-entry swim predicates, the seven-tick flight
+  trigger versus our wall-time approximation,
+  liquid currents, specialized jump paths, bubble columns, custom movement components and
+  complete waterlogged/surface behavior remain open. Controlled live results are recorded
+  separately; source-derived regressions alone close no acceptance gate. Wire edges for
+  swim/glide/crawl/fly and `PersistSneak` still need complete native input comparisons.
+  Glide retains the public movement-physics notes' provisional BedSim equations.
+  Honey jump/slide, soul speed and depth
   strider coefficients are provisional (honey and soul speed have no public value). Riding
   suspends player physics and streams steering input with boat paddle flags; rider seat
   following, client-predicted vehicles (`IsInClientPredictedVehicle`), horse jump wire

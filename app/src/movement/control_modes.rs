@@ -46,6 +46,9 @@ pub(crate) struct ControlObservation {
     pub sprint_blocked: bool,
     /// Ability flight is active, where sneak means descend and never latches.
     pub flying: bool,
+    /// Native SprintTrigger cannot stop an existing sprint while the previous
+    /// swimming pose has current body-water contact.
+    pub retain_sprint: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -66,6 +69,11 @@ pub(crate) struct ControlModes {
 impl ControlModes {
     pub(crate) fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    /// Adopts the completed fixed tick's actor flag without changing toggle intent.
+    pub(crate) fn adopt_tick_sprinting(&mut self, sprinting: bool) {
+        self.sprinting = sprinting;
     }
 
     /// Adopts server-authored sprint/sneak states; the next local transition still wins.
@@ -103,7 +111,7 @@ impl ControlModes {
         if observed.toggle_sprint {
             if observed.sprint_pressed {
                 self.sprint_toggled = !self.sprint_toggled;
-                if !self.sprint_toggled {
+                if !self.sprint_toggled && !observed.retain_sprint {
                     self.sprinting = false;
                 }
             }
@@ -114,7 +122,9 @@ impl ControlModes {
         // The 26.30 sprint trigger has no wall-collision stop, so a wall never drops sprint.
         let can_sprint = moving_forward && !sneaking && !observed.sprint_blocked;
         if !can_sprint {
-            self.sprinting = false;
+            if !observed.retain_sprint {
+                self.sprinting = false;
+            }
         } else if (observed.sprint_held && !observed.toggle_sprint)
             || double_tap
             || self.sprint_toggled
@@ -160,6 +170,64 @@ mod tests {
         assert!(modes.update(frame(50, 1.0)).sprint_request);
         assert!(!modes.update(frame(100, 0.0)).sprint_request);
         assert!(!modes.update(frame(900, 1.0)).sprint_request);
+    }
+
+    #[test]
+    fn wet_swimming_retains_sprint_until_the_native_stop_path_is_available() {
+        let mut modes = ControlModes::default();
+        assert!(
+            modes
+                .update(ControlObservation {
+                    sprint_held: true,
+                    ..frame(0, 1.0)
+                })
+                .sprint_request
+        );
+        for (millis, forward, sneak, blocked) in [
+            (50, -1.0, false, false),
+            (100, 0.0, false, false),
+            (150, 1.0, true, false),
+            (200, 1.0, false, true),
+        ] {
+            assert!(
+                modes
+                    .update(ControlObservation {
+                        retain_sprint: true,
+                        sneak_held: sneak,
+                        sprint_blocked: blocked,
+                        ..frame(millis, forward)
+                    })
+                    .sprint_request
+            );
+        }
+        assert!(!modes.update(frame(250, -1.0)).sprint_request);
+        // Retention inhibits stopping; it cannot create an invalid new start.
+        assert!(
+            !modes
+                .update(ControlObservation {
+                    retain_sprint: true,
+                    sprint_held: true,
+                    ..frame(300, -1.0)
+                })
+                .sprint_request
+        );
+    }
+
+    #[test]
+    fn completed_sprint_state_does_not_replace_toggle_intent() {
+        let mut modes = ControlModes::default();
+        modes.adopt_tick_sprinting(true);
+        assert!(!modes.sprint_toggled);
+        assert!(
+            modes
+                .update(ControlObservation {
+                    retain_sprint: true,
+                    ..frame(50, -1.0)
+                })
+                .sprint_request
+        );
+        modes.adopt_tick_sprinting(false);
+        assert!(!modes.update(frame(100, 1.0)).sprint_request);
     }
 
     #[test]

@@ -24,6 +24,9 @@ pub(super) struct LocalMovementFacts {
     pub depth_strider: u8,
     pub soul_speed: u8,
     pub sprint_blocked: bool,
+    /// Native swim continuation stops without usable food above the sprint floor,
+    /// unless the movement abilities permit flight.
+    pub swim_hunger_blocked: bool,
 }
 
 pub(super) fn read(
@@ -41,6 +44,11 @@ pub(super) fn read(
             .and_then(|stack| stack.identifier)
             .is_some_and(|identifier| &*identifier == ELYTRA_IDENTIFIER);
     let capabilities = player.facts.game_mode_capabilities();
+    let can_fly = capabilities.is_some_and(|capabilities| capabilities.can_fly);
+    let hunger_below_floor = player.facts.hunger().map(|hunger| {
+        u32::from(hunger.current())
+            <= u32::from(SPRINT_HUNGER_FLOOR) * u32::from(hunger.scale())
+    });
     let boots_level = |id| protocol::item_enchantment_level(&boots.extra_data, id).unwrap_or(0);
     let ride = player.facts.mount_unique_id().map(|unique| {
         stream
@@ -58,7 +66,7 @@ pub(super) fn read(
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
-        can_fly: capabilities.is_some_and(|capabilities| capabilities.can_fly),
+        can_fly,
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
         fly_speed: player.facts.local_abilities().and_then(|update| {
             flight_speed(update, ability_bit::FLY_SPEED, |layer| layer.fly_speed_bits)
@@ -72,11 +80,9 @@ pub(super) fn read(
         elytra_ready,
         depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
         soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
+        swim_hunger_blocked: !can_fly && hunger_below_floor.unwrap_or(true),
         sprint_blocked: (player.facts.survival_stats_visible()
-            && player
-                .facts
-                .hunger()
-                .is_some_and(|hunger| hunger.current() <= SPRINT_HUNGER_FLOOR))
+            && hunger_below_floor == Some(true))
             || item_in_use,
     }
 }
