@@ -335,7 +335,9 @@ fn compiler_emits_exact_compact_bee_housing_cubes_for_all_states_and_network_mod
         assert_eq!(visual.kind, VisualKind::Cube);
         assert_eq!(
             visual.flags,
-            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+            BlockFlags::CUBE_GEOMETRY
+                | BlockFlags::OCCLUDES_FULL_FACE
+                | BlockFlags::FIRE_TOP_SUPPORT
         );
         assert_eq!(visual.model_template, assets::NO_MODEL_TEMPLATE);
         assert_eq!(visual.variant, 0);
