@@ -1,5 +1,19 @@
 # Rust Bedrock Client (Bevy + Go Core) — Master Implementation Plan
 
+2026-10-04 Lifeboat skylight investigation (incomplete): the supplied session
+trace confirms zero solved sky light but does not identify the blocked input.
+Offline chunk-pipeline fixtures already produce sky light 15 when inline upper
+slots are omitted, both over empty space and over opaque terrain. Limited and
+limitless request fixtures also pass with all-air, empty-success and
+out-of-bounds replies. These fixtures do not reproduce the reported failure;
+no lighting behavior has been changed and the parity gate remains open.
+The trace's `Air` samples describe the camera's non-liquid medium, not the
+block's identity or light filter. Its sampled stale jobs were rejected because
+their revisions changed. An offline capture of the failing column's packet
+mode, palette and contents, or equivalent block/filter and column-light
+diagnostics, is still needed to distinguish a missing sky source from filtering
+above or at the sampled cells. No public server or account was used.
+
 2026-10-03 current checkpoint (in progress; locally committed, not pushed):
 accumulated work and follow-up fixes are committed through `97dccfb3`, including
 the dev integration through `58141bc6` and its chunk-pipeline and pack-compiler
