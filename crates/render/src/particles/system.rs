@@ -58,7 +58,6 @@ pub struct ParticleSystem {
     boxes: Vec<[f32; 6]>,
     /// Requests dropped for an unknown effect, distance or a full emitter table.
     pub dropped_spawns: u64,
-    pub daylight: f32,
 }
 
 impl ParticleSystem {
@@ -68,7 +67,6 @@ impl ParticleSystem {
         Self {
             library: EffectLibrary::from_assets(assets),
             atlas: ParticleAtlas::from_assets(assets),
-            daylight: 1.0,
             ..Self::default()
         }
     }

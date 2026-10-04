@@ -4,6 +4,9 @@ The selected-item name uses Bedrock's JSON-UI factory and label template. Its
 placement is the repository's approved Java-look HUD exception, not a claimed
 native Bedrock pixel placement. Server HUD overrides retain their own templates.
 
+Stack-name precedence, custom formatting and slot-change refresh behavior are
+documented in [Stack display names](item-display-names.md).
+
 ## Native references
 
 - The resource pack pinned by `assets/vanilla-source.json`, `ui/hud_screen.json`:

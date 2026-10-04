@@ -9,10 +9,9 @@ use bevy::prelude::{
 use client_world::{ActorStatusNotice, CommittedParticleEvent, WorldStream};
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render::{
-    AtmosphereFrame, LevelParticle, ParticleGpuFrame, ParticleSystem, RainSplashQueue,
-    SpawnRequest, block_break_request, block_crack_request, classify_level_event,
-    item_icon_request, named_request, parse_molang_variables, particle_view, terrain_request,
-    update_particle_frame,
+    LevelParticle, ParticleGpuFrame, ParticleSystem, RainSplashQueue, SpawnRequest,
+    block_break_request, block_crack_request, classify_level_event, item_icon_request,
+    named_request, parse_molang_variables, particle_view, terrain_request, update_particle_frame,
 };
 
 use super::{
@@ -373,7 +372,6 @@ fn drive_particles(
     mut frame: ResMut<ParticleGpuFrame>,
     client_world: Res<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
-    atmosphere: Res<AtmosphereFrame>,
     cameras: Query<(&Transform, &Projection), With<FlyCamera>>,
     icons: Option<Res<ParticleIcons>>,
     splashes: Option<ResMut<RainSplashQueue>>,
@@ -415,7 +413,6 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     system.set_camera(view.position);
-    system.daylight = atmosphere.daylight();
     ambient.drive(
         time.delta(),
         &view,

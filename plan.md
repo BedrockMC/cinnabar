@@ -4564,12 +4564,35 @@ the pinned pack's `particles/block_destruct.json`.
 
 The exact particle parity gate stays open for destruction texture/count overrides,
 weighted texture variations, non-cube crack AABBs, mining hit cadence, seasonal tint
-and native ambient lighting. Particles now consume the shared atmosphere daylight
-state rather than deriving a separate sun-angle value.
+and native ambient lighting. The October 4 correction below replaces the separate
+particle brightness approximation with the native RGB lightmap composition.
 Landing and sprint dust are not wired by the current particle adapter. Rain splash
 uses the static particle sprite sheet, as the pinned `particles/rain_splash.json`
 defines. Offline tests or previews do not close the target-platform visual gate;
 no live server connection is authorized for this work.
+
+### Dark item/particle correction (2026-10-04, live accepted)
+
+User-authorized offline BDS testing exposed an extra sRGB encoding of dropped-item
+lighting and a separate scalar particle brightness floor. Items now compose gamma
+texture/tint/overlay and the native byte-quantized `/16` RGB lookup before the final
+Bevy linear-output conversion. Lit particles consume that same world lightmap;
+unlit effects keep their bypass. Sources and remaining item shade/AABB, particle
+solid-neighbor and fog boundaries are recorded in
+[item-particle-lighting.md](docs/reference/item-particle-lighting.md).
+
+The user accepted dropped items, particles and survival mining on macOS/Metal,
+Retina 2× with the rebuilt client. During the earlier test, survival was
+incorrectly taking the creative mining route because Instabuild overrode game mode.
+Current mcsrc selects creative destruction from `Actor::isCreative`, not that
+ability; the narrow capability correction and transition regression are recorded in
+[game-mode-updates.md](docs/reference/game-mode-updates.md). This does not close
+broader ability-layer refresh or historical replay parity. The focused particle
+tests (59), client-world tests (198), and native GPU color regression (60 draws in
+one test) passed. The user explicitly requested stopping the queued verification,
+skipping further checks and pushing directly to remote `dev`; the full pre-push
+gate and PR/CI merge gate were waived, not completed. Complete item/particle
+parity remains open.
 
 ### Zeqa correction audit (2026-10-01, incomplete)
 
@@ -4951,3 +4974,39 @@ open and under investigation; ordinary ice opacity, accepted water lighting,
 and accepted lily-pad appearance have not been adjusted to conceal them.
 The user explicitly requests publishing this checkpoint directly to dev before
 continuing those fixes. This checkpoint does not close full rendering parity.
+
+### Placed player skull lighting (Zeno visual acceptance)
+
+Current SkullBlockRenderer `07bf4760` reads light at the placed skull's integer
+BlockPos through `0213efc0`/`0213ed00`, samples the RGB lightmap at /16 coordinates,
+and submits the `mob_head.skinning` material. Player skulls now retain those
+coordinates, emit rotated world normals for both layers, and use the shared
+actor lighting and gamma-domain composition. This replaces the scalar terrain
+light/face coefficients that could turn the skull completely black.
+Source provenance and the focused mesh/Metal witnesses are recorded in
+`docs/reference/player-skull-lighting.md`.
+
+The first corrected live build still failed the user's check. Source investigation
+also found that the existing carrier rendered current head names as terrain
+fallback models, and description required the legacy SkullType NBT instead of
+selecting by the backing block.
+Current head identities now share one mapping, compile without terrain geometry,
+and select their block-actor model even with missing/stale SkullType.
+
+Zeno's affected heads are custom blocks. Their network light component is the
+compound `{lightLevel: 0}`. The old decoder discarded that zero and the overlay
+defaulted to filter 15, removing the skylight sampled by their inset geometry.
+Current native decoder `0ab69990` confirms the compound field. Dampening now
+retains `lightLevel`; emission retains its distinct `emission` field, with
+network-NBT and explicit-zero overlay regressions.
+
+The user confirmed that skulls render perfectly on `zenomc.org:19132` Zeno
+Practice in the freshly rebuilt Rust client on macOS/Metal with ordinary
+controls. The initially selected `:19197` external BDS and freecam run do not
+count as acceptance. Seven focused Metal shader/readback tests
+passed, including day/night/torch/darkness, rotation, alpha cutoff and the legacy
+scalar path. The final client build passed. The user explicitly requested stopping
+all task background processes, skipping the remaining verification and pushing
+directly to remote dev; the affected gate and new unit regressions were not run.
+Native hat geometry, other block-entity materials and full version-matched
+rendering parity remain open gates.
