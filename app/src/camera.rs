@@ -228,17 +228,6 @@ pub const fn next_perspective(current: PerspectiveMode) -> PerspectiveMode {
     }
 }
 
-#[must_use]
-pub fn perspective_look_delta(delta: Vec2, perspective: PerspectiveMode) -> Vec2 {
-    // The pinned third_person_front preset declares invert_x_input=true;
-    // neither first person nor the rear orbit does.
-    if perspective == PerspectiveMode::ThirdPersonFront {
-        Vec2::new(-delta.x, delta.y)
-    } else {
-        delta
-    }
-}
-
 /// Computes the unobstructed vanilla preset pose.
 ///
 /// This function deliberately does not shorten the third-person boom: that
@@ -266,15 +255,8 @@ pub fn perspective_pose(
             }
         }
         PerspectiveMode::ThirdPersonFront => {
-            let horizontal_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-            let horizontal_forward = if horizontal_forward == Vec3::ZERO {
-                Vec3::NEG_Z
-            } else {
-                horizontal_forward
-            };
-            let translation = subject_translation + horizontal_forward * THIRD_PERSON_RADIUS_BLOCKS;
-            Transform::from_translation(translation)
-                .looking_at(subject_translation, subject_rotation * Vec3::Y)
+            let translation = subject_translation + forward * THIRD_PERSON_RADIUS_BLOCKS;
+            Transform::from_translation(translation).looking_at(subject_translation, Vec3::Y)
         }
     }
 }
@@ -836,9 +818,12 @@ fn update_look(
         menu.as_ref()
             .map_or(0.0, |menu| menu.spyglass_damping(mode)),
     );
-    let delta = perspective_look_delta(look_delta, settings.perspective());
+    // LocalViewPose stores actor rotation. Lens 26.30 CameraAttachSystem::_handleLookInput
+    // (0x10c316a00) inverts the front preset's polar input in camera space;
+    // UpdatePlayerFromCameraSystemUtil::_updatePlayer (0x1007fdb40) reverses the
+    // rendered forward vector back into actor space. Neither reverses actor yaw.
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
-    let (yaw, pitch) = look_angles(yaw, pitch, delta, Vec2::splat(scale));
+    let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));
     view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
 }
 

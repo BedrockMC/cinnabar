@@ -27,6 +27,7 @@ use ui::UserSettings;
 use world::ChunkKey;
 
 mod cursor_changes;
+mod front_input;
 
 #[derive(Default)]
 struct CameraCollisionFixture {
@@ -262,20 +263,6 @@ fn missing_world_stream_falls_back_to_eye_in_third_person() {
         camera::unavailable_world_perspective_pose(eye, rotation, PerspectiveMode::ThirdPersonBack);
     assert_eq!(pose.translation, eye);
     assert!(pose.rotation.abs_diff_eq(rotation, 1.0e-6));
-}
-
-#[test]
-fn front_camera_uses_positive_horizontal_look_instead_of_pitched_forward() {
-    let subject = Vec3::new(4.0, 20.0, -3.0);
-    let pitched = Quat::from_euler(EulerRot::YXZ, 0.0, 45.0_f32.to_radians(), 0.0);
-
-    let pose = camera::perspective_pose(subject, pitched, PerspectiveMode::ThirdPersonFront);
-
-    assert!(
-        pose.translation
-            .abs_diff_eq(Vec3::new(4.0, 20.0, -7.0), 1.0e-5)
-    );
-    assert!((pose.rotation * Vec3::NEG_Z).dot(Vec3::Z) > 0.999);
 }
 
 #[test]
@@ -764,41 +751,24 @@ fn perspective_cycle_matches_bedrock_settings_order() {
 }
 
 #[test]
-fn front_perspective_inverts_horizontal_orbit_input_only() {
-    let delta = Vec2::new(8.0, -3.0);
-    assert_eq!(
-        camera::perspective_look_delta(delta, PerspectiveMode::FirstPerson),
-        delta
-    );
-    assert_eq!(
-        camera::perspective_look_delta(delta, PerspectiveMode::ThirdPersonBack),
-        delta
-    );
-    assert_eq!(
-        camera::perspective_look_delta(delta, PerspectiveMode::ThirdPersonFront),
-        Vec2::new(-8.0, -3.0)
-    );
-}
-
-#[test]
 fn perspective_poses_orbit_four_blocks_and_face_the_subject() {
     let subject = Vec3::new(4.0, 70.0, -2.0);
     let rotation = Quat::from_euler(EulerRot::YXZ, 0.7, -0.3, 0.0);
     let forward = rotation * Vec3::NEG_Z;
+    let radius = camera::THIRD_PERSON_RADIUS_BLOCKS;
 
     let first = camera::perspective_pose(subject, rotation, PerspectiveMode::FirstPerson);
     assert!(first.translation.abs_diff_eq(subject, 1.0e-6));
     assert!(first.rotation.abs_diff_eq(rotation, 1.0e-6));
 
     let back = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonBack);
-    assert!((back.translation.distance(subject) - 4.0).abs() < 1.0e-5);
-    assert!((back.translation - (subject - forward * 4.0)).length() < 1.0e-5);
+    assert!((back.translation.distance(subject) - radius).abs() < 1.0e-5);
+    assert!((back.translation - (subject - forward * radius)).length() < 1.0e-5);
     assert!((back.rotation * Vec3::NEG_Z).dot((subject - back.translation).normalize()) > 0.999);
 
     let front = camera::perspective_pose(subject, rotation, PerspectiveMode::ThirdPersonFront);
-    let horizontal_forward = Vec3::new(forward.x, 0.0, forward.z).normalize();
-    assert!((front.translation.distance(subject) - 4.0).abs() < 1.0e-5);
-    assert!((front.translation - (subject + horizontal_forward * 4.0)).length() < 1.0e-5);
+    assert!((front.translation.distance(subject) - radius).abs() < 1.0e-5);
+    assert!((front.translation - (subject + forward * radius)).length() < 1.0e-5);
     assert!((front.rotation * Vec3::NEG_Z).dot((subject - front.translation).normalize()) > 0.999);
 }
 
