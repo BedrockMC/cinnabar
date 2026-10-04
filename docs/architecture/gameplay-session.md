@@ -74,9 +74,20 @@ dependencies. Policy regression tests reject production activation, including
 feature aliases. Pure behavior tests move with their owner; tests that exercise
 Bevy, app evidence or transport composition stay in app. No live server is needed.
 
-## Reference scope
+## Vanilla rules and migration scope
 
+This is an ownership migration, not a new vanilla parity claim. Existing behavior
+and provisional limitations remain attached to the moved implementation.
 
+| Area | Retained rule |
+| --- | --- |
+| Item use | Rearm build actions after air use and preserve use, release and completion transactions. |
+| Movement | Preserve MovePlayer handling and player-input construction, including the existing teleport behavior. |
+| Bow charge | Derive charge from remaining use ticks and preserve those values for the presentation adapter. |
+
+The installed vanilla pack is read through the worktree's `.local` symlink.
+`assets/bedrock-samples/v1.26.50.4/full/resource_pack/attachables/bow.json:28`
+defines the bow charge rule. Artwork and presentation are not moved here.
 
 See [local rebuild measurements](../evidence/gameplay-session-build-timings.md).
 

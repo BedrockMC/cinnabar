@@ -1,3 +1,9 @@
+//! Crossbow's client-owned loaded pose, layered over untouched server stacks.
+//!
+//! Vanilla stores the selected projectile in `chargedItem` when charging ends,
+//! including when the use duration runs out. Using the loaded crossbow fires it
+//! and removes that compound. Keeping just that state here avoids inventing
+//! inventory identities or outgoing NBT.
 
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 

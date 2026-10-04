@@ -1,3 +1,6 @@
+//! Per-actor walk cycle, arm swing, and body rotation that vanilla animations read through
+//! queries. Ordinary walking and turning use vanilla constants;
+//! specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
 use super::query::wrap_degrees;
 
 /// Ticks one arm swing takes without haste or fatigue.

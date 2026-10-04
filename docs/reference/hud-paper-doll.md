@@ -47,9 +47,8 @@ bone pose, with a separate full-body UI evaluation independent of the world came
 The UI context sets `query.is_in_ui`, clears `variable.player_x_rotation` and
 leaves the head rotation queries intact. This prevents the first-person hand skeleton from becoming the
 HUD body. The fixed preview yaw corresponds to native body yaw -22.5 degrees;
-head movement remains in the evaluated pose. Current `09c793f0` writes
-`0xc1b40000c1b40000` to the two body-yaw samples and adjusts head yaw to
-`old_head - old_body - 22.5` (the matching PE's VA `15034e710` is -22.5).
+head movement remains in the evaluated pose. Vanilla fixes both body-yaw samples
+at that angle and adjusts head yaw to `old_head - old_body - 22.5`.
 The preview's Y rotation already uses the native yaw direction; negating that
 fixed yaw again reversed the HUD body. It now faces screen-right, toward the
 player's left, while world turns leave its facing fixed and the head keeps its

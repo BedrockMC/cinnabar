@@ -251,6 +251,8 @@ pub fn perspective_pose(
             }
         }
         PerspectiveMode::ThirdPersonFront => {
+            // Vanilla reverse orbit retains the full player look vector;
+            // looking at the player keeps global Y as up.
             let translation = subject_translation + forward * THIRD_PERSON_RADIUS_BLOCKS;
             Transform::from_translation(translation).looking_at(subject_translation, Vec3::Y)
         }
@@ -655,10 +657,9 @@ pub fn update_look(
         facts.as_ref().is_some_and(|facts| facts.spyglass_scoping),
         damping,
     );
-    // LocalViewPose stores actor rotation. Lens 26.30 CameraAttachSystem::_handleLookInput
-    // (0x10c316a00) inverts the front preset's polar input in camera space;
-    // UpdatePlayerFromCameraSystemUtil::_updatePlayer (0x1007fdb40) reverses the
-    // rendered forward vector back into actor space. Neither reverses actor yaw.
+    // LocalViewPose stores actor rotation. Vanilla inverts the front preset's
+    // polar input in camera space, then reverses the rendered forward vector
+    // back into actor space. Neither operation reverses actor yaw.
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));
     view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));

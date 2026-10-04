@@ -14,25 +14,16 @@ These procedures differ for nonlinear bone expressions, including the cosine use
 by walking legs. Start/loop delays, independent instances of a shared clip, and
 specialized motion multipliers also remain incomplete; see [plan.md](../../plan.md).
 
-## Reference identity and evidence
+## Vanilla rules
 
-The current reference is the derived MCSRC client reconstruction `1.26.50.26`, at
-MCSRC revision `da728f0ce4d7a5ae0be443b8abe03119858d923e`. The matching analyzed
-executable has SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`
-and PE image base `0x140000000`. Addresses in the following table are RVAs; emitted
-hashes identify canonical bodies in `current/1.26.50.26/index/functions/*.jsonl`.
-The descriptions are our interpretation of those bodies, not copied reconstruction
-source. Current function names are non-authoritative navigation labels.
-
-
-Named 26.30 `ActorSkeletalAnimationPlayer::applyToPose` (`0x09e87120`),
-`resetAnimation` (`0x09e880e0`), and
-`HardcodedAnimationSystem::doHardcodedAnimation` (`0x05165ba0`) provided the
-navigation leads. The corresponding current bodies and executable data establish
-the behavior and constants reported here.
-
-
+| Area | Rule |
+| --- | --- |
+| Authored clock | Retain `anim_time_update` in the skeletal definition and assign its evaluated result before applying the pose. |
+| Default clock | Use `query.anim_time + query.delta_time` when no time expression is authored. |
+| Clip lifecycle | Apply loop and hold handling to the assigned time; reset the clock and completion state when the player resets. |
+| Controller transitions | Entering a controller state recursively resets its child animation players. |
+| Walking input | Combine horizontal position displacement with horizontal dynamic render-offset displacement. |
+| Motion queries | Expose modified distance and speed using render interpolation. |
 
 ## Time assignment and lifecycle
 
@@ -43,7 +34,7 @@ expression, and **assigns its result** to the stored time. It does not add that
 result as a delta. Loop/hold handling then updates the stored time and exposes it
 to bone-channel Molang through `query.anim_time`.
 
-The current body establishes these endpoint rules:
+Vanilla uses these endpoint rules:
 
 - Reaching or passing the declared length sets the player's finished flag. This
   flag is sticky until reset; reversing the clock below the length does not clear
@@ -105,12 +96,11 @@ modified_distance_moved = D - (1 - alpha) * s
 modified_move_speed = min(lerp(previous_speed, s, alpha), 1)
 ```
 
-The speed getter applies an additional factor of `1.5` for actor flag mask `0x800`.
-The getter's interpolation fraction is at RenderParams offset `0x108`, distinct
-from clip animation time at `0x114` and frame delta at `0x118`. Current Cinnabar
-ordinary-actor queries use tick motion values before the renderer interpolates
-poses; replacing the missing authored clock therefore repairs the phase input but
-does not implement these native render-time getters. No teleport distance cutoff
+The speed getter applies an additional factor of `1.5` for baby actors. Its
+interpolation fraction is distinct from clip animation time and frame delta.
+Current Cinnabar ordinary-actor queries use tick motion values before the renderer
+interpolates poses; replacing the missing authored clock therefore repairs the
+phase input but does not implement these native render-time getters. No teleport distance cutoff
 or teleport-specific native animation reset was established by this investigation.
 
 ## Pack witnesses and carrier rebuilds

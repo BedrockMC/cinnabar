@@ -1,3 +1,4 @@
+//! Clip time assignment before bone evaluation.
 use super::{tick::WeightedClip, *};
 
 #[derive(Clone, Copy, Debug)]

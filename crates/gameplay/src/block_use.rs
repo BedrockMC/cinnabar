@@ -447,6 +447,8 @@ pub fn predicted_placement(
 }
 
 pub fn held_block_store_id(stream: &impl crate::GameplayWorld, item_block: i32) -> Option<u32> {
+    // Vanilla block-item descriptors preserve all runtime-id bits.
+    // Our signed retained field is not a negative-id validity check: hashes may set bit 31.
     let block = u32::from_ne_bytes(item_block.to_ne_bytes());
     if block == 0 || block == u32::MAX {
         return None;
@@ -455,6 +457,10 @@ pub fn held_block_store_id(stream: &impl crate::GameplayWorld, item_block: i32) 
     (resolved != stream.air_block_id()).then_some(resolved)
 }
 
+/// Only a stateless full cube places as the held state itself: oriented, sized
+/// and merging blocks resolve their state from the click, which is not modelled.
+/// Vanilla offsets a nonreplaceable clicked block even when it has the same
+/// type as the held cube, then sets the block locally.
 pub fn placement_state_is_certain(
     full_cube: bool,
     canonical_state: Option<&str>,

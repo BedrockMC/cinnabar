@@ -55,6 +55,7 @@ const SWIM_AMOUNT_STEP: f32 = 0.2;
 const ARM_HEIGHT_STEP: f32 = 0.4;
 const ARM_SWAP_HEIGHT: f32 = 0.1;
 
+// Vanilla applies this modified-speed query multiplier to babies.
 const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
 
 // Gliding divides limb swing by the cubed squared speed over this; needs independent
