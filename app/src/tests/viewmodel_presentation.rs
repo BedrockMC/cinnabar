@@ -81,7 +81,7 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
     );
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
     assert!(runtime.gameplay_hud().offhand_stack().is_none());
-    runtime.begin_session(&mut player_runtime, 2);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
     runtime
         .enqueue_inventory_event(
@@ -119,7 +119,7 @@ fn offhand_empty_provider_preserves_unknown_present_and_actual_authority_routes(
         .unwrap();
     runtime.drain_pending_inventory(&mut player_runtime);
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), Some(true));
-    runtime.begin_session(&mut player_runtime, 3);
+    crate::session::begin_session(&mut runtime, &mut player_runtime, 3);
     assert_eq!(runtime.gameplay_hud().offhand_is_empty(), None);
 }
 
@@ -528,7 +528,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
         Some(HandFallback::ItemsUnknownOrHeld)
     );
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.begin_session(player_runtime, 2);
+        crate::session::begin_session(runtime, player_runtime, 2);
     });
     app.world_mut().run_system_once(observe).unwrap();
     assert_eq!(app.world().resource::<HandAdapter>().stats.mode, None);
@@ -567,7 +567,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
     );
     assert_eq!(app.world().resource::<HandAdapter>().stats.mode, None);
     crate::tests::with_ui_player(&mut app, |runtime, player_runtime| {
-        runtime.begin_session(player_runtime, 3);
+        crate::session::begin_session(runtime, player_runtime, 3);
         runtime
             .publish_local_runtime_id(player_runtime, 3, 1)
             .unwrap();

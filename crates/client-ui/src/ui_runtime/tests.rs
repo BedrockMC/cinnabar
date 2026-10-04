@@ -94,7 +94,8 @@ fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
     assert_eq!(runtime.selected_hotbar_slot(&player_runtime), Some(4));
 
     // A new session clears the local prediction (and every other per-session field).
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert_eq!(runtime.selected_hotbar_slot(&player_runtime), None);
 }
 
@@ -488,7 +489,8 @@ fn session_replacement_clears_receive_side_ui_atomically() {
     assert!(runtime.hud().title().is_some());
     assert_eq!(runtime.boss_bars().stacked().len(), 1);
 
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
 
     assert!(runtime.chat().messages().is_empty());
     assert!(runtime.hud().title().is_none());
@@ -820,7 +822,8 @@ fn block_cracks_are_consumed_in_sequence_and_cleared_on_session_change() {
         Err(UiRuntimeError::StaleBlockCrackSequence { .. })
     ));
 
-    runtime.begin_session(&mut player_runtime, 5);
+    player_runtime.begin_session(5);
+    runtime.begin_session(5);
     assert_eq!(runtime.block_cracks.status().active, 0);
     assert_eq!(runtime.block_cracks.status().consumed, 0);
 }

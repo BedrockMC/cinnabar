@@ -24,13 +24,15 @@ fn mining_negotiation_distinguishes_false_from_unknown_and_resets_by_session() {
         runtime.server_authoritative_block_breaking(&player_runtime),
         Some(false)
     );
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert_eq!(
         runtime.server_authoritative_block_breaking(&player_runtime),
         None
     );
     runtime.install_block_breaking_mode(&mut player_runtime, 2, true, true);
-    runtime.begin_session(&mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
     assert_eq!(
         runtime.server_authoritative_block_breaking(&player_runtime),
         Some(true)
