@@ -7,7 +7,7 @@ use assets::{
 use pack_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 #[test]
 fn entity_rotation_frames_survive_position_only_and_frame_only_bones() {

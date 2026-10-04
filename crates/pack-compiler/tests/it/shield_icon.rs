@@ -2,7 +2,7 @@ use assets::RuntimeIconCatalog;
 use pack_compiler::compile_icon_assets;
 use std::{fs, path::Path};
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);

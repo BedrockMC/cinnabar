@@ -6,7 +6,7 @@ use pack_compiler::{compile_actor_assets, compile_entity_assets};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
-const MANIFEST: &[u8] = include_bytes!("../../../assets/vanilla-source.json");
+const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
 
 #[path = "actor/color_mask.rs"]
 mod color_mask;
