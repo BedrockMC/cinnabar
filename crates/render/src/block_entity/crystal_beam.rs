@@ -138,7 +138,7 @@ mod tests {
         let mut scene = scene();
         let submission = |age_ticks| BlockEntitySubmission {
             block: [0; 3],
-            light: 1.0,
+            light: 1.0.into(),
             kind: BlockEntityKind::CrystalBeam(CrystalBeamModel {
                 target: [0.0; 3],
                 crystal: [0.0, 0.0, 4.0],
