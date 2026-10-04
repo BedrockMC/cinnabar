@@ -14,53 +14,16 @@ These procedures differ for nonlinear bone expressions, including the cosine use
 by walking legs. Start/loop delays, independent instances of a shared clip, and
 specialized motion multipliers also remain incomplete; see [plan.md](../../plan.md).
 
-## Reference identity and evidence
+## Vanilla rules
 
-The current reference is the derived MCSRC client reconstruction `1.26.50.26`, at
-MCSRC revision `da728f0ce4d7a5ae0be443b8abe03119858d923e`. The matching analyzed
-executable has SHA-256
-`7d6cf9b2e4b01fce5d6283cc3deb65b877995a8fd1e146f967d8ac743369d628`
-and PE image base `0x140000000`. Addresses in the following table are RVAs; emitted
-hashes identify canonical bodies in `current/1.26.50.26/index/functions/*.jsonl`.
-The descriptions are our interpretation of those bodies, not copied reconstruction
-source. Current function names are non-authoritative navigation labels.
-
-| Behavior | Current RVA | Canonical emitted body SHA-256 |
-| --- | --- | --- |
-| Authored time expression copied to the skeletal definition | `0x01e3df60` | `6c498d438aef7575e36efa51552abf6eacd1babdee090b20592ca645f91f4a60` |
-| Skeletal definition default clock construction | `0x020e9720` | `a62d534f6e596efc5f0cfdde8b43b63adecbf4ba098349c22e37556ebe552a77` |
-| Skeletal time update, loop handling, and pose application | `0x020ec2c0` | `79adea1fcd03802fb7a9754e4a84528bc984a003b81199f29f241228021b0d66` |
-| Skeletal player reset | `0x020ed2a0` | `ed9f4ce2dc434f80d24985aa04d919b6add87b9392a1ad6860c13478e65bbbc0` |
-| Controller transitions and state application | `0x020f0810` | `af734d711d25c48dfcea8dde3c959716ff1a3cfae1423a868fb33e58784c63c6` |
-| Controller-state recursive player reset | `0x020f4950` | `a3ac2f7583f698f4accdf1dd8247d74fd76c99af839e65cfe624991f2fb908ed` |
-| Modified-distance query getter | `0x024fe160` | `370c969b430494c533648718c7689fbb67502229bac4c9cc08579161fa0238e3` |
-| Modified-speed query getter | `0x024fe200` | `a0e500d0b7e9e96355f7e4949665f03d5cd41061f453c8984131078dedd0e006` |
-| Walk-animation speed and distance update | `0x070c3ef0` | `25f83fe25138bcc673990454ccb2a376263952b132e5b8f961fde7e3093d4263` |
-| State-vector horizontal displacement input | `0x070c4230` | `3e98f9c88c1f0b6cb787ebe0d06bd445fe4011fd512327f7f027fad846ba30c3` |
-| Dynamic-render-offset horizontal displacement addition | `0x070c4890` | `ed134b561aea99d27cb3b8010878edfbdd18bed83a54458d140b3e46cc7231cc` |
-
-Named 26.30 `ActorSkeletalAnimationPlayer::applyToPose` (`0x09e87120`),
-`resetAnimation` (`0x09e880e0`), and
-`HardcodedAnimationSystem::doHardcodedAnimation` (`0x05165ba0`) provided the
-navigation leads. The corresponding current bodies and executable data establish
-the behavior and constants reported here.
-
-Two monolithic registration functions, schema RVA `0x01e153d0` and query
-registration RVA `0x024d3770`, are explicitly unresolved in the reconstruction.
-Their catalog strings alone are not canonical-body evidence. Matching-executable
-inspection completes the links:
-
-- Schema instruction VA `0x141e18475` loads `anim_time_update` from string RVA
-  `0x10632334`. Its callback vtable VA `0x1500dd020` points to the canonical
-  `0x01e3df60`, which stores the expression in skeletal-definition offset `0x70`.
-  The constructor and pose application use this same field.
-- Query registration instructions VAs `0x1424d460d` and `0x1424d46e4` load
-  `query.modified_distance_moved` and `query.modified_move_speed`. Their closure
-  vtables, VAs `0x150109fb0` and `0x150109fe0`, link to canonical getters
-  `0x024fe160` and `0x024fe200` respectively.
-- Skeletal vtable VA `0x1500f2040` links pose application and reset. Controller
-  state vtable VA `0x1500f2160` links its recursive reset. The controller's
-  transition call at VA `0x1420f0b12` invokes the target state's reset slot.
+| Area | Rule |
+| --- | --- |
+| Authored clock | Retain `anim_time_update` in the skeletal definition and assign its evaluated result before applying the pose. |
+| Default clock | Use `query.anim_time + query.delta_time` when no time expression is authored. |
+| Clip lifecycle | Apply loop and hold handling to the assigned time; reset the clock and completion state when the player resets. |
+| Controller transitions | Entering a controller state recursively resets its child animation players. |
+| Walking input | Combine horizontal position displacement with horizontal dynamic render-offset displacement. |
+| Motion queries | Expose modified distance and speed using render interpolation. |
 
 ## Time assignment and lifecycle
 
@@ -71,7 +34,7 @@ expression, and **assigns its result** to the stored time. It does not add that
 result as a delta. Loop/hold handling then updates the stored time and exposes it
 to bone-channel Molang through `query.anim_time`.
 
-The current body establishes these endpoint rules:
+Vanilla uses these endpoint rules:
 
 - Reaching or passing the declared length sets the player's finished flag. This
   flag is sticky until reset; reversing the clock below the length does not clear
@@ -133,12 +96,11 @@ modified_distance_moved = D - (1 - alpha) * s
 modified_move_speed = min(lerp(previous_speed, s, alpha), 1)
 ```
 
-The speed getter applies an additional factor of `1.5` for actor flag mask `0x800`.
-The getter's interpolation fraction is at RenderParams offset `0x108`, distinct
-from clip animation time at `0x114` and frame delta at `0x118`. Current Cinnabar
-ordinary-actor queries use tick motion values before the renderer interpolates
-poses; replacing the missing authored clock therefore repairs the phase input but
-does not implement these native render-time getters. No teleport distance cutoff
+The speed getter applies an additional factor of `1.5` for baby actors. Its
+interpolation fraction is distinct from clip animation time and frame delta.
+Current Cinnabar ordinary-actor queries use tick motion values before the renderer
+interpolates poses; replacing the missing authored clock therefore repairs the
+phase input but does not implement these native render-time getters. No teleport distance cutoff
 or teleport-specific native animation reset was established by this investigation.
 
 ## Pack witnesses and carrier rebuilds

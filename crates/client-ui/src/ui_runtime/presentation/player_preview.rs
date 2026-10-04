@@ -200,8 +200,8 @@ impl PreviewView {
             }
             Self::Doll { yaw, tilt } => [yaw, yaw, 0.0, tilt],
             Self::Hud => {
-                // HudPlayerRenderer (current RVA 09c793f0) fixes both body-yaw
-                // samples. rotate_y already uses the native yaw direction.
+                // Vanilla fixes both HUD body-yaw samples.
+                // rotate_y already uses the native yaw direction.
                 let yaw = -22.5;
                 [yaw, yaw, 0.0, 0.0]
             }

@@ -1,5 +1,5 @@
 //! Per-actor walk cycle, arm swing, and body rotation that vanilla animations read through
-//! queries. Ordinary walking/turning constants follow current-client RVA 070c3ef0;
+//! queries. Ordinary walking and turning use vanilla constants;
 //! specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
 use super::query::wrap_degrees;
 

@@ -1,7 +1,7 @@
 //! Accepted item-use state and atomic same-tick transaction admission.
 //!
-//! Existing behavior follows R:ClientInputCallbacks:5332 and :5899 (build-action
-//! handling and rearm), R:GameMode:3329 (base use), and R:GameMode:4287 (release).
+//! Vanilla item use handles build actions, rearms after air use, and sends use
+//! and release transactions.
 //! Extraction retains the accepted-use timing and transport rollback rules unchanged.
 use crate::{BatchSendError, melee::SwingTracker, mining::FrozenMiningSelection};
 use protocol::{HeldItemRequest, PredictedSlotChange, VerifiedNetworkItemStack};
@@ -353,8 +353,8 @@ impl ItemUseRuntime {
     }
 }
 
-/// RangedWeaponItem::getAnimationFrame (26.50 RVA 034e78f0): the icon follows
-/// the quadratic draw-power curve, independently of the attachable's charge pose.
+/// The ranged-weapon icon follows the quadratic draw-power curve,
+/// independently of the attachable's charge pose.
 pub fn ranged_animation_frame(elapsed: Option<u32>) -> u32 {
     let Some(elapsed) = elapsed else {
         return 0;

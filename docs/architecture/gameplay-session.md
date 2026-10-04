@@ -74,27 +74,20 @@ dependencies. Policy regression tests reject production activation, including
 feature aliases. Pure behavior tests move with their owner; tests that exercise
 Bevy, app evidence or transport composition stay in app. No live server is needed.
 
-## Reference scope
+## Vanilla rules and migration scope
 
-This is an ownership migration, not a new vanilla parity claim. Existing source
-annotations and provisional behavior remain attached to the moved implementation.
-The reference root is
-`~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner`.
+This is an ownership migration, not a new vanilla parity claim. Existing behavior
+and provisional limitations remain attached to the moved implementation.
 
-- **R:ClientInputCallbacks:5899–5901** identifies the existing air-use rearm and
-  `GameMode::baseUseItem` handoff; **R:GameMode:3331** identifies that transaction
-  path. **R:GameMode:4289** and **R:Player:8350** identify release and completion.
-- **R:Player:25129** identifies the MovePlayer handler. Existing current-version
-  annotations retain Lens `Player::handleMovePlayerPacket` RVA `0x00215860` and
-  input construction RVA `0x0435a250`.
-- Source-first Lens searches targeted the reconstructed `1.26.50.26` client.
-  The PlayerAuthInput search returned source-backed records; focused reads of
-  the two existing teleport references reported source unavailable. No new
-  behavior conclusion depends on those unavailable reads.
-- The installed vanilla pack is read through the worktree's `.local` symlink.
-  `assets/bedrock-samples/v1.26.50.4/full/resource_pack/attachables/bow.json:28`
-  derives charge from remaining use ticks. Gameplay preserves those values for
-  the existing presentation adapter; artwork and presentation are not moved here.
+| Area | Retained rule |
+| --- | --- |
+| Item use | Rearm build actions after air use and preserve use, release and completion transactions. |
+| Movement | Preserve MovePlayer handling and player-input construction, including the existing teleport behavior. |
+| Bow charge | Derive charge from remaining use ticks and preserve those values for the presentation adapter. |
+
+The installed vanilla pack is read through the worktree's `.local` symlink.
+`assets/bedrock-samples/v1.26.50.4/full/resource_pack/attachables/bow.json:28`
+defines the bow charge rule. Artwork and presentation are not moved here.
 
 See [local rebuild measurements](../evidence/gameplay-session-build-timings.md).
 

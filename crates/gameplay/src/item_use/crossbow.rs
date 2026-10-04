@@ -1,9 +1,9 @@
 //! Crossbow's client-owned loaded pose, layered over untouched server stacks.
 //!
-//! Native 26.50 `releaseUsing` (RVA 09a157e0) stores the selected projectile in
-//! `chargedItem` through 02785b90/027960e0, including on duration depletion
-//! (09a157a0). `use` (09a13ba0) fires it and removes that compound. Keeping just
-//! that state here avoids inventing inventory identities or outgoing NBT.
+//! Vanilla stores the selected projectile in `chargedItem` when charging ends,
+//! including when the use duration runs out. Using the loaded crossbow fires it
+//! and removes that compound. Keeping just that state here avoids inventing
+//! inventory identities or outgoing NBT.
 
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 

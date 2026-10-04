@@ -1,7 +1,7 @@
 //! Per-tick mining state, destruction prediction and interaction attachment.
 //!
-//! Existing continue-destroy sequencing follows R:GameMode:1251; the explicitly
-//! provisional destroy timings below keep their existing status after extraction.
+//! Held mining continues destruction on each movement tick. The provisional
+//! destroy timings below keep their existing status after extraction.
 use crate::{mining::FrozenMiningSelection, movement::MovementTicker};
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{

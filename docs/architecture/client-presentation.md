@@ -57,23 +57,20 @@ Regression fixtures cover permitted borrowed observations, forbidden ownership,
 renamed dependencies and hidden transitive edges. Existing marker ownership checks
 follow the relocated producers.
 
-## References and validation scope
+## Vanilla rules and validation scope
 
 This change relocates existing behavior; it does not close a vanilla parity gate.
-The first-person presentation source retains its current-client Lens annotations,
-including `0x04fa7e50` for the camera stack, `0x04f9a2e0` for icon placement,
-`0x04f9e2e0` for the offhand route, and `0x14ffa90e0` for texel conversion.
-Source-first Lens searches during this migration found the older reconstructed
-`ItemInHandRenderer` entries. A search restricted to 1.26.50.26 for
-`renderFirstPerson` returned no source, and the current `0x04fa7e50` function read
-reported source unavailable. No new current-client claim relies on that read.
+First-person camera transforms, icon placement, offhand rendering, texture
+tessellation and audio routing retain their existing behavior.
 
-The inspected 26.30 by-owner reconstruction identifies the corresponding
-first-person function at `R:ItemInHandRenderer:15007`, offhand function at
-`R:ItemInHandRenderer:7687`, and texture tessellation at
-`R:TextureTessellator:116`. The retained audio routes correspond to
-`R:SoundEngine:1545` and `R:SoundEngine:1606`. The retained spyglass look path cites
-`R:LocalPlayer:5165`. The installed vanilla pack's
+| Area | Vanilla rule |
+| --- | --- |
+| Front third-person camera | Retain the full player look vector and keep global Y as up when looking at the player. Camera-space input conversion does not reverse actor yaw. |
+| Spyglass look | Reduce scoped turns when the selected input damping exceeds the held item's damping. |
+| Actor candidates | Admit non-player actors inside the camera-centred candidate cube, including its edge. |
+| First-person arms | Determine visibility from both held items. |
+
+The installed vanilla pack's
 `render_controllers/player.render_controllers.json:4` defines first-person arm
 visibility from both held items; that remains the equipment model's reference.
 The installed pack was read through the worktree's `.local` symlink; no carrier or

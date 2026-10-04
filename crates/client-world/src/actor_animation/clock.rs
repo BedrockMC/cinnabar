@@ -1,4 +1,4 @@
-//! Clip time assignment before bone evaluation (current client RVA 020ec2c0).
+//! Clip time assignment before bone evaluation.
 use super::{tick::WeightedClip, *};
 
 #[derive(Clone, Copy, Debug)]
