@@ -124,6 +124,10 @@ impl UiPresentationRuntime {
         let art = ScreenArt {
             now: now_millis as f64 / 1_000.0,
             clocks: Some(&self.scene_clock),
+            view: Some(&view),
+            edit: Some(super::engine::host_edit::Feedback::from_chat(
+                runtime.chat_editor(),
+            )),
             ..ScreenArt::default()
         };
         let screen = &mut chat.screen;
@@ -291,7 +295,7 @@ fn chat_data(
     let editor = runtime.chat_editor();
     let mut content = String::with_capacity(editor.as_str().len() + 1);
     content.push_str(&editor.as_str()[..editor.cursor_byte()]);
-    if (now_millis / CARET_BLINK_MILLIS).is_multiple_of(2) {
+    if editor.selection().is_none() && (now_millis / CARET_BLINK_MILLIS).is_multiple_of(2) {
         content.push('|');
     }
     content.push_str(&editor.as_str()[editor.cursor_byte()..]);

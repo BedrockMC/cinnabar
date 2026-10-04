@@ -44,6 +44,7 @@
             {
               "text_edit_box": {
                 "type": "edit_box",
+                "text_control": "text",
                 "size": [ "100% - 8px", 10 ],
                 "always_listening": true,
                 "default_focus_precedence": 1,
