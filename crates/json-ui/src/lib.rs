@@ -27,6 +27,7 @@ mod json5;
 mod label;
 mod layout;
 mod localize;
+mod lru;
 mod merge;
 mod pack;
 mod predicate;
