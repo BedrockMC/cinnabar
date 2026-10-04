@@ -239,6 +239,7 @@ fn registry_items_named_after_custom_blocks_are_block_items() {
             visual: Default::default(),
         }]
         .into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let pairs = custom_block_items(&game_data, &blocks);

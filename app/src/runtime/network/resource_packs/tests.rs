@@ -381,6 +381,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
             visual: Default::default(),
         }]
         .into(),
+        vanilla_blocks: Default::default(),
         skipped: 0,
     };
     let stack =
