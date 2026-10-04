@@ -53,13 +53,35 @@ pub(crate) struct LauncherCoreSlot {
 }
 
 struct LauncherCore {
-    _guard: CoreProcessGuard, // declared first: the core stops before its directory goes
+    _guard: CoreProcessGuard,
     _directory: SessionDirectoryGuard,
     socket_dir: PathBuf,
     authenticated: bool,
     auth_cache: Option<PathBuf>,
     /// Account and local-world clients are attached once the game socket is up.
     attached: bool,
+}
+
+impl Drop for LauncherCore {
+    fn drop(&mut self) {
+        let stopped = self._guard.stop();
+        #[cfg(unix)]
+        if stopped != super::core_process::CoreStopOutcome::Unreaped {
+            // Long Unix socket paths live outside the owned session directory.
+            for endpoint in [
+                protocol::bridge_endpoint_path(&self.socket_dir),
+                launcher_control::control_endpoint_path(&self.socket_dir),
+            ] {
+                if let Err(error) = std::fs::remove_file(&endpoint)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    bevy::log::warn!("remove core endpoint {}: {error}", endpoint.display());
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = stopped;
+    }
 }
 
 impl LauncherCoreSlot {

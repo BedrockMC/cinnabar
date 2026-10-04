@@ -198,10 +198,9 @@ impl AccountStore {
             .active
             .as_ref()
             .filter(|previous_id| previous_id.as_str() != id)
+            && previous_oauth.is_some()
         {
-            if previous_oauth.is_some() {
-                self.write_credentials(previous_id, &read_credentials(&self.active_cache)?)?;
-            }
+            self.write_credentials(previous_id, &read_credentials(&self.active_cache)?)?;
         }
         let result = (|| {
             replace_optional(
@@ -369,10 +368,10 @@ fn read_credentials(path: &Path) -> io::Result<Credentials> {
 fn validate_credentials(credentials: &Credentials) -> io::Result<()> {
     let oauth: serde_json::Value =
         serde_json::from_str(&credentials.oauth).map_err(|_| invalid("invalid OAuth cache"))?;
-    if !oauth
+    if oauth
         .get("refresh_token")
         .and_then(|value| value.as_str())
-        .is_some_and(|token| !token.is_empty())
+        .is_none_or(|token| token.is_empty())
     {
         return Err(invalid("OAuth cache has no refresh credential"));
     }
