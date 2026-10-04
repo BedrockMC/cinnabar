@@ -13,13 +13,13 @@ fn urgent_mesh_completion_retry_stays_at_the_front() {
     });
     let key = SubChunkKey::new(0, 0, 0, 0);
     let revision = stream.mark_dirty_exact(key, Instant::now());
-    stream.pending_mesh.remove(&key);
-    stream.pending_mesh_scan.clear();
+    stream.mesh_jobs.pending.remove(&key);
+    stream.mesh_jobs.scan.clear();
 
     stream.requeue_current_mesh_completion(key, revision, true);
 
-    assert!(stream.pending_mesh[&key].urgent);
-    assert_eq!(stream.pending_mesh_scan.front(), Some(&(key, revision)));
+    assert!(stream.mesh_jobs.pending[&key].urgent);
+    assert_eq!(stream.mesh_jobs.scan.front(), Some(&(key, revision)));
 }
 
 #[test]
