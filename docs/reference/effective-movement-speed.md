@@ -29,5 +29,12 @@ modifier lists for both. Before this correction it moved at 4.3173 and 7.2959
 blocks/second respectively, applying the sprint factor twice. The regression
 checks ground movement at approximately 4.3173 and 5.6125 blocks/second, preserves
 custom `0.12` movement, and covers packet replacement, modifier removal, metadata
-adoption, session reset, and delayed attribute replay. Live confirmation remains
-required before closing this report's movement parity gate.
+adoption, session reset, and delayed attribute replay.
+
+Live confirmation on Windows, optimized `play` build `fd480811`, joining
+`zenomc.org:19132` on 2026-10-04, measured median ground sprint speed 5.61233
+blocks/second across 102 samples and walk speed 4.31717 across 43 samples.
+The fixed clock measured 20.00175 ticks/second over 26.2977 seconds. Incoming
+movement current still transitioned between `0.1` and `0.13` with empty modifier
+lists; the user also confirmed that sprinting felt normal. This closes the
+reported Zeno ground sprint speed gate.
