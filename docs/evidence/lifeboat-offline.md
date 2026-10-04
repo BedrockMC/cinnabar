@@ -46,6 +46,15 @@ unknown-ID bounds, and raw descriptor preservation in presentation. The original
 admission regression failed with air resolving to mushroom stem before the fix.
 The metadata reproduces byte for byte from the pinned public inputs.
 
-Fresh public-server movement, interaction and transfer acceptance remains in
-progress. The supplied native lobby screenshot is a near-version visual witness,
-not an identical-version parity or performance qualification.
+A fresh macOS/Metal run of build `04d6e1e0` stayed connected for the complete
+300-second acceptance window and sent 6,323 movement samples, with zero decode
+errors, outbound drops or authority stalls. Walking advanced 16.5 blocks down
+the lobby steps; strafing advanced another 8.7 blocks and jumping was exercised.
+Rendered frames show the lobby terrain, signs and actors instead of gray air.
+The window used 1280x720 content pixels at scale 2. Lifeboat reported
+PocketMine-MP 4.23.3+dev and the connection resolved to `135.148.32.47:19132`.
+
+Interaction and transfer acceptance remains in progress. The supplied native
+lobby screenshot is a near-version visual witness, not an identical-version
+parity or performance qualification. Some carrier blocks still use diagnostic
+art; this repair does not close those separate visual support gates.
