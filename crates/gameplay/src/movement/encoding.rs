@@ -86,11 +86,14 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::VERTICAL_COLLISION;
     }
 
-    // Raw jump-button carriers track the physical button exactly.
+    // Raw jump-button carriers track the physical button exactly. Native
+    // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
+    // which the server's 0x0998fe80 reads independently of JumpDown.
     if sample.jumping {
         flags |= PlayerInputFlags::JUMP_DOWN
             | PlayerInputFlags::JUMP_CURRENT_RAW
-            | PlayerInputFlags::JUMPING;
+            | PlayerInputFlags::JUMPING
+            | PlayerInputFlags::WANT_UP;
         if !previous.jumping {
             flags |= PlayerInputFlags::JUMP_PRESSED_RAW;
         }
@@ -103,8 +106,10 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::START_JUMPING;
     }
 
+    // The corresponding processed down lane accompanies held sneak.
     if sample.processed.sneaking {
-        flags |= PlayerInputFlags::SNEAKING | PlayerInputFlags::SNEAK_DOWN;
+        flags |=
+            PlayerInputFlags::SNEAKING | PlayerInputFlags::SNEAK_DOWN | PlayerInputFlags::WANT_DOWN;
         if !previous.sneaking {
             flags |= PlayerInputFlags::START_SNEAKING;
         }

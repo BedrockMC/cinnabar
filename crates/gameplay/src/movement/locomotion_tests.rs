@@ -10,8 +10,9 @@ use sim::{
 use super::integration_tests::VersionedFloor;
 use super::settle_tests::settled_sample;
 use super::{
-    HeldInput, LocalPhysicsController, ModeIntent, PhysicsMovementSample, PhysicsSampleContext,
-    RideKind, input_flags,
+    HeldInput, LocalPhysicsController, ModeIntent, MovementSource, MovementTicker,
+    PhysicsMovementSample, PhysicsSampleContext, RideKind, input_flags,
+    reconcile_candidate_physics_correction,
 };
 
 const TICK: Duration = Duration::from_millis(50);
@@ -48,6 +49,89 @@ fn flight_toggle_survives_a_frame_without_a_tick() {
         &VersionedFloor(1),
     );
     assert_eq!(frame.samples[0].processed.mode, MovementMode::Flying);
+}
+
+/// A spatial correction cannot cancel unacknowledged flight or erase a later server clear.
+#[test]
+fn in_session_snap_preserves_flight_and_server_ability_edges() {
+    for server_flying in [false, true] {
+        let mut physics = grounded_controller();
+        let world = VersionedFloor(1);
+        let mut ticker = MovementTicker::default();
+        ticker.reset(
+            1,
+            physics.state().unwrap().tick,
+            physics.network_position().unwrap(),
+        );
+        ticker.set_source(MovementSource::Physics);
+        let input = MovementInput {
+            jumping: true,
+            ..Default::default()
+        };
+        let intent = ModeIntent {
+            can_fly: true,
+            server_flying,
+            ..Default::default()
+        };
+        let flying = step(
+            &mut physics,
+            input,
+            ModeIntent {
+                fly_toggle: !server_flying,
+                ..intent
+            },
+            &world,
+        );
+        assert_eq!(flying.processed.mode, MovementMode::Flying);
+        ticker.enqueue_completed_physics(flying.clone()).unwrap();
+        let started = ticker.pop_pending().unwrap().snapshot;
+        assert!(has(started.flags, PlayerInputFlags::START_FLYING));
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            flying.position,
+            flying.tick,
+            false,
+            super::PhysicsCorrectionMode::Snap,
+            &world,
+        )
+        .unwrap();
+        assert_eq!(ticker.pending_count(), 0);
+        // Consume the render delta preceding the correction before advancing a fresh tick.
+        let discarded = physics.advance_with_context(
+            Duration::ZERO,
+            input,
+            PhysicsSampleContext {
+                mode_intent: intent,
+                ..Default::default()
+            },
+            &world,
+        );
+        assert!(discarded.samples.is_empty());
+        let continued = step(&mut physics, input, intent, &world);
+        assert_eq!(continued.processed.mode, MovementMode::Flying);
+        ticker.enqueue_completed_physics(continued).unwrap();
+        let flags = ticker.pop_pending().unwrap().snapshot.flags;
+        assert!(!has(flags, PlayerInputFlags::START_FLYING));
+        assert!(!has(flags, PlayerInputFlags::STOP_FLYING));
+        assert!(has(flags, PlayerInputFlags::WANT_UP));
+        if server_flying {
+            let stopped = step(
+                &mut physics,
+                input,
+                ModeIntent {
+                    server_flying: false,
+                    ..intent
+                },
+                &world,
+            );
+            assert_eq!(stopped.processed.mode, MovementMode::Walking);
+            ticker.enqueue_completed_physics(stopped).unwrap();
+            let flags = ticker.pop_pending().unwrap().snapshot.flags;
+            assert!(has(flags, PlayerInputFlags::STOP_FLYING));
+            assert!(!has(flags, PlayerInputFlags::START_FLYING));
+        }
+    }
 }
 
 /// Floor top at y=1 plus a ceiling whose underside sits at the given height.
@@ -158,6 +242,52 @@ fn flight_start_ascend_and_stop_edges_follow_the_simulated_mode() {
     let stop_flags = input_flags(&stop, HeldInput::from(&cruise));
     assert!(has(stop_flags, PlayerInputFlags::STOP_FLYING));
     assert!(!has(stop_flags, PlayerInputFlags::ASCEND));
+}
+
+#[test]
+fn keyboard_vertical_intents_reach_server_flight_controls() {
+    // Current SendPlayerInputPacket 0x070fcfd0 emits processed up/down as
+    // WantUp/WantDown. ServerMoveInputHandler 0x0998fe80 reconstructs them
+    // directly; raw JumpDown/Ascend alone do not populate these control lanes.
+    for (jumping, sneaking, expected) in [
+        (false, false, 0),
+        (true, false, 4),
+        (false, true, 8),
+        (true, true, 12),
+    ] {
+        let mut physics = grounded_controller();
+        let sample = step(
+            &mut physics,
+            MovementInput {
+                jumping,
+                sneaking,
+                ..Default::default()
+            },
+            ModeIntent {
+                can_fly: true,
+                fly_toggle: true,
+                ..Default::default()
+            },
+            &VersionedFloor(1),
+        );
+        assert_eq!(sample.processed.mode, MovementMode::Flying);
+        let flags = input_flags(&sample, HeldInput::default());
+        let server_vertical_controls = (flags.bits() >> 14) & 12;
+        assert_eq!(server_vertical_controls, expected);
+        assert_eq!(has(flags, PlayerInputFlags::WANT_UP), jumping);
+        assert_eq!(has(flags, PlayerInputFlags::WANT_DOWN), sneaking);
+        let released = step(
+            &mut physics,
+            MovementInput::default(),
+            ModeIntent {
+                can_fly: true,
+                ..Default::default()
+            },
+            &VersionedFloor(1),
+        );
+        let released_flags = input_flags(&released, HeldInput::from(&sample));
+        assert_eq!((released_flags.bits() >> 14) & 12, 0);
+    }
 }
 
 #[test]
@@ -430,4 +560,131 @@ fn rider_correction_replay_does_not_start_a_player_jump() {
         );
         assert_ne!(snapshot.flags.bits() & PlayerInputFlags::JUMPING.bits(), 0);
     }
+}
+
+struct PoolFloor(std::cell::Cell<bool>);
+
+impl CollisionWorld for PoolFloor {
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        VersionedFloor(1).collision_boxes(query)
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        let mut sample = VersionedFloor(1).block_physics(block)?;
+        if self.0.get() && block[1] >= 1 {
+            sample.layers[0].flags = sim::BlockPhysicsFlags::from_bits(
+                sample.layers[0].flags.bits() | sim::BlockPhysicsFlags::WATER.bits(),
+            )
+            .unwrap();
+            sample.layers[0].fluid_height_blocks = 1.0;
+        }
+        Ok(sample)
+    }
+
+    fn primary_is_air(
+        &self,
+        block: [i32; 3],
+    ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
+        Ok(Some(CollisionQuery {
+            value: !self.0.get() && block[1] >= 1,
+            identity: self.block_physics(block)?.identity,
+        }))
+    }
+}
+
+#[test]
+fn leaving_water_defers_held_ground_jump_until_native_swim_blend_finishes() {
+    let world = PoolFloor(std::cell::Cell::new(true));
+    let mut physics = grounded_controller();
+    let swim = MovementInput {
+        forward: 1.0,
+        sprinting: true,
+        ..MovementInput::default()
+    };
+    let mut previous = HeldInput::default();
+    for _ in 0..12 {
+        let sample = step(&mut physics, swim, ModeIntent::default(), &world);
+        assert_eq!(sample.processed.mode, MovementMode::Swimming);
+        previous = HeldInput::from(&sample);
+    }
+    assert_eq!(physics.state().unwrap().swim_amount, 1.0);
+    world.0.set(false);
+    // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
+    // the previous swimming flag; decay starts on the following tick.
+    let stopped = step(
+        &mut physics,
+        MovementInput::default(),
+        ModeIntent::default(),
+        &world,
+    );
+    let stopped_flags = input_flags(&stopped, previous);
+    assert!(has(stopped_flags, PlayerInputFlags::STOP_SWIMMING));
+    assert_eq!(physics.state().unwrap().swim_amount, 1.0);
+    previous = HeldInput::from(&stopped);
+    let held_jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let mut stop_edges = 1;
+    let mut takeoffs = 0;
+    for tick in 0..10 {
+        let sample = step(&mut physics, held_jump, ModeIntent::default(), &world);
+        let flags = input_flags(&sample, previous);
+        assert_eq!(sample.processed.mode, MovementMode::Walking);
+        assert!(has(flags, PlayerInputFlags::WANT_UP));
+        stop_edges += usize::from(has(flags, PlayerInputFlags::STOP_SWIMMING));
+        takeoffs += usize::from(has(flags, PlayerInputFlags::START_JUMPING));
+        assert_eq!(sample.processed.jump_initiated, tick == 9);
+        previous = HeldInput::from(&sample);
+    }
+    assert_eq!((stop_edges, takeoffs), (1, 1));
+}
+
+#[test]
+fn in_session_snap_preserves_swimming_blend_and_mode_edges() {
+    let world = PoolFloor(std::cell::Cell::new(true));
+    let mut physics = grounded_controller();
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 100, physics.network_position().unwrap());
+    ticker.set_source(MovementSource::Physics);
+    let input = MovementInput {
+        forward: 1.0,
+        sprinting: true,
+        ..MovementInput::default()
+    };
+    let mut last = None;
+    for _ in 0..3 {
+        let sample = step(&mut physics, input, ModeIntent::default(), &world);
+        ticker.enqueue_completed_physics(sample.clone()).unwrap();
+        ticker.pop_pending().unwrap();
+        last = Some(sample);
+    }
+    let last = last.unwrap();
+    let blend = physics.state().unwrap().swim_amount;
+    assert!(physics.state().unwrap().swim_pose_active);
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        last.position,
+        last.tick,
+        true,
+        super::PhysicsCorrectionMode::Snap,
+        &world,
+    )
+    .unwrap();
+    assert_eq!(physics.state().unwrap().swim_amount, blend);
+    assert!(physics.state().unwrap().swim_pose_active);
+    physics.advance_with_context(
+        Duration::ZERO,
+        input,
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    let next = step(&mut physics, input, ModeIntent::default(), &world);
+    assert_eq!(next.processed.mode, MovementMode::Swimming);
+    assert!(physics.state().unwrap().swim_amount > blend);
+    ticker.enqueue_completed_physics(next).unwrap();
+    let flags = ticker.pop_pending().unwrap().snapshot.flags;
+    assert!(!has(flags, PlayerInputFlags::START_SWIMMING));
+    assert!(!has(flags, PlayerInputFlags::STOP_SWIMMING));
 }

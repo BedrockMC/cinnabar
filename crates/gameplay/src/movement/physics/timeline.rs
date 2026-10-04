@@ -244,6 +244,10 @@ impl LocalPhysicsController {
         if flags.sprinting.is_none() && flags.sneaking.is_none() {
             return;
         }
+        self.modes.restore_controls(
+            flags.sprinting.unwrap_or(self.modes.sprinting()),
+            flags.sneaking.unwrap_or(self.modes.sneaking()),
+        );
         let pending = self.server_control_flags.get_or_insert_default();
         pending.sprinting = flags.sprinting.or(pending.sprinting);
         pending.sneaking = flags.sneaking.or(pending.sneaking);

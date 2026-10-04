@@ -9,6 +9,7 @@ use thiserror::Error;
 
 mod controller_frame;
 mod correction;
+mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
 mod timeline;
@@ -481,6 +482,8 @@ impl LocalPhysicsController {
             input.effects = effects.snapshot();
             input.sprinting = sprint_request;
             input.movement_speed = requested_movement_speed;
+            input.liquid_contact_height = Some(self.modes.contact_height());
+            input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
             let mut mode_error = None;
             let previous_modes = self.modes;
@@ -494,7 +497,12 @@ impl LocalPhysicsController {
                     in_water: self.last_environment.in_water,
                     in_lava: self.last_environment.in_lava,
                     sprinting: sprint_request,
-                    moving_forward: input.forward > 0.0,
+                    move_sideways: input.strafe as f32,
+                    move_forward: input.forward as f32,
+                    sneaking: sneak_request,
+                    pitch: context.pitch,
+                    yaw: input.yaw_degrees as f32,
+                    liquid_attach_height: self.eye_offset.height(1.0),
                     jumping: input.jumping,
                     jump_edge: self.jump_edge_pending,
                 },
@@ -502,20 +510,12 @@ impl LocalPhysicsController {
             ) {
                 Ok(choice) => {
                     input.mode = choice.mode;
+                    input.sprinting = choice.sprinting;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
                 }
                 Err(error) => mode_error = Some(error),
             }
-            if matches!(
-                input.mode,
-                sim::MovementMode::Crawling
-                    | sim::MovementMode::Gliding
-                    | sim::MovementMode::Riding
-            ) {
-                input.sprinting = false;
-            }
-            super::speed_authority::preserve_effective_speed(&mut input, sprint_request);
             // A rider's position is its seat on the mount, not a simulated result.
             let mut ride_delta = None;
             if input.mode == sim::MovementMode::Riding
@@ -546,6 +546,10 @@ impl LocalPhysicsController {
                 state.velocity = overlay.velocity;
             }
             let before = state.position;
+            // Native attach 7 uses the prior tick's pose-adjusted eye anchor.
+            // Retain the height with this input so correction replay samples
+            // the same material cell instead of the rendered interpolation.
+            input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));
             let predicted = match mode_error {
                 Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
                     error,
