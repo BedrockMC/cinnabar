@@ -623,11 +623,6 @@ forbidden_modules = ["bedrock_client"]
 forbidden_crate_modules = ["app", "runtime", "movement", "mining", "item_use", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "block_selection", "block_use", "hotbar", "pick_block", "melee", "survival_mining"]
 forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "AbilitiesUpdate", "PlayerState", "PlayerRuntime"]
 
-[[module_boundaries.ownership_exceptions]]
-path = "crates/client-ui/src/ui_runtime/presentation_snapshot.rs"
-owner = "PresentationInventory"
-owned_type = "PlayerInventoryLedger"
-
 [[module_boundaries]]
 path = "crates/launcher/src"
 forbidden_modules = ["bedrock_client", "client_ui", "UiRuntime", "PlayerRuntime", "PlayerState", "NetworkHandle"]
