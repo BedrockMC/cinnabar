@@ -2,7 +2,7 @@ use super::test_support::{draw, source};
 use super::*;
 
 fn model(
-    vertices: Vec<render::ActorRigVertex>,
+    vertices: Vec<render_model::ActorRigVertex>,
     placement: PreviewHeldPlacement,
 ) -> PreviewHeldModel {
     PreviewHeldModel {
@@ -21,7 +21,7 @@ fn model(
 #[test]
 fn cube_has_six_real_faces_and_both_hands_use_model_source_pages() {
     let block = model(
-        render::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]),
+        render_model::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]),
         PreviewHeldPlacement::Block,
     );
     let off = PreviewHeldModel {
@@ -62,7 +62,8 @@ fn cube_has_six_real_faces_and_both_hands_use_model_source_pages() {
 #[test]
 fn sprite_extrusion_keeps_original_side_texel_centres() {
     let sprite = model(
-        render::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0]).unwrap(),
+        render_model::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
+            .unwrap(),
         PreviewHeldPlacement::Sprite {
             hand_equipped: false,
         },
@@ -92,10 +93,10 @@ fn authored_bind_pivot_is_removed_once_and_no_generic_grip_is_applied() {
     let bone = RenderBoneTransform {
         rotation: Quat::IDENTITY.to_array(),
         translation_scale: [1.1, 2.2, 3.3, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let authored = model(
-        render::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]),
+        render_model::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]),
         PreviewHeldPlacement::Authored { bone, pivot },
     );
     let (placed, origin) = placement(&authored, 0).unwrap();
@@ -113,7 +114,8 @@ fn authored_bind_pivot_is_removed_once_and_no_generic_grip_is_applied() {
 #[test]
 fn native_offhand_grip_is_not_a_main_hand_mirror() {
     let sprite = model(
-        render::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0]).unwrap(),
+        render_model::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
+            .unwrap(),
         PreviewHeldPlacement::Sprite {
             hand_equipped: true,
         },
@@ -136,13 +138,13 @@ fn offhand_raises_only_its_own_arm_in_the_live_controller() {
         0.0,
         [false, true],
     );
-    for vertex in render::standard_biped_vertices() {
+    for vertex in render_model::standard_biped_vertices() {
         if vertex.part == 2 {
             assert_eq!(bare.project(vertex).world, off.project(vertex).world);
         }
     }
     assert!(
-        render::standard_biped_vertices()
+        render_model::standard_biped_vertices()
             .into_iter()
             .filter(|vertex| vertex.part == 3)
             .any(|vertex| bare.project(vertex).world != off.project(vertex).world)
@@ -155,7 +157,7 @@ fn expression_binding_corrects_root_origin_without_changing_mesh_pivot() {
     let bone = RenderBoneTransform {
         rotation: Quat::IDENTITY.to_array(),
         translation_scale: [0.2, 1.5, 0.3, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     for bound in [false, true] {
         let PreviewHeldPlacement::Authored {

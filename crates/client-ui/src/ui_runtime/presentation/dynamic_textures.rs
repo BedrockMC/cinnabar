@@ -2,19 +2,19 @@
 
 use std::sync::Arc;
 
-use render::UiTexturePage;
+use render_model::UiTexturePage;
 
 use super::{IconRef, UiPresentationRuntime, item_viewmodel, menu_artwork, player_preview};
 
 /// Dynamic page offset holding the session's server item icons.
-pub(super) const SESSION_ICON_PAGE: usize = render::UI_SESSION_ICON_PAGE_OFFSET;
+pub(super) const SESSION_ICON_PAGE: usize = render_model::UI_SESSION_ICON_PAGE_OFFSET;
 /// Dynamic pages after the general ten, holding the session's glyph-sheet atlas.
 pub(super) const GLYPH_PAGES: usize = 8;
 pub(super) const FIRST_GLYPH_PAGE: usize = SESSION_ICON_PAGE + 1;
 /// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
 pub(super) const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
 /// Dynamic pages reserved for server resource-pack UI textures.
-pub(super) const SERVER_UI_PAGES: usize = render::MAX_UI_DYNAMIC_PAGES - SERVER_UI_PAGE;
+pub(super) const SERVER_UI_PAGES: usize = render_model::MAX_UI_DYNAMIC_PAGES - SERVER_UI_PAGE;
 
 pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64) {
     let changed = runtime
@@ -40,8 +40,8 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
 /// Rebuilds dynamic pages from immutable base assets so refreshed launcher
 /// artwork cannot accumulate stale layers or discard the HUD carriers.
 pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
-    let width = render::UI_DYNAMIC_PAGE_SIDE;
-    let height = render::UI_DYNAMIC_PAGE_SIDE;
+    let width = render_model::UI_DYNAMIC_PAGE_SIDE;
+    let height = render_model::UI_DYNAMIC_PAGE_SIDE;
     let layer_bytes = (width * height * 4) as usize;
     let mut rgba8 = if runtime.preview_dirty {
         vec![0; layer_bytes]
@@ -186,7 +186,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         runtime.textures.pages()[first_dynamic].clone()
     };
     let mut dynamic = vec![preview];
-    let art_start = first_dynamic + render::MAX_UI_DYNAMIC_PAGES;
+    let art_start = first_dynamic + render_model::MAX_UI_DYNAMIC_PAGES;
     let fresh = runtime.menu_artwork_loader.take();
     let menu_changed = fresh.is_some();
     if let Some(packed) = fresh {
@@ -242,7 +242,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
     let art_pages = previous
         .len()
         .saturating_sub(art_start)
-        .min(render::MAX_UI_ART_PAGES);
+        .min(render_model::MAX_UI_ART_PAGES);
     for offset in 0..art_pages {
         let page = match runtime.menu_artwork.pages.get(offset) {
             Some(page) if menu_changed => page.clone(),
@@ -268,7 +268,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
 }
 
 /// Warns on the first failure and then each power-of-two repeat.
-fn warn_rebuild_failed(reason: &render::UiRenderRejectReason) {
+fn warn_rebuild_failed(reason: &render_model::UiRenderRejectReason) {
     static FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let count = FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     if count.is_power_of_two() {

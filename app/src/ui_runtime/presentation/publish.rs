@@ -191,7 +191,7 @@ pub(crate) fn prepare_ui_runtime(
     let menu_skin = menu_runtime.player_skin();
     let skin = player_preview::local_preview_skin(
         stream,
-        &render::ActorSkinPixels {
+        &render_model::ActorSkinPixels {
             width: menu_skin.width,
             height: menu_skin.height,
             rgba8: Arc::clone(&menu_skin.rgba8),

@@ -177,7 +177,7 @@ mod tests {
     }
 
     /// Renders the adapter's retained state without a window or network session.
-    fn sample_frame(app: &mut App) -> render::UiRenderInput {
+    fn sample_frame(app: &mut App) -> render_model::UiRenderInput {
         let player_runtime = app
             .world()
             .resource::<crate::player_runtime::PlayerRuntime>()

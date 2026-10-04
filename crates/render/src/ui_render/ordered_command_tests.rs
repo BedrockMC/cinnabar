@@ -120,8 +120,8 @@ pub(super) fn binding_world() -> World {
     world.insert_resource(device);
     world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(queue))));
     world.init_resource::<UiPipeline>();
-    world.init_resource::<UiRenderStats>();
-    world.init_resource::<UiRenderScene>();
+    world.init_resource::<UiRenderStatsResource>();
+    world.init_resource::<UiRenderSceneResource>();
     world.run_system_once(init_ui_gpu).unwrap();
     world
 }
@@ -138,8 +138,8 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
         indices: Arc::from([]),
         batches: Arc::from([]),
         textures: Arc::new(
-            crate::UiTextureCatalog::new(
-                vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
+            render_model::UiTextureCatalog::new(
+                vec![render_model::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
                 1,
             )
             .unwrap(),
@@ -147,15 +147,15 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     };
     let mut scene = UiRenderScene::default();
     scene
-        .publish(input.clone(), world.resource::<UiRenderStats>())
+        .publish(input.clone(), world.resource::<UiRenderStatsResource>())
         .unwrap();
-    world.insert_resource(scene.clone());
+    world.insert_resource(UiRenderSceneResource(scene.clone()));
     world.run_system_once(prepare_ui_resources).unwrap();
     assert_eq!(world.resource::<UiGpu>().textures.buckets.len(), 1);
     let mut invalid = input.clone();
     invalid.indices = Arc::from([u32::MAX]);
     scene.input = Some(Arc::new(invalid));
-    world.insert_resource(scene.clone());
+    world.insert_resource(UiRenderSceneResource(scene.clone()));
     world.run_system_once(prepare_ui_resources).unwrap();
     world.run_system_once(prepare_ui_bind_group).unwrap();
     assert!(
@@ -165,7 +165,7 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     );
     assert!(world.resource::<UiGpu>().accepted_revision.is_none());
     scene.input = None;
-    world.insert_resource(scene);
+    world.insert_resource(UiRenderSceneResource(scene));
     world.run_system_once(prepare_ui_resources).unwrap();
     world.run_system_once(prepare_ui_bind_group).unwrap();
     assert!(
@@ -178,9 +178,9 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     world.run_system_once(init_ui_gpu).unwrap();
     let mut recovered = UiRenderScene::default();
     recovered
-        .publish(input, world.resource::<UiRenderStats>())
+        .publish(input, world.resource::<UiRenderStatsResource>())
         .unwrap();
-    world.insert_resource(recovered);
+    world.insert_resource(UiRenderSceneResource(recovered));
     world.run_system_once(prepare_ui_resources).unwrap();
     world.run_system_once(prepare_ui_bind_group).unwrap();
     assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(1));
@@ -213,8 +213,8 @@ fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
         indices: Arc::from([0, 1, 2, 0, 2, 3]),
         batches: Arc::from([UiRenderBatch::new(0, UiScissor::new(0, 0, 64, 64), 0, 6, 0)]),
         textures: Arc::new(
-            crate::UiTextureCatalog::new(
-                vec![crate::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
+            render_model::UiTextureCatalog::new(
+                vec![render_model::UiTexturePage::owned([1, 1], Arc::from([255; 4])).unwrap()],
                 1,
             )
             .unwrap(),
@@ -230,11 +230,11 @@ fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
             _ => {}
         }
         scene
-            .publish(input.clone(), world.resource::<UiRenderStats>())
+            .publish(input.clone(), world.resource::<UiRenderStatsResource>())
             .unwrap();
-        world.insert_resource(scene.clone());
+        world.insert_resource(UiRenderSceneResource(scene.clone()));
         world.run_system_once(prepare_ui_resources).unwrap();
-        let stats = world.resource::<UiRenderStats>().snapshot();
+        let stats = world.resource::<UiRenderStatsResource>().snapshot();
         assert_eq!(stats.accepted_revision, Some(revision));
         assert_eq!(
             stats.uploaded_vertices,
@@ -248,7 +248,8 @@ fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
 #[test]
 fn resolved_commands_keep_bucket_layer_blend_scissor_and_index_order() {
     let plan =
-        crate::UiTexturePlan::new(&[[1024, 1024], [2048, 2048], [256, 256], [2048, 2048]]).unwrap();
+        render_model::UiTexturePlan::new(&[[1024, 1024], [2048, 2048], [256, 256], [2048, 2048]])
+            .unwrap();
     let batches = [2, 0, 3, 1, 2]
         .into_iter()
         .enumerate()
@@ -303,7 +304,7 @@ fn resolved_commands_keep_bucket_layer_blend_scissor_and_index_order() {
         "invalid late mapping must not emit a partial prefix"
     );
     let mut locations = plan.locations().to_vec();
-    locations.push(crate::UiTextureLocation {
+    locations.push(render_model::UiTextureLocation {
         bucket: 2,
         layer: 1,
     });

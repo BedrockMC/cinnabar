@@ -1,10 +1,10 @@
 //! Real held-item meshes in native hand-bone frames, projected with their owner.
 
 use bevy::math::{Quat, Vec3, Vec4};
-use render::{ActorVertex, RenderBoneTransform};
+use render_model::{ActorVertex, RenderBoneTransform};
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMeshBatch, UiMeshVertex};
 
-use render::equipment::{
+use render_model::equipment::{
     attach_to_bone, held_block_display_for_hand, held_sprite_display_for_hand,
 };
 
@@ -107,7 +107,7 @@ fn placement(model: &PreviewHeldModel, hand: usize) -> Option<(RenderBoneTransfo
     let parent = RenderBoneTransform {
         rotation: Quat::IDENTITY.to_array(),
         translation_scale: [origin[0], origin[1], origin[2], 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let (bone, pivot) = match *model.placements.get(hand)? {
         PreviewHeldPlacement::Sprite { hand_equipped } => (

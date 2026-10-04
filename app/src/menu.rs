@@ -609,7 +609,7 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::ToggleRenderMode => {
-                if render::ENHANCED_RENDERING_ENABLED {
+                if render_model::ENHANCED_RENDERING_ENABLED {
                     self.render_mode = self.render_mode.toggled();
                     self.render_mode_request = Some(self.render_mode);
                 }

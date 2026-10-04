@@ -5,7 +5,7 @@
 
 use bevy::math::{Mat4, Vec3};
 use client_world::ItemAnimationState;
-use render::RenderBoneTransform;
+use render_model::RenderBoneTransform;
 
 use super::display::{FirstPersonShape, ItemDisplay, first_person_display, view_bone};
 

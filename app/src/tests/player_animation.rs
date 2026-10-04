@@ -9,9 +9,8 @@ use protocol::{
     MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
     SkinGeometrySource, StandardSkin, WorldBootstrap, WorldEvent,
 };
-use render::{
-    ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute, STANDARD_SKIN_BYTES,
-};
+use render::{ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute};
+use render_model::STANDARD_SKIN_BYTES;
 use std::{fs, path::PathBuf, sync::Arc};
 
 const ENTITY: &str = r#"{"format_version":"1.26.0","minecraft:client_entity":{"description":{
@@ -425,8 +424,8 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
                     height: 32,
                     rgba8: vec![cape; 64 * 32 * 4].into(),
                 }),
-                width: render::STANDARD_SKIN_SIDE as u32,
-                height: render::STANDARD_SKIN_SIDE as u32,
+                width: render_model::STANDARD_SKIN_SIDE as u32,
+                height: render_model::STANDARD_SKIN_SIDE as u32,
                 rgba8: vec![skin; STANDARD_SKIN_BYTES].into(),
             }),
         }]),
@@ -773,8 +772,8 @@ fn vanilla_skin_geometry() -> Option<PlayerSkin> {
             geometry_data: geometry_data.into(),
         })),
         cape: None,
-        width: render::STANDARD_SKIN_SIDE as u32,
-        height: render::STANDARD_SKIN_SIDE as u32,
+        width: render_model::STANDARD_SKIN_SIDE as u32,
+        height: render_model::STANDARD_SKIN_SIDE as u32,
         rgba8: vec![128; STANDARD_SKIN_BYTES].into(),
     }))
 }

@@ -18,7 +18,7 @@ use std::{
 
 use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
-use render::UiTexturePage;
+use render_model::UiTexturePage;
 
 use super::remote_images::{RemoteImages, RemoteState, is_remote};
 

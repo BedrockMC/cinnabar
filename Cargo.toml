@@ -27,6 +27,7 @@ members = [
     "crates/server-experience",
     "crates/render",
     "crates/render-api",
+    "crates/render-model",
     "crates/inventory",
     "crates/launcher",
     "crates/client-ui",

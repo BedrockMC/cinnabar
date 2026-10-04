@@ -156,7 +156,7 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
         descriptor.multisample.count = key.msaa.samples();
         let native_gamma = !key.hdr
             && key.msaa == Msaa::Off
-            && !(crate::ENHANCED_RENDERING_ENABLED && key.enhanced)
+            && !(render_model::ENHANCED_RENDERING_ENABLED && key.enhanced)
             && descriptor
                 .fragment
                 .as_ref()
@@ -182,7 +182,7 @@ impl Specializer<RenderPipeline> for ChunkPipelineSpecializer {
             TextureFormat::bevy_default()
         };
         #[cfg(feature = "enhanced")]
-        if crate::ENHANCED_RENDERING_ENABLED && key.enhanced {
+        if render_model::ENHANCED_RENDERING_ENABLED && key.enhanced {
             descriptor
                 .layout
                 .push(crate::enhanced::enhanced_view_layout());

@@ -1,5 +1,6 @@
 //! Dropped-item scene data: extruded sprite meshes drawn as world-space instances.
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
+use render_model::{DroppedItemCube, DroppedItemSprite};
 use std::sync::Arc;
 
 mod mesh;
@@ -7,7 +8,7 @@ mod native;
 mod rope;
 
 pub use mesh::{
-    ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, OPAQUE_WHITE, cube_mesh, extruded_sprite_mesh,
+    ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, cube_mesh, extruded_sprite_mesh,
     native_dropped_sprite_mesh,
 };
 pub use native::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
@@ -21,23 +22,6 @@ pub const MAX_DROPPED_ITEM_INSTANCES: usize = 1_024;
 pub const MAX_DYNAMIC_ITEM_VERTICES: usize = 65_536;
 /// Layer 0 is always opaque white so untextured dynamic geometry (lines) can use it.
 pub const WHITE_LAYER: u32 = 0;
-
-/// One item texture; identical sprites share a layer through their index.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DroppedItemSprite {
-    pub width: u32,
-    pub height: u32,
-    pub rgba8: Arc<[u8]>,
-}
-
-/// A block as a unit cube: six square RGBA8 tiles in `West, East, Down, Up, North, South` order,
-/// each multiplied by a packed RGBA8 tint.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DroppedItemCube {
-    pub tile: u32,
-    pub faces: [Arc<[u8]>; 6],
-    pub tints: [u32; 6],
-}
 
 /// Geometry an instance can reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,6 +106,7 @@ pub fn dropped_item_transform(center: [f32; 3], yaw_radians: f32, scale: f32) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::OPAQUE_WHITE;
 
     #[test]
     fn publish_caps_instances_and_keeps_models_until_the_revision_changes() {

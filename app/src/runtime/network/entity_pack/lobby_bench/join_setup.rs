@@ -17,7 +17,7 @@ fn geometry_digest(frame: &ActorRenderFrame) -> u64 {
 }
 
 /// Hashes the exact vertex payload without depending on its storage address.
-fn hash_vertices(digest: &mut impl std::hash::Hasher, vertices: &[render::ActorRigVertex]) {
+fn hash_vertices(digest: &mut impl std::hash::Hasher, vertices: &[render_model::ActorRigVertex]) {
     for vertex in vertices {
         for value in vertex
             .position

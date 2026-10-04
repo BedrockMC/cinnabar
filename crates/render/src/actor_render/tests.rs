@@ -34,7 +34,7 @@ fn shared_skin_layer_prepares_one_texture_layer_for_multiple_actors() {
             ..Default::default()
         },
     ]);
-    frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES].into();
+    frame.skins_rgba8 = vec![255; render_model::STANDARD_SKIN_BYTES].into();
 
     let plan =
         actor_skin_upload_plan(&frame).expect("a shared normalized skin family remains drawable");
@@ -49,10 +49,10 @@ fn skin_upload_preparation_rejects_misaligned_bytes_and_out_of_range_layers() {
         texture_layer: 0,
         ..Default::default()
     }]);
-    frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES - 1].into();
+    frame.skins_rgba8 = vec![255; render_model::STANDARD_SKIN_BYTES - 1].into();
     assert!(actor_skin_upload_plan(&frame).is_none());
 
-    frame.skins_rgba8 = vec![255; crate::actor::STANDARD_SKIN_BYTES].into();
+    frame.skins_rgba8 = vec![255; render_model::STANDARD_SKIN_BYTES].into();
     Arc::make_mut(&mut frame.rig.instances)[0].texture_layer = 1;
     assert!(actor_skin_upload_plan(&frame).is_none());
 }
@@ -73,10 +73,9 @@ fn generic_only_frames_do_not_require_or_reinterpret_player_skin_bytes() {
 
 #[test]
 fn first_generic_only_frame_prepares_after_an_empty_skin_revision() {
-    use crate::actor::{
-        ActorDrawManifestEntry, ActorRenderIdentity, ActorRigRoute, ActorRigVertex, EntityRigId,
-    };
+    use crate::actor::{ActorDrawManifestEntry, ActorRenderIdentity, ActorRigRoute};
     use bevy::ecs::system::RunSystemOnce;
+    use render_model::{ActorRigVertex, EntityRigId};
     let mut app = app_with_noop_render_sub_app();
     app.add_plugins(ActorRenderPlugin);
     app.finish();
@@ -309,9 +308,9 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
 
 #[test]
 fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
-    assert_eq!(std::mem::size_of::<crate::actor::ActorRigVertex>(), 44);
+    assert_eq!(std::mem::size_of::<render_model::ActorRigVertex>(), 44);
     assert_eq!(
-        std::mem::offset_of!(crate::actor::ActorRigVertex, bone_index),
+        std::mem::offset_of!(render_model::ActorRigVertex, bone_index),
         40
     );
     assert!(ACTOR_SHADER_SOURCE.contains("instance_index * ACTOR_GPU_INSTANCE_WORDS"));
@@ -320,7 +319,7 @@ fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 0u && color.a < 0.1"));
     // The one-sided plane sentinel lies below the shader's discard threshold.
     assert!(ACTOR_SHADER_SOURCE.contains("input.back_uv.x < -1.0e8"));
-    const { assert!(crate::actor::ONE_SIDED_BACK_UV[0] < -1.0e8) };
+    const { assert!(render_model::ONE_SIDED_BACK_UV[0] < -1.0e8) };
     assert!(ACTOR_SHADER_SOURCE.contains("material_class.x == 1u && color.a == 0.0"));
 }
 

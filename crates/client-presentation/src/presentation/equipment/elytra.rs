@@ -2,7 +2,7 @@
 
 use assets::{AttachablePose, EquipmentBinding};
 use bevy::math::{Quat, Vec3};
-use render::{RenderBoneTransform, equipment::authored_rotation as rotation};
+use render_model::{RenderBoneTransform, equipment::authored_rotation as rotation};
 
 use super::armor::hidden_bone;
 
@@ -54,7 +54,7 @@ pub(super) fn pose(
             if name.eq_ignore_ascii_case("body") {
                 let mut posed = body;
                 posed.translation_scale[3] = body_scale * own_body_scale[0];
-                posed.axis_scale = render::UNIT_AXIS_SCALE;
+                posed.axis_scale = render_model::UNIT_AXIS_SCALE;
                 return posed;
             }
             let Some(bone) = channel(name) else {

@@ -69,11 +69,14 @@ use crate::{
     PackedModelRef, PackedQuad, PackedQuadLighting, RuntimeStage, RuntimeStageProfiler,
     atmosphere_render::{AtmosphereGpu, install_atmosphere},
     visibility_diagnostics::{
-        ActiveVisibilityFrameProbe, ExtractedCameraIdentity, ExtractedCameraIdentityTracker,
-        GraphicsAdapterMetadata, MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode,
+        ActiveVisibilityFrameProbe, ExtractedCameraIdentityTracker, MAX_VISIBILITY_DIAGNOSTIC_KEYS,
         VisibilityCompletionFence, VisibilityDiagnostics, VisibilityDiagnosticsInput,
         VisibilityFrameProbe, hash_f32_words,
     },
+};
+use render_model::{
+    ExtractedCameraIdentity, GraphicsAdapterMetadata, ModelWorkloadCount,
+    ModelWorkloadMetricsSnapshot, OpaqueDrawMode, TransparentSortMetricsSnapshot,
 };
 
 mod api;
@@ -210,10 +213,7 @@ use presentation::frame_probe::{
     ActiveFrameProbe, ActiveFrameProbeState, ChunkStreamMask, FrameAllocationIdentity,
     FrameInstanceIdentity, FrameProbe, build_presented_frame_ack, submit_presented_frame_probe,
 };
-pub use presentation::metrics::{
-    ModelWorkloadCount, ModelWorkloadMetrics, ModelWorkloadMetricsSnapshot, TransparentSortMetrics,
-    TransparentSortMetricsSnapshot,
-};
+pub use presentation::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
 #[allow(unused_imports)]
 use presentation::model_witness::ModelWitnessEvidenceState;
 pub use presentation::model_witness::{

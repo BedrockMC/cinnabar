@@ -283,7 +283,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::actor::{ActorRenderIdentity, ActorRigRoute, EntityRigId};
+    use crate::actor::{ActorRenderIdentity, ActorRigRoute};
+    use render_model::EntityRigId;
 
     fn draw(generation: u64) -> ActorDrawFrame {
         ActorDrawFrame {
@@ -398,8 +399,9 @@ mod tests {
     /// A segment appended within an epoch writes into the same buffer; a new epoch replaces it.
     #[test]
     fn appended_segments_reuse_the_buffer_and_new_epochs_replace_it() {
-        use crate::actor::{ActorRigVertex, ActorRigVertexSegments};
+        use crate::actor::ActorRigVertexSegments;
         use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+        use render_model::ActorRigVertex;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let (device, queue) = (
             RenderDevice::from(device),

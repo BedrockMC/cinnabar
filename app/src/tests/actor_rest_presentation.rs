@@ -146,7 +146,7 @@ fn inherited_rotated_rest_is_drawn_instead_of_animated_pose_and_survives_replace
         drawn.submission.input.current_bones
     );
     for (actual, expected) in drawn.submission.input.current_bones.iter().zip(&rest) {
-        let expected = render::RenderBoneTransform::from_model_space(
+        let expected = render_model::RenderBoneTransform::from_model_space(
             expected.rotation,
             expected.translation_scale,
         )

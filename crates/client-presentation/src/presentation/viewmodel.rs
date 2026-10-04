@@ -403,7 +403,7 @@ pub struct ViewmodelPublish<'w, 's> {
 impl ViewmodelPublish<'_, '_> {
     pub fn bind_cpu_fallback(
         &mut self,
-        input: &render::UiRenderInput,
+        input: &render_model::UiRenderInput,
         empty: Option<client_ui::ui_runtime::presentation::IconRef>,
         held: Option<client_ui::ui_runtime::presentation::IconRef>,
     ) {

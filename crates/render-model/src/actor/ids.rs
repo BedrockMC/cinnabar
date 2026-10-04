@@ -3,7 +3,7 @@ use assets::RuntimeEntityAssets;
 
 use super::{ActorRigGeometry, EntityRigId, geometry_from_geometry_index};
 
-pub(super) const DIAGNOSTIC_RIG_ID: EntityRigId = EntityRigId(u32::MAX);
+pub const DIAGNOSTIC_RIG_ID: EntityRigId = EntityRigId(u32::MAX);
 const EQUIPMENT_RIG_ID_BASE: u32 = 0x8000_0000;
 const ITEM_MESH_RIG_ID_BASE: u32 = 0xC000_0000;
 
@@ -39,7 +39,7 @@ pub fn layer_geometry_rig_id(body: EntityRigId, geometry: u32) -> EntityRigId {
     EntityRigId(base + LAYER_GEOMETRY_ID_OFFSET + geometry)
 }
 
-pub(crate) fn is_layer_geometry_rig_id(id: EntityRigId) -> bool {
+pub fn is_layer_geometry_rig_id(id: EntityRigId) -> bool {
     let local = if is_pack_rig_id(id) {
         id.0 - assets::PACK_RIG_ID_BASE
     } else {
@@ -49,10 +49,7 @@ pub(crate) fn is_layer_geometry_rig_id(id: EntityRigId) -> bool {
 }
 
 /// Every geometry the catalog's render controllers can draw, under layer ids of `body`'s range.
-pub(crate) fn layer_geometries(
-    assets: &RuntimeEntityAssets,
-    body: EntityRigId,
-) -> Vec<ActorRigGeometry> {
+pub fn layer_geometries(assets: &RuntimeEntityAssets, body: EntityRigId) -> Vec<ActorRigGeometry> {
     let mut indices: Vec<u32> = assets
         .render_data()
         .geometries
@@ -70,16 +67,16 @@ pub(crate) fn layer_geometries(
         .collect()
 }
 
-pub(crate) fn is_pack_equipment_rig_id(id: EntityRigId) -> bool {
+pub fn is_pack_equipment_rig_id(id: EntityRigId) -> bool {
     (EQUIPMENT_RIG_ID_BASE + assets::PACK_EQUIPMENT_INDEX_BASE..ITEM_MESH_RIG_ID_BASE)
         .contains(&id.0)
 }
 
-pub(crate) fn is_pack_rig_id(id: EntityRigId) -> bool {
+pub fn is_pack_rig_id(id: EntityRigId) -> bool {
     (assets::PACK_RIG_ID_BASE..EQUIPMENT_RIG_ID_BASE).contains(&id.0)
 }
 
-pub(crate) fn is_equipment_rig_id(id: EntityRigId) -> bool {
+pub fn is_equipment_rig_id(id: EntityRigId) -> bool {
     id.0 >= EQUIPMENT_RIG_ID_BASE && id != DIAGNOSTIC_RIG_ID
 }
 

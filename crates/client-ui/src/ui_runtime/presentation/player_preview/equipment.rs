@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use render::ActorVertex;
+use render_model::ActorVertex;
 
 /// One texture the preview samples, optionally tinted (dyed leather).
 #[derive(Clone, Debug, PartialEq)]
@@ -60,7 +60,7 @@ pub struct PreviewHandItem {
 #[derive(Clone, Debug)]
 pub struct PreviewHeldModel {
     pub source: super::IconRef,
-    pub vertices: Arc<[render::ActorRigVertex]>,
+    pub vertices: Arc<[render_model::ActorRigVertex]>,
     pub placements: [PreviewHeldPlacement; 2],
     /// Native player `rightItem`/`leftItem` bind origins in mirrored rig blocks.
     pub hand_pivots: [[f32; 3]; 2],
@@ -74,7 +74,7 @@ pub enum PreviewHeldPlacement {
     Block,
     /// Authored bound-root channels, already in the native mirrored rig frame.
     Authored {
-        bone: render::RenderBoneTransform,
+        bone: render_model::RenderBoneTransform,
         pivot: [f32; 3],
     },
 }
@@ -84,7 +84,7 @@ impl PreviewHeldPlacement {
     /// its root origin is authored pivot Y minus the shared model-part height.
     /// Keep the mesh's original bind pivot: it is still subtracted during skinning.
     pub fn authored(
-        mut bone: render::RenderBoneTransform,
+        mut bone: render_model::RenderBoneTransform,
         pivot: [f32; 3],
         expression_bound: bool,
     ) -> Self {
@@ -170,7 +170,7 @@ pub(super) fn armor_vertices(slot: usize, texture_size: [f32; 2]) -> Vec<ActorVe
     vertices
 }
 
-/// A cuboid laid out like the skin (`render::standard_biped_vertices`), its UVs
+/// A cuboid laid out like the skin (`render_model::standard_biped_vertices`), its UVs
 /// over `texture_size`, mirrored left to right for `mirror`.
 fn append_box(
     vertices: &mut Vec<ActorVertex>,

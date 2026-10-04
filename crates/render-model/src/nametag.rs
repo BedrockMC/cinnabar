@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 /// World size of one font pixel on a tag (vanilla scales the tag by 1.6 / 60).
 pub const NAMETAG_BLOCKS_PER_FONT_PIXEL: f32 = 1.6 * (1.0 / 60.0);
-pub(crate) const NAMETAG_ACOS_LINEAR: f32 = 0.87266463;
-pub(crate) const NAMETAG_ACOS_CUBIC: f32 = -0.698_131_7;
-pub(crate) const NAMETAG_HORIZONTAL_ZERO: f32 = 0.0001;
-pub(crate) const NAMETAG_TEXT_REVERSE_Z_BIAS: i32 = 32;
+pub const NAMETAG_ACOS_LINEAR: f32 = 0.87266463;
+pub const NAMETAG_ACOS_CUBIC: f32 = -0.698_131_7;
+pub const NAMETAG_HORIZONTAL_ZERO: f32 = 0.0001;
+pub const NAMETAG_TEXT_REVERSE_Z_BIAS: i32 = 32;
 /// Side of the square RGBA8 text atlas.
 pub const NAMETAG_ATLAS_SIDE: u32 = 2048;
 /// Most plate and text quads drawn in one frame.
@@ -37,7 +37,7 @@ impl NametagRecord {
     /// Returns `None` for degenerate/non-finite remote anchors; local coordinates are font pixels.
     #[must_use]
     pub fn world_corners(&self, eye: [f32; 3]) -> Option<[[f32; 3]; 4]> {
-        use bevy::math::{Quat, Vec3};
+        use glam::{Quat, Vec3};
         let anchor = Vec3::from_array(self.anchor);
         let eye = Vec3::from_array(eye);
         let direction = eye - anchor;
@@ -111,14 +111,7 @@ impl NametagAtlasRect {
 
 /// This frame's tags for the render world. Records before `see_through` draw over everything;
 /// the rest are depth tested.
-#[derive(
-    bevy::prelude::Resource,
-    bevy::render::extract_resource::ExtractResource,
-    Clone,
-    Debug,
-    Default,
-    PartialEq,
-)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NametagScene {
     pub records: Vec<NametagRecord>,
     pub see_through: usize,

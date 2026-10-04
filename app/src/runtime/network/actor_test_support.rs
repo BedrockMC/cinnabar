@@ -1,8 +1,7 @@
 use crate::local_player::FrozenLocalAvatarVisibility;
 use client_world::{ActorSnapshot, PlayerProfile};
-use render::{
-    ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource, ActorSkinPixels,
-};
+use render::{ActorCullView, ActorRenderFrame, ActorRenderScene, ActorRenderSource};
+use render_model::ActorSkinPixels;
 use std::sync::Arc;
 
 /// Builds the simple actor render fixture used by publication tests.

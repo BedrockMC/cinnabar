@@ -75,7 +75,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
     let bone = RenderBoneTransform {
         rotation: Quat::from_rotation_x(0.3).to_array(),
         translation_scale: [0.2, 0.9, 0.3, 0.9],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let body = ActorRigSubmission {
         culling_bounds: Default::default(),
