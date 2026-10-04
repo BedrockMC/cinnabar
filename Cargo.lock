@@ -539,11 +539,13 @@ dependencies = [
  "bevy",
  "bytes",
  "chunk-pipeline",
+ "client-session",
  "client-ui",
  "crossbeam-channel",
  "crossbeam-queue",
  "ctrlc",
  "fontdue",
+ "gameplay",
  "image",
  "inventory 0.1.2",
  "json-ui",
@@ -1744,6 +1746,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
+name = "client-session"
+version = "0.1.2"
+dependencies = [
+ "assets",
+ "bytes",
+ "crossbeam-channel",
+ "image",
+ "protocol",
+ "resource-pack",
+ "serde_json",
+ "server-experience",
+ "sha2",
+ "sim",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "world",
+]
+
+[[package]]
 name = "client-ui"
 version = "0.1.2"
 dependencies = [
@@ -2889,6 +2912,26 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gameplay"
+version = "0.1.2"
+dependencies = [
+ "assets",
+ "client-world",
+ "inventory 0.1.2",
+ "player-state",
+ "protocol",
+ "semantic-input",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sim",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "world",
 ]
 
 [[package]]

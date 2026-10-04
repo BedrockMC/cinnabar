@@ -122,6 +122,21 @@ path = "crates/player-state"
 allowed_dependencies = ["client-world", "inventory"]
 forbidden_transitive_dependencies = ["app", "bedrock-client", "launcher", "client-ui", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
+# Tick decisions and transport remain separate domains; app adapters compose them.
+[[crates]]
+name = "gameplay"
+path = "crates/gameplay"
+allowed_dependencies = ["assets", "client-world", "inventory", "player-state", "protocol", "semantic-input", "sim", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "client-session", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "chunk-pipeline", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "bevy", "bevy_*", "wgpu*"]
+test_support_features = ["test-support"]
+
+[[crates]]
+name = "client-session"
+path = "crates/client-session"
+allowed_dependencies = ["assets", "pack-compiler", "protocol", "resource-pack", "server-experience", "world"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "gameplay", "client-runtime", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "bevy", "bevy_*", "wgpu*"]
+test_support_features = ["test-support"]
+
 [[crates]]
 name = "launcher"
 path = "crates/launcher"
@@ -163,7 +178,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 name = "app"
 path = "app"
 # The client-world dependency key temporarily names the chunk-pipeline compatibility facade.
-allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "client-ui", "client-session", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "player-state", "protocol", "render", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -350,7 +365,7 @@ consumer = "scripts/acceptance/Phase3.ps1"
 [[markers]]
 literal = "RUST_MCBE_NETWORK_PUMP_TERMINAL"
 kind = "parsed"
-producer = "app/src/runtime/network/session.rs"
+producer = "crates/client-session/src/session.rs"
 consumer = "scripts/acceptance/Phase3.ps1"
 
 [[markers]]
@@ -447,19 +462,19 @@ consumer = "app/src/app.rs"
 literal = "RUST_MCBE_MOVEMENT_TRACE"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/movement/trace.rs"
+consumer = "app/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_TELEPORT_ACK"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/movement/teleport_ack.rs"
+consumer = "app/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_ANCHOR_PROBE"
 kind = "environment_variable"
 producer = "app/src/acceptance/markers.rs"
-consumer = "app/src/movement/anchor_probe.rs"
+consumer = "app/src/movement.rs"
 
 [[markers]]
 literal = "RUST_MCBE_BUILD_COMMIT"
@@ -603,3 +618,22 @@ forbidden_owned_types = ["ChunkMesh", "PublicationPermit", "PublicationAllowance
 [[module_boundaries]]
 path = "crates/chunk-pipeline/src"
 forbidden_owned_types = ["ChunkStore", "ActorStore"]
+
+# Lower domains cannot reach app adapters through rooted or renamed module paths.
+[[module_boundaries]]
+path = "crates/gameplay/src"
+forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "client_session", "chunk_pipeline", "UiRuntime", "NetworkHandle"]
+forbidden_crate_modules = ["app", "runtime", "camera", "server_camera", "local_player", "semantic_controls", "settings_runtime", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
+
+# This is sim::PlayerState (predicted position/velocity), not inventory/player authority.
+[[module_boundaries.ownership_exceptions]]
+path = "crates/gameplay/src/movement/physics.rs"
+owner = "LocalPhysicsController"
+owned_type = "PlayerState"
+
+[[module_boundaries]]
+path = "crates/client-session/src"
+forbidden_modules = ["bedrock_client", "bevy", "render", "client_ui", "gameplay", "chunk_pipeline", "UiRuntime", "MovementTicker"]
+forbidden_crate_modules = ["app", "runtime", "movement", "camera", "local_player", "acceptance", "audio", "session_audio", "presentation", "ui_runtime", "menu"]
+forbidden_owned_types = ["InventorySession", "PlayerInventoryLedger", "LocalPlayerFacts", "PlayerState", "ChunkStore", "ActorStore", "WorldAuthority"]
