@@ -278,7 +278,7 @@ impl InstallLayout {
     /// Account-core incarnations have separate endpoints from each other and game sessions.
     #[must_use]
     pub fn account_socket_dir(&self, pid: u32, incarnation: u64) -> PathBuf {
-        self.runtime_root
+        self.transient_runtime_root
             .join(format!("account-{pid}-{incarnation}"))
     }
 
