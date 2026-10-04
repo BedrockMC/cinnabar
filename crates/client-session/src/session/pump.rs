@@ -67,6 +67,15 @@ pub(super) async fn run_blocking_or_cancel<T: Send + 'static>(
     }
 }
 
+/// Runs `work` unless the session is already cancelled, without borrowing the channel meanwhile.
+pub(super) fn unless_cancelled<T>(
+    cancelled: &watch::Receiver<bool>,
+    work: impl FnOnce() -> T,
+) -> Option<T> {
+    let cancelled = *cancelled.borrow();
+    (!cancelled).then(work)
+}
+
 pub(super) async fn wait_for_send_or_cancel<F>(
     send: F,
     shutdown: &mut watch::Receiver<bool>,
