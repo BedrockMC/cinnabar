@@ -4735,3 +4735,39 @@ open and under investigation; ordinary ice opacity, accepted water lighting,
 and accepted lily-pad appearance have not been adjusted to conceal them.
 The user explicitly requests publishing this checkpoint directly to dev before
 continuing those fixes. This checkpoint does not close full rendering parity.
+
+### Placed player skull lighting (Zeno visual acceptance)
+
+Current SkullBlockRenderer `07bf4760` reads light at the placed skull's integer
+BlockPos through `0213efc0`/`0213ed00`, samples the RGB lightmap at /16 coordinates,
+and submits the `mob_head.skinning` material. Player skulls now retain those
+coordinates, emit rotated world normals for both layers, and use the shared
+actor lighting and gamma-domain composition. This replaces the scalar terrain
+light/face coefficients that could turn the skull completely black.
+Source provenance and the focused mesh/Metal witnesses are recorded in
+`docs/reference/player-skull-lighting.md`.
+
+The first corrected live build still failed the user's check. Source investigation
+also found that the existing carrier rendered current head names as terrain
+fallback models, and description required the legacy SkullType NBT instead of
+selecting by the backing block.
+Current head identities now share one mapping, compile without terrain geometry,
+and select their block-actor model even with missing/stale SkullType.
+
+Zeno's affected heads are custom blocks. Their network light component is the
+compound `{lightLevel: 0}`. The old decoder discarded that zero and the overlay
+defaulted to filter 15, removing the skylight sampled by their inset geometry.
+Current native decoder `0ab69990` confirms the compound field. Dampening now
+retains `lightLevel`; emission retains its distinct `emission` field, with
+network-NBT and explicit-zero overlay regressions.
+
+The user confirmed that skulls render perfectly on `zenomc.org:19132` Zeno
+Practice in the freshly rebuilt Rust client on macOS/Metal with ordinary
+controls. The initially selected `:19197` external BDS and freecam run do not
+count as acceptance. Seven focused Metal shader/readback tests
+passed, including day/night/torch/darkness, rotation, alpha cutoff and the legacy
+scalar path. The final client build passed. The user explicitly requested stopping
+all task background processes, skipping the remaining verification and pushing
+directly to remote dev; the affected gate and new unit regressions were not run.
+Native hat geometry, other block-entity materials and full version-matched
+rendering parity remain open gates.
