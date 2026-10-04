@@ -44,7 +44,11 @@ fn frame_advance_long_gap_bench() {
 }
 
 /// Appends one expression to the synthetic fixture.
-fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>, max_stack: u8) -> u32 {
+pub(super) fn expression(
+    compiled: &mut CompiledEntityAssets,
+    program: Vec<MolangOp>,
+    max_stack: u8,
+) -> u32 {
     let first_op = compiled.molang_ops.len() as u32;
     let op_count = program.len() as u16;
     let mut ops = std::mem::take(&mut compiled.molang_ops).into_vec();

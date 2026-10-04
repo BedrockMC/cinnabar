@@ -1,6 +1,6 @@
 //! Per-actor walk cycle, arm swing, and body rotation that vanilla animations read through
-//! queries. Tuning constants were observed in a client reconstruction and still need
-//! independent measurement against a running vanilla client.
+//! queries. Ordinary walking/turning constants follow current-client RVA 070c3ef0;
+//! specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
 use super::query::wrap_degrees;
 
 /// Ticks one arm swing takes without haste or fatigue.

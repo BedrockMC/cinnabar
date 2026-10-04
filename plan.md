@@ -885,16 +885,33 @@ destinations, drop bindings and CraftResultsDeprecated contents need
 independent confirmation; armor/offhand placement is server-decided;
 drag-distribute, double-click collect and workstation windows are missing.
 
+2026-10-04 mob walking clocks: the compiler and runtime now preserve vanilla
+`anim_time_update`, so quadruped/chicken leg phase follows modified distance moved
+instead of elapsed seconds. Scripted clocks retain previous time, pause at zero
+weight, reset with their controller state, and share one evaluation across model
+layers. Zero-length procedural clips keep their unbounded clocks; finite timelines
+use the verified native endpoint/loop/hold rules. The entity carrier version changes
+to invalidate old compiled catalogs. Source and remaining limitations are recorded in
+[actor animation clocks](docs/reference/actor-animation-clocks.md). The client and
+carriers were rebuilt on published `dev` base `a2a8b6cf`; the user manually tested
+the macOS Metal client against the existing offline BDS and accepted the mob feet
+movement. The original worktree was based on stale `main`; it was updated before
+this accepted test. Final automated verification remains incomplete: the user
+requested skipping tests and pushing after manual acceptance. This does not close
+the broader actor animation parity gate. Incomplete:
+ordinary actor Molang still evaluates on fixed ticks and interpolates completed bone
+poses, whereas vanilla samples interpolated motion queries during render evaluation;
+start/loop delays and shared-clip instance identity remain unported.
+
 2026-09-28 actor animation: remote players and mobs animate through the vanilla
 controllers with full Molang evaluation; not visually accepted (facing, box-UV
 side faces and limb swing need a native capture). Provisional, labeled
 incomplete: motion-model constants, the 6-tick swing, the look clamp, gliding
-divisor, baby leg-speed factor, seeded variables and Molang math tolerances need
+divisor, seeded variables and Molang math tolerances need
 independent measurement; `loop` is capped at 1024 (vanilla has no cap); undefined
 variables read 0; non-uniform parent scale over rotated children is approximated
 without shear; `->`/`for_each` take their empty path; head `relative_to`, blend
-transitions and per-axis rotation objects are missing; `query.anim_time` reads the unwrapped
-clip clock; queries without retained data read idle values; held items and most mob
+transitions and per-axis rotation objects are missing; queries without retained data read idle values; held items and most mob
 artwork are deferred. A first-person held item with no drawable layer shows the
 bare swinging arm instead (vanilla always draws the item).
 
