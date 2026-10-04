@@ -1,76 +1,92 @@
-struct CompiledResinClumpFixture {
+struct CompiledCakeFixture {
     assets: RuntimeAssets,
     air: NetworkValues,
-    resin: [NetworkValues; 64],
+    cake: [NetworkValues; 7],
     cube: NetworkValues,
     water: NetworkValues,
 }
 
-fn write_resin_clump_render_pack(root: &Path, cube_name: &str) {
-    fs::create_dir_all(root.join("textures/blocks")).expect("create resin fixture tree");
+fn write_cake_render_pack(root: &Path, cube_name: &str) {
+    fs::create_dir_all(root.join("textures/blocks")).expect("create cake fixture tree");
     fs::write(
         root.join("blocks.json"),
         format!(
             r#"{{
-                "resin_clump":{{"carried_textures":"resin_clump_carried","textures":"resin_clump"}},
+                "cake":{{"textures":{{"down":"cake_bottom","east":"cake_side","north":"cake_side","south":"cake_side","up":"cake_top","west":"cake_west"}}}},
                 "water":{{"textures":"water"}},
                 "{cube_name}":{{"textures":"cube"}}
             }}"#
         ),
     )
-    .expect("write resin block routing");
+    .expect("write cake block routing");
     fs::write(
         root.join("textures/terrain_texture.json"),
         r#"{"texture_data":{
-            "resin_clump":{"textures":"textures/blocks/resin_clump"},
+            "cake_bottom":{"textures":["textures/blocks/cake_bottom","textures/blocks/cake_bottom"]},
+            "cake_side":{"textures":["textures/blocks/cake_side","textures/blocks/cake_side"]},
+            "cake_top":{"textures":["textures/blocks/cake_top","textures/blocks/cake_top"]},
+            "cake_west":{"textures":["textures/blocks/cake_side","textures/blocks/cake_inner"]},
             "water":{"textures":"textures/blocks/water"},
             "cube":{"textures":"textures/blocks/cube"}
         }}"#,
     )
-    .expect("write resin terrain routing");
+    .expect("write cake terrain routing");
     fs::write(root.join("textures/flipbook_textures.json"), "[]")
-        .expect("write resin empty flipbooks");
-    for (index, name) in ["resin_clump", "water", "cube"].into_iter().enumerate() {
+        .expect("write cake empty flipbooks");
+    for (index, name) in [
+        "cake_bottom",
+        "cake_side",
+        "cake_top",
+        "cake_inner",
+        "water",
+        "cube",
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
         for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
-            let alpha = if name == "resin_clump" && pixel_index % 5 != 0 {
-                0
-            } else {
-                255
+            let x = pixel_index % 16;
+            let y = pixel_index / 16;
+            let visible = match name {
+                "cake_bottom" | "cake_top" => (1..=14).contains(&x) && (1..=14).contains(&y),
+                "cake_side" | "cake_inner" => (1..=14).contains(&x) && y >= 8,
+                _ => true,
             };
-            pixel.copy_from_slice(&[30 + index as u8 * 80, 60, 100, alpha]);
+            let alpha = if visible { 255 } else { 0 };
+            pixel.copy_from_slice(&[25 + index as u8 * 30, 70, 110, alpha]);
         }
         let mut png = Vec::new();
         PngEncoder::new(&mut png)
             .write_image(&rgba, 16, 16, ExtendedColorType::Rgba8)
-            .expect("encode resin fixture PNG");
+            .expect("encode cake fixture PNG");
         fs::write(root.join(format!("textures/blocks/{name}.png")), png)
-            .expect("write resin fixture PNG");
+            .expect("write cake fixture PNG");
     }
 }
 
-fn compiled_resin_clump_fixture() -> &'static CompiledResinClumpFixture {
-    static FIXTURE: OnceLock<CompiledResinClumpFixture> = OnceLock::new();
+fn compiled_cake_fixture() -> &'static CompiledCakeFixture {
+    static FIXTURE: OnceLock<CompiledCakeFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode resin registry");
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
+            .expect("decode cake registry");
         let air = records
             .iter()
             .find(|record| record.name.as_ref() == "minecraft:air")
             .expect("air record")
             .clone();
-        let mut resin = records
+        let mut cake = records
             .iter()
-            .filter(|record| record.name.as_ref() == "minecraft:resin_clump")
+            .filter(|record| record.name.as_ref() == "minecraft:cake")
             .cloned()
             .collect::<Vec<_>>();
-        resin.sort_unstable_by_key(|record| {
+        cake.sort_unstable_by_key(|record| {
             record
                 .model_state
-                .get(ModelStateField::Connections)
-                .expect("resin direction bits")
+                .get(ModelStateField::Growth)
+                .expect("cake bite")
         });
-        assert_eq!(resin.len(), 64);
+        assert_eq!(cake.len(), 7);
         let cube = records
             .iter()
             .find(|record| {
@@ -92,57 +108,59 @@ fn compiled_resin_clump_fixture() -> &'static CompiledResinClumpFixture {
             sequential: record.sequential_id,
             hashed: record.network_hash,
         };
-        let resin_values = std::array::from_fn(|mask| {
+        let cake_values = std::array::from_fn(|bite| {
             assert_eq!(
-                resin[mask].model_state.get(ModelStateField::Connections),
-                Some(mask as u32)
+                cake[bite].model_state.get(ModelStateField::Growth),
+                Some(bite as u32)
             );
-            values(&resin[mask])
+            assert_eq!(cake[bite].sequential_id, 14_055 + bite as u32);
+            values(&cake[bite])
         });
         let air_values = values(&air);
         let cube_values = values(&cube);
         let water_values = values(&water);
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
-        let directory = tempfile::tempdir().expect("resin fixture directory");
-        write_resin_clump_render_pack(directory.path(), cube_name);
-        let mut selected = Vec::with_capacity(67);
+        let directory = tempfile::tempdir().expect("cake fixture directory");
+        write_cake_render_pack(directory.path(), cube_name);
+        let mut selected = Vec::with_capacity(10);
         selected.push(air);
-        selected.extend(resin);
+        selected.extend(cake);
         selected.push(cube);
         selected.push(water);
-        let compiled = compile_pack(directory.path(), &selected).expect("compile resin fixture");
-        let blob = encode_blob(&compiled).expect("encode resin fixture");
-        let assets = RuntimeAssets::decode(&blob).expect("decode resin fixture");
-        for (mask, values) in resin_values.iter().enumerate() {
-            let visual = assets.resolve(NetworkIdMode::Sequential, values.sequential);
-            assert_eq!(visual.kind(), VisualKind::Model, "mask {mask}");
-            assert!(visual.flags().is_empty(), "mask {mask}");
-            let template = assets.model_templates()[visual.model_template().unwrap() as usize];
-            assert_eq!(
-                template.quad_count,
-                if mask == 0 {
+        let compiled = compile_pack(directory.path(), &selected).expect("compile cake fixture");
+        let assets = RuntimeAssets::decode(&encode_blob(&compiled).expect("encode cake fixture"))
+            .expect("decode cake fixture");
+        for (bite, values) in cake_values.iter().enumerate() {
+            for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+                let visual = assets.resolve(mode, values.for_mode(mode));
+                assert_eq!(
+                    visual.kind(),
+                    VisualKind::Model,
+                    "mode={mode:?} bite={bite}"
+                );
+                assert!(visual.flags().is_empty());
+                assert_eq!(
+                    assets.model_templates()[visual.model_template().unwrap() as usize].quad_count,
                     6
-                } else {
-                    (mask as u32).count_ones()
-                }
-            );
+                );
+            }
         }
-        CompiledResinClumpFixture {
+        CompiledCakeFixture {
             assets,
             air: air_values,
-            resin: resin_values,
+            cake: cake_values,
             cube: cube_values,
             water: water_values,
         }
     })
 }
 
-fn resin_sub_chunk(
+fn cake_sub_chunk(
     mode: NetworkIdMode,
     placements: &[([u8; 3], NetworkValues)],
     water: &[[u8; 3]],
 ) -> SubChunk {
-    let fixture = compiled_resin_clump_fixture();
+    let fixture = compiled_cake_fixture();
     let air = fixture.air.for_mode(mode);
     let mut palette = vec![air];
     let primary = placements
@@ -180,14 +198,14 @@ fn resin_sub_chunk(
     sub_chunk(storages)
 }
 
-fn mesh_resin_clumps(
+fn mesh_cakes(
     mode: NetworkIdMode,
     placements: &[([u8; 3], NetworkValues)],
     water: &[[u8; 3]],
     neighbours: &Neighbourhood<'_>,
 ) -> ChunkMesh {
-    let fixture = compiled_resin_clump_fixture();
-    let center = resin_sub_chunk(mode, placements, water);
+    let fixture = compiled_cake_fixture();
+    let center = cake_sub_chunk(mode, placements, water);
     mesh_sub_chunk(
         &BlockClassifier::new(fixture.air.for_mode(mode)),
         &fixture.assets,
@@ -198,47 +216,48 @@ fn mesh_resin_clumps(
 }
 
 #[test]
-fn compiled_resin_clumps_cover_all_masks_in_both_network_modes_with_stable_streams() {
-    let fixture = compiled_resin_clump_fixture();
-    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        for (mask, &values) in fixture.resin.iter().enumerate() {
-            let effective = if mask == 0 { 63 } else { mask as u32 };
-            let quad_count = effective.count_ones();
+fn compiled_cake_bites_mesh_equivalently_by_sequential_id_and_hash() {
+    let fixture = compiled_cake_fixture();
+    for (bite, &values) in fixture.cake.iter().enumerate() {
+        let mut witness = None;
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
             let resolved = fixture.assets.resolve(mode, values.for_mode(mode));
-            let template = resolved.model_template().expect("resin template");
-            let mesh =
-                mesh_resin_clumps(mode, &[([7, 8, 9], values)], &[], &Neighbourhood::empty());
-            assert!(mesh.cube_quads().is_empty(), "mode={mode:?} mask={mask}");
-            assert_eq!(mesh.model_refs().len(), 1, "mode={mode:?} mask={mask}");
+            let template = resolved.model_template().expect("cake template");
+            let mesh = mesh_cakes(mode, &[([7, 8, 9], values)], &[], &Neighbourhood::empty());
+            assert!(mesh.cube_quads().is_empty());
+            assert_eq!(mesh.model_refs().len(), 1);
             assert_eq!(
                 mesh.model_refs()[0].words(),
-                [
-                    7 | (8 << 4) | (9 << 8),
-                    template,
-                    0,
-                    (1_u32 << quad_count) - 1,
-                ],
-                "mode={mode:?} mask={mask}"
+                [7 | (8 << 4) | (9 << 8), template, 0, 0x3f]
             );
             assert_eq!(
-                mesh.model_draw_refs().len(),
-                quad_count as usize,
-                "mode={mode:?} mask={mask}"
+                mesh.model_draw_refs()
+                    .iter()
+                    .copied()
+                    .map(PackedModelDrawRef::words)
+                    .collect::<Vec<_>>(),
+                [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5]]
             );
-            assert_eq!(
-                mesh.model_lighting().len(),
-                quad_count as usize,
-                "mode={mode:?} mask={mask}"
-            );
+            assert_eq!(mesh.model_lighting().len(), 6);
             assert!(mesh.transparent_model_draw_refs().is_empty());
-            assert!(mesh.connectivity().is_all_connected(), "mask={mask}");
+            assert!(mesh.connectivity().is_all_connected());
+            let streams = (
+                mesh.model_refs().to_vec(),
+                mesh.model_draw_refs().to_vec(),
+                mesh.model_lighting().to_vec(),
+            );
+            if let Some(expected) = &witness {
+                assert_eq!(&streams, expected, "mode={mode:?} bite={bite}");
+            } else {
+                witness = Some(streams);
+            }
         }
     }
 }
 
 #[test]
-fn compiled_resin_planes_survive_all_boundaries_and_do_not_occlude_supports_or_models() {
-    let fixture = compiled_resin_clump_fixture();
+fn compiled_cake_survives_boundaries_and_never_occludes_neighbours() {
+    let fixture = compiled_cake_fixture();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         for (face, center, neighbour) in [
             (Face::NegativeX, [0, 5, 6], [15, 5, 6]),
@@ -253,62 +272,40 @@ fn compiled_resin_planes_survive_all_boundaries_and_do_not_occlude_supports_or_m
                 &[fixture.air.for_mode(mode), fixture.cube.for_mode(mode)],
                 &[(neighbour, 1)],
             )]);
-            let mesh = mesh_resin_clumps(
+            let mesh = mesh_cakes(
                 mode,
-                &[(center, fixture.resin[63])],
+                &[(center, fixture.cake[6])],
                 &[],
                 &neighbourhood_for(face, &opaque),
             );
-            assert_eq!(mesh.model_refs().len(), 1, "mode={mode:?} face={face:?}");
-            assert_eq!(
-                mesh.model_draw_refs().len(),
-                6,
-                "mode={mode:?} face={face:?}"
-            );
-            assert_eq!(
-                mesh.model_lighting().len(),
-                6,
-                "mode={mode:?} face={face:?}"
-            );
+            assert_eq!(mesh.model_refs().len(), 1);
             assert_eq!(mesh.model_refs()[0].words()[3], 0x3f);
+            assert_eq!(mesh.model_draw_refs().len(), 6);
+            assert_eq!(mesh.model_lighting().len(), 6);
             assert!(mesh.connectivity().is_all_connected());
         }
-
-        let support = resin_sub_chunk(
+        let adjacent = cake_sub_chunk(
             mode,
-            &[([8, 8, 8], fixture.cube), ([8, 8, 9], fixture.resin[16])],
+            &[([8, 8, 8], fixture.cube), ([8, 8, 9], fixture.cake[0])],
             &[],
         );
-        let support_mesh = mesh_sub_chunk(
+        let mesh = mesh_sub_chunk(
             &BlockClassifier::new(fixture.air.for_mode(mode)),
             &fixture.assets,
             mode,
             &Neighbourhood::empty(),
-            &support,
+            &adjacent,
         );
-        assert_eq!(support_mesh.cube_quads().len(), 6, "mode={mode:?}");
-        assert_eq!(support_mesh.model_draw_refs().len(), 1, "mode={mode:?}");
-
-        let adjacent = mesh_resin_clumps(
-            mode,
-            &[
-                ([7, 8, 8], fixture.resin[63]),
-                ([8, 8, 8], fixture.resin[63]),
-            ],
-            &[],
-            &Neighbourhood::empty(),
-        );
-        assert_eq!(adjacent.model_refs().len(), 2);
-        assert_eq!(adjacent.model_draw_refs().len(), 12);
-        assert_eq!(adjacent.model_lighting().len(), 12);
+        assert_eq!(mesh.cube_quads().len(), 6);
+        assert_eq!(mesh.model_draw_refs().len(), 6);
     }
 }
 
 #[test]
-fn compiled_resin_preserves_additional_water_contributor() {
-    let fixture = compiled_resin_clump_fixture();
+fn compiled_cake_preserves_additional_water_contributor() {
+    let fixture = compiled_cake_fixture();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        let center = resin_sub_chunk(mode, &[([8, 8, 8], fixture.resin[63])], &[[8, 8, 8]]);
+        let center = cake_sub_chunk(mode, &[([8, 8, 8], fixture.cake[6])], &[[8, 8, 8]]);
         let resolved = ContributorResolver::new(
             BlockClassifier::new(fixture.air.for_mode(mode)),
             &fixture.assets,
@@ -318,32 +315,31 @@ fn compiled_resin_preserves_additional_water_contributor() {
         .resolve([8, 8, 8]);
         assert_eq!(
             resolved.primary_network_value(),
-            Some(fixture.resin[63].for_mode(mode))
+            Some(fixture.cake[6].for_mode(mode))
         );
         assert_eq!(
             resolved.liquid_network_value(),
             Some(fixture.water.for_mode(mode))
         );
         assert_eq!(resolved.diagnostic_network_value(), None);
-        let neighbourhood = MeshNeighbourhood::new(&center);
         let mesh = mesh_sub_chunk_in_neighbourhood(
             &BlockClassifier::new(fixture.air.for_mode(mode)),
             &fixture.assets,
             mode,
-            &neighbourhood,
+            &MeshNeighbourhood::new(&center),
         );
         assert_eq!(mesh.model_refs().len(), 1);
         assert_eq!(mesh.model_draw_refs().len(), 6);
         assert_eq!(mesh.model_lighting().len(), 6);
-        assert!(!mesh.liquid_quads().is_empty(), "mode={mode:?}");
+        assert!(!mesh.liquid_quads().is_empty());
         assert_eq!(mesh.liquid_quads().len(), mesh.liquid_lighting().len());
     }
 }
 
 #[test]
-fn compiled_resin_dense_mask_63_has_exact_bounded_open_model_streams() {
-    let fixture = compiled_resin_clump_fixture();
-    let center = sub_chunk(vec![uniform_storage(fixture.resin[63].sequential)]);
+fn compiled_cake_dense_subchunk_has_exact_bounded_open_model_streams() {
+    let fixture = compiled_cake_fixture();
+    let center = sub_chunk(vec![uniform_storage(fixture.cake[6].sequential)]);
     let mesh = mesh_sub_chunk(
         &BlockClassifier::new(fixture.air.sequential),
         &fixture.assets,

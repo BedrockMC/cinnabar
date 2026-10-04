@@ -44,7 +44,7 @@ fn write_slab_render_pack(root: &Path, slab_name: &str, double_name: &str, cube_
 fn compiled_slab_fixture() -> &'static CompiledSlabFixture {
     static FIXTURE: OnceLock<CompiledSlabFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let generated = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let generated = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode committed slab registry");
         let air = generated
             .iter()

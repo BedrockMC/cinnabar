@@ -80,7 +80,7 @@ fn write_selector_alias_cube_render_pack(root: &Path) {
 fn compiled_selector_alias_cube_fixture() -> &'static CompiledSelectorAliasCubeFixture {
     static FIXTURE: OnceLock<CompiledSelectorAliasCubeFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode selector-alias registry");
         let air = records
             .iter()

@@ -56,7 +56,7 @@ fn write_bee_housing_render_pack(root: &Path) {
 fn compiled_bee_housing_fixture() -> &'static CompiledBeeHousingFixture {
     static FIXTURE: OnceLock<CompiledBeeHousingFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode bee registry");
         let air = records
             .iter()

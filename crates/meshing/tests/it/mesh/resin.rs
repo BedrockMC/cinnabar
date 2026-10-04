@@ -1,88 +1,76 @@
-struct CompiledCactusFixture {
+struct CompiledResinClumpFixture {
     assets: RuntimeAssets,
     air: NetworkValues,
-    cactus: [NetworkValues; 16],
+    resin: [NetworkValues; 64],
     cube: NetworkValues,
     water: NetworkValues,
 }
 
-fn write_cactus_render_pack(root: &Path, cube_name: &str) {
-    fs::create_dir_all(root.join("textures/blocks")).expect("create cactus fixture tree");
+fn write_resin_clump_render_pack(root: &Path, cube_name: &str) {
+    fs::create_dir_all(root.join("textures/blocks")).expect("create resin fixture tree");
     fs::write(
         root.join("blocks.json"),
         format!(
             r#"{{
-                "cactus":{{"textures":{{"down":"cactus_bottom","side":"cactus_side","up":"cactus_top"}}}},
+                "resin_clump":{{"carried_textures":"resin_clump_carried","textures":"resin_clump"}},
                 "water":{{"textures":"water"}},
                 "{cube_name}":{{"textures":"cube"}}
             }}"#
         ),
     )
-    .expect("write cactus block routing");
+    .expect("write resin block routing");
     fs::write(
         root.join("textures/terrain_texture.json"),
         r#"{"texture_data":{
-            "cactus_bottom":{"textures":"textures/blocks/cactus_bottom"},
-            "cactus_side":{"textures":"textures/blocks/cactus_side"},
-            "cactus_top":{"textures":"textures/blocks/cactus_top"},
+            "resin_clump":{"textures":"textures/blocks/resin_clump"},
             "water":{"textures":"textures/blocks/water"},
             "cube":{"textures":"textures/blocks/cube"}
         }}"#,
     )
-    .expect("write cactus terrain routing");
+    .expect("write resin terrain routing");
     fs::write(root.join("textures/flipbook_textures.json"), "[]")
-        .expect("write cactus empty flipbooks");
-    for (index, name) in [
-        "cactus_bottom",
-        "cactus_side",
-        "cactus_top",
-        "water",
-        "cube",
-    ]
-    .into_iter()
-    .enumerate()
-    {
+        .expect("write resin empty flipbooks");
+    for (index, name) in ["resin_clump", "water", "cube"].into_iter().enumerate() {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
         for (pixel_index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
-            let x = pixel_index % 16;
-            let alpha = if name.starts_with("cactus_") && (x == 0 || x == 15) {
+            let alpha = if name == "resin_clump" && pixel_index % 5 != 0 {
                 0
             } else {
                 255
             };
-            pixel.copy_from_slice(&[25 + index as u8 * 40, 70, 110, alpha]);
+            pixel.copy_from_slice(&[30 + index as u8 * 80, 60, 100, alpha]);
         }
         let mut png = Vec::new();
         PngEncoder::new(&mut png)
             .write_image(&rgba, 16, 16, ExtendedColorType::Rgba8)
-            .expect("encode cactus fixture PNG");
+            .expect("encode resin fixture PNG");
         fs::write(root.join(format!("textures/blocks/{name}.png")), png)
-            .expect("write cactus fixture PNG");
+            .expect("write resin fixture PNG");
     }
 }
 
-fn compiled_cactus_fixture() -> &'static CompiledCactusFixture {
-    static FIXTURE: OnceLock<CompiledCactusFixture> = OnceLock::new();
+fn compiled_resin_clump_fixture() -> &'static CompiledResinClumpFixture {
+    static FIXTURE: OnceLock<CompiledResinClumpFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode cactus registry");
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
+            .expect("decode resin registry");
         let air = records
             .iter()
             .find(|record| record.name.as_ref() == "minecraft:air")
             .expect("air record")
             .clone();
-        let mut cactus = records
+        let mut resin = records
             .iter()
-            .filter(|record| record.name.as_ref() == "minecraft:cactus")
+            .filter(|record| record.name.as_ref() == "minecraft:resin_clump")
             .cloned()
             .collect::<Vec<_>>();
-        cactus.sort_unstable_by_key(|record| {
+        resin.sort_unstable_by_key(|record| {
             record
                 .model_state
-                .get(ModelStateField::Growth)
-                .expect("cactus age")
+                .get(ModelStateField::Connections)
+                .expect("resin direction bits")
         });
-        assert_eq!(cactus.len(), 16);
+        assert_eq!(resin.len(), 64);
         let cube = records
             .iter()
             .find(|record| {
@@ -104,53 +92,57 @@ fn compiled_cactus_fixture() -> &'static CompiledCactusFixture {
             sequential: record.sequential_id,
             hashed: record.network_hash,
         };
-        let cactus_values = std::array::from_fn(|age| {
+        let resin_values = std::array::from_fn(|mask| {
             assert_eq!(
-                cactus[age].model_state.get(ModelStateField::Growth),
-                Some(age as u32)
+                resin[mask].model_state.get(ModelStateField::Connections),
+                Some(mask as u32)
             );
-            assert_eq!(cactus[age].sequential_id, 13_606 + age as u32);
-            values(&cactus[age])
+            values(&resin[mask])
         });
         let air_values = values(&air);
         let cube_values = values(&cube);
         let water_values = values(&water);
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
-        let directory = tempfile::tempdir().expect("cactus fixture directory");
-        write_cactus_render_pack(directory.path(), cube_name);
-        let mut selected = Vec::with_capacity(19);
+        let directory = tempfile::tempdir().expect("resin fixture directory");
+        write_resin_clump_render_pack(directory.path(), cube_name);
+        let mut selected = Vec::with_capacity(67);
         selected.push(air);
-        selected.extend(cactus);
+        selected.extend(resin);
         selected.push(cube);
         selected.push(water);
-        let compiled = compile_pack(directory.path(), &selected).expect("compile cactus fixture");
-        let blob = encode_blob(&compiled).expect("encode cactus fixture");
-        let assets = RuntimeAssets::decode(&blob).expect("decode cactus fixture");
-        for (age, values) in cactus_values.iter().enumerate() {
-            for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-                let visual = assets.resolve(mode, values.for_mode(mode));
-                assert_eq!(visual.kind(), VisualKind::Model, "mode={mode:?} age={age}");
-                assert!(visual.flags().is_empty(), "mode={mode:?} age={age}");
-                let template = assets.model_templates()[visual.model_template().unwrap() as usize];
-                assert_eq!(template.quad_count, 6, "mode={mode:?} age={age}");
-            }
+        let compiled = compile_pack(directory.path(), &selected).expect("compile resin fixture");
+        let blob = encode_blob(&compiled).expect("encode resin fixture");
+        let assets = RuntimeAssets::decode(&blob).expect("decode resin fixture");
+        for (mask, values) in resin_values.iter().enumerate() {
+            let visual = assets.resolve(NetworkIdMode::Sequential, values.sequential);
+            assert_eq!(visual.kind(), VisualKind::Model, "mask {mask}");
+            assert!(visual.flags().is_empty(), "mask {mask}");
+            let template = assets.model_templates()[visual.model_template().unwrap() as usize];
+            assert_eq!(
+                template.quad_count,
+                if mask == 0 {
+                    6
+                } else {
+                    (mask as u32).count_ones()
+                }
+            );
         }
-        CompiledCactusFixture {
+        CompiledResinClumpFixture {
             assets,
             air: air_values,
-            cactus: cactus_values,
+            resin: resin_values,
             cube: cube_values,
             water: water_values,
         }
     })
 }
 
-fn cactus_sub_chunk(
+fn resin_sub_chunk(
     mode: NetworkIdMode,
     placements: &[([u8; 3], NetworkValues)],
     water: &[[u8; 3]],
 ) -> SubChunk {
-    let fixture = compiled_cactus_fixture();
+    let fixture = compiled_resin_clump_fixture();
     let air = fixture.air.for_mode(mode);
     let mut palette = vec![air];
     let primary = placements
@@ -188,14 +180,14 @@ fn cactus_sub_chunk(
     sub_chunk(storages)
 }
 
-fn mesh_cacti(
+fn mesh_resin_clumps(
     mode: NetworkIdMode,
     placements: &[([u8; 3], NetworkValues)],
     water: &[[u8; 3]],
     neighbours: &Neighbourhood<'_>,
 ) -> ChunkMesh {
-    let fixture = compiled_cactus_fixture();
-    let center = cactus_sub_chunk(mode, placements, water);
+    let fixture = compiled_resin_clump_fixture();
+    let center = resin_sub_chunk(mode, placements, water);
     mesh_sub_chunk(
         &BlockClassifier::new(fixture.air.for_mode(mode)),
         &fixture.assets,
@@ -206,48 +198,47 @@ fn mesh_cacti(
 }
 
 #[test]
-fn compiled_cactus_ages_mesh_identically_in_both_network_modes() {
-    let fixture = compiled_cactus_fixture();
-    let mut witness = None;
+fn compiled_resin_clumps_cover_all_masks_in_both_network_modes_with_stable_streams() {
+    let fixture = compiled_resin_clump_fixture();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        for (age, &values) in fixture.cactus.iter().enumerate() {
+        for (mask, &values) in fixture.resin.iter().enumerate() {
+            let effective = if mask == 0 { 63 } else { mask as u32 };
+            let quad_count = effective.count_ones();
             let resolved = fixture.assets.resolve(mode, values.for_mode(mode));
-            let template = resolved.model_template().expect("cactus template");
-            let mesh = mesh_cacti(mode, &[([7, 8, 9], values)], &[], &Neighbourhood::empty());
-            assert!(mesh.cube_quads().is_empty(), "mode={mode:?} age={age}");
-            assert_eq!(mesh.model_refs().len(), 1, "mode={mode:?} age={age}");
+            let template = resolved.model_template().expect("resin template");
+            let mesh =
+                mesh_resin_clumps(mode, &[([7, 8, 9], values)], &[], &Neighbourhood::empty());
+            assert!(mesh.cube_quads().is_empty(), "mode={mode:?} mask={mask}");
+            assert_eq!(mesh.model_refs().len(), 1, "mode={mode:?} mask={mask}");
             assert_eq!(
                 mesh.model_refs()[0].words(),
-                [7 | (8 << 4) | (9 << 8), template, 0, 0x3f],
-                "mode={mode:?} age={age}"
+                [
+                    7 | (8 << 4) | (9 << 8),
+                    template,
+                    0,
+                    (1_u32 << quad_count) - 1,
+                ],
+                "mode={mode:?} mask={mask}"
             );
-            let draw_words = mesh
-                .model_draw_refs()
-                .iter()
-                .copied()
-                .map(PackedModelDrawRef::words)
-                .collect::<Vec<_>>();
-            assert_eq!(draw_words, [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5]]);
-            assert_eq!(mesh.model_lighting().len(), 6);
+            assert_eq!(
+                mesh.model_draw_refs().len(),
+                quad_count as usize,
+                "mode={mode:?} mask={mask}"
+            );
+            assert_eq!(
+                mesh.model_lighting().len(),
+                quad_count as usize,
+                "mode={mode:?} mask={mask}"
+            );
             assert!(mesh.transparent_model_draw_refs().is_empty());
-            assert!(mesh.connectivity().is_all_connected());
-            let streams = (
-                mesh.model_refs().to_vec(),
-                mesh.model_draw_refs().to_vec(),
-                mesh.model_lighting().to_vec(),
-            );
-            if let Some(expected) = &witness {
-                assert_eq!(&streams, expected, "mode={mode:?} age={age}");
-            } else {
-                witness = Some(streams);
-            }
+            assert!(mesh.connectivity().is_all_connected(), "mask={mask}");
         }
     }
 }
 
 #[test]
-fn compiled_cactus_survives_all_boundaries_and_does_not_occlude_neighbours() {
-    let fixture = compiled_cactus_fixture();
+fn compiled_resin_planes_survive_all_boundaries_and_do_not_occlude_supports_or_models() {
+    let fixture = compiled_resin_clump_fixture();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         for (face, center, neighbour) in [
             (Face::NegativeX, [0, 5, 6], [15, 5, 6]),
@@ -262,14 +253,13 @@ fn compiled_cactus_survives_all_boundaries_and_does_not_occlude_neighbours() {
                 &[fixture.air.for_mode(mode), fixture.cube.for_mode(mode)],
                 &[(neighbour, 1)],
             )]);
-            let mesh = mesh_cacti(
+            let mesh = mesh_resin_clumps(
                 mode,
-                &[(center, fixture.cactus[15])],
+                &[(center, fixture.resin[63])],
                 &[],
                 &neighbourhood_for(face, &opaque),
             );
             assert_eq!(mesh.model_refs().len(), 1, "mode={mode:?} face={face:?}");
-            assert_eq!(mesh.model_refs()[0].words()[3], 0x3f);
             assert_eq!(
                 mesh.model_draw_refs().len(),
                 6,
@@ -280,31 +270,45 @@ fn compiled_cactus_survives_all_boundaries_and_does_not_occlude_neighbours() {
                 6,
                 "mode={mode:?} face={face:?}"
             );
+            assert_eq!(mesh.model_refs()[0].words()[3], 0x3f);
             assert!(mesh.connectivity().is_all_connected());
         }
 
-        let adjacent = cactus_sub_chunk(
+        let support = resin_sub_chunk(
             mode,
-            &[([8, 8, 8], fixture.cube), ([8, 8, 9], fixture.cactus[0])],
+            &[([8, 8, 8], fixture.cube), ([8, 8, 9], fixture.resin[16])],
             &[],
         );
-        let mesh = mesh_sub_chunk(
+        let support_mesh = mesh_sub_chunk(
             &BlockClassifier::new(fixture.air.for_mode(mode)),
             &fixture.assets,
             mode,
             &Neighbourhood::empty(),
-            &adjacent,
+            &support,
         );
-        assert_eq!(mesh.cube_quads().len(), 6, "mode={mode:?}");
-        assert_eq!(mesh.model_draw_refs().len(), 6, "mode={mode:?}");
+        assert_eq!(support_mesh.cube_quads().len(), 6, "mode={mode:?}");
+        assert_eq!(support_mesh.model_draw_refs().len(), 1, "mode={mode:?}");
+
+        let adjacent = mesh_resin_clumps(
+            mode,
+            &[
+                ([7, 8, 8], fixture.resin[63]),
+                ([8, 8, 8], fixture.resin[63]),
+            ],
+            &[],
+            &Neighbourhood::empty(),
+        );
+        assert_eq!(adjacent.model_refs().len(), 2);
+        assert_eq!(adjacent.model_draw_refs().len(), 12);
+        assert_eq!(adjacent.model_lighting().len(), 12);
     }
 }
 
 #[test]
-fn compiled_cactus_preserves_additional_water_contributor() {
-    let fixture = compiled_cactus_fixture();
+fn compiled_resin_preserves_additional_water_contributor() {
+    let fixture = compiled_resin_clump_fixture();
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        let center = cactus_sub_chunk(mode, &[([8, 8, 8], fixture.cactus[15])], &[[8, 8, 8]]);
+        let center = resin_sub_chunk(mode, &[([8, 8, 8], fixture.resin[63])], &[[8, 8, 8]]);
         let resolved = ContributorResolver::new(
             BlockClassifier::new(fixture.air.for_mode(mode)),
             &fixture.assets,
@@ -314,7 +318,7 @@ fn compiled_cactus_preserves_additional_water_contributor() {
         .resolve([8, 8, 8]);
         assert_eq!(
             resolved.primary_network_value(),
-            Some(fixture.cactus[15].for_mode(mode))
+            Some(fixture.resin[63].for_mode(mode))
         );
         assert_eq!(
             resolved.liquid_network_value(),
@@ -337,9 +341,9 @@ fn compiled_cactus_preserves_additional_water_contributor() {
 }
 
 #[test]
-fn compiled_cactus_dense_subchunk_has_exact_bounded_open_model_streams() {
-    let fixture = compiled_cactus_fixture();
-    let center = sub_chunk(vec![uniform_storage(fixture.cactus[15].sequential)]);
+fn compiled_resin_dense_mask_63_has_exact_bounded_open_model_streams() {
+    let fixture = compiled_resin_clump_fixture();
+    let center = sub_chunk(vec![uniform_storage(fixture.resin[63].sequential)]);
     let mesh = mesh_sub_chunk(
         &BlockClassifier::new(fixture.air.sequential),
         &fixture.assets,

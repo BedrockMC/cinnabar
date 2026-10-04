@@ -49,7 +49,7 @@ fn write_stained_glass_render_pack(root: &Path, cube_name: &str) {
 fn compiled_stained_glass_fixture() -> &'static CompiledStainedGlassFixture {
     static FIXTURE: OnceLock<CompiledStainedGlassFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode stained-glass registry");
         let named = |name: &str| {
             records

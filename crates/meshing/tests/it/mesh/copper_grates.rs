@@ -65,7 +65,7 @@ fn write_copper_grate_render_pack(root: &Path, cube_name: &str) {
 fn compiled_copper_grate_fixture() -> &'static CompiledCopperGrateFixture {
     static FIXTURE: OnceLock<CompiledCopperGrateFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../assets/data/block-registry-v1001.bin"))
+        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
             .expect("decode copper-grate registry");
         let named = |name: &str| {
             records

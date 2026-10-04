@@ -103,11 +103,13 @@ fn fixture() -> &'static Fixture {
         let sequential_id = ice.sequential_id;
         // compile_pack owns the legacy fallback table. Its real ice hash and
         // canonical state must hit that table; invented hashes hide alpha bugs.
-        *ice = assets::read_registry(include_bytes!("../../assets/data/block-registry-v1001.bin"))
-            .unwrap()
-            .into_iter()
-            .find(|record| record.name.as_ref() == "minecraft:ice")
-            .unwrap();
+        *ice = assets::read_registry(include_bytes!(
+            "../../../assets/data/block-registry-v1001.bin"
+        ))
+        .unwrap()
+        .into_iter()
+        .find(|record| record.name.as_ref() == "minecraft:ice")
+        .unwrap();
         ice.sequential_id = sequential_id;
         let directory = tempfile::tempdir().unwrap();
         fs::create_dir_all(directory.path().join("textures/blocks")).unwrap();
