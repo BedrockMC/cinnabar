@@ -17,6 +17,7 @@ use super::{
     chest::ChestModel,
     conduit::ConduitModel,
     crack::{CrackShape, emit_crack},
+    crystal_beam::CrystalBeamModel,
     frame::ItemFrameModel,
     heads::HeadModels,
     mesh::{BlockEntityVertex, MeshBuilder},
@@ -50,6 +51,7 @@ pub enum BlockEntityKind {
     Conduit(ConduitModel),
     DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
+    CrystalBeam(CrystalBeamModel),
     Statue(StatueModel),
     Spawner(SpawnerModel),
     EndPortal,
@@ -322,6 +324,7 @@ fn emit_submission(
         }
         BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
+        BlockEntityKind::CrystalBeam(model) => super::crystal_beam::emit(builder, atlas, model),
         BlockEntityKind::Statue(model) => super::statue::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Spawner(model) => {
             super::spawner::emit(builder, atlas, mobs, block, model, clock);
