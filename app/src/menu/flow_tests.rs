@@ -98,3 +98,66 @@ fn launcher_words_a_transport_failure_as_vanilla_does() {
         DisconnectBody::Key("disconnect.closed")
     );
 }
+
+// Saving, editing, cancelling or deleting a server keeps the Servers tab, as vanilla pops the form.
+#[test]
+fn server_form_returns_to_the_servers_tab() {
+    let root = crate::ui_runtime::presentation::forms::pack_harness::scratch_dir("server-tab");
+    use crate::install_layout::{InstallEnvironment, Platform};
+    let layout = super::InstallLayout::resolve(
+        Platform::Linux,
+        &InstallEnvironment {
+            executable: root.join("target/debug/bedrock-client"),
+            home: Some(root.join("home")),
+            local_app_data: None,
+            xdg_config_home: None,
+            xdg_data_home: None,
+            xdg_runtime_dir: None,
+        },
+    )
+    .unwrap();
+    let mut menu = MenuRuntime::new_with_layout(
+        true,
+        Some(2),
+        "Steve".to_owned(),
+        layout,
+        crate::player_skin::LocalPlayerSkin::generated_default("Steve"),
+    );
+    menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    menu.activate(MenuAction::PlayAddServer);
+    menu.name.set_text("Local");
+    menu.address.set_text("127.0.0.1");
+    menu.activate(MenuAction::AddSave);
+    assert_eq!(menu.screen(), MenuScreen::Servers, "add returns to Servers");
+    assert_eq!(menu.servers.len(), 1);
+    assert_eq!(menu.servers[0].name, "Local");
+
+    menu.activate(MenuAction::EditSaved(0));
+    menu.name.set_text("Renamed");
+    menu.activate(MenuAction::AddSave);
+    assert_eq!(
+        menu.screen(),
+        MenuScreen::Servers,
+        "edit returns to Servers"
+    );
+    assert_eq!(menu.servers[0].name, "Renamed");
+
+    menu.activate(MenuAction::PlayAddServer);
+    menu.activate(MenuAction::AddBack);
+    assert_eq!(
+        menu.screen(),
+        MenuScreen::Servers,
+        "cancel returns to Servers"
+    );
+
+    menu.activate(MenuAction::RemoveSavedDialog(0));
+    menu.activate(MenuAction::ConfirmRemoveSaved(0));
+    assert_eq!(
+        menu.screen(),
+        MenuScreen::Servers,
+        "delete stays on Servers"
+    );
+    assert!(menu.servers.is_empty());
+    menu.saves.flush();
+    let _ = std::fs::remove_dir_all(root);
+}
