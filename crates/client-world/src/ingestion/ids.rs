@@ -12,6 +12,7 @@ use world::{BiomeIds, BlockIds, DimensionSlots};
 pub struct DecodeIds {
     pub assets: Arc<RuntimeAssets>,
     pub custom_blocks: std::ops::Range<u32>,
+    pub(crate) custom_identities: Arc<std::collections::HashMap<u32, u32>>,
     pub remap: Arc<assets::SequentialIdRemap>,
     pub(crate) diagnostics: Arc<super::DecodeDiagnostics>,
     pub(crate) session_id: u64,
@@ -47,8 +48,10 @@ impl BlockIds for DecodeIds {
         } else {
             network_id
         };
-        let known =
-            self.assets.is_known(self.mode, network_id) || self.custom_blocks.contains(&network_id);
+        let known = self.assets.is_known(self.mode, network_id)
+            || self.custom_blocks.contains(&network_id)
+            || (self.mode == NetworkIdMode::Hashed
+                && self.custom_identities.contains_key(&network_id));
         self.diagnostics.observe(wire_id, network_id, self, known);
         if known { network_id } else { self.air }
     }
@@ -58,16 +61,21 @@ impl BlockIds for DecodeIds {
             self.diagnostics.observe_invalid_persistent(self.session_id);
             return self.air;
         };
-        let sequential = self.assets.sequential_id_for_hash(hash).or_else(|| {
-            self.assets
-                .is_diagnostic()
-                .then(|| assets::pinned_block_sequential_id(hash))
-                .flatten()
-        });
-        let internal = sequential.map(|id| match self.mode {
+        let internal_id = |id| match self.mode {
             NetworkIdMode::Sequential => id,
             NetworkIdMode::Hashed => hash,
-        });
+        };
+        let internal = self
+            .assets
+            .sequential_id_for_hash(hash)
+            .map(internal_id)
+            .or_else(|| self.custom_identities.get(&hash).copied())
+            .or_else(|| {
+                self.assets
+                    .is_diagnostic()
+                    .then(|| assets::pinned_block_sequential_id(hash).map(internal_id))
+                    .flatten()
+            });
         self.diagnostics
             .observe(hash, internal.unwrap_or(self.air), self, internal.is_some());
         internal.unwrap_or(self.air)
@@ -186,6 +194,7 @@ mod tests {
             biome_tints: Arc::new(assets.biome_assets().resolve_live(&[]).unwrap()),
             assets,
             custom_blocks: 0..0,
+            custom_identities: Arc::default(),
             remap: Arc::default(),
             diagnostics: Arc::default(),
             session_id: 0,
@@ -258,6 +267,7 @@ mod tests {
                 biome_tints: Arc::new(assets.biome_assets().resolve_live(&[]).unwrap()),
                 assets: Arc::clone(&assets),
                 custom_blocks: 1..2,
+                custom_identities: Arc::new(std::collections::HashMap::from([(hash, 99)])),
                 remap: Arc::new(assets::SequentialIdRemap::new([(0, 1, 2)])),
                 diagnostics: Arc::default(),
                 session_id: 0,
