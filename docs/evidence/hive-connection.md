@@ -23,8 +23,9 @@ complete identities in either wire mode, preserving visual and collision slots
 when an individual definition cannot provide a complete identity.
 
 Offline replay additionally exposed early decode snapshots taken before the
-asynchronous custom artwork finished. Custom identities belong to the session
-world registry and must be available independently of that artwork.
+asynchronous custom artwork finished. The session world registry now installs
+custom identities before terrain admission; immutable worker snapshots retain
+them independently of artwork publication.
 
 The captured definition named `minecraft:overworld`, with minimum Y 0, height
 256 and numeric dimension type 3. StartGame and LevelChunk used dimension 0.
@@ -37,6 +38,7 @@ outside git.
 | An unavailable selected subpack falls back to root resources. | Validate the root manifest before selecting a declared folder; retain the wire label as metadata. |
 | Persistent palettes identify blocks by name and typed states. | Decode network NBT, qualify vanilla short names and resolve the canonical identity in the active registry. Unknown entries use air. |
 | Persistent custom identities are independent of the session's wire ID mode. | Keep the custom hash lookup in sequential overlays too; incomplete identities skip only their own slots. |
+| Advertised block identity is available before resource artwork. | Install canonical identities in the session world registry before terrain decoding and retain them in immutable worker snapshots. |
 | A custom block without a collision component retains a full-block shape; disabled collision is empty. | Resolve the advertised block before applying its existing collision policy. |
 | Named builtin definitions override their dimension's default bounds. | Retain the definition name; the overworld key selects dimension 0 independently of the definition's numeric type. |
 | Definitions retain their first registration; instantiated dimensions retain their height. | Admit definitions before later decode snapshots and freeze a dimension's effective range when terrain first uses it. |
@@ -52,17 +54,28 @@ inline placement, request origins, pending decode ordering and invalid ranges.
 Transfer regressions cover sentinel acknowledgements, metadata and packet
 roundtrips, readiness boundaries, authoritative air, current-position changes,
 prediction freeze, timeout ordering, queue backpressure and production app wiring.
-Custom identity regressions cover named states, missing visual resources and
-incomplete definitions beside valid neighbors.
+Custom identity regressions cover named states, missing visual resources,
+incomplete definitions beside valid neighbors, admitted ranges, offset overflow,
+asset precedence and snapshots retained across registry replacement.
 
 The live checks used macOS Metal on Apple M3 Pro, a 1280×752 logical window at
 2× display scale, vanilla render mode and a debug build. Hive hub walking,
 jumping and the compass game-selector menu worked. SkyWars transferred to the
 destination and supported movement after the acknowledgement fix, but later
 disconnected. A subsequent movement-only run ended with an "Unfair Advantage"
-ban showing expiry `6d 23h`. Live connections stopped. That opaque server verdict does not
-establish its cause; final live acceptance after the custom identity correction
-remains blocked.
+ban showing expiry `6d 23h`. Live connections stopped. That opaque server verdict
+does not establish its cause; final live acceptance after the custom identity
+correction remains blocked.
+
+The final offline run used build `8d32996a`, eight captured terrain columns, one
+synthetic air neighbor and a local teleport anchor. All 1,581 advertised custom
+states were registered before artwork with zero skipped definitions. Walking
+reached the captured `hive:cream_brick` at [-11, 39, 0]; the eye rested at Y
+41.62001, jumped to 42.87221 and returned to the same floor. Fresh rendered frames
+showed the restored custom surfaces and working input. The local bridge omitted
+encrypted server artwork and ignored gameplay requests: diagnostic textures were
+expected, and this run establishes neither server acceptance nor visual or
+performance parity. Its complete replay report ended on the local client's exit.
 
 Persistent legacy-state upgrades, default-state reconciliation and unknown
 property handling remain incomplete in `plan.md`. This work does not close the
