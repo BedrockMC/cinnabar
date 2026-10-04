@@ -140,6 +140,7 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
         } => inputs.extend(clouds_override.as_deref()),
         IconAssets { block_assets, .. } => inputs.extend(block_assets.as_deref()),
         AudioPcmAssets { catalog, .. } => inputs.push(catalog),
+        FontAssets { font, .. } => inputs.extend(font.as_deref()),
         OutlineFontAssets {
             font,
             fallback_font,

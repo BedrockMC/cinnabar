@@ -1,6 +1,7 @@
 use super::*;
 use pack_compiler::{
-    GlyphAdvances, OutlineFontConfig, compile_outline_font, compile_outline_font_with_fallback,
+    CompiledFontCarrier, GlyphAdvances, OutlineFontConfig, compile_outline_font,
+    compile_outline_font_with_fallback,
 };
 
 const MAX_MANIFEST: usize = 64 * 1024;
@@ -122,6 +123,25 @@ pub(super) fn compile(
         report,
         &[(&notices_path, &notices)],
     )
+}
+
+/// Rasterizes an outline font whose size and hash `source` pins, keeping its own advances.
+/// The font carries its own CJK pages, so it is also its own fallback provider.
+pub(super) fn compile_pinned(
+    font: &Path,
+    source: &serde_json::Value,
+    manifest_hash: [u8; 32],
+) -> Result<CompiledFontCarrier, Box<dyn std::error::Error>> {
+    // Both providers read these bytes, within the two-provider 32 MiB source budget.
+    let bytes = verified(font, source, "font", 16 * 1024 * 1024)?;
+    Ok(compile_outline_font_with_fallback(
+        font,
+        &bytes,
+        font,
+        &bytes,
+        manifest_hash,
+        OutlineFontConfig::default(),
+    )?)
 }
 
 fn text<'a>(
