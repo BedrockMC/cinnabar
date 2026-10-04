@@ -404,8 +404,10 @@ mod tests {
             let Action::Assetc(args) = &step.action else {
                 continue;
             };
-            let (key, current) = identity(args, &pack_dir, &pack, &resolve, &earlier).unwrap();
-            let (_, updated) = identity(args, &pack_dir, &pack, &resolve, &changed).unwrap();
+            let (key, current) =
+                identity(args, &pack_dir, &pack, "test-compiler", &resolve, &earlier).unwrap();
+            let (_, updated) =
+                identity(args, &pack_dir, &pack, "test-compiler", &resolve, &changed).unwrap();
             let (magic, _) = carrier_type(&key);
             if magic == assets::ACTOR_CARRIER_MAGIC.as_slice()
                 || magic == assets::EQUIPMENT_CARRIER_MAGIC.as_slice()
@@ -435,6 +437,6 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert!(identity(actor, &pack_dir, &pack, &resolve, &earlier).is_err());
+        assert!(identity(actor, &pack_dir, &pack, "test-compiler", &resolve, &earlier).is_err());
     }
 }
