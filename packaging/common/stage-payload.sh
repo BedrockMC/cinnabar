@@ -5,28 +5,20 @@ set -euo pipefail
 
 repo_root="$(CDPATH= cd -- "${CINNABAR_SOURCE_ROOT:-$(dirname -- "${BASH_SOURCE[0]}")/../..}" && pwd)"
 
-# Shared with check-payload.sh; Windows copies the .ps1 subset in build-installer.ps1.
-kit_scripts=(fetch-vanilla-assets.sh fetch-vanilla-assets.ps1 rename-directory-no-replace.c)
+# Shared with check-payload.sh; Windows copies the same set in build-installer.ps1.
 kit_registry_stems=(block-registry block-light-registry biome-registry)
 
 # stage_prep_kit <kit_dir> <assetc_binary>
 stage_prep_kit() {
     local kit="$1" assetc="$2" name
     rm -rf "$kit"
-    mkdir -p "$kit/bin" "$kit/scripts" "$kit/assets" "$kit/data"
+    mkdir -p "$kit/bin" "$kit/assets" "$kit/data"
     install -m 0755 "$assetc" "$kit/bin/$(basename "$assetc")"
-    for name in "${kit_scripts[@]}"; do
-        install -m 0644 "$repo_root/scripts/$name" "$kit/scripts/$name"
-    done
     cp "$repo_root"/assets/*.json "$kit/assets/"
     cp -R "$repo_root/assets/fonts" "$kit/assets/"
     for name in "${kit_registry_stems[@]}"; do
         cp "$repo_root/crates/assets/data/$name"-v2193.* "$kit/data/"
     done
-    # Prebuilt so end users need no C compiler; Windows uses the PowerShell fetcher instead.
-    if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
-        cc -std=c11 -O2 "$repo_root/scripts/rename-directory-no-replace.c" -o "$kit/bin/rename-directory-no-replace"
-    fi
 }
 
 # stage_resources <resource_root> <assetc_binary>: physics registry, notices, licenses, UI font, prep kit.
@@ -62,11 +54,7 @@ resource_manifest() {
     file="$(ui_font_path)"
     font_file="${file##*/}"
     printf '%s\n' assets/block-physics-v2193.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
-    [[ "$platform" == windows ]] || printf '%s\n' prep-kit/bin/rename-directory-no-replace
     for file in "$repo_root"/assets/licenses/*; do printf 'licenses/%s\n' "${file##*/}"; done
-    for name in "${kit_scripts[@]}"; do
-        if [[ "$platform" != windows || "$name" == *.ps1 ]]; then printf 'prep-kit/scripts/%s\n' "$name"; fi
-    done
     for file in "$repo_root"/assets/*.json; do printf 'prep-kit/assets/%s\n' "${file##*/}"; done
     printf 'prep-kit/assets/fonts/%s\n' "$font_file"
     for name in "${kit_registry_stems[@]}"; do

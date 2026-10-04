@@ -103,11 +103,8 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
         selection.identities.insert(key, identity);
     }
     for (index, step) in steps.iter().enumerate() {
-        if let Action::Script(name) = step.action {
-            selection.run[index] = match name {
-                "fetch-vanilla-assets" => selection.needs_pack,
-                _ => true,
-            };
+        if step.action == Action::UnpackPack {
+            selection.run[index] = selection.needs_pack;
         }
     }
     Ok(selection)
@@ -234,7 +231,7 @@ mod tests {
 
     fn kit(dir: &Dir) -> PathBuf {
         let kit = dir.path().join("kit");
-        for sub in ["assets", "data", "scripts"] {
+        for sub in ["assets", "data"] {
             fs::create_dir_all(kit.join(sub)).unwrap();
         }
         fs::create_dir_all(kit.join("bin")).unwrap();

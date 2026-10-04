@@ -124,7 +124,7 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
         }
         WeatherAssets { out, .. } | HudExtrasAssets { out, .. } => outputs.push(out),
         AudioBank { out, report, .. } => outputs.extend([out.as_path(), report.as_path()]),
-        LanguageAssets { .. } => return Ok(()),
+        LanguageAssets { .. } | VanillaPack { .. } => return Ok(()),
     }
     match command {
         EntityAssets { out, .. } => {
