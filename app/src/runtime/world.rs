@@ -1,13 +1,26 @@
+#[cfg(feature = "acceptance")]
+use crate::acceptance::{
+    AcceptanceRun,
+    model_witness::ModelWitnessFileSource,
+    mutation::{deterministic_mutation_coordinate, write_stdout_marker},
+};
+#[cfg(feature = "acceptance")]
+use crate::runtime::phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind};
+#[cfg(feature = "acceptance")]
+use crate::runtime::visibility::AppMetrics;
+#[cfg(feature = "acceptance")]
 mod acceptance_helpers;
 mod committed_ui;
 mod control_apply;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
+use committed_ui::refresh_player_list_cache_for_controls;
 #[cfg(test)]
 mod player_list_tests;
 mod shutdown_watchdog;
 mod sub_chunk_requests;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 
+#[cfg(feature = "acceptance")]
 pub(crate) use acceptance_helpers::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
@@ -42,11 +55,6 @@ use render::{
 };
 
 use crate::{
-    acceptance::{
-        AcceptanceRun,
-        model_witness::ModelWitnessFileSource,
-        mutation::{deterministic_mutation_coordinate, write_stdout_marker},
-    },
     camera::{CameraSettingsAuthority, FlyCamera},
     environment::{self, WeatherState, WorldClock, apply_environment_control},
     local_player::{
@@ -58,36 +66,17 @@ use crate::{
     },
     runtime::{
         network::{NetworkHandle, OUTBOUND_SEND_BUDGET_PER_FRAME},
-        phase3_evidence::{Phase3EvidenceEmitter, Phase3EvidenceEventKind},
         publication::{PublicationController, PublicationFrameWork},
         shutdown::record_fatal_error,
-        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        visibility::{CaveVisibilityCache, DiagnosticQuads},
     },
     ui_runtime::UiRuntime,
 };
 
+#[cfg(feature = "acceptance")]
 fn position_distance(from: [f32; 3], to: [f32; 3]) -> f32 {
     let delta = Vec3::from_array(to) - Vec3::from_array(from);
     delta.length()
-}
-
-/// Refreshes Tab/rawtext identity state when a committed player-list marker
-/// reports that the authoritative roster changed without a UI packet.
-fn refresh_player_list_cache_for_controls(
-    stream: &WorldStream,
-    ui_runtime: &mut UiRuntime,
-    controls: &[CommittedControlEvent],
-) {
-    if !controls
-        .iter()
-        .any(|control| matches!(control, CommittedControlEvent::PlayerListChanged { .. }))
-    {
-        return;
-    }
-    ui_runtime.refresh_raw_text_identities(
-        |unique_id| stream.actor_display_name(unique_id),
-        stream.player_list_usernames(),
-    );
 }
 
 #[derive(Resource, Debug, Default)]
@@ -243,10 +232,20 @@ pub(crate) fn update_camera_medium(
 /// stops scanning retained columns and sub-chunks once startup releases.
 pub(crate) fn frame_cohort_status(
     stream: &WorldStream,
-    acceptance: &AcceptanceRun,
+    #[cfg(feature = "acceptance")] acceptance: &AcceptanceRun,
     startup_probe_enabled: bool,
 ) -> Option<ViewCohortStatus> {
-    if !startup_probe_enabled && !super::telemetry::publication_diagnostics_enabled(acceptance) {
+    let diagnostics_enabled = {
+        #[cfg(feature = "acceptance")]
+        {
+            super::telemetry::publication_diagnostics_enabled(acceptance)
+        }
+        #[cfg(not(feature = "acceptance"))]
+        {
+            false
+        }
+    };
+    if !startup_probe_enabled && !diagnostics_enabled {
         return None;
     }
     stream
@@ -273,14 +272,14 @@ pub(crate) fn mesh_change_has_publication_permit(change: &WorldMeshChange) -> bo
 pub(crate) fn reconcile_world_stream_before_physics(
     state: AppWorldState,
     network: Option<Res<NetworkHandle>>,
-    mut acceptance: ResMut<AcceptanceRun>,
+    #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     upload_budget: Res<ChunkUploadBudget>,
-    model_witness_source: Res<ModelWitnessFileSource>,
+    #[cfg(feature = "acceptance")] model_witness_source: Res<ModelWitnessFileSource>,
     mut camera_settings: ResMut<CameraSettingsAuthority>,
     mut view: ResMut<LocalViewPose>,
     mut local_frame: ResMut<LocalPlayerFrameCarrier>,
     mut interaction: ResMut<InteractionOriginSnapshot>,
-    mut phase3_evidence: ResMut<Phase3EvidenceEmitter>,
+    #[cfg(feature = "acceptance")] mut phase3_evidence: ResMut<Phase3EvidenceEmitter>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut audio: MessageWriter<SequencedAudioEvent>,
     mut server_camera: ResMut<ServerCameraInstructions>,
@@ -326,6 +325,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     );
     frame_poll.cohort = frame_cohort_status(
         stream,
+        #[cfg(feature = "acceptance")]
         &acceptance,
         visibility_diagnostics.is_some_and(|diagnostics| diagnostics.startup_probe_enabled()),
     );
@@ -422,10 +422,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
                         hurt.note_knockback(motion[0], motion[2]);
                     }
                 }
+                #[cfg(feature = "acceptance")]
                 ControlObservation::BeforeSpatial(control) => {
                     let _ =
                         refresh_mutation_anchor_from_committed_control(&mut acceptance, &control);
                 }
+                #[cfg(feature = "acceptance")]
                 ControlObservation::Correction {
                     outcome,
                     previous,
@@ -433,9 +435,14 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 } => {
                     phase3_evidence.note_correction(outcome, position_distance(previous, position));
                 }
+                #[cfg(feature = "acceptance")]
                 ControlObservation::Dimension => {
                     phase3_evidence.note_event(Phase3EvidenceEventKind::Dimension);
                 }
+                #[cfg(not(feature = "acceptance"))]
+                ControlObservation::BeforeSpatial(_)
+                | ControlObservation::Correction { .. }
+                | ControlObservation::Dimension => {}
             }
         });
         use gameplay::committed_control::{ControlDisposition, SpatialReset};
@@ -459,7 +466,9 @@ pub(crate) fn reconcile_world_stream_before_physics(
         };
         local_frame.reset(reset);
         interaction.invalidate();
+        #[cfg(feature = "acceptance")]
         let _ = acceptance.observe_committed_full_view_control(&control);
+        #[cfg(feature = "acceptance")]
         let camera_marker =
             model_gallery_camera_committed_marker(model_witness_source.configured(), &control);
         apply_committed_control(
@@ -468,6 +477,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &mut camera_settings,
             pending_surface_spawn,
         );
+        #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {
             let mut stdout = std::io::stdout().lock();
             write_stdout_marker(&mut stdout, &marker);
@@ -479,8 +489,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
 pub(crate) fn drive_world_stream(
     network: Res<NetworkHandle>,
     state: AppWorldState,
-    mut acceptance: ResMut<AcceptanceRun>,
-    mut metrics: ResMut<AppMetrics>,
+    #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
+    #[cfg(feature = "acceptance")] mut metrics: ResMut<AppMetrics>,
     mut render_queue: ResMut<ChunkRenderQueue>,
     mut biome_tints: ResMut<ChunkBiomeTints>,
     mut diagnostic_quads: ResMut<DiagnosticQuads>,
@@ -518,9 +528,11 @@ pub(crate) fn drive_world_stream(
         return;
     };
     synchronize_biome_tints(stream, &mut biome_tints);
+    #[cfg(feature = "acceptance")]
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
         render_queue.record_gpu_upload_bytes(acknowledgement.uploaded_bytes);
+        #[cfg(feature = "acceptance")]
         if let Some(latency) = acceptance.acknowledge_mutation(
             acknowledgement.key,
             acknowledgement.token.generation,
@@ -546,6 +558,7 @@ pub(crate) fn drive_world_stream(
             .as_ref()
             .and_then(|stream| stream.surface_eye_position(anchor[0], anchor[1]))
     });
+    #[cfg(feature = "acceptance")]
     let resolved_mutation_coordinate = acceptance.mutation_surface_anchor().and_then(|anchor| {
         client_world.stream.as_ref().and_then(|stream| {
             stream
@@ -722,6 +735,7 @@ pub(crate) fn drive_world_stream(
         client_world.pending_surface_spawn = None;
         info!(position = ?position, "resolved temporary Bedrock spawn from packed terrain");
     }
+    #[cfg(feature = "acceptance")]
     if let Some(coordinate) = resolved_mutation_coordinate {
         acceptance.set_mutation_coordinate(coordinate);
     }

@@ -10,7 +10,7 @@ pub(super) fn submit(
 ) {
     for beam in beams {
         if camera.is_some_and(|camera| {
-            !crate::presentation::actors::within_actor_candidate_cube(
+            !client_presentation::presentation::actors::within_actor_candidate_cube(
                 beam.crystal,
                 camera.to_array(),
             )

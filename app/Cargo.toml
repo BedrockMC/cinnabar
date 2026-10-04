@@ -5,7 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+default = ["acceptance"]
+acceptance = ["dep:acceptance"]
+
 [dependencies]
+acceptance = { path = "../crates/acceptance", optional = true }
+diagnostics = { path = "../crates/diagnostics" }
+client-presentation = { path = "../crates/client-presentation" }
 gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
@@ -28,7 +35,6 @@ bevy = { workspace = true, default-features = false, features = [
     "bevy_post_process",
 ] }
 crossbeam-channel = "0.5"
-crossbeam-queue = "=0.3.13"
 ctrlc = { version = "3.4", features = ["termination"] }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 client-world = { package = "chunk-pipeline", path = "../crates/chunk-pipeline" }
@@ -40,7 +46,6 @@ protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
 server-experience = { path = "../crates/server-experience" }
 rayon.workspace = true
-rodio = { version = "=0.20.1", default-features = false }
 render = { path = "../crates/render" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 semantic-input = { path = "../crates/input" }
@@ -63,6 +68,9 @@ rustix = { version = "1", default-features = false, features = ["fs", "process",
 bevy = { workspace = true, default-features = false, features = ["wayland", "x11"] }
 
 [dev-dependencies]
+rodio = { version = "=0.20.1", default-features = false }
+acceptance = { path = "../crates/acceptance", features = ["test-support"] }
+client-presentation = { path = "../crates/client-presentation", features = ["test-support"] }
 gameplay = { path = "../crates/gameplay", features = ["test-support"] }
 client-session = { path = "../crates/client-session", features = ["test-support"] }
 client-ui = { path = "../crates/client-ui", features = ["test-support"] }

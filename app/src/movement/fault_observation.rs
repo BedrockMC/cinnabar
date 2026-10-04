@@ -36,6 +36,7 @@ impl PendingPhysicsFault<'_> {
     }
 
     /// Copies an observation only when the evidence adapter requests it.
+    #[cfg(feature = "acceptance")]
     pub(crate) fn cloned(&self) -> Option<PhysicsAuthorityFaultRecord> {
         self.0.cloned().map(Into::into)
     }
@@ -48,6 +49,7 @@ impl MovementTicker {
     }
 
     /// Drains the domain fault once, preserving the existing evidence record type.
+    #[cfg(feature = "acceptance")]
     pub(crate) fn take_authority_fault(&mut self) -> Option<PhysicsAuthorityFaultRecord> {
         self.0.take_authority_fault().map(Into::into)
     }
