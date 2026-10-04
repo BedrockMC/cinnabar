@@ -207,9 +207,11 @@ fn hotbar_inventory_and_held_icons_share_charge_fire_and_authoritative_correctio
             ui,
             &mut presentation,
             Some(&stream),
-            &CameraSettingsAuthority::default(),
+            semantic_input::PerspectiveMode::FirstPerson,
             tick * 50,
-            Some((item_use, tick)),
+            ItemIconFrames(std::array::from_fn(|slot| {
+                item_use.inventory_animation_frame(player_runtime, &stream, ui, slot as u8, tick)
+            })),
         );
         let frame = presentation.hud_frame();
         assert_eq!(frame.hotbar_icons[2], frame.inventory_icons.0[2]);

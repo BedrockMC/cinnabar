@@ -21,14 +21,7 @@ const MAX_LINE_BYTES: usize = 4096;
 const EVENT_CAPACITY: usize = 8;
 const AUTH_SUCCESS_EXIT_GRACE: Duration = Duration::from_millis(500);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum AuthState {
-    SignedOut,
-    Checking,
-    AwaitingCode { uri: String, code: String },
-    Authenticated,
-    Failed(String),
-}
+pub(crate) use launcher::menu::auth::AuthState;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", deny_unknown_fields)]

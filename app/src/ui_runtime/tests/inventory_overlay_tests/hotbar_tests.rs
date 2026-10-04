@@ -40,7 +40,7 @@ fn presented_hotbar_stacks(
         runtime,
         &mut presentation,
         Some(&world_stream()),
-        &CameraSettingsAuthority::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     presentation.hud_frame().hotbar_stacks.clone()

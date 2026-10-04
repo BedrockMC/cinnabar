@@ -3,6 +3,7 @@
 use json_ui::{Catalog, Context};
 use serde_json::json;
 
+/// Builds the base inventory catalog that the custom pack overlays.
 fn base() -> Catalog {
     Catalog::from_files([
         ("ui/_global_variables.json", b"{}".as_slice()),

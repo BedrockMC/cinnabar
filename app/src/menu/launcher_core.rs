@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn direct_startup_local_world_uses_its_owning_core_after_save_and_quit() {
-        let layout = InstallLayout::scratch("direct-local-world-routing");
+        let layout = crate::install_layout::scratch("direct-local-world-routing");
         let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
         let directory = SessionDirectoryGuard::bind(socket_dir.clone()).unwrap();
         // Readiness only: no game connection or server process is needed to select the route.
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn direct_account_core_leaves_pack_cache_for_game_cores() {
-        let layout = InstallLayout::scratch("direct-cache-ownership");
+        let layout = crate::install_layout::scratch("direct-cache-ownership");
         for auth in [None, Some(Path::new("/fixture/auth.json"))] {
             let account = launcher_command(
                 &layout,
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn the_launcher_core_serves_control_and_signs_in_only_when_validated() {
-        let layout = InstallLayout::scratch("launcher-args");
+        let layout = crate::install_layout::scratch("launcher-args");
         let args = |auth: Option<&Path>| -> Vec<String> {
             launcher_command(
                 &layout,

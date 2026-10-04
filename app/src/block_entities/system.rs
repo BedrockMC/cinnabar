@@ -37,7 +37,6 @@ const TICKS_PER_SECOND: f64 = 20.0;
 const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
-#[path = "system/crystal_beams.rs"]
 mod crystal_beams;
 
 /// Reads the optional block-entity carrier next to the world carrier; on absence or

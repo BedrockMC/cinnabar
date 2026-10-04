@@ -22,7 +22,7 @@ impl MenuRuntime {
     /// Opens `screen` over the current one, or returns to it when it is already
     /// open below; a tab of an open vanilla screen takes that screen's place.
     pub(super) fn enter(&mut self, screen: MenuScreen) {
-        use crate::ui_runtime::presentation::forms::menu_reference;
+        use launcher::menu::menu_reference;
         let same = |open: MenuScreen| {
             open == screen
                 || menu_reference(open).is_some_and(|r| menu_reference(screen) == Some(r))

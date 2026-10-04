@@ -27,3 +27,6 @@ pub use manual_craft::{
 pub use matching::{ManualCraftCell, ManualCraftMatch, ManualCraftPreview, match_manual_grid};
 pub use selection::{SelectedStackSnapshot, SequencedLocalEquipment};
 pub use session::{InventorySession, MAX_PENDING_INVENTORY_EVENTS};
+
+mod item_icon;
+pub use item_icon::crossbow_animation_frame;

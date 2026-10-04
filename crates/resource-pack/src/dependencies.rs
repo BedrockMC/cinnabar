@@ -69,6 +69,7 @@ impl PackDependencies {
             .insert(PackDependency::Contents(prefix.to_owned()));
     }
 
+    /// Records a directory filter with sorted, unique suffixes for stable reload checks.
     pub(crate) fn directory_with_suffixes(&self, prefix: &str, suffixes: &[&str]) {
         let mut suffixes: Vec<String> =
             suffixes.iter().map(|suffix| (*suffix).to_owned()).collect();

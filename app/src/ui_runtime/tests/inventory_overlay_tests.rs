@@ -17,9 +17,8 @@ use crate::ui_runtime::inventory_ledger::{
     GENERIC_STORAGE_SLOT_TYPE, GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS,
     PLAYER_INVENTORY_SLOT_COUNT, SMALL_STORAGE_SLOT_COUNT,
 };
-use crate::{
-    camera::CameraSettingsAuthority,
-    ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame, tests::fixture_font},
+use crate::ui_runtime::presentation::{
+    UiPresentationRuntime, refresh_hud_frame, tests::fixture_font,
 };
 
 fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkItemStack {
@@ -901,7 +900,7 @@ fn presented_selected_durability(
         runtime,
         &mut presentation,
         Some(stream),
-        &CameraSettingsAuthority::default(),
+        semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
     presentation.hud_frame().hotbar_durability[0]

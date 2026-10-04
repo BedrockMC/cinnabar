@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn fallback_core_normalizes_the_same_raknet_address_as_the_launcher() {
-        let layout = InstallLayout::scratch("fallback-target");
+        let layout = crate::install_layout::scratch("fallback-target");
         for address in ["example.test", "example.test:19133", "::1", "realm_id/42"] {
             let command = core_command_for_address(
                 &layout,

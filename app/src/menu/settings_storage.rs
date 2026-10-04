@@ -1,107 +1,47 @@
 //! Storage inventory reads the installed data roots; deletion never follows links.
 
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fs, io, path::Path, sync::Arc};
 
 mod worlds;
 
 use super::{MenuDialog, MenuRuntime};
 use crate::install_layout::InstallLayout;
 
-pub(crate) const SECTION_INDEX: u8 = 25;
-pub(crate) const CATEGORIES: [&str; 6] = [
-    "world",
-    "world_template",
-    "resource",
-    "behavior",
-    "skin",
-    "cache",
-];
+pub(crate) use launcher::menu::settings_storage::*;
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct StorageItem {
-    pub(crate) name: String,
-    pub(crate) bytes: u64,
-    pub(crate) date: String,
-    pub(crate) game_type: String,
-    last_played: i64,
-    path: PathBuf,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct StorageView {
-    pub(crate) worlds: Vec<StorageItem>,
-    pub(crate) cached: Vec<StorageItem>,
-    screenshots: Vec<StorageItem>,
-    pub(crate) deleting_screenshots: bool,
-    pub(crate) expanded: [bool; CATEGORIES.len()],
-    pub(crate) selected: Option<usize>,
-    pub(crate) selected_world: Option<usize>,
-    world_request: Option<String>,
-    pending_delete: Option<(PathBuf, Vec<PathBuf>)>,
-    return_from_world: bool,
-    pub(crate) error: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum StorageAction {
-    Toggle(u8),
-    Select(usize),
-    SelectWorld(usize),
-    RequestClear,
-    RequestDelete,
-    RequestScreenshots,
-    ConfirmDelete,
-}
-
-impl StorageView {
-    /// Measures real world and downloaded-pack data once when Storage opens.
-    pub(crate) fn read(layout: &InstallLayout) -> Self {
-        let mut view = Self::default();
-        match entries(&layout.local_worlds_dir()) {
-            Ok(items) => view.worlds = items,
-            Err(error) => view.error = Some(error.to_string()),
-        }
-        match entries(&layout.resource_pack_cache_dir()) {
-            Ok(items) => view.cached = items,
-            Err(error) => view.error = Some(error.to_string()),
-        }
-        match entries(&layout.screenshots_dir()) {
-            Ok(items) => {
-                view.screenshots = items
-                    .into_iter()
-                    .filter(|item| {
-                        item.path
-                            .extension()
-                            .and_then(|extension| extension.to_str())
-                            .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
-                            && fs::symlink_metadata(&item.path)
-                                .is_ok_and(|metadata| metadata.is_file())
-                    })
-                    .collect()
-            }
-            Err(error) => view.error = Some(error.to_string()),
-        }
-        view
+/// Measures real world and downloaded-pack data once when Storage opens.
+pub(crate) fn read_storage(layout: &InstallLayout) -> StorageView {
+    let mut view = StorageView::default();
+    match entries(&layout.local_worlds_dir()) {
+        Ok(items) => view.worlds = items,
+        Err(error) => view.error = Some(error.to_string()),
     }
-
-    /// Returns the items represented by a vanilla storage category.
-    pub(crate) fn items(&self, category: &str) -> &[StorageItem] {
-        match category {
-            "world" => &self.worlds,
-            "cache" => &self.cached,
-            _ => &[],
-        }
+    match entries(&layout.resource_pack_cache_dir()) {
+        Ok(items) => view.cached = items,
+        Err(error) => view.error = Some(error.to_string()),
     }
+    match entries(&layout.screenshots_dir()) {
+        Ok(items) => {
+            view.screenshots = items
+                .into_iter()
+                .filter(|item| {
+                    item.path
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"))
+                        && fs::symlink_metadata(&item.path).is_ok_and(|metadata| metadata.is_file())
+                })
+                .collect()
+        }
+        Err(error) => view.error = Some(error.to_string()),
+    }
+    view
 }
 
 impl MenuRuntime {
     /// Refreshes disk measurements only on navigation, never during a draw.
     pub(super) fn refresh_storage(&mut self) {
-        self.storage = Arc::new(StorageView::read(&self.layout));
+        self.storage = Arc::new(read_storage(&self.layout));
         if self.storage.error.is_some() {
             self.dialog = Some(MenuDialog::StorageError);
         }

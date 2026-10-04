@@ -140,7 +140,7 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
         &mut runtime,
         &mut presentation,
         None,
-        &settings,
+        settings.perspective(),
         0,
     );
     let right = presentation.hud_frame().right_hand;
@@ -169,7 +169,7 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
         &mut runtime,
         &mut presentation,
         None,
-        &settings,
+        settings.perspective(),
         1,
     );
     assert_eq!(presentation.hud_frame().right_hand, right);
@@ -194,7 +194,7 @@ fn active_hand_rig_retires_the_cpu_hand_and_item_quads() {
         &mut runtime,
         &mut presentation,
         None,
-        &settings,
+        settings.perspective(),
         0,
     );
     let hand = presentation.hud_frame().right_hand.expect("hand carrier");

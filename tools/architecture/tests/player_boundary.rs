@@ -115,10 +115,16 @@ fn ui_cannot_retain_authority_through_aliases_generics_or_enum_payloads() {
         "use client_world::LocalPlayerFacts as Facts; type State = Option<Box<Facts>>; struct UiRuntime { state: State }",
         "struct Holder { evidence: Option<protocol::AbilitiesUpdate> }",
         "enum Holder { State(crate::player_runtime::PlayerRuntime) }",
+        "struct Holder { state: player_state::PlayerState }",
         "type State = inventory::InventorySession; struct UiRuntime { state: State }",
     ] {
         let temp = fixture();
-        write(&temp.path().join("app/src/ui_runtime.rs"), source);
+        for path in [
+            "app/src/ui_runtime.rs",
+            "crates/client-ui/src/ui_runtime.rs",
+        ] {
+            write(&temp.path().join(path), source);
+        }
         assert!(
             diagnostics(temp.path())
                 .iter()
@@ -144,7 +150,7 @@ fn ui_can_borrow_authority_but_snapshot_exception_cannot_own_other_authority() {
     );
     let snapshot = temp
         .path()
-        .join("app/src/ui_runtime/presentation_snapshot.rs");
+        .join("crates/client-ui/src/ui_runtime/presentation_snapshot.rs");
     write(
         &snapshot,
         "struct PresentationInventory { ledger: inventory::PlayerInventoryLedger }",
@@ -310,6 +316,41 @@ fn authority_aliases_cannot_hide_in_another_production_module() {
 }
 
 #[test]
+fn crate_relative_authority_aliases_do_not_collide_between_packages() {
+    for authority_path in ["app/src", "crates/ui/src"] {
+        let temp = fixture();
+        let root = temp.path();
+        let policy = fs::read_to_string(root.join("policy.toml")).unwrap();
+        write(
+            &root.join("policy.toml"),
+            &format!(
+                "{policy}\n[[module_boundaries]]\npath='crates/ui/src'\nforbidden_owned_types=['InventorySession']\n"
+            ),
+        );
+        for path in ["app/src", "crates/ui/src"] {
+            write(
+                &root.join(path).join("ui_runtime.rs"),
+                "mod state; use state::State as Hidden; struct UiRuntime { state: Hidden }",
+            );
+            write(
+                &root.join(path).join("ui_runtime/state.rs"),
+                if path == authority_path {
+                    "pub type State = inventory::InventorySession;"
+                } else {
+                    "pub type State = u64;"
+                },
+            );
+        }
+        let violations: Vec<_> = diagnostics(root)
+            .into_iter()
+            .filter(|line| line.contains("owns forbidden authority"))
+            .collect();
+        assert_eq!(violations.len(), 1, "{authority_path}: {violations:?}");
+        assert!(violations[0].starts_with(&format!("{authority_path}/ui_runtime.rs:")));
+    }
+}
+
+#[test]
 fn a_production_module_cannot_escape_checks_by_using_a_test_filename() {
     let temp = fixture();
     write(
@@ -353,4 +394,66 @@ fn vendor_dependency_cycles_terminate_without_hiding_forbidden_packages() {
     );
     assert!(diagnostics(root).iter().any(|line| line
         == "inventory: forbidden dependency path `inventory -> protocol -> wire -> bevy_ecs`"));
+}
+
+#[test]
+fn production_module_remapping_cannot_hide_authority_aliases() {
+    for attribute in [
+        "#[path = \"ui_runtime/model.rs\"]",
+        "#[cfg_attr(feature = \"alternate\", path = \"ui_runtime/model.rs\")]",
+        "#[cfg_attr(feature = \"outer\", cfg_attr(feature = \"inner\", path = \"ui_runtime/model.rs\"))]",
+    ] {
+        let temp = fixture();
+        write(
+            &temp.path().join("app/src/ui_runtime.rs"),
+            &format!("{attribute} mod state; struct UiRuntime {{ state: state::Alias }}"),
+        );
+        write(
+            &temp.path().join("app/src/ui_runtime/model.rs"),
+            "pub type Alias = inventory::InventorySession;",
+        );
+        assert!(
+            diagnostics(temp.path())
+                .iter()
+                .any(|line| line.contains("forbidden #[path] remapping")),
+            "missed {attribute}"
+        );
+    }
+}
+
+#[test]
+fn test_only_module_remapping_remains_allowed() {
+    let temp = fixture();
+    write(
+        &temp.path().join("app/src/ui_runtime.rs"),
+        "#[cfg(test)] #[path = \"ui_runtime/model.rs\"] mod state;",
+    );
+    write(
+        &temp.path().join("app/src/ui_runtime/model.rs"),
+        "struct Fixture { state: inventory::InventorySession }",
+    );
+    assert_eq!(diagnostics(temp.path()), Vec::<String>::new());
+}
+
+#[test]
+fn nested_src_directory_does_not_change_the_owning_crate_alias_scope() {
+    let temp = fixture();
+    write(
+        &temp.path().join("app/src/ui_runtime.rs"),
+        "mod src; struct UiRuntime { state: src::state::Alias }",
+    );
+    write(
+        &temp.path().join("app/src/ui_runtime/src.rs"),
+        "pub mod state;",
+    );
+    write(
+        &temp.path().join("app/src/ui_runtime/src/state.rs"),
+        "pub type Alias = inventory::InventorySession;",
+    );
+    assert!(
+        diagnostics(temp.path())
+            .iter()
+            .any(|line| line.starts_with("app/src/ui_runtime.rs:")
+                && line.contains("owns forbidden authority"))
+    );
 }

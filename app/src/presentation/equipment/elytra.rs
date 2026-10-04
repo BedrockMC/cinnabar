@@ -2,7 +2,7 @@
 
 use assets::{AttachablePose, EquipmentBinding};
 use bevy::math::{Quat, Vec3};
-use render::RenderBoneTransform;
+use render::{RenderBoneTransform, equipment::authored_rotation as rotation};
 
 use super::armor::hidden_bone;
 
@@ -21,21 +21,6 @@ pub(super) fn stance_pose(
         "default"
     };
     binding.pose(key).or_else(|| binding.pose("default"))
-}
-
-/// Zyx composition of authored degrees in the X-mirrored rig frame (X and Y turn against the
-/// right-hand rule), matching the actor pose evaluator.
-pub(super) fn rotation(degrees: [f32; 3]) -> Quat {
-    let [x, y, z] = [-degrees[0], -degrees[1], degrees[2]].map(|angle| angle.to_radians() * 0.5);
-    let (sx, cx) = x.sin_cos();
-    let (sy, cy) = y.sin_cos();
-    let (sz, cz) = z.sin_cos();
-    Quat::from_xyzw(
-        sx * cy * cz - cx * sy * sz,
-        cx * sy * cz + sx * cy * sz,
-        cx * cy * sz - sx * sy * cz,
-        cx * cy * cz + sx * sy * sz,
-    )
 }
 
 /// Poses the elytra bones (`names` in geometry order) from the body bone's pose: `body` follows
