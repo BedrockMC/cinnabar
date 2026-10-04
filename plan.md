@@ -21,6 +21,16 @@ formatting needs integration with the locale system. Native fixture frames are n
 vanilla captures, and no overall visual parity gate is closed. No live server, remote
 machine or owner's authenticated service request was used for verification.
 
+2026-10-04 Profile loading recovery: direct-address and external-socket startup
+now have an account core; Profile opens/refetches independently of Home and
+other catalogs. Missing workers, failed control calls and withheld replies end
+in the existing unavailable/Retry state. Socket fixtures reproduce the old
+stuck state and verify recovery without an owner-account request. The local
+60-second RPC bound is transport protection, not vanilla timing parity.
+Per-request diagnostics report fixed outcomes with rate limits and no account
+material. Native privacy/offline classification and a separate permissions
+facet remain incomplete; see `docs/profile-parity.md` for references.
+
 2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
 the account control surface only lists and connects to existing Realms. Joining
 by invite or code and creating a Realm need a supported backend operation and a
