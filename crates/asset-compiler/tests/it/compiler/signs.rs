@@ -2,7 +2,7 @@ use super::support::*;
 
 fn generated_sign_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -365,7 +365,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_sign_states_when_requested() {
         return;
     };
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let pack_sources = read_pack(Path::new(&pack)).expect("read requested pinned pack");

@@ -4,7 +4,7 @@ const BUTTON_PRESSED_FLAG: u32 = 1 << 1;
 
 fn generated_button_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()

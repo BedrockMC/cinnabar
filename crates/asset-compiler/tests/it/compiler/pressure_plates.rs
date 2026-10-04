@@ -2,7 +2,7 @@ use super::support::*;
 
 fn generated_pressure_plate_records(name: &str) -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -199,7 +199,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_pressure_plate_states_when_requ
         return;
     };
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()

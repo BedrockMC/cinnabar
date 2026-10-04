@@ -2,7 +2,7 @@ use super::support::*;
 
 fn generated_vine_records() -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -208,7 +208,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_vine_states_when_requested() {
         return;
     };
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");
@@ -244,7 +244,7 @@ fn generated_multiface_records(
     sequential_start: u32,
 ) -> Vec<RegistryRecord> {
     let mut records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry")
     .into_iter()
@@ -438,7 +438,7 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_multiface_states_when_requested
         return;
     };
     let records = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let compiled = compile_pack(Path::new(&pack), &records).expect("compile requested pinned pack");

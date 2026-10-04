@@ -831,7 +831,7 @@ fn compiler_real_pinned_pack_admits_only_exact_stained_glass_cube_records() {
         return;
     };
     let all = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let ordinary_stained_glass = all
@@ -1101,7 +1101,7 @@ fn compiler_real_pinned_pack_admits_only_exact_copper_grate_records() {
     let pack = crate::fixture_input::env_path("PINNED_VANILLA_PACK")
         .expect("set PINNED_VANILLA_PACK to the ignored pinned vanilla resource pack");
     let all = read_registry(include_bytes!(
-        "../../../assets/data/block-registry-v1001.bin"
+        "../../../../assets/data/block-registry-v1001.bin"
     ))
     .expect("decode committed generated registry");
     let copper_grates = all

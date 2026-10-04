@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 #[test]
 fn fallback_license_is_the_exact_pinned_official_file() {
-    let bytes = include_bytes!("../../../assets/licenses/NotoSansCJK-OFL-1.1.txt");
+    let bytes = include_bytes!("../../../../assets/licenses/NotoSansCJK-OFL-1.1.txt");
     assert_eq!(bytes.len(), 4301);
     assert_eq!(
         format!("{:x}", Sha256::digest(bytes)),

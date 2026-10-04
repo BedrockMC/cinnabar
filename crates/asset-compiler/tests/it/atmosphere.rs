@@ -1,5 +1,4 @@
-#[path = "support/fixture_input.rs"]
-mod fixture_input;
+use crate::fixture_input;
 
 use std::{
     collections::HashSet,
