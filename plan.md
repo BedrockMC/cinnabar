@@ -433,6 +433,19 @@ roll hits, below-material admission, returned emitter IDs and a lower bound on
 actual particle-count increases. Their instrumented adaptive-sampler workload
 is diagnostic evidence, not an uninstrumented performance/parity witness.
 
+2026-10-04 horse rendering: vanilla compilation now selects the greatest compatible
+client-entity minimum before rig/artwork binding, instead of filename order. The
+pinned adult and foal models preserve their neck, head and hip transforms and
+saddle/rein visibility. Horse rearing, grazing, mouth and tail variables now read
+their native tick/state inputs. Regression fixtures reproduced the obsolete-model
+and missing-rearing failures, then passed with the rebuilt carrier and runtime.
+Metal gallery frames show connected adults/foals and correct tack; the user accepted
+horses and pigs. Pig hips match the authored model, including its slight rear-leg
+overhang. Full native render-time sampling, the complete horse state product,
+session-pack version selection and equal-minimum merging remain incomplete; this
+closes the reported model defect, not the broad animal parity gate. See
+`docs/reference/horse-rendering.md` for the vanilla rules and supported scope.
+
 2026-10-03 Enhanced rendering: hard-disabled after macOS GPU page faults and a
 WindowServer watchdog panic. The fixed renderer switch blocks plugin setup,
 Enhanced shader specialization and effect passes. The toggle is hidden, and saved

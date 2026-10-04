@@ -89,6 +89,11 @@ pub(super) fn advance_motion(
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
     }
+    if super::horse::is_horse(actor) {
+        motion
+            .horse
+            .advance(query::actor_flag(actor, query::FLAG_STANDING));
+    }
     // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
     // a mob: Actor::getInterpolatedBodyYaw returns 0, while
     // query.target_y_rotation reads the actor's absolute rotation.
@@ -526,6 +531,14 @@ pub(super) fn apply_engine_variables(
     if let Some([base, pattern]) = query::tropical_fish_variables(actor) {
         variables.set(engine.tropical_fish_base, base);
         variables.set(engine.tropical_fish_pattern, pattern);
+    }
+    if super::horse::is_horse(actor) {
+        variables.set(engine.horse_stand_anim, motion.horse.stand_amount);
+        variables.set(engine.horse_shake_tail, truth(motion.horse.shake_tail()));
+        variables.set(
+            engine.horse_open_mouth,
+            truth(super::horse::mouth_open(actor)),
+        );
     }
 }
 
