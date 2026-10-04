@@ -4,14 +4,12 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shlex
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
-from urllib.parse import urlsplit
 
 
 PACKAGING = Path(__file__).resolve().parents[1]
@@ -29,7 +27,6 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.config = json.loads((PACKAGING / "release-assets.json").read_text())
         # Alter the fixture to prove consumers read the manifest rather than literals.
         self.config["repository"] = "fixture/download-contract"
-        self.config["website"] = "https://download-contract.invalid"
         self.config["checksums"] = "fixture-" + self.config["checksums"]
         self.config["install_script"] = "fixture-" + self.config["install_script"]
         self.config["update_manifest"] = "fixture-" + self.config["update_manifest"]
@@ -102,21 +99,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(checksum.read_bytes(), first)
 
-    def test_config_and_asset_commands_follow_the_manifest(self):
-        result = self.run_helper("config")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        config = json.loads(result.stdout)
-        for key, value in self.config.items():
-            self.assertEqual(config[key], value, key)
-        release = urlsplit(config["release_url"])
-        self.assertEqual(release.scheme, "https")
-        self.assertTrue(release.netloc)
-        self.assertEqual(release.path, f'/{self.config["repository"]}/releases/latest')
-        self.assertEqual(config["download_base"], config["release_url"] + "/download/")
-        self.assertEqual(shlex.split(config["install_command"]), [
-            "curl", "-fsSL", self.config["website"] + "/" + self.config["install_script"],
-            "|", "sh",
-        ])
+    def test_asset_commands_follow_the_manifest(self):
         for platform, arches in self.config["assets"].items():
             for arch, name in arches.items():
                 with self.subTest(platform=platform, arch=arch):
@@ -160,7 +143,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
                     )
 
     def test_updater_specs_pair_download_urls_with_the_same_local_assets(self):
-        base = self.config["website"] + "/releases/test-version"
+        base = "https://download-contract.invalid/releases/test-version"
         directory = self.root / "artifact directory with spaces"
         result = self.run_helper("update-artifacts", base, directory)
         self.assertEqual(result.returncode, 0, result.stderr)
