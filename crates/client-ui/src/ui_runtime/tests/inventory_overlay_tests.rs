@@ -13,12 +13,12 @@ use protocol::{
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::ui_runtime::presentation::tests::fixture_font;
-use client_ui::ui_runtime::inventory_ledger::{
+use crate::test_support::fixture_font;
+use crate::ui_runtime::inventory_ledger::{
     GENERIC_STORAGE_SLOT_TYPE, GENERIC_STORAGE_WINDOW_TYPE, INVENTORY_REQUEST_TIMEOUT_MILLIS,
     PLAYER_INVENTORY_SLOT_COUNT, SMALL_STORAGE_SLOT_COUNT,
 };
-use client_ui::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
+use crate::ui_runtime::presentation::{UiPresentationRuntime, refresh_hud_frame};
 
 fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkItemStack {
     NetworkItemStack {
@@ -33,7 +33,7 @@ fn ledger_stack(network_id: i32, stack_network_id: i32, count: u16) -> NetworkIt
 }
 
 fn publish_slot(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     slot: u8,
     stack: NetworkItemStack,
@@ -52,7 +52,7 @@ fn publish_slot(
 }
 
 fn admit_personal_inventory(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
 ) {
     if runtime
@@ -75,7 +75,7 @@ fn admit_personal_inventory(
         .inventory_ledger_mut(player_runtime)
         .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
             container: ContainerIdentity::window(2),
-            window_type: client_ui::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
+            window_type: crate::ui_runtime::inventory_ledger::PERSONAL_INVENTORY_WINDOW_TYPE,
             position: [0, 0, 0],
             runtime_entity_id: -1,
         }));
@@ -143,7 +143,7 @@ fn accepted_response_containers(
 /// A successful answer updates backing cells explicitly. An empty success
 /// does not authorize replaying the predicted take or place into backing.
 fn accept_take(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     request_id: i32,
     source_type: u8,
@@ -167,7 +167,7 @@ fn accept_take(
 }
 
 fn accept_place(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut player_state::PlayerState,
     runtime: &mut UiRuntime,
     request_id: i32,
     destination_type: u8,
@@ -191,9 +191,7 @@ fn accept_place(
 
 /// Drives one take/place gesture pair so an accepted response corrects the
 /// freshly placed stack in player-inventory slot 0.
-fn corrected_sword_in_slot_zero(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
-) -> UiRuntime {
+fn corrected_sword_in_slot_zero(player_runtime: &mut player_state::PlayerState) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
     runtime
         .inventory_ledger_mut(player_runtime)
@@ -230,7 +228,7 @@ fn corrected_sword_in_slot_zero(
 
 #[test]
 fn accepted_corrections_retain_names_and_durability_on_the_corrected_cell() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let runtime = corrected_sword_in_slot_zero(&mut player_runtime);
 
@@ -264,7 +262,7 @@ fn accepted_corrections_retain_names_and_durability_on_the_corrected_cell() {
 
 #[test]
 fn authoritative_slot_replacement_clears_the_response_overlay() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     assert!(
@@ -295,7 +293,7 @@ fn authoritative_slot_replacement_clears_the_response_overlay() {
 
 #[test]
 fn full_inventory_content_replaces_overlays_of_every_rewritten_cell() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
 
@@ -320,7 +318,7 @@ fn full_inventory_content_replaces_overlays_of_every_rewritten_cell() {
 
 #[test]
 fn cursor_updates_clear_the_cursor_response_overlay() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     // Taking the corrected sword moves it to the cursor; the same accepted
@@ -368,7 +366,7 @@ fn cursor_updates_clear_the_cursor_response_overlay() {
 
 #[test]
 fn empty_cell_corrections_clear_the_overlay_with_the_stack() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     assert!(
@@ -403,7 +401,7 @@ fn empty_cell_corrections_clear_the_overlay_with_the_stack() {
 
 #[test]
 fn rejected_responses_rollback_without_writing_overlays() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
     runtime
@@ -444,7 +442,7 @@ fn rejected_responses_rollback_without_writing_overlays() {
 
 #[test]
 fn request_timeouts_keep_authoritative_overlays_with_the_prediction() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     assert!(
@@ -480,7 +478,7 @@ fn request_timeouts_keep_authoritative_overlays_with_the_prediction() {
 
 #[test]
 fn session_reset_discards_every_retained_overlay() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     assert!(
@@ -490,7 +488,8 @@ fn session_reset_discards_every_retained_overlay() {
             .is_some()
     );
 
-    crate::session::begin_session(&mut runtime, &mut player_runtime, 2);
+    player_runtime.begin_session(2);
+    runtime.begin_session(2);
 
     assert_eq!(
         runtime.inventory_ledger(&player_runtime).slot_overlay(0),
@@ -504,7 +503,7 @@ fn session_reset_discards_every_retained_overlay() {
 
 #[test]
 fn storage_corrections_retain_overrides_until_storage_replacement() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     const STORAGE_WINDOW_ID: i32 = 4;
     const STORAGE_DYNAMIC_ID: u32 = 9;
@@ -598,7 +597,7 @@ fn storage_corrections_retain_overrides_until_storage_replacement() {
 
 #[test]
 fn selected_item_name_prefers_the_authoritative_custom_name() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     player_runtime.inventory.set_local_selected_slot(0);
@@ -621,7 +620,7 @@ fn selected_item_name_prefers_the_authoritative_custom_name() {
 
 #[test]
 fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
 
@@ -705,7 +704,7 @@ fn omitted_names_retain_prior_overlays_and_zero_durability_repairs() {
 
 #[test]
 fn swap_moves_each_stacks_overlay_to_the_opposite_cell() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
     runtime
@@ -889,7 +888,7 @@ fn world_stream() -> chunk_pipeline::WorldStream {
 
 /// Publishes one HUD frame and reads the selected hotbar cell's durability.
 fn presented_selected_durability(
-    player_runtime: &crate::player_runtime::PlayerRuntime,
+    player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     stream: &chunk_pipeline::WorldStream,
 ) -> Option<f32> {
@@ -908,7 +907,7 @@ fn presented_selected_durability(
 /// Takes the selected sword onto the cursor and places it back through one
 /// accepted response whose only restatement is the given final correction.
 fn round_tripped_selected_sword(
-    player_runtime: &mut crate::player_runtime::PlayerRuntime,
+    player_runtime: &mut player_state::PlayerState,
     final_correction: StackResponseSlot,
 ) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
@@ -947,7 +946,7 @@ fn round_tripped_selected_sword(
 
 #[test]
 fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime =
         round_tripped_selected_sword(&mut player_runtime, correction(0, 1, 77, "", "", 0));
@@ -985,7 +984,7 @@ fn zero_durability_correction_repairs_despite_the_old_local_damage_tag() {
 
 #[test]
 fn stated_durability_corrections_override_the_local_damage_tag() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     // The local tag reads half-worn (125/250), but the accepted correction
     // restates fully damaged (250): presentation must follow the server.
@@ -1003,7 +1002,7 @@ fn stated_durability_corrections_override_the_local_damage_tag() {
 
 #[test]
 fn prior_retained_overlays_survive_a_rejected_response() {
-    let mut player_runtime = crate::player_runtime::PlayerRuntime::new(1);
+    let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = corrected_sword_in_slot_zero(&mut player_runtime);
     let request_id = runtime

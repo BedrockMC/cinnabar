@@ -164,3 +164,6 @@ fn route_for(local_runtime_id: u64, fifo_sequence: u64, event: EquipmentEvent) -
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

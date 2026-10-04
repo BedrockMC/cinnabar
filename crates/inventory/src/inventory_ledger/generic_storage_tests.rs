@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use client_ui::ui_runtime::inventory_ledger::{
+use crate::inventory_ledger::{
     INVENTORY_REQUEST_TIMEOUT_MILLIS, InventoryGestureError, InventoryPendingState,
     PlayerInventoryLedger,
 };

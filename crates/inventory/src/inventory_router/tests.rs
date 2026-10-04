@@ -1,4 +1,4 @@
-use client_ui::ui_runtime::inventory_router::{
+use crate::inventory_router::{
     EquipmentRoute, EquipmentRouteResult, InventoryEquipmentRouter, InventoryRouterError,
     MAX_PRE_IDENTITY_EQUIPMENT,
 };
