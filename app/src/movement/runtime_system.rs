@@ -100,6 +100,16 @@ pub(crate) fn advance_local_physics(
             .controls
             .adopt_server_flags(server.sprinting, server.sneaking);
     }
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(stream.network_id_mode()),
+        stream.current_dimension(),
+    );
+    // Contact unavailability blocks prediction; it must not manufacture a
+    // sprint-stop edge while the last completed tick still has a swimming pose.
+    let retain_sprint = physics
+        .retains_swim_sprint(&world)
+        .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
     let controlled = locals.controls.update(ControlObservation {
         now,
         forward: movement[1],
@@ -111,6 +121,7 @@ pub(crate) fn advance_local_physics(
         toggle_sneak: gameplay.toggle_sneak,
         sprint_blocked: facts.sprint_blocked,
         flying: physics.mode() == sim::MovementMode::Flying,
+        retain_sprint,
     });
     let mut input = physics_movement_input(
         movement,
@@ -123,13 +134,11 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .and_then(crate::item_use::ItemUseRuntime::movement_modifier),
     );
+    if retain_sprint {
+        input.sprinting = controlled.sprint_request;
+    }
     movement_speed.set_sprinting(input.sprinting);
     input.movement_speed = movement_speed.prediction_speed();
-    let world = sim::PaletteWorld::new(
-        stream.collision_store(),
-        collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-    );
     let frame = physics.advance_with_context_and_effects(
         time.delta(),
         input,
@@ -152,12 +161,19 @@ pub(crate) fn advance_local_physics(
                 elytra_ready: facts.elytra_ready,
                 depth_strider: facts.depth_strider,
                 soul_speed: facts.soul_speed,
+                swim_hunger_blocked: facts.swim_hunger_blocked,
             },
             sneak_button: active && sneak.held,
         },
         &world,
         &mut *movement_effects,
     );
+    if let Some(sample) = frame.samples.last() {
+        locals
+            .controls
+            .adopt_tick_sprinting(sample.processed.sprinting);
+        movement_speed.set_sprinting(sample.processed.sprinting);
+    }
     super::trace_physics_frame(
         movement_ticker.session_generation,
         now,

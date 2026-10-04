@@ -574,6 +574,14 @@ fn simulation_error_detail(error: &sim::SimulationError) -> serde_json::Value {
             "kind": "invalid_movement_speed",
             "message": error.to_string(),
         }),
+        sim::SimulationError::InvalidSwimAmount => serde_json::json!({
+            "kind": "invalid_swim_amount",
+            "message": error.to_string(),
+        }),
+        sim::SimulationError::InvalidLiquidContactHeight => serde_json::json!({
+            "kind": "invalid_liquid_contact_height",
+            "message": error.to_string(),
+        }),
         sim::SimulationError::World(world_error) => serde_json::json!({
             "kind": "world",
             "message": world_error.to_string(),
