@@ -1,6 +1,5 @@
 use std::{fs, path::PathBuf};
 
-use crate::material_shader;
 use crate::shader_source;
 
 /// Loads the same generated biome module used by the renderer.

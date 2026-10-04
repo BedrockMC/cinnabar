@@ -3,9 +3,9 @@ use std::sync::Arc;
 use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 pub use ui::{
-    BedrockColor, PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest,
-    TextShadow, TextStyle, UiAction, UiDrawBatch, UiDrawList, UiError, UiLimits, UiNode, UiNodeId,
-    UiPoint, UiRect, UiScale, UiTree, UiVertex, UiVisual, UiWorldProjection,
+    PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
+    UiAction, UiDrawBatch, UiDrawList, UiError, UiLimits, UiNode, UiNodeId, UiPoint, UiRect,
+    UiScale, UiTree, UiVertex, UiVisual, UiWorldProjection,
 };
 
 #[test]

@@ -1,5 +1,3 @@
-use crate::fixture_input;
-
 use assets::*;
 use pack_compiler::{compile_entity_assets, compile_icon_assets, compile_icon_assets_with_blocks};
 use sha2::{Digest, Sha256};

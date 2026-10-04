@@ -281,4 +281,3 @@ fn liquid_shader_resolves_block_biome_tint_before_fragment_rasterization() {
     }
     assert!(fragment.contains("native_liquid_colour(sampled.rgb, in.water_tint.rgb, in)"));
 }
-use crate::material_shader;

@@ -1,6 +1,5 @@
 //! Real world-model fragments must light bounded snow exactly like cube terrain.
 use crate::gpu_snapshot;
-use crate::material_shader;
 use crate::shader_source;
 
 use gpu_snapshot::{Draw, Gpu};

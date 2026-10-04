@@ -1,6 +1,5 @@
 //! Placed mob-head witnesses through the production mesh, vertex and fragment shaders.
 use crate::gpu_snapshot;
-use crate::material_shader;
 use crate::shader_safety;
 use crate::shader_source;
 

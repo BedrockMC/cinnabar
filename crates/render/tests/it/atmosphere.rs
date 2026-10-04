@@ -682,4 +682,3 @@ fn transparent_world_shaders_preserve_alpha_for_single_fog_composition() {
     let fogged_composite = composed_before_fog + (fog_colour - composed_before_fog) * fog;
     assert!((composed_after_fog - fogged_composite).abs() < 1.0e-6);
 }
-use crate::material_shader;

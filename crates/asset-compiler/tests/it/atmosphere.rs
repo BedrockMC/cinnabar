@@ -1,5 +1,3 @@
-use crate::fixture_input;
-
 use std::{
     collections::HashSet,
     fs,

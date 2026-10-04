@@ -87,4 +87,3 @@ fn celestial_time_moves_the_star_mesh_on_the_gpu() {
         "a quarter turn must rotate the star around native +Z: {centers:?}"
     );
 }
-use crate::material_shader;

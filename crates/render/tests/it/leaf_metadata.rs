@@ -103,4 +103,3 @@ struct LeafMetadataCase { position_flags: vec4<u32>, shade: vec4<f32>, }
     return vec4(f32(rotation)/3.0, material_leaf_shade(witness.shade.x, flags), 0.0, 1.0);
 }
 "#;
-use crate::material_shader;
