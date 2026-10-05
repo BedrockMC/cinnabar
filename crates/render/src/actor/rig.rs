@@ -20,7 +20,7 @@ use render_model::{
     geometry_from_runtime_assets, is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
 
-use super::ActorCullView;
+use super::{ActorArtworkPageId, ActorCullView};
 
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
 /// Existing body/equipment allowance plus every animated skin layer per selected player.
@@ -97,6 +97,7 @@ pub struct ActorRigSubmission {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
     pub kind: assets::EntityRenderMaterial,
+    pub state: Option<assets::EntityRenderMaterialState>,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
     pub dissolve_multiplier: f32,
 }
@@ -105,6 +106,7 @@ impl Default for ActorMaterial {
     fn default() -> Self {
         Self {
             kind: Default::default(),
+            state: None,
             dissolve_multiplier: 1.0,
         }
     }
@@ -406,7 +408,7 @@ impl ActorRigFrameBuilder {
         partial_tick: f32,
         view: Option<ActorCullView>,
         submissions: impl IntoIterator<Item = ActorRigSubmission>,
-        page_of: impl Fn(&ActorRenderIdentity) -> u8,
+        page_of: impl Fn(&ActorRenderIdentity) -> ActorArtworkPageId,
     ) -> ActorRigRenderFrame {
         let Some(frame_generation) = self.frame_generation.checked_add(1) else {
             return ActorRigRenderFrame {
@@ -584,7 +586,7 @@ impl ActorRigFrameBuilder {
                 light: submission.light,
                 overlay_rgba8: submission.overlay_rgba8,
                 multitexture_layers: [u32::MAX; 2],
-                material: submission.material.kind as u32,
+                material: submission.material.gpu_word(),
                 dissolve_multiplier: if submission.material.dissolve_multiplier.is_finite() {
                     submission.material.dissolve_multiplier.max(0.0)
                 } else {

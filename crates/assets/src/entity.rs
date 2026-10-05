@@ -20,13 +20,14 @@ pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_ME
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
 pub use v4::{
-    CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
-    EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
-    EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
-    EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
-    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    CompiledMolangExpression, ENTITY_ALPHA_TEST_THRESHOLD, EntityAnimationChannel,
+    EntityAnimationClip, EntityAnimationController, EntityAnimationInterpolation,
+    EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
+    EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
+    EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,

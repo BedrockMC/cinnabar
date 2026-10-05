@@ -8,6 +8,7 @@ use super::{
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderTextureLayer {
     pub material: assets::EntityRenderMaterial,
+    pub material_state: Option<assets::EntityRenderMaterialState>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
     /// Additional samplers of the witnessed native three-texture material, not extra draws.
@@ -322,6 +323,7 @@ pub(super) fn evaluate_render(
         for &source in selected_sources.iter().take(count) {
             output.push(RenderTextureLayer {
                 material: layer.material,
+                material_state: layer.material_state,
                 source,
                 multitexture: grouped,
                 color: tint,

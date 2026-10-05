@@ -14,11 +14,12 @@ use render_model::{
 #[path = "actor/artwork.rs"]
 mod artwork;
 pub use artwork::{
-    ActorArtworkLocation, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
+    ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
+pub(crate) mod material;
 #[path = "actor/rig.rs"]
 mod rig;
 #[path = "actor/witness.rs"]
@@ -104,14 +105,14 @@ pub struct ActorRenderFrame {
     pub skin_revision: u64,
     pub rig: ActorRigRenderFrame,
     pub(crate) artwork: Arc<ActorArtworkPages>,
-    pub(crate) instance_pages: Arc<[u8]>,
+    pub(crate) instance_pages: Arc<[ActorArtworkPageId]>,
 }
 
 #[cfg(feature = "publication-test-support")]
 impl ActorRenderFrame {
     /// The artwork page each rig instance samples; 0 is the player-skin array.
     #[must_use]
-    pub fn instance_pages(&self) -> &[u8] {
+    pub fn instance_pages(&self) -> &[ActorArtworkPageId] {
         &self.instance_pages
     }
 

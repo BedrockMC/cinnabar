@@ -77,8 +77,8 @@ use meshing::{
 
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_CANDIDATE_RADIUS_BLOCKS, ACTOR_GPU_INSTANCE_WORDS,
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorDrawFrame,
-    ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
+    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorCullView,
+    ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
     ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
     ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,

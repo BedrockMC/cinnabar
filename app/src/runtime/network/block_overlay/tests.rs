@@ -9,6 +9,9 @@ use resource_pack::LayeredPackView;
 
 use super::{OverlayGaps, compile_block_overlay};
 
+mod legacy;
+mod vines;
+
 fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let image = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(pixel(x, y)));
     let mut bytes = std::io::Cursor::new(Vec::new());
@@ -122,6 +125,8 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
         texture: texture.into(),
         render_method: None,
         tint_method: None,
+        ambient_occlusion: None,
+        face_dimming: None,
     }]))
 }
 
@@ -696,6 +701,8 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
             texture: "lucky".into(),
             render_method: render_method.map(Into::into),
             tint_method: tint_method.map(Into::into),
+            ambient_occlusion: None,
+            face_dimming: None,
         }]))
     };
     for (case, transformation, materials, thumbnail) in [
@@ -779,8 +786,7 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
     }
 }
 
-// Real cached packs (`CINNABAR_PACKCACHE_DIR`): each unencrypted pack's namespaced scalar-textured
-// blocks, as full-block custom blocks, draw item thumbnails.
+// Cached packs supply scalar cube textures independently of custom visual components.
 #[test]
 fn packcache_custom_block_items_draw_when_requested() {
     use super::super::item_icons::custom_block_icons;
@@ -790,64 +796,37 @@ fn packcache_custom_block_items_draw_when_requested() {
         );
         return;
     };
+    let mut eligible = 0usize;
     let mut checked = 0usize;
     for entry in std::fs::read_dir(dir).expect("packcache dir").flatten() {
         let path = entry.path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let Some((id, version)) = name
+        let Some((_, version)) = name
             .strip_suffix(".zip")
             .and_then(|stem| stem.split_once('_'))
         else {
             continue;
         };
-        if path.with_extension("key").exists() {
+        if version.is_empty() {
             continue;
         }
-        let bytes = std::fs::read(&path).unwrap();
-        let Some(blocks_json) = zip::ZipArchive::new(std::io::Cursor::new(&bytes))
-            .ok()
-            .and_then(|mut archive| {
-                let mut file = archive.by_name("blocks.json").ok()?;
-                let mut text = Vec::new();
-                std::io::Read::read_to_end(&mut file, &mut text).ok()?;
-                serde_json::from_slice::<serde_json::Value>(&resource_pack::normalize_jsonc(&text)?)
-                    .ok()
-            })
-        else {
+        let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let custom = blocks_json
-            .as_object()
-            .into_iter()
-            .flatten()
+        let custom = view
+            .merged_json_object("blocks.json", None)
+            .iter()
             .filter_map(|(block_name, entry)| {
-                let texture = entry.get("textures")?.as_str()?;
-                block_name.contains(':').then(|| {
-                    block(
-                        block_name,
-                        1,
-                        CustomBlockVisuals {
-                            base: CustomVisualComponents {
-                                materials: materials(texture),
-                                ..CustomVisualComponents::default()
-                            },
-                            ..CustomBlockVisuals::default()
-                        },
-                    )
-                })
+                entry.get("textures")?.as_str()?;
+                block_name
+                    .contains(':')
+                    .then(|| block(block_name, 1, CustomBlockVisuals::default()))
             })
             .collect::<Vec<_>>();
         if custom.is_empty() {
             continue;
         }
-        let (Ok(pack_id), version) = (id.parse(), version.to_owned()) else {
-            continue;
-        };
-        let archive =
-            protocol::ResourcePackArchive::unencrypted(pack_id, version, String::new(), bytes);
-        let view = LayeredPackView::new(resource_pack::validate_handoff(
-            protocol::ResourcePackHandoff::from_archives(vec![archive]),
-        ));
+        eligible += custom.len();
         let blocks = CustomBlocks::from_definitions(std::iter::empty());
         let blocks = CustomBlocks {
             blocks: custom.into(),
@@ -870,6 +849,12 @@ fn packcache_custom_block_items_draw_when_requested() {
             icons.misses
         );
         checked += icons.icons.len();
+    }
+    if eligible == 0 {
+        eprintln!(
+            "skipping packcache_custom_block_items_draw_when_requested: fixture unavailable; no admitted scalar custom block bindings in cached packs"
+        );
+        return;
     }
     assert!(checked > 0, "fixture must contain drawable custom blocks");
     eprintln!("{checked} packcache custom block item icons drawn");

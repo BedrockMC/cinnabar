@@ -70,7 +70,7 @@ pub struct CustomVisualComponents {
     pub light_emission: Option<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CustomMaterialInstance {
     /// `*`, a face name, or a named instance a geometry face refers to.
     pub name: Arc<str>,
@@ -78,6 +78,8 @@ pub struct CustomMaterialInstance {
     pub render_method: Option<Arc<str>>,
     /// `tint_method`: `default_foliage`, `birch_foliage`, `evergreen_foliage`, `dry_foliage`, `grass`, `water`, or `none`.
     pub tint_method: Option<Arc<str>>,
+    pub ambient_occlusion: Option<f32>,
+    pub face_dimming: Option<bool>,
 }
 
 /// Rotation in quarter turns about each axis, then scale and translation.
@@ -479,6 +481,23 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                         texture: texture.as_str().into(),
                         render_method,
                         tint_method,
+                        ambient_occlusion: material
+                            .field("ambient_occlusion")
+                            .and_then(Nbt::number)
+                            .map(|value| value as f32)
+                            .filter(|value| value.is_finite() && *value >= 0.0),
+                        face_dimming: material
+                            .field("packed_bools")
+                            .and_then(Nbt::number)
+                            .filter(|value| value.is_finite())
+                            .map(|value| value as i64 & 1 != 0)
+                            .or_else(|| {
+                                material
+                                    .field("face_dimming")
+                                    .and_then(Nbt::number)
+                                    .filter(|value| matches!(*value, 0.0 | 1.0))
+                                    .map(|value| value != 0.0)
+                            }),
                     })
                 })
                 .collect()
@@ -527,7 +546,8 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
         geometry,
         materials,
         transformation,
-        light_dampening: nibble("minecraft:light_dampening", "lightLevel"),
+        light_dampening: nibble("minecraft:light_dampening", "lightLevel")
+            .or_else(|| nibble("minecraft:block_light_filter", "lightLevel")),
         light_emission: nibble("minecraft:light_emission", "emission"),
     }
 }
@@ -767,6 +787,48 @@ mod tests {
             let visual = parse_definition(&nbt).expect("network definition").visual;
             assert_eq!(visual.base.light_dampening, Some(0));
             assert_eq!(visual.base.light_emission, Some(13));
+        }
+    }
+
+    #[test]
+    fn network_legacy_light_filter_retains_transparent_plant_dampening() {
+        for level in [0, 15] {
+            let mut nbt = named(10, "");
+            nbt.extend(named(10, "components"));
+            nbt.extend(named(10, "minecraft:block_light_filter"));
+            nbt.extend(named(1, "lightLevel"));
+            nbt.extend([level, 0, 0, 0]);
+            let visual = parse_definition(&nbt).expect("network definition").visual;
+            assert_eq!(visual.base.light_dampening, Some(level));
+        }
+    }
+
+    #[test]
+    fn network_material_lighting_choices_remain_distinct() {
+        use crate::nbt_tree::Nbt;
+        let components = |ao, dimming| {
+            Nbt::Compound(vec![(
+                "minecraft:material_instances".into(),
+                Nbt::Compound(vec![(
+                    "materials".into(),
+                    Nbt::Compound(vec![(
+                        "*".into(),
+                        Nbt::Compound(vec![
+                            ("texture".into(), Nbt::String("test:plant".into())),
+                            ("ambient_occlusion".into(), Nbt::Byte(ao)),
+                            ("face_dimming".into(), Nbt::Byte(dimming)),
+                        ]),
+                    )]),
+                )]),
+            )])
+        };
+        let choices = [(0, 0), (0, 1), (1, 0), (1, 1)].map(|(ao, dimming)| {
+            super::visual_components(Some(&components(ao, dimming))).materials
+        });
+        for (index, first) in choices.iter().enumerate() {
+            for second in &choices[index + 1..] {
+                assert_ne!(first, second);
+            }
         }
     }
 

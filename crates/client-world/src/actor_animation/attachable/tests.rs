@@ -182,6 +182,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
         render: EntityRenderData {
             layers: vec![EntityRenderLayer {
                 material: Default::default(),
+                material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
