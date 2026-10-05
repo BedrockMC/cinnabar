@@ -30,7 +30,7 @@ pub const WHITE_LAYER: u32 = 0;
 pub enum DroppedItemModel {
     /// Legacy centered slab used by static placements, not native item actors.
     Sprite(DroppedItemSprite),
-    /// Native TextureTessellator frame after the ordinary dropped-item default transform.
+    /// Vanilla tessellated sprite frame after the ordinary dropped-item default transform.
     NativeSprite(DroppedItemSprite),
     Cube(DroppedItemCube),
     Block(DroppedItemBlock),

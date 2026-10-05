@@ -1,9 +1,8 @@
 //! Air item use: the click-air transaction every held item sends, and holding, releasing and
 //! throwing.
 //!
-//! Follows `ClientInputCallbacks::handleBuildAction`, `GameMode::baseUseItem`,
-//! `GameMode::releaseUsingItem` and `Player::completeUsingItem`; projectiles, food effects and
-//! ammunition stay server-owned.
+//! Follows vanilla's build action, air use, release and use completion; projectiles,
+//! food effects and ammunition stay server-owned.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -64,7 +63,7 @@ impl ItemUseRuntime {
         frame_alpha: f32,
     ) -> client_world::AttachableAnimationInput<'static> {
         let max_use_ticks = self.active_timing().map_or_else(
-            // Native CrossbowItem::getMaxUseDuration remains its charge duration
+            // A crossbow's maximum use duration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
             || match selected_air_use_with_projectile(player_runtime, stream, Some(None)) {
                 Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
@@ -393,8 +392,8 @@ pub(crate) fn produce_item_use(
     }
 }
 
-/// `releaseUsing` checks the offhand for either projectile first, then inventory
-/// arrows, and synthesizes an arrow only in creative (09a157e0).
+/// Release checks the offhand for either projectile first, then inventory
+/// arrows, and synthesizes an arrow only in creative.
 fn loading_projectile(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &chunk_pipeline::WorldStream,

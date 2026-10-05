@@ -258,7 +258,7 @@ impl UiRuntime {
     }
 
     /// Whether a click on crafter slot `slot` disables it: an empty, enabled
-    /// slot clicked with nothing held, as `CrafterScreenController::handleEvent`.
+    /// slot clicked with nothing held, as in vanilla's crafter screen.
     fn crafter_slot_disables(&self, player_runtime: &player_state::PlayerState, slot: u8) -> bool {
         let ledger = player_runtime.inventory.ledger();
         ledger.window_kind() == Some(WindowKind::Crafter)

@@ -20,7 +20,7 @@ impl PortalTexture {
             .model_templates()
             .iter()
             .find(|template| template.flags & MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0)?;
-        // Current getDestructionParticlesTexture 04e95920 chooses default face zero.
+        // Vanilla's portal overlay texture uses the default face zero.
         let start = template.quad_start as usize;
         let quads = assets
             .model_quads()

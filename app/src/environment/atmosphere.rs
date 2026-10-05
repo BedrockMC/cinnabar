@@ -53,7 +53,7 @@ fn derive_base_frame(
     context: &EnvironmentContext,
 ) -> AtmosphereFrame {
     // Player's packet radius includes one extra chunk before the camera margin.
-    // Ordinary preRenderParameters supplies coefficient1; optional platform
+    // Vanilla's ordinary render parameters supply coefficient1; optional platform
     // caps need their own admission witness, not a quality multiplier.
     let adjusted_render_distance = context
         .render_distance_blocks
@@ -251,8 +251,8 @@ pub(crate) fn update_atmosphere_frame(
         };
     }
     lighting.0 = render::LightmapInputs {
-        // Ordinary native renderer supplies flag1 to update.
-        // buildImage uses it for both ambient stages around gamma;
+        // Vanilla's ordinary renderer sets the lightmap's ambient flag, which
+        // applies both ambient stages around gamma;
         // omitting it crushes shaded terrain at night, despite matching gamma.
         ambient_adjustment: true,
         sky_darken: render::lightmap_sky_darken(

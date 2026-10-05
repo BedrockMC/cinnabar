@@ -393,7 +393,7 @@ impl MovementTicker {
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            // LocalPlayer::sendInput copies end-of-tick StateVector motion.
+            // Vanilla sends the end-of-tick velocity as the position delta.
             delta: sample.velocity,
             move_vector,
             analogue_move_vector,

@@ -129,7 +129,7 @@ impl ActorSnapshot {
             if identifier.as_ref() == "minecraft:ender_dragon")
     }
 
-    /// Native StateVector units for tick-driven engine animation components.
+    /// Vanilla velocity units (blocks/tick) for tick-driven engine animation.
     pub(crate) fn native_velocity(&self) -> [f32; 3] {
         self.status.native_velocity
     }

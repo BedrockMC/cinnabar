@@ -1,4 +1,4 @@
-//! Native attachable raster extrusions (TextureMesh::compileQuads).
+//! Vanilla attachable raster extrusions.
 //!
 //! Unlike cubes, these meshes start in the image's X/Z plane with Y-down depth.
 

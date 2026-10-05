@@ -155,11 +155,9 @@ pub(crate) fn replace_session(
     *clock = WorldClock {
         session_generation,
         server_time: Some(if bootstrap.daylight_cycle_enabled {
-            // Current native ClientLevel creates its clock module;
-            // registerWorldClock initializes the
-            // daylight clock to zero. StartGame current tick instead initializes
-            // LevelData's elapsed tick counter. SetTime buffered
-            // during loading is applied by onPlayerReady.
+            // Vanilla initializes the daylight clock to zero. StartGame's current
+            // tick instead initializes the level's elapsed tick counter. SetTime
+            // buffered during loading is applied once the player is ready.
             0.0
         } else {
             f64::from(bootstrap.day_cycle_lock_time)
