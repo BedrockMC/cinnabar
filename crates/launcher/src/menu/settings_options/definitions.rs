@@ -215,6 +215,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
     ),
     slider("max_framerate", "options.framerateLimit", 0, 240, 0),
+    // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
+    toggle("vsync", "options.vsync", true),
     slider("field_of_view", "options.fov", 30, 110, 60),
     slider("gamma", "options.gamma", 0, 100, 50),
     slider("interface_opacity", "options.hudOpacity", 0, 100, 100),

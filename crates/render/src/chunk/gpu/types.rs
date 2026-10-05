@@ -213,6 +213,11 @@ pub(in crate::chunk) fn resolve_surface_present_mode(
         bevy::window::PresentMode::Immediate => {
             &[wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo]
         }
+        bevy::window::PresentMode::AutoNoVsync => &[
+            wgpu::PresentMode::Immediate,
+            wgpu::PresentMode::Mailbox,
+            wgpu::PresentMode::Fifo,
+        ],
         _ => return None,
     };
     fallbacks
@@ -227,6 +232,7 @@ pub(in crate::chunk) fn window_present_mode_name(
     match mode {
         bevy::window::PresentMode::Fifo => Some("Fifo"),
         bevy::window::PresentMode::Immediate => Some("Immediate"),
+        bevy::window::PresentMode::AutoNoVsync => Some("AutoNoVsync"),
         _ => None,
     }
 }
@@ -235,6 +241,7 @@ pub(in crate::chunk) fn surface_present_mode_name(mode: wgpu::PresentMode) -> Op
     match mode {
         wgpu::PresentMode::Fifo => Some("Fifo"),
         wgpu::PresentMode::Immediate => Some("Immediate"),
+        wgpu::PresentMode::Mailbox => Some("Mailbox"),
         _ => None,
     }
 }
