@@ -114,6 +114,7 @@ fn expired_mesh_slice_bounds_blocked_readiness_work() {
     let view = SchedulerView {
         position: [0.0; 3],
         forward: None,
+        startup_center: None,
     };
     stream
         .mesh_jobs
@@ -144,6 +145,7 @@ fn expired_reversed_camera_reaches_near_work_before_old_backlog() {
     let old_view = SchedulerView {
         position: [8.0; 3],
         forward: None,
+        startup_center: None,
     };
     let destination = SubChunkKey::new(1, 4_095, 0, 0);
     for x in 0..=destination.x {
@@ -202,6 +204,7 @@ fn near_light_column_keeps_its_nearest_members_priority_for_high_dependencies() 
         let view = SchedulerView {
             position: [8.0, 81.62, 8.0],
             forward: None,
+            startup_center: None,
         };
         stream.lighting.jobs.scan.clear();
         stream.lighting.jobs.lanes[0]
