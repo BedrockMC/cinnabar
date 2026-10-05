@@ -471,3 +471,19 @@ func TestExplicitDragonflyCreateSkipsPendingDetection(t *testing.T) {
 	reply <- dockerUp
 	awaitSettled(t, p)
 }
+
+// With Docker down and no Dragonfly binary, nothing can host the fallback, so Create refuses and saves nothing.
+func TestCreateRefusesTheFallbackWhenItsServerIsMissing(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	m.SetUnavailable(BackendDragonfly, errors.New("local world server binary not found"))
+	gate.next(t) <- dockerDown
+	awaitSettled(t, p)
+	for _, spec := range []Spec{{Name: "auto", Generator: GeneratorFlat}, {Name: "explicit", Generator: GeneratorFlat, Backend: BackendDragonfly}} {
+		if _, err := m.Create(spec); !errors.Is(err, ErrBackendUnavailable) {
+			t.Fatalf("%s: err = %v", spec.Name, err)
+		}
+	}
+	if worlds, _ := m.List(); len(worlds) != 0 {
+		t.Fatalf("saved unopenable worlds %v", worlds)
+	}
+}

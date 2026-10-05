@@ -50,7 +50,8 @@ func defaultBackend(flag string, info localworld.RuntimeInfo) string {
 }
 
 // openLocalWorlds builds the manager with a dragonfly runner (when its binary exists) and a BDS runner.
-// The dragonfly binary is required, and its absence fatal, only when it is the default backend.
+// The dragonfly binary is required, and its absence fatal, only when it is the default backend at startup;
+// otherwise Dragonfly worlds are refused.
 func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, error) {
 	runtimeInfo, pending := startupRuntime(opts)
 	backend := defaultBackend(opts.localBackend, runtimeInfo)
@@ -62,10 +63,14 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 		}
 	}
 	runners := localworld.Runners{}
+	var missingDragonfly error
 	if info, err := os.Stat(binary); err == nil && !info.IsDir() {
 		runners[localworld.BackendDragonfly] = localworld.ProcessRunner{Binary: binary, Log: logger}
-	} else if backend == localworld.BackendDragonfly {
-		return nil, fmt.Errorf("local world server binary not found at %s; build it with `make local-server`", binary)
+	} else {
+		missingDragonfly = fmt.Errorf("local world server binary not found at %s; build it with `make local-server`", binary)
+		if backend == localworld.BackendDragonfly {
+			return nil, missingDragonfly
+		}
 	}
 	store, err := localworld.OpenStore(opts.localWorldsDir)
 	if err != nil {
@@ -84,6 +89,10 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 		MaxPlayers: opts.bdsMaxPlayers, HostPort: opts.bdsHostPort, LANVisible: opts.bdsLANVisible, LANHostPort: opts.bdsLANHostPort,
 	}
 	manager := localworld.NewManager(store, runners, logger)
+	if missingDragonfly != nil {
+		// Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
+		manager.SetUnavailable(localworld.BackendDragonfly, missingDragonfly)
+	}
 	manager.SetSetup(provisioner)
 	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")
 	logger.Info("local worlds enabled", "dir", opts.localWorldsDir, "default_backend", backend, "bds_runtime", runtimeInfo.Kind, "reason", runtimeInfo.Reason)

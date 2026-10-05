@@ -64,8 +64,9 @@ type Runner interface {
 
 // Manager owns the store and at most one running local world.
 type Manager struct {
-	setup       Setup // nil when no dedicated-server backend is configured
-	autoBackend bool  // Prefs re-probes may change the default backend
+	setup       Setup            // nil when no dedicated-server backend is configured
+	autoBackend bool             // Prefs re-probes may change the default backend
+	unavailable map[string]error // backends that cannot host worlds here, with the operator-facing reason
 	store       *Store
 	runner      Runner
 	log         *slog.Logger
@@ -111,6 +112,14 @@ func (m *Manager) SetSetup(setup Setup) {
 // SetAutoBackend lets a Docker re-probe change the default backend (false when the operator forced one).
 func (m *Manager) SetAutoBackend(auto bool) { m.autoBackend = auto }
 
+// SetUnavailable marks backend as unable to host worlds; Create refuses it, logging reason.
+func (m *Manager) SetUnavailable(backend string, reason error) {
+	if m.unavailable == nil {
+		m.unavailable = map[string]error{}
+	}
+	m.unavailable[backend] = reason
+}
+
 // AcceptEULA records EULA acceptance so BDS worlds may download and start the server.
 func (m *Manager) AcceptEULA() error {
 	if m.setup == nil {
@@ -135,7 +144,11 @@ func (m *Manager) Prefs(ctx context.Context, update PrefsUpdate) (Prefs, error) 
 func (m *Manager) runtimeDetected(info RuntimeInfo) {
 	m.log.Info("local world runtime detected", "bds_runtime", info.Kind, "reason", info.Reason)
 	if m.autoBackend {
-		m.store.SetDefaultBackend(DefaultBackend(info))
+		backend := DefaultBackend(info)
+		m.store.SetDefaultBackend(backend)
+		if reason := m.unavailable[backend]; reason != nil {
+			m.log.Error("default local world backend is unavailable", "backend", backend, "error", reason)
+		}
 	}
 }
 
@@ -167,6 +180,13 @@ func (m *Manager) Create(spec Spec) (World, error) {
 		if err != nil {
 			return World{}, ErrRuntimePending
 		}
+	}
+	if normalized.Backend == "" {
+		normalized.Backend = m.store.DefaultBackend()
+	}
+	if reason := m.unavailable[normalized.Backend]; reason != nil {
+		m.log.Error("cannot create local world", "backend", normalized.Backend, "error", reason)
+		return World{}, fmt.Errorf("%w: %s", ErrBackendUnavailable, normalized.Backend)
 	}
 	if normalized.Backend == BackendBDS && !m.bdsRunnable() {
 		if normalized.Generator == GeneratorNormal {
