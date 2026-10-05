@@ -92,18 +92,8 @@ impl WorldStream {
                     .difference(&stored_keys)
                     .copied()
                     .collect::<BTreeSet<_>>();
-                let old_keys = self
-                    .resident
-                    .iter()
-                    .copied()
-                    .filter(|resident| resident.chunk() == key)
-                    .collect::<BTreeSet<_>>();
-                let old_air = self
-                    .known_air
-                    .iter()
-                    .copied()
-                    .filter(|resident| resident.chunk() == key)
-                    .collect::<BTreeSet<_>>();
+                let old_keys = self.resident.column(key).copied().collect::<BTreeSet<_>>();
+                let old_air = self.known_air.column(key).copied().collect::<BTreeSet<_>>();
                 let Ok(applied) = self.authority.commit_level_chunk(key, decoded) else {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
@@ -112,8 +102,12 @@ impl WorldStream {
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
-                self.resident.retain(|resident| resident.chunk() != key);
-                self.known_air.retain(|resident| resident.chunk() != key);
+                for old in &old_keys {
+                    self.resident.remove(old);
+                }
+                for old in &old_air {
+                    self.known_air.remove(old);
+                }
                 for stale in old_keys.difference(&new_keys) {
                     self.set_connectivity(*stale, None);
                 }
