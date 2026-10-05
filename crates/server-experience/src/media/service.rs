@@ -5,15 +5,21 @@ use super::{
     descriptor::Descriptor,
     frames::{PcmBlock, VideoFrame},
     timeline::{Message, Playback},
+    worker::Worker,
 };
 use crate::{bundle::VerifiedBundle, manifest::Permission, negotiation::Grant, runtime::Principal};
 use anyhow::{Result, ensure};
 use std::{
     collections::BTreeSet,
+    path::PathBuf,
     sync::{Arc, atomic::AtomicU64},
 };
 
 pub(crate) mod output;
+
+const MAX_EVENTS: usize = 16;
+/// A presented frame this far past the looped position means the timeline wrapped.
+const LOOP_SLACK_US: u64 = 500_000;
 
 pub struct Player {
     owner: Principal,
@@ -22,16 +28,36 @@ pub struct Player {
     descriptor: Descriptor,
     origins: BTreeSet<String>,
     data_budget: Arc<AtomicU64>,
+    helper: PathBuf,
     clock: Clock,
     ping: Option<(u64, u64)>,
     ping_id: u64,
     last_ping_us: u64,
     playback: Playback,
     output: output::Queues,
-    #[cfg(feature = "developer-media")]
-    worker: Option<super::webm::Worker>,
+    worker: Option<Worker>,
     decoder_generation: u64,
+    decoder_ended: bool,
+    presented_us: Option<u64>,
+    announce_playing: bool,
+    ended: bool,
+    events: Vec<Event>,
     pub buffering: bool,
+}
+
+/// Playback transitions reported back to the server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventKind {
+    Playing,
+    Paused,
+    Stopped,
+    Ended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Event {
+    pub kind: EventKind,
+    pub position_us: u64,
 }
 
 impl Player {
@@ -43,6 +69,7 @@ impl Player {
         epoch: u64,
         now_unix: u64,
         data_budget: Arc<AtomicU64>,
+        helper: PathBuf,
     ) -> Result<Self> {
         ensure!(
             now_unix < grant.expires_unix
@@ -90,15 +117,20 @@ impl Player {
             descriptor,
             origins: grant.offer.offer.scope.origins.clone(),
             data_budget,
-            clock: Clock::default(),
+            helper,
+            clock: Clock::local(),
             ping: None,
             ping_id: 0,
             last_ping_us: 0,
             playback: Playback::default(),
             output: output::Queues::default(),
-            #[cfg(feature = "developer-media")]
             worker: None,
             decoder_generation: 0,
+            decoder_ended: false,
+            presented_us: None,
+            announce_playing: false,
+            ended: false,
+            events: Vec::new(),
             buffering: true,
         })
     }
@@ -143,56 +175,91 @@ impl Player {
         )
     }
 
-    /// Services buffered output without waiting; production decoding remains unavailable.
-    pub fn tick(&mut self, now_unix: u64, local_us: u64, autoplay: bool) -> Result<Correction> {
+    /// Applies due controls, keeps one helper decoding the current generation and holds the
+    /// timeline while it rebuffers; never waits.
+    pub fn tick(&mut self, now_unix: u64, local_us: u64, autoplay: bool) -> Result<()> {
         if now_unix >= self.expires_unix {
             self.stop_decoder();
             anyhow::bail!("media grant expired");
         }
         let Some((server_us, _)) = self.clock.server_now(local_us) else {
             self.stop_decoder();
-            return Ok(Correction::Hold);
+            return Ok(());
         };
-        self.playback
-            .advance(server_us, self.descriptor.duration_us)?;
-        let desired = self
-            .playback
-            .position(server_us, self.descriptor.duration_us);
+        let duration = self.descriptor.duration_us;
+        let (was_playing, was_stopped, was_generation) = (
+            self.playback.playing,
+            self.playback.stopped,
+            self.playback.decode_generation,
+        );
+        self.playback.advance(server_us, duration)?;
+        let position = self.playback.position(server_us, duration);
+        if self.playback.stopped && !was_stopped {
+            self.ended = false;
+            self.event(EventKind::Stopped, position);
+        } else if was_playing && !self.playback.playing {
+            self.event(EventKind::Paused, position);
+        }
+        if self.playback.playing
+            && (!was_playing || self.playback.decode_generation != was_generation)
+        {
+            self.ended = false;
+            self.announce_playing = true;
+        }
         if !autoplay || self.playback.stopped || self.playback.decode_generation == 0 {
             self.stop_decoder();
-            return Ok(Correction::Hold);
+            return Ok(());
         }
-        #[cfg(feature = "developer-media")]
+        if self.playback.loop_us.is_some()
+            && self
+                .presented_us
+                .is_some_and(|shown| position.saturating_add(LOOP_SLACK_US) < shown)
         {
-            if self.decoder_generation != self.playback.decode_generation {
-                self.stop_decoder();
-                if !super::webm::Worker::available() {
-                    return Ok(Correction::Hold);
-                }
-                self.worker = Some(super::webm::Worker::start(
-                    self.descriptor.clone(),
-                    self.origins.clone(),
-                    self.playback.decode_generation,
-                    Arc::clone(&self.data_budget),
-                    desired,
-                )?);
-                self.decoder_generation = self.playback.decode_generation;
+            self.playback.restart_decode()?;
+        }
+        if self.decoder_generation != self.playback.decode_generation {
+            self.stop_decoder();
+            self.worker = Some(Worker::start(
+                &self.helper,
+                self.descriptor.clone(),
+                self.origins.clone(),
+                self.playback.decode_generation,
+                Arc::clone(&self.data_budget),
+                position,
+            )?);
+            self.decoder_generation = self.playback.decode_generation;
+        }
+        let worker = &self.worker;
+        self.decoder_ended |= self.output.pump(self.decoder_generation, || {
+            worker.as_ref().and_then(Worker::poll)
+        })?;
+        if !self.playback.playing || self.ended {
+            return Ok(());
+        }
+        if !self.output.frames.is_empty() {
+            self.playback.release();
+        } else {
+            let interval = 1_000_000 / u64::from(self.descriptor.fps);
+            if self.decoder_ended && self.output.pcm.is_empty() {
+                self.playback.finish(server_us, duration);
+                self.ended = true;
+                self.event(EventKind::Ended, position);
+            } else if !self.decoder_ended
+                && self
+                    .presented_us
+                    .is_none_or(|shown| position > shown.saturating_add(2 * interval))
+            {
+                self.playback.hold(server_us, duration);
+                self.buffering = true;
+            } else {
+                self.playback.release();
             }
-            self.output.pump(self.decoder_generation, || {
-                self.worker.as_ref().and_then(|worker| worker.poll())
-            })?;
         }
-        #[cfg(not(feature = "developer-media"))]
-        {
-            let _ = (&self.origins, &self.data_budget, desired);
-            anyhow::bail!("WebM decoder is not enabled; retain fallback poster");
-        }
-        #[cfg(feature = "developer-media")]
-        Ok(Correction::Hold)
+        Ok(())
     }
 
-    /// Presents against audible audio when available, otherwise the shared monotonic timeline.
-    pub fn video(&mut self, local_us: u64, audible_us: Option<u64>) -> Option<VideoFrame> {
+    /// Presents the newest due frame on the media clock, which audio is corrected toward.
+    pub fn video(&mut self, local_us: u64) -> Option<VideoFrame> {
         let (server_us, _) = self.clock.server_now(local_us)?;
         let desired = self
             .playback
@@ -200,9 +267,42 @@ impl Player {
         let frame = self
             .output
             .frames
-            .present(audible_us.unwrap_or(desired), self.decoder_generation);
-        self.buffering = frame.is_none() && self.buffering;
-        frame
+            .present(desired, self.decoder_generation)?;
+        self.presented_us = Some(frame.pts_us);
+        self.buffering = false;
+        if std::mem::take(&mut self.announce_playing) {
+            self.event(EventKind::Playing, desired);
+        }
+        Some(frame)
+    }
+
+    /// Current media-clock position, the master for both outputs.
+    pub fn position_us(&self, local_us: u64) -> Option<u64> {
+        let (server_us, _) = self.clock.server_now(local_us)?;
+        Some(
+            self.playback
+                .position(server_us, self.descriptor.duration_us),
+        )
+    }
+
+    /// Decoder discontinuity counter; audio queued under another value is stale.
+    pub fn decoder_generation(&self) -> u64 {
+        self.decoder_generation
+    }
+
+    pub fn descriptor(&self) -> &Descriptor {
+        &self.descriptor
+    }
+
+    /// Transitions since the last call, oldest first.
+    pub fn take_events(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.events)
+    }
+
+    fn event(&mut self, kind: EventKind, position_us: u64) {
+        if self.events.len() < MAX_EVENTS {
+            self.events.push(Event { kind, position_us });
+        }
     }
 
     /// Reports a drift decision; an output adapter must perform rate or seek correction.
@@ -220,6 +320,11 @@ impl Player {
         self.output.pcm.pop_front()
     }
 
+    /// The next block, so the mixer can check its ring has room before taking it.
+    pub fn peek_pcm(&self) -> Option<&PcmBlock> {
+        self.output.pcm.front()
+    }
+
     /// Exposes authoritative pause, gain and surface state to trusted adapters.
     pub fn playback(&self) -> &Playback {
         &self.playback
@@ -227,12 +332,11 @@ impl Player {
 
     /// Drops all generation-owned decode output immediately.
     fn stop_decoder(&mut self) {
-        #[cfg(feature = "developer-media")]
-        {
-            self.worker = None;
-        }
+        self.worker = None;
         self.output = output::Queues::default();
         self.buffering = true;
         self.decoder_generation = 0;
+        self.decoder_ended = false;
+        self.presented_us = None;
     }
 }

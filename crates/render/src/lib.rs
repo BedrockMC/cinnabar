@@ -29,6 +29,10 @@ mod lightning;
 mod lightning_render;
 mod media;
 pub use media::MediaTexture;
+mod media_screen;
+pub use media_screen::{
+    MAX_MEDIA_SCREENS, MediaFrame, MediaScreen, MediaScreenScene, media_screen_axes,
+};
 mod material_shader;
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;

@@ -55,7 +55,7 @@ pub struct Message {
     pub operation: Operation,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Playback {
     pub playing: bool,
     pub stopped: bool,
@@ -66,9 +66,31 @@ pub struct Playback {
     pub volume: u16,
     pub surface: Option<Surface>,
     pub decode_generation: u64,
+    held: bool,
     revision: u64,
     last_effective_us: Option<u64>,
     pending: VecDeque<Message>,
+}
+
+impl Default for Playback {
+    /// Full volume until the server sets one; mute and sliders still apply on top.
+    fn default() -> Self {
+        Self {
+            playing: false,
+            stopped: false,
+            media_id: None,
+            position_us: 0,
+            anchor_us: 0,
+            loop_us: None,
+            volume: 1000,
+            surface: None,
+            decode_generation: 0,
+            held: false,
+            revision: 0,
+            last_effective_us: None,
+            pending: VecDeque::new(),
+        }
+    }
 }
 
 impl Playback {
@@ -130,6 +152,7 @@ impl Playback {
             let message = self.pending.pop_front().expect("front checked");
             self.position_us = self.position(message.effective_server_us, duration_us);
             self.anchor_us = message.effective_server_us;
+            self.held = false;
             match message.operation {
                 Operation::Prepare { media_id } => {
                     self.media_id = Some(media_id);
@@ -186,6 +209,31 @@ impl Playback {
         } else {
             position.min(duration_us)
         }
+    }
+
+    /// Keeps the timeline from advancing while the decoder rebuffers; call every starved tick.
+    pub fn hold(&mut self, server_us: u64, duration_us: u64) {
+        if !self.held {
+            self.position_us = self.position(server_us, duration_us);
+            self.held = true;
+        }
+        self.anchor_us = server_us;
+    }
+
+    /// Lets a held timeline advance again from where it stopped.
+    pub fn release(&mut self) {
+        self.held = false;
+    }
+
+    /// Stops advancing at the current position once the stream has ended.
+    pub fn finish(&mut self, server_us: u64, duration_us: u64) {
+        self.hold(server_us, duration_us);
+        self.playing = false;
+    }
+
+    /// Restarts decoding at the current position, e.g. after a loop wrapped.
+    pub fn restart_decode(&mut self) -> Result<()> {
+        self.reset_decode()
     }
 
     /// Invalidates queued PCM, frames and range reads on discontinuity.
@@ -287,6 +335,35 @@ mod tests {
         playback.advance(200, 1000).unwrap();
         assert_eq!(playback.position(200, 1000), 110);
         assert_eq!(playback.volume, 500);
+    }
+
+    #[test]
+    fn a_rebuffering_hold_freezes_the_timeline_until_released() {
+        let owner = Principal {
+            session: "session".into(),
+            bundle: "cinema".into(),
+            generation: INITIAL_BUNDLE_GENERATION,
+        };
+        let mut playback = Playback::default();
+        playback
+            .enqueue(
+                message(&owner, 1, 0, Operation::Play { position_us: 0 }),
+                &owner,
+                1,
+                "cinema",
+                0,
+            )
+            .unwrap();
+        playback.advance(0, 10_000_000).unwrap();
+        for now in [400_000, 900_000, 1_400_000] {
+            playback.hold(now, 10_000_000);
+        }
+        assert_eq!(playback.position(1_400_000, 10_000_000), 400_000);
+        playback.release();
+        assert_eq!(playback.position(1_500_000, 10_000_000), 500_000);
+        playback.finish(1_500_000, 10_000_000);
+        assert!(!playback.playing);
+        assert_eq!(playback.position(9_000_000, 10_000_000), 500_000);
     }
 
     #[test]
