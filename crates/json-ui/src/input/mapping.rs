@@ -144,7 +144,7 @@ impl InputComponent {
     }
 
     /// Look up one global route without copying every mapping into a temporary component.
-    pub(super) fn global_target(control: &ResolvedControl, from: &str) -> Option<String> {
+    pub(crate) fn global_target(control: &ResolvedControl, from: &str) -> Option<String> {
         let cached = super::cache::entry(&control.properties);
         cached
             .mappings
