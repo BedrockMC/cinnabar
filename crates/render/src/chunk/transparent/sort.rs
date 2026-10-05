@@ -3,9 +3,12 @@ use crate::chunk::*;
 /// Hard 16 MiB ceiling for one committed transparent indirection snapshot.
 pub const MAX_TRANSPARENT_DRAW_REFS: usize = 2_097_152;
 pub const MAX_TRANSPARENT_VIEWS: usize = 1;
+/// The largest one slot of the double-buffered ref buffer grows to.
 pub const TRANSPARENT_REF_SLOT_BYTES: usize =
     MAX_TRANSPARENT_DRAW_REFS * std::mem::size_of::<PackedTransparentDrawRef>();
 pub const TRANSPARENT_REF_BUFFER_BYTES: usize = TRANSPARENT_REF_SLOT_BYTES * 2;
+/// Refs per slot before the first growth; slots double up to the ceiling as snapshots need.
+pub(in crate::chunk) const INITIAL_TRANSPARENT_SLOT_REFS: usize = 16_384;
 pub const DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME: usize = 131_072;
 pub const MAX_TRANSPARENT_WITNESS_KEYS: usize = 64;
 pub const MAX_MODEL_WITNESS_KEYS: usize = 64;
@@ -104,23 +107,27 @@ pub(in crate::chunk) fn sort_transparent_candidates(
 
 pub(in crate::chunk) fn transparent_draw_args(
     buffer_slot: u8,
+    slot_refs: usize,
     ref_count: usize,
 ) -> Option<TransparentDrawArgs> {
-    transparent_draw_range_args(buffer_slot, 0..u32::try_from(ref_count).ok()?)
+    transparent_draw_range_args(buffer_slot, slot_refs, 0..u32::try_from(ref_count).ok()?)
 }
 
+/// `slot_refs` is the arena's current per-slot capacity, the stride between the two slots.
 pub(in crate::chunk) fn transparent_draw_range_args(
     buffer_slot: u8,
+    slot_refs: usize,
     ref_range: Range<u32>,
 ) -> Option<TransparentDrawArgs> {
     if ref_range.start > ref_range.end
-        || usize::try_from(ref_range.end).ok()? > MAX_TRANSPARENT_DRAW_REFS
+        || slot_refs > MAX_TRANSPARENT_DRAW_REFS
+        || usize::try_from(ref_range.end).ok()? > slot_refs
     {
         return None;
     }
     let instance_count = ref_range.end - ref_range.start;
     let first_instance = u32::from(buffer_slot)
-        .checked_mul(u32::try_from(MAX_TRANSPARENT_DRAW_REFS).ok()?)?
+        .checked_mul(u32::try_from(slot_refs).ok()?)?
         .checked_add(ref_range.start)?;
     Some(TransparentDrawArgs {
         index_count: STATIC_QUAD_INDICES.len() as u32,
@@ -129,6 +136,52 @@ pub(in crate::chunk) fn transparent_draw_range_args(
         base_vertex: 0,
         first_instance,
     })
+}
+
+/// Byte offset of `start` within `buffer_slot` at the arena's current slot stride.
+pub(in crate::chunk) fn transparent_ref_offset(
+    buffer_slot: u8,
+    slot_refs: usize,
+    start: usize,
+) -> u64 {
+    ((usize::from(buffer_slot) * slot_refs + start)
+        * std::mem::size_of::<PackedTransparentDrawRef>()) as u64
+}
+
+pub(in crate::chunk) fn transparent_ref_buffer(device: &RenderDevice, slot_refs: usize) -> Buffer {
+    create_storage_buffer(
+        device,
+        "double-buffered transparent draw refs",
+        transparent_ref_offset(2, slot_refs, 0),
+    )
+}
+
+/// Grows both slots to hold `refs`, re-uploading every resident ref at the new stride.
+/// Returns whether the buffer was replaced, which invalidates written indirect args.
+pub(in crate::chunk) fn ensure_transparent_ref_capacity(
+    arena: &mut ChunkGpuArena,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    refs: usize,
+    state: &TransparentSortState,
+) -> bool {
+    if refs <= arena.transparent_slot_refs {
+        return false;
+    }
+    let slot_refs = refs
+        .min(MAX_TRANSPARENT_DRAW_REFS)
+        .next_power_of_two()
+        .clamp(INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_DRAW_REFS);
+    arena.transparent_ref_buffer = transparent_ref_buffer(device, slot_refs);
+    arena.transparent_slot_refs = slot_refs;
+    for (slot, resident) in state.resident_refs() {
+        queue.write_buffer(
+            &arena.transparent_ref_buffer,
+            transparent_ref_offset(slot, slot_refs, 0),
+            bytemuck::cast_slice(resident),
+        );
+    }
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,8 +233,9 @@ pub(in crate::chunk) fn transparent_liquid_phase_groups(
 
 pub(in crate::chunk) fn transparent_indirect_args(
     snapshot: &TransparentOrderedSnapshot,
+    slot_refs: usize,
 ) -> Option<DrawIndexedIndirectArgs> {
-    let args = transparent_draw_args(snapshot.buffer_slot(), snapshot.refs().len())?;
+    let args = transparent_draw_args(snapshot.buffer_slot(), slot_refs, snapshot.refs().len())?;
     Some(DrawIndexedIndirectArgs {
         index_count: args.index_count,
         instance_count: args.instance_count,
@@ -241,3 +295,71 @@ pub use state::{
     TransparentSortJobGate, TransparentSortResult, TransparentSortState, TransparentUploadBatch,
     ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
 };
+
+#[cfg(test)]
+mod growth_tests {
+    use super::*;
+
+    /// The ref buffer starts small and grows only when a staged snapshot needs it.
+    #[test]
+    fn transparent_ref_buffer_grows_on_demand_and_keeps_resident_refs() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let device = RenderDevice::from(device);
+        let queue = RenderQueue(Arc::new(bevy::render::renderer::WgpuWrapper::new(queue)));
+        let mut arena = ChunkGpuArena::new(&device);
+        let initial = transparent_ref_offset(2, INITIAL_TRANSPARENT_SLOT_REFS, 0);
+        assert_eq!(arena.transparent_ref_buffer.size(), initial);
+        assert!(initial < TRANSPARENT_REF_BUFFER_BYTES as u64 / 64);
+
+        let mut state = TransparentSortState::with_upload_cap(usize::MAX);
+        let key = ViewSortKey::try_new(
+            [0.0; 3],
+            [0.0, 0.0, 0.0, 1.0],
+            Vec::new(),
+            ChunkTextureAssetIdentity::new(1, 1),
+            ChunkBiomeTintIdentity::new(2, 2),
+        )
+        .unwrap();
+        let generation = state.request(&key);
+        let refs = vec![PackedTransparentDrawRef::new(1, 2); 3];
+        state
+            .complete(TransparentSortResult::new(generation, key, refs).unwrap())
+            .unwrap();
+        assert!(state.acknowledge_upload());
+        assert_eq!(state.resident_refs().count(), 1);
+
+        assert!(!ensure_transparent_ref_capacity(
+            &mut arena,
+            &device,
+            &queue,
+            INITIAL_TRANSPARENT_SLOT_REFS,
+            &state,
+        ));
+        let before = arena.transparent_ref_buffer.id();
+        assert!(ensure_transparent_ref_capacity(
+            &mut arena,
+            &device,
+            &queue,
+            INITIAL_TRANSPARENT_SLOT_REFS + 1,
+            &state,
+        ));
+        assert_ne!(arena.transparent_ref_buffer.id(), before);
+        assert_eq!(
+            arena.transparent_slot_refs,
+            INITIAL_TRANSPARENT_SLOT_REFS * 2
+        );
+        assert_eq!(arena.transparent_ref_buffer.size(), initial * 2);
+        let args = transparent_draw_args(1, arena.transparent_slot_refs, 3).unwrap();
+        assert_eq!(
+            args.first_instance,
+            INITIAL_TRANSPARENT_SLOT_REFS as u32 * 2
+        );
+
+        ensure_transparent_ref_capacity(&mut arena, &device, &queue, usize::MAX, &state);
+        assert_eq!(arena.transparent_slot_refs, MAX_TRANSPARENT_DRAW_REFS);
+        assert_eq!(
+            arena.transparent_ref_buffer.size(),
+            TRANSPARENT_REF_BUFFER_BYTES as u64
+        );
+    }
+}

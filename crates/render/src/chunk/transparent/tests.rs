@@ -117,6 +117,7 @@ fn visibility_membership_churn_retains_resident_snapshot_until_ordered_swap() {
     assert_eq!(state.committed(), Some(&old_snapshot));
     let retained_draw = transparent_draw_args(
         state.committed().unwrap().buffer_slot(),
+        INITIAL_TRANSPARENT_SLOT_REFS,
         state.committed().unwrap().refs().len(),
     )
     .unwrap();
@@ -237,6 +238,7 @@ fn generation_only_update_retains_physically_resident_snapshot_and_draw_args() {
     assert_eq!(state.committed(), Some(&old_snapshot));
     let retained_args = transparent_draw_args(
         state.committed().unwrap().buffer_slot(),
+        INITIAL_TRANSPARENT_SLOT_REFS,
         state.committed().unwrap().refs().len(),
     )
     .unwrap();
