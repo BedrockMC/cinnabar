@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) const NEAR_CAMERA_RADIUS: i32 = 4;
 
-/// One scheduling lane: ready work first, deferred work once ready drains.
+/// Ready work leads during ordinary streaming; startup also rechecks higher-priority deferred work.
 #[derive(Default)]
 pub(super) struct Lane {
     pub(super) ready: BinaryHeap<PendingSchedulerCandidate>,
@@ -19,6 +19,33 @@ impl Lane {
             &mut self.deferred
         } else {
             &mut self.ready
+        }
+    }
+
+    /// Moves current deferred work that outranks the best ready job back to ready, within budget.
+    fn prioritize_deferred(
+        &mut self,
+        budget: &mut usize,
+        deadline: Option<Instant>,
+        is_current: impl Fn(SubChunkKey, u64) -> bool,
+    ) {
+        let ready_best = self.ready.peek().copied();
+        let mut examined = false;
+        while *budget != 0
+            && (!examined || deadline.is_none_or(|deadline| Instant::now() < deadline))
+        {
+            let Some(candidate) = self.deferred.peek().copied() else {
+                break;
+            };
+            if ready_best.is_some_and(|ready| candidate <= ready) {
+                break;
+            }
+            self.deferred.pop();
+            *budget -= 1;
+            examined = true;
+            if is_current(candidate.key, candidate.revision) {
+                self.ready.push(candidate);
+            }
         }
     }
 }
@@ -47,9 +74,9 @@ impl<const L: usize> SchedulerRefresh<L> {
         deadline: Option<Instant>,
         is_current: impl Fn(SubChunkKey, u64) -> bool,
     ) -> bool {
-        let moved = self
-            .view
-            .is_none_or(|previous| previous.cell() != view.cell());
+        let moved = self.view.is_none_or(|previous| {
+            previous.cell() != view.cell() || previous.startup_center != view.startup_center
+        });
         if self.previous.iter().all(Lane::is_empty) && moved {
             std::mem::swap(&mut self.previous, queues);
             self.view = Some(view);
@@ -78,7 +105,7 @@ impl<const L: usize> SchedulerRefresh<L> {
                 .pop()
                 .expect("nonempty refresh queue");
             if is_current(candidate.key, candidate.revision) {
-                candidate.distance_squared = view.rank(candidate.key);
+                candidate.refresh_rank(view);
                 queues[lane].heap_mut(deferred).push(candidate);
                 refreshed = true;
             }
@@ -136,7 +163,12 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
 impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
     /// Replaces the key's pending record and queues it for ingress.
     pub(super) fn enqueue(&mut self, key: SubChunkKey, pending: P) {
-        self.rescan(key, pending.revision(), pending.urgent());
+        self.enqueue_prioritized(key, pending, false);
+    }
+
+    /// Startup dependencies enter the scan ahead of ordinary work without becoming urgent.
+    pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
+        self.rescan(key, pending.revision(), pending.urgent() || startup);
         self.pending.insert(key, pending);
     }
 
@@ -201,9 +233,13 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             let (lane, ready) = route(key, queued_revision, pending);
             self.lanes[lane].heap_mut(!ready).push(candidate);
         }
+        let mut deferred_budget = MAX_PENDING_SCHEDULER_SCANS_PER_POLL;
         for lane in &mut self.lanes {
             if lane.ready.is_empty() {
                 std::mem::swap(&mut lane.ready, &mut lane.deferred);
+            }
+            if view.startup_center.is_some() {
+                lane.prioritize_deferred(&mut deferred_budget, deadline, is_current);
             }
         }
         probe_near
@@ -282,6 +318,7 @@ mod tests {
         let view = SchedulerView {
             position: [0.0; 3],
             forward: None,
+            startup_center: None,
         };
         let mut lanes = [Lane::default()];
         let mut refresh = SchedulerRefresh::<1>::default();
@@ -294,6 +331,7 @@ mod tests {
         let view = SchedulerView {
             position: [0.0; 3],
             forward: None,
+            startup_center: None,
         };
         let count = MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 4;
         let mut lanes = [Lane {
@@ -320,6 +358,7 @@ mod tests {
         let turned = SchedulerView {
             position: [16_384.0, 0.0, 0.0],
             forward: None,
+            startup_center: None,
         };
         refresh.refresh(turned, &mut lanes, None, |key, _| key.x % 2 == 0);
         assert!(lanes[0].ready.len() <= MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
@@ -327,5 +366,109 @@ mod tests {
             refresh.refresh(turned, &mut lanes, None, |key, _| key.x % 2 == 0);
         }
         assert_eq!(lanes[0].ready.len(), count / 2);
+    }
+    #[test]
+    fn closing_loading_restores_camera_order_without_losing_jobs() {
+        let mut view = SchedulerView {
+            position: [8.0, 80.0, 8.0],
+            forward: None,
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+        };
+        let spawn = SubChunkKey::new(0, 1, 19, 0);
+        let halo = SubChunkKey::new(0, 2, 19, 0);
+        let distant = SubChunkKey::new(0, 3, 5, 0);
+        let mut lanes = [Lane::default()];
+        let mut refresh = SchedulerRefresh::<1>::default();
+        refresh.refresh(view, &mut lanes, None, |_, _| true);
+        for key in [spawn, halo, distant] {
+            lanes[0]
+                .ready
+                .push(PendingSchedulerCandidate::new(key, 1, view, false));
+        }
+        assert_eq!(lanes[0].ready.peek().unwrap().key, spawn);
+        view.startup_center = None;
+        assert!(refresh.refresh(view, &mut lanes, None, |_, _| true));
+        assert_eq!(lanes[0].ready.pop().unwrap().key, distant);
+        assert_eq!(lanes[0].ready.len(), 2);
+        assert!(!refresh.refresh(view, &mut lanes, None, |_, _| true));
+    }
+
+    /// One ordering serves every lane: transfer footing, then urgency, then spawn class, then camera.
+    #[test]
+    fn transfer_and_urgency_outrank_startup_class() {
+        let view = SchedulerView {
+            position: [8.0, 80.0, 8.0],
+            forward: None,
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+        };
+        let candidate = |x, urgent, transfer| {
+            let mut candidate =
+                PendingSchedulerCandidate::new(SubChunkKey::new(0, x, 5, 0), 1, view, urgent);
+            candidate.transfer = transfer;
+            candidate
+        };
+        let mut queue: BinaryHeap<_> = [
+            candidate(0, false, false),
+            candidate(6, false, false),
+            candidate(2, false, false),
+            candidate(7, true, false),
+            candidate(8, false, true),
+        ]
+        .into_iter()
+        .collect();
+        let order: Vec<_> = std::iter::from_fn(|| queue.pop().map(|next| next.key.x)).collect();
+        assert_eq!(order, [8, 7, 0, 2, 6]);
+    }
+
+    #[test]
+    fn startup_order_work_witness() {
+        let view = SchedulerView {
+            position: [8.0, 80.0, 8.0],
+            forward: None,
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+        };
+        let ordinary = SchedulerView {
+            startup_center: None,
+            ..view
+        };
+        let range = vanilla_dimension_range(0).unwrap();
+        let keys: Vec<_> = (-8..=8)
+            .flat_map(|x| {
+                (-8..=8).flat_map(move |z| {
+                    (0..range.sub_chunk_count)
+                        .map(move |y| SubChunkKey::new(0, x, range.base_sub_chunk_y + y as i32, z))
+                })
+            })
+            .collect();
+        let needed = keys
+            .iter()
+            .filter(|key| view.startup_class(**key) == 0)
+            .count();
+        let work_until_spawn = |view: SchedulerView| {
+            let mut queue: BinaryHeap<_> = keys
+                .iter()
+                .map(|key| PendingSchedulerCandidate::new(*key, 1, view, false))
+                .collect();
+            let mut ready = 0;
+            let mut work = 0;
+            while ready < needed {
+                let next = queue.pop().unwrap();
+                work += 1;
+                if next.key.x.abs_diff(0) <= cohort::STARTUP_RADIUS as u32
+                    && next.key.z.abs_diff(0) <= cohort::STARTUP_RADIUS as u32
+                {
+                    ready += 1;
+                }
+            }
+            work
+        };
+        let before = work_until_spawn(ordinary);
+        let after = work_until_spawn(view);
+        eprintln!(
+            "join_scheduler_work sections={} before_spawn_complete={before} after_spawn_complete={after}",
+            keys.len()
+        );
+        assert!(before > after);
+        assert_eq!(after, needed);
     }
 }

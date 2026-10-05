@@ -288,13 +288,15 @@ impl WorldStream {
                 .is_some_and(|identity| identity.urgent);
         let queued_at = Instant::now();
         let revision = self.lighting.revisions.mark_dirty(key, queued_at);
-        self.lighting.jobs.enqueue(
+        let startup = self.is_startup_dependency(key);
+        self.lighting.jobs.enqueue_prioritized(
             key,
             PendingLight {
                 revision,
                 queued_at,
                 urgent,
             },
+            startup,
         );
         Some(revision)
     }
