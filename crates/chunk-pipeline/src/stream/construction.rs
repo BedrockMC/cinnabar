@@ -111,6 +111,7 @@ impl WorldStream {
             mesh_dependency_masks: HashMap::new(),
             mesh_jobs: Default::default(),
             view_forward: None,
+            startup_priority: false,
             dimension_transfer_priority: None,
             admitted_mesh_jobs: Arc::new(AtomicUsize::new(0)),
             mesh_cancellations: HashMap::new(),

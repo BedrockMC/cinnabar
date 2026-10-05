@@ -110,6 +110,10 @@ pub(super) fn prepare_loading(
     if let Some(milestone) = milestone {
         eprintln!("{milestone}");
     }
+    // Spawn-first ordering outlives release only until the local columns have terrain.
+    if released && let Some(stream) = client_world.stream.as_mut() {
+        stream.finish_startup_priority();
+    }
     if released && !presentation.startup_mut().completion_queued {
         presentation.startup_mut().completion_queued = if client_world.dimension_transfer.active() {
             match client_world.dimension_transfer.finish_presentation(network) {
