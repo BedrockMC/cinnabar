@@ -1,9 +1,6 @@
 //! Emissive in-world quads that sample server media textures.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -194,20 +191,19 @@ fn prepare_media_screens(
     };
     let gpu = &mut *gpu;
     gpu.draws.clear();
-    let active: HashSet<u64> = scene
-        .screens
-        .iter()
-        .take(MAX_MEDIA_SCREENS)
-        .map(|screen| screen.id)
-        .collect();
-    gpu.screens.retain(|id, _| active.contains(id));
+    // At most MAX_MEDIA_SCREENS entries, so linear scans beat allocating sets each frame.
+    let screens = &scene.screens[..scene.screens.len().min(MAX_MEDIA_SCREENS)];
+    gpu.screens
+        .retain(|id, _| screens.iter().any(|screen| screen.id == *id));
     let view = view_uniforms
         .uniforms
         .binding()
         .zip(view_uniforms.uniforms.buffer().map(|b| b.id()));
-    let mut seen = HashSet::new();
-    for screen in scene.screens.iter().take(MAX_MEDIA_SCREENS) {
-        if !seen.insert(screen.id) {
+    for (index, screen) in screens.iter().enumerate() {
+        if screens[..index]
+            .iter()
+            .any(|earlier| earlier.id == screen.id)
+        {
             gpu.draws.push(None);
             continue;
         }
@@ -719,6 +715,26 @@ mod tests {
         let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
         assert_eq!(state.texture.as_ref().map(MediaTexture::size), Some([4, 2]));
         assert_ne!(state.bind_key(view), before);
+    }
+
+    #[test]
+    fn an_unchanged_scene_prepares_without_allocating() {
+        let mut app = budget_app();
+        let with = |id| MediaScreen {
+            frame: Some(frame(1, 2)),
+            ..screen(id, 0.0)
+        };
+        prepared(&mut app, vec![with(7), with(8), with(7)]);
+        let mut system = IntoSystem::into_system(prepare_media_screens);
+        system.initialize(app.world_mut());
+        system.run((), app.world_mut()).unwrap();
+        let before = crate::alloc_count::thread_allocations();
+        system.run((), app.world_mut()).unwrap();
+        assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+        assert_eq!(
+            app.world().resource::<MediaScreenGpu>().draws,
+            [Some(7), Some(8), None]
+        );
     }
 
     #[test]

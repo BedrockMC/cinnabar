@@ -1,4 +1,4 @@
-use cinnabar_cxb::media::{CHUNK_BYTES, Facts, descriptor, facts, strip_tags};
+use cinnabar_cxb::media::{CHUNK_BYTES, Facts, chunk_bytes_for, descriptor, facts, strip_tags};
 
 /// Encodes an element with a one-byte size, enough for these small fixtures.
 fn element(id: &[u8], payload: &[u8]) -> Vec<u8> {
@@ -151,4 +151,35 @@ fn descriptor_indexes_every_chunk_and_passes_client_validation() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn large_media_gets_chunks_that_keep_its_descriptor_within_the_player_limit() {
+    let len = 256 * 1024 * 1024;
+    let chunk = chunk_bytes_for(len).unwrap();
+    let hashes = len.div_ceil(u64::from(chunk));
+    let descriptor = server_experience::media::descriptor::Descriptor {
+        id: "cinema.clip".into(),
+        timeline: "cinema.clip".into(),
+        profile: server_experience::media::descriptor::Profile::WebmAv1OpusBt709,
+        url: "https://media.example/clip.webm".into(),
+        bytes: len,
+        chunk_bytes: chunk,
+        chunk_hashes: vec![server_experience::crypto::digest(b""); hashes as usize],
+        sha256: server_experience::crypto::digest(b""),
+        width: 1280,
+        height: 720,
+        fps: 30,
+        duration_us: 1_000_000,
+        audio_channels: 2,
+        poster: "media/clip.png".into(),
+    };
+    let json = serde_json::to_vec(&descriptor).unwrap();
+    assert!(
+        json.len() <= server_experience::policy::MAX_MARKER_BYTES,
+        "{} bytes",
+        json.len()
+    );
+    assert_eq!(chunk_bytes_for(4 * 1024 * 1024).unwrap(), CHUNK_BYTES);
+    assert!(chunk_bytes_for(8 * 1024 * 1024 * 1024).is_err());
 }

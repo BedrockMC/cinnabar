@@ -1,6 +1,6 @@
 //! The real media helper process: one decode over stdio under its memory ceiling.
 
-#[cfg(feature = "media")]
+#[cfg(all(feature = "media", not(windows)))]
 use server_experience::media::Output;
 use server_experience::media::{
     descriptor::{Descriptor, Profile},
@@ -77,7 +77,15 @@ fn helper_refuses_to_run_without_the_developer_switch() {
     assert!(replies.is_empty());
 }
 
-#[cfg(not(feature = "media"))]
+#[cfg(windows)]
+#[test]
+fn windows_helper_refuses_before_decoding_without_a_memory_ceiling() {
+    let (replies, status) = session(true);
+    assert!(!status.success());
+    assert!(replies.is_empty());
+}
+
+#[cfg(all(not(feature = "media"), not(windows)))]
 #[test]
 fn helper_without_the_decoder_reports_why_instead_of_ending_cleanly() {
     let (replies, status) = session(true);
@@ -88,7 +96,7 @@ fn helper_without_the_decoder_reports_why_instead_of_ending_cleanly() {
     ));
 }
 
-#[cfg(feature = "media")]
+#[cfg(all(feature = "media", not(windows)))]
 #[test]
 fn contained_helper_decodes_the_fixture_and_ends() {
     let (replies, status) = session(true);

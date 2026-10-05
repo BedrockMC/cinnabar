@@ -1,4 +1,6 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+#[cfg(test)]
+mod alloc_count;
 mod lighting;
 mod lightmap;
 #[cfg(test)]

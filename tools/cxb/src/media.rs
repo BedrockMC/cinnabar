@@ -10,6 +10,28 @@ use std::collections::BTreeSet;
 /// Chunk size of descriptors written here; each chunk is hashed before the demuxer sees it.
 pub const CHUNK_BYTES: u32 = 256 * 1024;
 
+/// Largest chunk the client's descriptor validation accepts.
+const MAX_CHUNK_BYTES: u32 = 1024 * 1024;
+/// Serialized bytes per chunk hash: 64 hex digits, quotes and a comma.
+const HASH_JSON_BYTES: u64 = 67;
+/// Generous room for the descriptor's other fields.
+const FIELD_JSON_BYTES: u64 = 4096;
+
+/// Chunk size for an object of `len` bytes whose descriptor stays within the player's limit.
+pub fn chunk_bytes_for(len: u64) -> Result<u32> {
+    let budget =
+        (server_experience::policy::MAX_MARKER_BYTES as u64 - FIELD_JSON_BYTES) / HASH_JSON_BYTES;
+    let mut chunk = CHUNK_BYTES;
+    while len.div_ceil(u64::from(chunk)) > budget {
+        ensure!(
+            chunk < MAX_CHUNK_BYTES,
+            "media of {len} bytes needs more chunk hashes than a descriptor holds"
+        );
+        chunk *= 2;
+    }
+    Ok(chunk)
+}
+
 const SEGMENT: u32 = 0x1853_8067;
 const SEEK_HEAD: u32 = 0x114D_9B74;
 const SEEK: u32 = 0x4DBB;
@@ -239,15 +261,16 @@ pub fn facts(bytes: &[u8]) -> Result<Facts> {
 /// Describes stripped WebM `bytes` served at `url`, checked as the client would.
 pub fn descriptor(bytes: &[u8], url: &str, id: &str, poster: &str) -> Result<Descriptor> {
     let facts = facts(bytes)?;
+    let chunk_bytes = chunk_bytes_for(bytes.len() as u64)?;
     let descriptor = Descriptor {
         id: id.to_owned(),
         timeline: id.to_owned(),
         profile: Profile::WebmAv1OpusBt709,
         url: url.to_owned(),
         bytes: bytes.len() as u64,
-        chunk_bytes: CHUNK_BYTES,
+        chunk_bytes,
         chunk_hashes: bytes
-            .chunks(CHUNK_BYTES as usize)
+            .chunks(chunk_bytes as usize)
             .map(crypto::digest)
             .collect(),
         sha256: crypto::digest(bytes),
@@ -258,6 +281,10 @@ pub fn descriptor(bytes: &[u8], url: &str, id: &str, poster: &str) -> Result<Des
         audio_channels: facts.audio_channels,
         poster: poster.to_owned(),
     };
+    ensure!(
+        serde_json::to_vec(&descriptor)?.len() <= server_experience::policy::MAX_MARKER_BYTES,
+        "the descriptor exceeds the client's size limit"
+    );
     let origin = url::Url::parse(url)?.origin().ascii_serialization();
     descriptor
         .validate(&BTreeSet::from([origin]))

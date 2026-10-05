@@ -43,6 +43,38 @@ struct Slot {
     voice: Voice,
 }
 
+type Key = (String, String);
+
+/// Whether a slot still counts toward the concurrent player limit.
+trait Activity {
+    fn active(&self) -> bool;
+}
+
+impl Activity for Slot {
+    fn active(&self) -> bool {
+        !self.player.playback().stopped && !self.player.ended()
+    }
+}
+
+/// Makes room for one more player within the concurrent limit.
+fn admit<V: Activity>(
+    players: &mut BTreeMap<Key, V>,
+    frames: &mut BTreeMap<Key, Option<render::MediaFrame>>,
+) -> Result<()> {
+    if players.len() >= MAX_PLAYERS {
+        // Finished players keep their last frame only until a new one needs the slot.
+        players.retain(|key, player| {
+            let keep = player.active();
+            if !keep {
+                frames.remove(key);
+            }
+            keep
+        });
+    }
+    ensure!(players.len() < MAX_PLAYERS, "media player limit");
+    Ok(())
+}
+
 /// One player's mixer voice; only one exists process-wide, so a finished player hands it back.
 #[derive(Default)]
 struct Voice {
@@ -201,7 +233,7 @@ impl Media {
     fn apply(&mut self, control: Control, now_unix: u64, local_us: u64) -> Result<()> {
         let key = (control.bundle.clone(), control.id.clone());
         if !self.players.contains_key(&key) {
-            ensure!(self.players.len() < MAX_PLAYERS, "media player limit");
+            admit(&mut self.players, &mut self.frames)?;
             let bundle = self
                 .bundles
                 .get(&control.bundle)
@@ -422,6 +454,28 @@ mod tests {
         mixer.by_ref().take(64).for_each(drop);
         let mut second = Voice::default();
         assert!(second.sync(Some(&mut device), 1, true).is_some());
+    }
+
+    struct Finished(bool);
+
+    impl Activity for Finished {
+        fn active(&self) -> bool {
+            !self.0
+        }
+    }
+
+    #[test]
+    fn finished_players_free_their_slots_so_the_limit_is_concurrent() {
+        let key = |i: usize| ("cinema".to_owned(), format!("media/{i}.json"));
+        let mut players: BTreeMap<Key, Finished> =
+            (0..MAX_PLAYERS).map(|i| (key(i), Finished(true))).collect();
+        let mut frames = players.keys().map(|key| (key.clone(), None)).collect();
+        admit(&mut players, &mut frames).unwrap();
+        assert!(players.len() < MAX_PLAYERS && frames.len() == players.len());
+        let mut busy: BTreeMap<Key, Finished> = (0..MAX_PLAYERS)
+            .map(|i| (key(i), Finished(false)))
+            .collect();
+        assert!(admit(&mut busy, &mut BTreeMap::new()).is_err());
     }
 
     #[test]
