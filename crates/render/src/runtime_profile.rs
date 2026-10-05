@@ -67,10 +67,20 @@ pub enum RuntimeStage {
     GpuParticles,
     GpuSky,
     GpuPanorama,
+    /// Personal-mod post passes by execution slot, and mod world primitives.
+    GpuModPass0,
+    GpuModPass1,
+    GpuModPass2,
+    GpuModPass3,
+    GpuModPass4,
+    GpuModPass5,
+    GpuModPass6,
+    GpuModPass7,
+    GpuModPrimitives,
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 49] = [
+    pub const ALL: [Self; 58] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -120,10 +130,19 @@ impl RuntimeStage {
         Self::GpuParticles,
         Self::GpuSky,
         Self::GpuPanorama,
+        Self::GpuModPass0,
+        Self::GpuModPass1,
+        Self::GpuModPass2,
+        Self::GpuModPass3,
+        Self::GpuModPass4,
+        Self::GpuModPass5,
+        Self::GpuModPass6,
+        Self::GpuModPass7,
+        Self::GpuModPrimitives,
     ];
 
     /// GPU-timed stages, the contiguous tail of [`Self::ALL`].
-    pub const GPU: [Self; 16] = [
+    pub const GPU: [Self; 25] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -140,6 +159,27 @@ impl RuntimeStage {
         Self::GpuParticles,
         Self::GpuSky,
         Self::GpuPanorama,
+        Self::GpuModPass0,
+        Self::GpuModPass1,
+        Self::GpuModPass2,
+        Self::GpuModPass3,
+        Self::GpuModPass4,
+        Self::GpuModPass5,
+        Self::GpuModPass6,
+        Self::GpuModPass7,
+        Self::GpuModPrimitives,
+    ];
+
+    /// Mod post-pass slots; [`mod_api::MAX_RENDER_PASSES`] long.
+    pub const GPU_MOD_PASSES: [Self; mod_api::MAX_RENDER_PASSES] = [
+        Self::GpuModPass0,
+        Self::GpuModPass1,
+        Self::GpuModPass2,
+        Self::GpuModPass3,
+        Self::GpuModPass4,
+        Self::GpuModPass5,
+        Self::GpuModPass6,
+        Self::GpuModPass7,
     ];
 
     /// Position within [`Self::GPU`], or `None` for CPU stages.
@@ -206,6 +246,15 @@ impl RuntimeStage {
             Self::GpuParticles => "gpu_particles",
             Self::GpuSky => "gpu_sky",
             Self::GpuPanorama => "gpu_panorama",
+            Self::GpuModPass0 => "gpu_mod_pass_0",
+            Self::GpuModPass1 => "gpu_mod_pass_1",
+            Self::GpuModPass2 => "gpu_mod_pass_2",
+            Self::GpuModPass3 => "gpu_mod_pass_3",
+            Self::GpuModPass4 => "gpu_mod_pass_4",
+            Self::GpuModPass5 => "gpu_mod_pass_5",
+            Self::GpuModPass6 => "gpu_mod_pass_6",
+            Self::GpuModPass7 => "gpu_mod_pass_7",
+            Self::GpuModPrimitives => "gpu_mod_primitives",
         }
     }
 }

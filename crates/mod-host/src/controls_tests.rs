@@ -19,6 +19,7 @@ fn state(grants: ModGrants) -> State {
         pending_camera: None,
         camera_delta: None,
         controls: ControlState::new("{\"cps\":12}".into()),
+        render: super::super::render::RenderState::new(),
     }
 }
 

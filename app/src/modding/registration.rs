@@ -55,6 +55,8 @@ struct Grants {
     controls: bool,
     interaction: bool,
     settings: bool,
+    render: bool,
+    render_depth: bool,
 }
 
 impl From<&Grants> for ModGrants {
@@ -66,6 +68,8 @@ impl From<&Grants> for ModGrants {
             controls: grants.controls,
             interaction: grants.interaction,
             settings: grants.settings,
+            render: grants.render,
+            render_depth: grants.render_depth,
         }
     }
 }
@@ -621,6 +625,9 @@ fn clear_owned_state(world: &mut World) -> Option<ModHost> {
 }
 
 fn clear_presentation(world: &mut World) {
+    if let Some(mut scene) = world.get_resource_mut::<render::ModRenderScene>() {
+        scene.clear();
+    }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationRuntime>() {
         presentation.set_mod_panel_open(false);
         let _ = presentation.set_mod_panel(None);

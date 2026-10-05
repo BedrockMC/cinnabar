@@ -4178,6 +4178,7 @@ version = "0.1.6"
 dependencies = [
  "anyhow",
  "mod-api",
+ "mod-render",
  "serde",
  "serde_json",
  "server-experience",
@@ -4186,6 +4187,15 @@ dependencies = [
  "ui",
  "wasmtime",
  "wit-component",
+]
+
+[[package]]
+name = "mod-render"
+version = "0.1.6"
+dependencies = [
+ "bytemuck",
+ "mod-api",
+ "naga",
 ]
 
 [[package]]
@@ -5511,6 +5521,7 @@ dependencies = [
  "image",
  "meshing",
  "mod-api",
+ "mod-render",
  "naga",
  "naga_oil",
  "pack-compiler",
@@ -5543,6 +5554,13 @@ dependencies = [
  "sha2",
  "tempfile",
  "world",
+]
+
+[[package]]
+name = "render-sample-mod"
+version = "0.1.6"
+dependencies = [
+ "mod-api",
 ]
 
 [[package]]

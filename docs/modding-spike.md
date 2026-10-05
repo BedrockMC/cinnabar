@@ -200,6 +200,46 @@ bounded local outline font for the personal panel. It is rasterized once per
 selected font into an isolated atlas alias with filtered sampling. Panel sizing follows display DPI
 independently of the game GUI scale; vanilla and server glyph ownership are preserved.
 
+## Custom rendering
+
+`render` is a separate local grant (`CINNABAR_MOD_RENDER=1`, or `"render": true` in
+`local-mod.json`); depth reads also need `render_depth`. Budgets live in `mod_api`.
+
+- **Post passes.** `register-pass` takes WGSL that defines
+  `fn effect(uv: vec2<f32>) -> vec3<f32>` against a host prelude (`scene`, `param`,
+  `blur`, `bloom`, `world_to_uv`, and `depth` or `world_position` with depth). naga
+  validates the composed module. The guest may not declare resources, overrides or entry
+  points, and may not loop. Worst-case texture reads and expressions per pixel, with call
+  sites expanded, must fit the budget, as must source size, tokens per statement (which
+  bounds nesting) and the size of every type. Validation runs on its own thread, and a frame
+  callback may compile one shader. A rejection returns the reason to the guest. Passes
+  run by `(order, name)` after post-processing and before the HUD, each reading the
+  previous colour. `update-pass` retains an enable flag and 16 floats, and disabled passes
+  cost nothing. Each slot is timed as `gpu_mod_pass_N`.
+- **World primitives.** `draw` appends decals, ribbons, beams and billboards for the
+  current callback. Each successful callback replaces the drawn set. One premultiplied,
+  depth-tested draw without depth writes runs in the transparent phase, timed as
+  `gpu_mod_primitives`.
+- Both commit only after a successful callback. A trap, reload, revocation or unload
+  clears them.
+
+### Render sample
+
+`examples/mods/render-sample` registers a vignette pass, which F8 toggles, and draws a
+pulsing ring at the player's feet:
+
+```sh
+cargo build -p render-sample-mod --target wasm32-unknown-unknown --locked
+cargo run -p mod-host --locked -- pack \
+  target/wasm32-unknown-unknown/debug/render_sample_mod.wasm /tmp/cinnabar-render.wasm
+cargo run -p mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_MOD_PLAYERS=1 \
+  cargo run -p bedrock-client --features local-mods --locked
+```
+
+Replacing the component reloads it as for other mods. A rejected shader shows its error as
+the mod's label.
+
 ## Attach a local component to a running client
 
 A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
@@ -218,7 +258,9 @@ A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root
     "camera": true,
     "controls": true,
     "interaction": true,
-    "settings": true
+    "settings": true,
+    "render": false,
+    "render_depth": false
   }
 }
 ```
