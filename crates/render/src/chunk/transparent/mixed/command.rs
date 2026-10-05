@@ -1,11 +1,14 @@
 use super::plan::MixedStream;
 use super::*;
 
-pub(in crate::chunk) type DrawMixedTerrainCommands = (
-    crate::lighting::SetWorldLightmap,
-    crate::enhanced::SetEnhancedViewBindGroup<2>,
-    DrawMixedTerrain,
-);
+pub(in crate::chunk) type DrawMixedTerrainCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuTerrainTransparent as usize },
+    (
+        crate::lighting::SetWorldLightmap,
+        crate::enhanced::SetEnhancedViewBindGroup<2>,
+        DrawMixedTerrain,
+    ),
+>;
 
 pub(in crate::chunk) struct DrawMixedTerrain;
 
@@ -104,9 +107,11 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
                     );
                 }
                 MixedStream::Water => {
-                    let Some(args) =
-                        transparent_draw_range_args(draw.water_slot, segment.range.clone())
-                    else {
+                    let Some(args) = transparent_draw_range_args(
+                        draw.water_slot,
+                        arena.transparent_slot_refs,
+                        segment.range.clone(),
+                    ) else {
                         return RenderCommandResult::Skip;
                     };
                     pass.set_render_pipeline(water_pipeline);

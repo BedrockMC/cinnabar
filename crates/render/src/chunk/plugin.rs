@@ -131,6 +131,7 @@ impl Plugin for ChunkRenderPlugin {
             .init_resource::<ChunkGpuTextureAssets>()
             .init_resource::<ChunkGpuBiomeTints>()
             .init_resource::<ChunkTextureUploadStats>()
+            .init_resource::<pipeline::solid::ChunkSolidIndirectBatches>()
             .init_resource::<ChunkIndirectBatches>()
             .init_resource::<ChunkModelIndirectBatches>()
             .init_resource::<ChunkDepthLiquidIndirectBatches>()

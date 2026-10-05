@@ -44,7 +44,7 @@ pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 
 pub const MAX_ACTOR_RENDER_DISTANCE_BLOCKS: f32 = 192.0;
 /// Vanilla gathers non-player render candidates no farther than this from the camera on any
-/// axis (`LevelRendererCamera::queueRenderEntities`, `min(radius, 72)`); players are added apart.
+/// axis (`min(radius, 72)`); players are added apart.
 pub const ACTOR_CANDIDATE_RADIUS_BLOCKS: f32 = 72.0;
 
 #[derive(Debug, Clone, PartialEq)]

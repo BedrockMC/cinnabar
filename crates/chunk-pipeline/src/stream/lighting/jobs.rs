@@ -273,7 +273,7 @@ impl WorldStream {
         for batch in prepared_batches {
             let tx = self.lighting.tx.clone();
             let running = RunningLightJob::start(&self.lighting.running_jobs);
-            workers::WORKERS.light.spawn(move || {
+            workers::WORKERS.spawn(workers::Lane::Light, move || {
                 let started = Instant::now();
                 let solved = solve_prepared_light_batch(batch);
                 let duration = started.elapsed();

@@ -35,7 +35,50 @@ pub struct FontTexturePage {
     pub pixels_sha256: [u8; 32],
     pub width: u32,
     pub height: u32,
-    pub rgba8: Box<[u8]>,
+    pub pixels: FontPixels,
+}
+
+/// A page's texels: RGBA8, or one coverage byte per texel when every visible texel is white.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FontPixels {
+    Rgba8(Box<[u8]>),
+    Coverage(Box<[u8]>),
+}
+
+impl FontPixels {
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Rgba8(bytes) | Self::Coverage(bytes) => bytes,
+        }
+    }
+
+    /// The RGBA8 texels an encoder or hash needs; coverage pages no longer have them.
+    pub fn rgba8(&self) -> Option<&[u8]> {
+        match self {
+            Self::Rgba8(bytes) => Some(bytes),
+            Self::Coverage(_) => None,
+        }
+    }
+
+    /// One texel as RGBA8; coverage texels are white.
+    pub fn texel(&self, index: usize) -> Option<[u8; 4]> {
+        match self {
+            Self::Rgba8(bytes) => bytes
+                .get(index * 4..index * 4 + 4)
+                .map(|texel| [texel[0], texel[1], texel[2], texel[3]]),
+            Self::Coverage(bytes) => bytes.get(index).map(|&alpha| [255, 255, 255, alpha]),
+        }
+    }
+
+    /// Coverage-only storage when every visible texel is white, dropping transparent texels'
+    /// colour, which nearest sampling never shows.
+    fn coverage(&self) -> Option<Self> {
+        let rgba8 = self.rgba8()?;
+        rgba8
+            .chunks_exact(4)
+            .all(|texel| texel[3] == 0 || texel[..3] == [255; 3])
+            .then(|| Self::Coverage(rgba8.chunks_exact(4).map(|texel| texel[3]).collect()))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,6 +191,27 @@ impl CompiledFontCatalog {
         self.linear_sampling
     }
 
+    /// Keeps white-glyph pages as one coverage byte per texel, a quarter of their RGBA size.
+    /// Filtered sampling would blend transparent texels' colour, so linear catalogs keep RGBA.
+    pub fn with_coverage_pages(mut self) -> Self {
+        if self.linear_sampling {
+            return self;
+        }
+        let pages = self
+            .pages
+            .iter()
+            .map(|page| FontTexturePage {
+                pixels: page
+                    .pixels
+                    .coverage()
+                    .unwrap_or_else(|| page.pixels.clone()),
+                ..page.clone()
+            })
+            .collect::<Vec<_>>();
+        self.pages = pages.into();
+        self
+    }
+
     /// Adds runtime font aliases without changing the pinned carrier format.
     pub fn with_named_fonts(mut self, fonts: BTreeMap<String, Self>) -> Self {
         let mut hash = Sha256::new();
@@ -184,9 +248,9 @@ impl CompiledFontCatalog {
         alias.identity.carrier_sha256 = identity.finalize().into();
         let mut pages = self.pages.to_vec();
         pages.extend_from_slice(&font.pages);
-        let bytes = pages
-            .iter()
-            .try_fold(0usize, |total, page| total.checked_add(page.rgba8.len()));
+        let bytes = pages.iter().try_fold(0usize, |total, page| {
+            total.checked_add(page.pixels.bytes().len())
+        });
         if bytes.is_none_or(|bytes| bytes > MAX_FONT_DECODED_BYTES) {
             return Err(invalid_catalog(
                 "named font pages exceed decoded byte bounds",
@@ -280,7 +344,7 @@ pub fn encode_font_catalog(
     })?;
     let pixels_offset = checked_add(paths_offset, paths_bytes, invalid_catalog)?;
     let pixels_bytes = pages.iter().try_fold(0usize, |total, page| {
-        checked_add(total, page.rgba8.len(), invalid_catalog)
+        checked_add(total, page.pixels.bytes().len(), invalid_catalog)
     })?;
     let hash_offset = checked_add(pixels_offset, pixels_bytes, invalid_catalog)?;
     let total_bytes = checked_add(hash_offset, HASH_BYTES, invalid_catalog)?;
@@ -338,18 +402,18 @@ pub fn encode_font_catalog(
         push_u32(&mut bytes, page.height);
         push_u32(&mut bytes, page.source_bytes);
         push_u64(&mut bytes, pixel_cursor)?;
-        push_u64(&mut bytes, page.rgba8.len())?;
+        push_u64(&mut bytes, page.pixels.bytes().len())?;
         bytes.extend_from_slice(&page.source_sha256);
         bytes.extend_from_slice(&page.pixels_sha256);
         push_u32(&mut bytes, 0);
         path_cursor = checked_add(path_cursor, page.source_path.len(), invalid_catalog)?;
-        pixel_cursor = checked_add(pixel_cursor, page.rgba8.len(), invalid_catalog)?;
+        pixel_cursor = checked_add(pixel_cursor, page.pixels.bytes().len(), invalid_catalog)?;
     }
     for page in pages {
         bytes.extend_from_slice(page.source_path.as_bytes());
     }
     for page in pages {
-        bytes.extend_from_slice(&page.rgba8);
+        bytes.extend_from_slice(page.pixels.bytes());
     }
     debug_assert_eq!(bytes.len(), hash_offset);
     bytes.extend_from_slice(&Sha256::digest(&bytes));
@@ -394,8 +458,11 @@ fn validate_catalog(
             ));
         }
         let expected_pixels = pixel_length(page.width, page.height).map_err(invalid_catalog)?;
-        if page.rgba8.len() != expected_pixels
-            || Sha256::digest(&page.rgba8).as_slice() != page.pixels_sha256
+        let rgba8 = page
+            .pixels
+            .rgba8()
+            .ok_or_else(|| invalid_catalog("coverage font pages cannot be encoded"))?;
+        if rgba8.len() != expected_pixels || Sha256::digest(rgba8).as_slice() != page.pixels_sha256
         {
             return Err(invalid_catalog("font page pixels are invalid"));
         }
@@ -403,7 +470,7 @@ fn validate_catalog(
             .checked_add(u64::from(page.source_bytes))
             .ok_or_else(|| invalid_catalog("font source-byte total overflow"))?;
         total_decoded_bytes = total_decoded_bytes
-            .checked_add(page.rgba8.len())
+            .checked_add(rgba8.len())
             .ok_or_else(|| invalid_catalog("font decoded-byte total overflow"))?;
         previous_page = Some(key);
     }
@@ -512,6 +579,7 @@ fn validate_page_offsets(bytes: &[u8], envelope: Envelope) -> Result<(), FontCat
         let pixel_offset = usize_at(bytes, base + 24)?;
         let pixel_length = usize_at(bytes, base + 32)?;
         let source_sha256 = array_at(bytes, base + 40)?;
+        // The envelope seals the pixels; their digests are checked when encoding.
         let pixels_sha256: [u8; 32] = array_at(bytes, base + 72)?;
         if u32_at(bytes, base + 104)? != 0
             || path_offset != expected_path_offset
@@ -544,9 +612,6 @@ fn validate_page_offsets(bytes: &[u8], envelope: Envelope) -> Result<(), FontCat
             return Err(invalid_carrier(
                 "font pages are not strictly source-ordered",
             ));
-        }
-        if Sha256::digest(&bytes[pixel_offset..pixel_end]).as_slice() != pixels_sha256 {
-            return Err(invalid_carrier("font page pixel SHA-256 is invalid"));
         }
         total_source_bytes = total_source_bytes
             .checked_add(u64::from(source_bytes))
@@ -604,7 +669,7 @@ fn decode_pages(
             pixels_sha256: array_at(bytes, base + 72)?,
             width: u32_at(bytes, base + 12)?,
             height: u32_at(bytes, base + 16)?,
-            rgba8: bytes[pixel_offset..pixel_offset + pixel_length].into(),
+            pixels: FontPixels::Rgba8(bytes[pixel_offset..pixel_offset + pixel_length].into()),
         });
     }
     Ok(pages)

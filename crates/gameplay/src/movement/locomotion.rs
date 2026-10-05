@@ -179,7 +179,7 @@ impl ModeTracker {
             in_lava: sampled.value.in_lava,
             ..observed
         };
-        // SprintTrigger runs before SwimTrigger and keeps the previous actor
+        // The sprint trigger runs before the swim trigger and keeps the previous actor
         // sprint flag while its previous swimming pose still contacts water.
         let sprinting =
             (self.mode == MovementMode::Swimming && observed.in_water && self.sprinting)

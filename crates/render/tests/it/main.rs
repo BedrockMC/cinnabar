@@ -45,6 +45,7 @@ mod portal_overlay;
 mod present_mode_policy;
 mod shaders;
 mod skull_lighting;
+mod solid_terrain_raster;
 mod star_rotation;
 mod terrain_lightmap;
 mod ui_textures;

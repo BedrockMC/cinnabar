@@ -566,10 +566,11 @@ fn actor_use_builder_preserves_finite_out_of_unit_hit_offsets() {
 #[test]
 fn swing_arm_packet_round_trips_with_its_swing_source() {
     for (source, name) in [
-        (SwingSource::Attack, "Attack"),
-        (SwingSource::Mine, "Mine"),
-        (SwingSource::Build, "Build"),
-        (SwingSource::ThrowItem, "ThrowItem"),
+        (SwingSource::Attack, "attack"),
+        (SwingSource::Mine, "mine"),
+        (SwingSource::Build, "build"),
+        (SwingSource::Interact, "interact"),
+        (SwingSource::ThrowItem, "throwitem"),
     ] {
         let packet = swing_arm_packet(0x1_0000_0001, source);
         let bytes = encode(&packet, &session()).unwrap();
@@ -585,6 +586,23 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
         assert_eq!(animate.data, 0.0);
         assert_eq!(animate.swing_source.as_deref(), Some(name));
     }
+}
+
+/// A capitalised swing source makes strict servers close the connection mid-fight.
+#[test]
+fn swing_arm_packet_matches_the_vanilla_wire_layout() {
+    let bytes = encode(&swing_arm_packet(42, SwingSource::Attack), &session()).unwrap();
+    let expected = [
+        &[0xfe, 0x0f][..], // batch marker, frame length
+        &[0x2c],           // Animate, no subclients
+        &[0x01],           // action: swing
+        &[0x2a],           // actor runtime ID, varuint64
+        &[0, 0, 0, 0],     // data, f32 LE
+        &[0x01, 0x06],     // swing source present, string length
+        b"attack",
+    ]
+    .concat();
+    assert_eq!(bytes.as_ref(), expected.as_slice());
 }
 
 #[test]
@@ -697,7 +715,7 @@ fn held_request() -> HeldItemRequest {
     }
 }
 
-/// Air use matches `GameMode::baseUseItem`: action 1, face 255, no trigger, no block.
+/// Air use matches vanilla: action 1, face 255, no trigger, no block.
 #[test]
 fn click_air_carries_vanilla_base_use_item_fields() {
     let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =

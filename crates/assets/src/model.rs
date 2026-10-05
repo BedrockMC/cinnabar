@@ -25,7 +25,7 @@ pub const BLOCK_VISUAL_VARIANT_SEASONAL_LEAF: u32 = 1 << 28;
 pub const SEASONAL_LEAF_EXPOSED_OFFSET: u32 = crate::BlockFace::ALL.len() as u32;
 pub const SEASONAL_LEAF_DEEP_OFFSET: u32 = SEASONAL_LEAF_EXPOSED_OFFSET * 2;
 pub const SEASONAL_LEAF_MATERIAL_COUNT: u32 = SEASONAL_LEAF_DEEP_OFFSET * 2;
-/// SeasonsAgnosticLeaves uses the same cutout/deep group layout, without a
+/// Season-agnostic leaves use the same cutout/deep group layout, without a
 /// seasonal colour selector. Its carried face table is unchanged.
 pub const BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF: u32 = 1 << 27;
 pub const BLOCK_VISUAL_VARIANT_MATERIAL_MASK: u32 = crate::MAX_MATERIALS as u32 - 1;

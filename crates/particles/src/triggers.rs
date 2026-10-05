@@ -11,7 +11,7 @@ use super::{
 /// Level events at or above this bit carry a legacy particle type in the low bits.
 pub const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
 
-/// Default destruction count from vanilla BlockDestructionParticlesComponent.
+/// Vanilla's default block destruction particle count.
 pub const BLOCK_BREAK_PARTICLES: f32 = 100.0;
 /// One piece per vanilla hit-particle event.
 pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;

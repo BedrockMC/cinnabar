@@ -228,6 +228,11 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return cube_vertex(vertex_index, instance_index);
+}
+
+// `vertex_index / 4` selects the chunk origin and `instance_index` the packed quad.
+fn cube_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let quad = quads[instance_index];
     let geometry = quad.geometry;
     let local_origin = vec3<f32>(
@@ -410,15 +415,31 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     let uv_dx = dpdx(in.uv);
     let uv_dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
+    let sampled = sample_cube_texture(in, uv_dx, uv_dy);
+    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
+        discard;
+    }
+    return shade_cube(in, sampled);
+}
+
+// Single-sided opaque runs: back-face culling and the mesher's material partition
+// stand in for both discards, keeping early depth and hidden-surface removal.
+@fragment
+fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade_cube(in, sample_cube_texture(in, dpdx(in.uv), dpdy(in.uv)));
+}
+
+fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
     let current_sample = sample_material_texture_ref(in.current_texture, in.uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
     if (in.frame_blend > 0.0) {
         let next_sample = sample_material_texture_ref(in.next_texture, in.uv, uv_dx, uv_dy, in.material_flags);
         sampled = mix(current_sample, next_sample, in.frame_blend);
     }
-    if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < 0.5) {
-        discard;
-    }
+    return sampled;
+}
+
+fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
 #ifdef ENHANCED
     let colour = apply_material_tint(
         sampled,

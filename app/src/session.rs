@@ -260,6 +260,7 @@ pub(crate) struct SessionResources<'w> {
     interaction: ResMut<'w, InteractionOriginSnapshot>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
     actor_artwork: Option<Res<'w, render::ActorArtworkPages>>,
+    ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
 }
 
 impl SessionResources<'_> {
@@ -404,6 +405,7 @@ fn poll_join(
                 cache,
                 socket_dir,
                 session.actor_artwork.as_deref(),
+                session.ui_catalog.as_deref(),
             ) {
                 if owned_core {
                     let directory = controller.directory.take();
@@ -429,6 +431,7 @@ fn start_network(
     cache: &BlobCache,
     socket_dir: PathBuf,
     actor_artwork: Option<&render::ActorArtworkPages>,
+    ui_catalog: Option<&crate::runtime::network::PackUiCatalog>,
 ) -> Result<(), String> {
     let replacement = crate::runtime::network::spawn_network(NetworkConfig {
         session_generation,
@@ -437,6 +440,7 @@ fn start_network(
         client_blob_cache: cache.cache(),
         player_skin: menu.player_skin().clone(),
         actor_artwork: actor_artwork.cloned(),
+        ui_catalog: ui_catalog.map(|base| base.0.clone()),
     })
     .map_err(|error| error.to_string())?;
     commands.insert_resource(replacement.movement_ticker());

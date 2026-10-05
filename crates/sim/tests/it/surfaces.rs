@@ -208,7 +208,7 @@ fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
     assert!(grounded.velocity.y <= 0.0);
 }
 
-/// Current BedBlock restitution is 0.75, without a one-block velocity cap.
+/// Vanilla bed restitution is 0.75, without a one-block velocity cap.
 #[test]
 fn bed_restitution_is_uncapped() {
     let mut state = PlayerState::new(Vec3::new(0.0, 1.2, 0.0));

@@ -432,7 +432,7 @@ impl PlayerInventoryLedger {
             .negotiated_item_entry(item.stack.network_id)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let full = entry_capacity(entry).ok_or(InventoryGestureError::InvalidRequest)?;
-        // Native _makeCreateItemScopeCreative
+        // Vanilla's creative create-item scope
         // declares the selected prototype before creating the full transfer.
         let result = CraftResult {
             identifier: Arc::clone(&entry.identifier),

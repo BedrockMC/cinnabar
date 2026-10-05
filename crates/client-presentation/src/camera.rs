@@ -454,7 +454,7 @@ pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
 
 /// Converts Bedrock's full-viewport FOV setting to Bevy's vertical radians.
 ///
-/// Native `getNormalizedViewportSize` measures viewport fractions of the full
+/// Vanilla measures viewport fractions of the full
 /// screen, not its pixel aspect. A full-window camera therefore keeps the
 /// configured vertical angle; the projection matrix applies width/height.
 #[must_use]
