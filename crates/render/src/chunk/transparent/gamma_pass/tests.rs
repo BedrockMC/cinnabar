@@ -2,11 +2,11 @@ use super::*;
 
 #[test]
 fn gamma_target_admission_is_narrow() {
-    assert!(target::admitted(false, Msaa::Off, false));
-    assert!(!target::admitted(true, Msaa::Off, false));
-    assert!(!target::admitted(false, Msaa::Sample4, false));
+    assert!(admitted(false, Msaa::Off, false));
+    assert!(!admitted(true, Msaa::Off, false));
+    assert!(!admitted(false, Msaa::Sample4, false));
     assert_eq!(
-        target::admitted(false, Msaa::Off, true),
+        admitted(false, Msaa::Off, true),
         !render_model::ENHANCED_RENDERING_ENABLED
     );
 }

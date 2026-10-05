@@ -366,11 +366,11 @@ impl ActorSnapshot {
     }
 
     /// The server-set render scale (metadata `Scale`), multiplying the model's own scale; an
-    /// absent, non-finite or non-positive value reads 1.
+    /// absent, non-finite or negative value reads 1. Zero hides the body while retaining its actor.
     #[must_use]
     pub fn render_scale(&self) -> f32 {
         match self.metadata.get(&SCALE_METADATA_KEY) {
-            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale > 0.0 => *scale,
+            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }
     }

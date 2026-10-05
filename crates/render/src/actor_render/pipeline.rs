@@ -3,11 +3,11 @@ use super::*;
 pub(super) struct ActorPipelineSpecializer;
 
 #[derive(Resource)]
-pub(super) struct ActorPipeline {
+pub(crate) struct ActorPipeline {
     pub(super) variants: Variants<RenderPipeline, ActorPipelineSpecializer>,
     pub(super) bind_group_layout: BindGroupLayoutDescriptor,
     draw_variants: std::collections::HashMap<
-        (Msaa, bool, u32),
+        ActorPipelineContract,
         bevy::render::render_resource::CachedRenderPipelineId,
     >,
 }
@@ -25,43 +25,108 @@ impl FromWorld for ActorPipeline {
 }
 
 impl ActorPipeline {
-    pub(super) fn prepare_draw_variants(
+    pub(super) fn prewarm(
         &mut self,
         cache: &PipelineCache,
         msaa: Msaa,
         hdr: bool,
-        materials: impl Iterator<Item = u32>,
+        enhanced: bool,
     ) -> Option<bevy::render::render_resource::CachedRenderPipelineId> {
-        for material in
-            std::iter::once(assets::EntityRenderMaterial::Default as u32).chain(materials)
-        {
-            if self.draw_variants.contains_key(&(msaa, hdr, material)) {
+        for material in prewarm_materials() {
+            let key = ActorPipelineKey {
+                msaa,
+                hdr,
+                enhanced,
+                material,
+            };
+            let contract = key.contract();
+            if self.draw_variants.contains_key(&contract) {
                 continue;
             }
-            let id = self
-                .variants
-                .specialize(
-                    cache,
-                    ActorPipelineKey {
-                        msaa,
-                        hdr,
-                        material,
-                    },
-                )
-                .ok()?;
-            self.draw_variants.insert((msaa, hdr, material), id);
+            let id = self.variants.specialize(cache, key).ok()?;
+            self.draw_variants.insert(contract, id);
         }
-        self.draw_variants.get(&(msaa, hdr, 0)).copied()
+        self.draw_variant(
+            msaa,
+            hdr,
+            enhanced,
+            assets::EntityRenderMaterial::Default as u32,
+        )
     }
 
     pub(super) fn draw_variant(
         &self,
         msaa: Msaa,
         hdr: bool,
+        enhanced: bool,
         material: u32,
     ) -> Option<bevy::render::render_resource::CachedRenderPipelineId> {
-        self.draw_variants.get(&(msaa, hdr, material)).copied()
+        self.draw_variants
+            .get(
+                &ActorPipelineKey {
+                    msaa,
+                    hdr,
+                    enhanced,
+                    material,
+                }
+                .contract(),
+            )
+            .copied()
     }
+
+    pub(super) fn ready(
+        &self,
+        cache: &PipelineCache,
+        msaa: Msaa,
+        hdr: bool,
+        enhanced: bool,
+    ) -> bool {
+        prewarm_materials().all(|material| {
+            self.draw_variant(msaa, hdr, enhanced, material)
+                .is_some_and(|id| cache.get_render_pipeline(id).is_some())
+        })
+    }
+}
+
+fn prewarm_materials() -> impl Iterator<Item = u32> {
+    [
+        assets::EntityRenderMaterial::Default,
+        assets::EntityRenderMaterial::DissolveDepth,
+        assets::EntityRenderMaterial::DissolveColor,
+    ]
+    .into_iter()
+    .flat_map(|kind| {
+        [false, true].into_iter().flat_map(move |cull| {
+            [false, true].into_iter().flat_map(move |blend| {
+                [false, true].into_iter().map(move |depth_write| {
+                    kind.word(Some(assets::EntityRenderMaterialState {
+                        alpha_test: false,
+                        cull,
+                        blend,
+                        depth_write,
+                    }))
+                })
+            })
+        })
+    })
+}
+
+pub(super) fn prepare_actor_pipelines(
+    cache: Res<PipelineCache>,
+    mut pipeline: ResMut<ActorPipeline>,
+    readiness: Res<crate::ActorPipelineReadiness>,
+    views: Query<(&ExtractedView, &Msaa, Option<&crate::EnhancedRendering>)>,
+) {
+    let mut has_view = false;
+    let mut ready = true;
+    for (view, msaa, enhanced) in &views {
+        has_view = true;
+        ready &= pipeline
+            .prewarm(&cache, *msaa, view.hdr, enhanced.is_some())
+            .is_some()
+            && pipeline.ready(&cache, *msaa, view.hdr, enhanced.is_some());
+    }
+    readiness.publish(has_view && ready);
 }
 
 pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
@@ -192,11 +257,66 @@ pub(super) fn actor_pipeline_descriptor(
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ActorPipelineKey {
     pub(super) msaa: Msaa,
     pub(super) hdr: bool,
+    pub(super) enhanced: bool,
     pub(super) material: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ActorPipelineContract {
+    msaa: Msaa,
+    format: TextureFormat,
+    kind: assets::EntityRenderMaterial,
+    cull: bool,
+    blend: bool,
+    depth_write: bool,
+}
+
+impl ActorPipelineKey {
+    fn contract(self) -> ActorPipelineContract {
+        let state = crate::actor::material::state(self.material).unwrap_or(
+            assets::EntityRenderMaterialState {
+                alpha_test: false,
+                cull: false,
+                blend: false,
+                depth_write: true,
+            },
+        );
+        let kind = match self.material & assets::EntityRenderMaterialState::KIND_MASK {
+            value if value == assets::EntityRenderMaterial::DissolveDepth as u32 => {
+                assets::EntityRenderMaterial::DissolveDepth
+            }
+            value if value == assets::EntityRenderMaterial::DissolveColor as u32 => {
+                assets::EntityRenderMaterial::DissolveColor
+            }
+            _ => assets::EntityRenderMaterial::Default,
+        };
+        let format = if self.hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else if state.blend
+            && crate::chunk::transparent::gamma_pass::admitted(self.hdr, self.msaa, self.enhanced)
+        {
+            TextureFormat::bevy_default().remove_srgb_suffix()
+        } else {
+            TextureFormat::bevy_default()
+        };
+        ActorPipelineContract {
+            msaa: self.msaa,
+            format,
+            kind,
+            cull: state.cull,
+            blend: state.blend,
+            depth_write: state.depth_write,
+        }
+    }
+}
+
+impl SpecializerKey for ActorPipelineKey {
+    const IS_CANONICAL: bool = false;
+    type Canonical = ActorPipelineContract;
 }
 
 impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
@@ -207,7 +327,8 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         key: Self::Key,
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
-        descriptor.multisample.count = key.msaa.samples();
+        let contract = key.contract();
+        descriptor.multisample.count = contract.msaa.samples();
         if let Some(state) = crate::actor::material::state(key.material) {
             descriptor.primitive.cull_mode = state
                 .cull
@@ -241,14 +362,16 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Equal;
         }
-        descriptor.fragment.as_mut().unwrap().targets[0]
-            .as_mut()
-            .unwrap()
-            .format = if key.hdr {
-            ViewTarget::TEXTURE_FORMAT_HDR
-        } else {
-            TextureFormat::bevy_default()
-        };
-        Ok(key)
+        let fragment = descriptor.fragment.as_mut().unwrap();
+        fragment.targets[0].as_mut().unwrap().format = contract.format;
+        if contract.blend
+            && crate::chunk::transparent::gamma_pass::admitted(key.hdr, key.msaa, key.enhanced)
+        {
+            fragment.shader_defs.push(bevy::shader::ShaderDefVal::Bool(
+                "ACTOR_GAMMA_BLEND".into(),
+                true,
+            ));
+        }
+        Ok(contract)
     }
 }

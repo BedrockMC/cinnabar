@@ -30,6 +30,7 @@ type PublishExtras<'w> = (
     Res<'w, render::HandRigScene>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
+    Option<Res<'w, render::ActorPipelineReadiness>>,
     (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
@@ -67,6 +68,7 @@ pub(crate) fn prepare_ui_runtime(
         hand_rig,
         collisions,
         profiler,
+        actor_pipelines,
         (
             actor_partial,
             local_frame,
@@ -125,6 +127,9 @@ pub(crate) fn prepare_ui_runtime(
             cohort: frame_poll.cohort,
             render_work_drained: render_queue.retained_len() == 0
                 && upload_acknowledgements.is_empty(),
+            actor_pipelines_ready: actor_pipelines
+                .as_ref()
+                .is_none_or(|ready| ready.is_ready()),
             now: time.elapsed(),
         },
     );

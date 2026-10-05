@@ -62,6 +62,7 @@ fn dragon_dissolve_depth_and_color_passes_keep_their_distinct_depth_contracts() 
                 ActorPipelineKey {
                     msaa: Msaa::Off,
                     hdr: false,
+                    enhanced: false,
                     material: material as u32,
                 },
                 &mut descriptor,
@@ -105,6 +106,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
                 ActorPipelineKey {
                     msaa: Msaa::Off,
                     hdr: false,
+                    enhanced: false,
                     material: material.gpu_word(),
                 },
                 &mut descriptor,
@@ -376,6 +378,7 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
                 material: 0,
                 msaa: Msaa::Sample4,
                 hdr: true,
+                enhanced: false,
             },
             &mut descriptor,
         )

@@ -33,6 +33,7 @@ fn actor_material_black_plate_blends_encoded_destination_channels() {
             ActorPipelineKey {
                 msaa: Msaa::Off,
                 hdr: false,
+                enhanced: false,
                 material: material.gpu_word(),
             },
             &mut descriptor,
