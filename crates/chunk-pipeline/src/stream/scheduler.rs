@@ -266,6 +266,14 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
                 break;
             }
             // Urgent records sit at the scan front; startup work follows them, then ordinary work.
+            // Superseded heads go first so a live urgent record behind them is still seen.
+            while self.scan.front().is_some_and(|&(key, revision)| {
+                self.pending
+                    .get(&key)
+                    .is_none_or(|pending| pending.revision() != revision)
+            }) {
+                self.scan.pop_front();
+            }
             let urgent_front = self.scan.front().is_some_and(|&(key, revision)| {
                 self.pending
                     .get(&key)
