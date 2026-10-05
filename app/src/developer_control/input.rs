@@ -105,9 +105,15 @@ pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, 
         .collect::<Vec<_>>();
     if plan.release_control {
         world.remove_resource::<DrivenInput>();
+        if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+            menu.set_transient_toggles(false);
+        }
         return Ok(json!({ "driven": false }));
     }
     world.init_resource::<DrivenInput>();
+    if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+        menu.set_transient_toggles(true);
+    }
     Ok(json!({ "driven": true, "held": held }))
 }
 
