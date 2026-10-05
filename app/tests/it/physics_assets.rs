@@ -22,7 +22,8 @@ fn make_client_acquires_and_builds_the_required_physics_registry() {
         "$(PHYSICS_REGISTRY_INSTALL)",
         "PHYSICS_REGISTRY_INSTALL = $(POWERSHELL)",
         "$(GO) -C tools/registrygen run ./cmd/hashcheck",
-        "$(PHYSICS_REGISTRY_CHECK) || ( $(PHYSICS_REGISTRY_INSTALL) && $(PHYSICS_REGISTRY_CHECK) )",
+        "\t$(PHYSICS_REGISTRY_CHECK)",
+        ".DELETE_ON_ERROR:",
     ] {
         assert!(
             makefile.contains(contract),

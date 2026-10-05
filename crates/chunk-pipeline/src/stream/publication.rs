@@ -249,6 +249,7 @@ impl WorldStream {
         self.stats.max_decode_queue_wait = Duration::ZERO;
         self.stats.max_light_queue_wait = Duration::ZERO;
         self.stats.max_mesh_queue_wait = Duration::ZERO;
+        self.stats.max_mesh_dispatch_wait = Duration::ZERO;
         self.stats.max_decode_duration = Duration::ZERO;
         self.stats.max_mesh_duration = Duration::ZERO;
         self.stats.max_light_duration = Duration::ZERO;

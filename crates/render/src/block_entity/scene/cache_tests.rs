@@ -497,7 +497,7 @@ fn review_render_atlas_snapshot_does_not_block_mob_installation() {
     let entities = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
     let catalog = assets::RuntimeActorCatalog::decode(
         &assets::encode_actor_catalog(&bytes, &[], &[]).unwrap(),
-        &bytes,
+        &entities,
     )
     .unwrap();
     let mut scene = scene();
