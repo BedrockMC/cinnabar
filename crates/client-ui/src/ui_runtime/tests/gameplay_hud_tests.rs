@@ -86,7 +86,7 @@ fn newly_resolved_hud_text_changes_layout_without_rewriting_retained_chat() {
         pixels_sha256: sha2::Sha256::digest(&pixels).into(),
         width: 16,
         height: 16,
-        rgba8: pixels,
+        pixels: assets::FontPixels::Rgba8(pixels),
     };
     let glyphs = ['A', '\u{fffd}'].map(|codepoint| assets::GlyphMetrics {
         codepoint,
