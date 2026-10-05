@@ -189,7 +189,7 @@ impl WorldStream {
         let foreign_resident = self
             .resident
             .iter()
-            .chain(&self.known_air)
+            .chain(self.known_air.iter())
             .copied()
             .filter(|key| {
                 let chunk = key.chunk();
@@ -219,16 +219,16 @@ impl WorldStream {
             foreign_resident,
             source_leftover,
             resident_count: self.resident.len(),
-            resident_hash: deterministic_sub_chunk_key_hash(&self.resident),
+            resident_hash: self.resident.deterministic_hash(),
             known_air_count: self.known_air.len(),
-            known_air_hash: deterministic_sub_chunk_key_hash(&self.known_air),
+            known_air_hash: self.known_air.deterministic_hash(),
         }
     }
     pub fn remesh_all_resident(&mut self, now: Instant) -> ForcedRemeshManifest {
         let keys = self
             .resident
             .iter()
-            .chain(&self.known_air)
+            .chain(self.known_air.iter())
             .copied()
             .collect::<BTreeSet<_>>();
         let entries = keys
@@ -277,7 +277,7 @@ impl WorldStream {
         let current_keys = self
             .resident
             .iter()
-            .chain(&self.known_air)
+            .chain(self.known_air.iter())
             .copied()
             .collect::<BTreeSet<_>>();
         let manifest_keys = manifest
