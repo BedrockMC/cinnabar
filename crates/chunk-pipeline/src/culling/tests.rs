@@ -409,12 +409,9 @@ fn visible_sets_compare_by_members() {
 #[ignore = "offline cave traversal timing fixture"]
 fn cave_visibility_bench() {
     use std::{hint::black_box, time::Instant};
-    fn median_p95(mut samples: Vec<u128>) -> (u128, u128) {
+    fn spread(mut samples: Vec<u128>) -> [f64; 3] {
         samples.sort_unstable();
-        (
-            samples[samples.len() / 2],
-            samples[samples.len() * 95 / 100],
-        )
+        [0, samples.len() / 2, samples.len() * 95 / 100].map(|index| samples[index] as f64 / 1e3)
     }
     for radius in [8, 12] {
         let map = fixture_world(radius, 0x5eed);
@@ -428,7 +425,7 @@ fn cave_visibility_bench() {
             let mut scratch = CaveVisibilityScratch::default();
             let mut visible = CaveVisibleSet::default();
             let (mut old, mut new) = (Vec::new(), Vec::new());
-            for _ in 0..201 {
+            for _ in 0..1001 {
                 let started = Instant::now();
                 oracle_fill(camera, &map, &mut oracle_scratch, &mut oracle_visible);
                 black_box(&oracle_visible);
@@ -439,16 +436,12 @@ fn cave_visibility_bench() {
                 new.push(started.elapsed().as_nanos());
             }
             assert_eq!(visible.iter().collect::<HashSet<_>>(), oracle_visible);
-            let (old, new) = (median_p95(old), median_p95(new));
+            let (old, new) = (spread(old), spread(new));
             println!(
-                "cave_visibility radius={radius} camera={label} nodes={} visible={} old_us={:.1}/{:.1} new_us={:.1}/{:.1} speedup={:.1}x",
+                "cave_visibility radius={radius} camera={label} nodes={} visible={} old_us(min/p50/p95)={old:.1?} new_us={new:.1?} speedup_p50={:.1}x",
                 map.len(),
                 visible.len(),
-                old.0 as f64 / 1e3,
-                old.1 as f64 / 1e3,
-                new.0 as f64 / 1e3,
-                new.1 as f64 / 1e3,
-                old.0 as f64 / new.0 as f64,
+                old[1] / new[1],
             );
         }
     }

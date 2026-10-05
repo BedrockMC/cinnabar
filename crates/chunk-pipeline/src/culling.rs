@@ -13,9 +13,9 @@ pub use visible_set::CaveVisibleSet;
 
 use grid::Slot;
 
-/// Entry marker for the camera node, whose exits are its own touched faces.
-const CAMERA_ENTRY: u8 = 6;
 const FACE_MASK: u64 = 0x3f;
+/// Per-node state: bits 0..6 are exits already explored, this bit marks the node reached.
+const REACHED: u8 = 1 << 6;
 
 /// Conservative face-connectivity BFS used before Bevy's per-entity frustum culling.
 #[must_use]
@@ -38,7 +38,7 @@ pub(crate) fn cave_visible_sub_chunks(
 pub struct CaveVisibilityScratch {
     visited: Vec<u8>,
     touched: Vec<u32>,
-    stack: Vec<(u32, u8)>,
+    stack: Vec<(u32, u8)>, // Node and the exits it still has to explore.
     overflow_ids: HashMap<SubChunkKey, u32>,
     overflow_nodes: Vec<(SubChunkKey, u64)>,
     overflow_visited: Vec<u8>,
@@ -46,9 +46,9 @@ pub struct CaveVisibilityScratch {
 
 impl CaveVisibilityScratch {
     /// Dense id for `key`: its grid cell, or a slot past the cells for an overflow key.
-    fn node(&mut self, grid: &ConnectivityGrid, key: SubChunkKey) -> Option<u32> {
+    fn node(&mut self, grid: &ConnectivityGrid, key: SubChunkKey) -> Option<(u32, u64)> {
         match grid.slot(key) {
-            Slot::Cell(index, _) => Some(index),
+            Slot::Cell(index, bits) => Some((index, bits)),
             Slot::Overflow(value) => {
                 let cells = grid.cell_count() as u32;
                 let next = cells + self.overflow_nodes.len() as u32;
@@ -57,7 +57,7 @@ impl CaveVisibilityScratch {
                     self.overflow_nodes.push((key, value.bits()));
                     self.overflow_visited.push(0);
                 }
-                Some(id)
+                Some((id, value.bits()))
             }
             Slot::Missing => None,
         }
@@ -72,21 +72,21 @@ impl CaveVisibilityScratch {
         }
     }
 
-    /// Records entry `bit`; true when this node and entry face were not yet visited.
-    fn mark(&mut self, cells: u32, node: u32, bit: u8) -> bool {
-        let mask = if node < cells {
+    /// Reaches `node` able to leave through `exits`, queueing whichever were not yet explored.
+    fn reach(&mut self, cells: u32, node: u32, exits: u64) {
+        let state = if node < cells {
             &mut self.visited[node as usize]
         } else {
             &mut self.overflow_visited[(node - cells) as usize]
         };
-        if *mask & bit != 0 {
-            return false;
-        }
-        if *mask == 0 {
+        if *state == 0 {
             self.touched.push(node);
         }
-        *mask |= bit;
-        true
+        let fresh = exits as u8 & !*state & FACE_MASK as u8;
+        *state |= REACHED | fresh;
+        if fresh != 0 {
+            self.stack.push((node, fresh));
+        }
     }
 }
 
@@ -106,36 +106,30 @@ pub(crate) fn fill_visible(
     scratch.overflow_nodes.clear();
     scratch.overflow_visited.clear();
     scratch.stack.clear();
-    let Some(camera_node) = scratch.node(grid, camera) else {
+    let Some((camera_node, camera_bits)) = scratch.node(grid, camera) else {
         for key in grid.keys() {
             visible.insert(key);
         }
         return;
     };
     let cells = grid.cell_count() as u32;
-    scratch.mark(cells, camera_node, 1 << CAMERA_ENTRY);
-    scratch.stack.push((camera_node, CAMERA_ENTRY));
-    // The reachable (node, entry face) states are order-independent, so a stack suffices.
-    while let Some((node, entry)) = scratch.stack.pop() {
-        let (key, bits) = scratch.describe(grid, node);
-        let mut exits = if entry == CAMERA_ENTRY {
-            touched_faces(bits)
-        } else {
-            (bits >> (u32::from(entry) * 6)) & FACE_MASK
-        };
+    scratch.reach(cells, camera_node, touched_faces(camera_bits));
+    // Leaving through an exit enters the neighbour by the opposite face whatever the entry
+    // was, so each (node, exit) needs exploring once; the reached set is order-independent.
+    while let Some((node, exits)) = scratch.stack.pop() {
+        let (key, _) = scratch.describe(grid, node);
+        let mut exits = u64::from(exits);
         while exits != 0 {
             let exit = Face::ALL[exits.trailing_zeros() as usize];
             exits &= exits - 1;
             let Some(next) = adjacent(key, exit) else {
                 continue;
             };
-            let Some(next_node) = scratch.node(grid, next) else {
+            let Some((next_node, next_bits)) = scratch.node(grid, next) else {
                 continue;
             };
-            let entered = opposite(exit) as u8;
-            if scratch.mark(cells, next_node, 1 << entered) {
-                scratch.stack.push((next_node, entered));
-            }
+            let entered = opposite(exit) as u64;
+            scratch.reach(cells, next_node, (next_bits >> (entered * 6)) & FACE_MASK);
         }
     }
     // Visibility is per sub-chunk entity, not per connected air region. Once
