@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -45,7 +46,9 @@ if url == base + '/latest':
 prefix = base + '/download/' + tag + '/'
 if not url.startswith(prefix):
     sys.exit(failed)
-asset = root / 'release' / url[len(prefix):]
+asset = root / 'release' / tag / url[len(prefix):]
+if not asset.is_file():
+    asset = root / 'release' / url[len(prefix):]
 if not asset.is_file() or asset.name == os.environ.get('FIXTURE_FAIL_ASSET'):
     sys.exit(failed)
 if tool == 'curl':
@@ -57,7 +60,22 @@ shutil.copyfile(asset, output)
 
 # Real tools the installer and fixtures may use; curl and wget are deliberately absent.
 SYSTEM_TOOLS = ("sh", "awk", "sed", "mktemp", "sha256sum", "shasum", "cp", "mv", "rm", "chmod",
-                "mkdir", "cat", "ln", "readlink", "dirname", "tr", "head", "env", "pwd")
+                "mkdir", "cat", "ln", "readlink", "dirname", "tr", "head", "env", "pwd", "sleep")
+
+# Holds the run given FIXTURE_PAUSE_DIR just before it repoints app/current.
+PAUSING_MV = '''
+import os
+from pathlib import Path
+import sys
+import time
+pause = os.environ.get('FIXTURE_PAUSE_DIR')
+if pause and sys.argv[-1].endswith('/cinnabar/app/current'):
+    Path(pause, 'paused').touch()
+    while not Path(pause, 'resume').exists():
+        time.sleep(0.05)
+real = os.environ['FIXTURE_REAL_MV']
+os.execv(real, [real] + sys.argv[1:])
+'''
 
 APPIMAGE = '''#!/bin/sh
 if [ "$1" = --appimage-extract ]; then
@@ -263,6 +281,88 @@ esac
             builds.append(f"{tag}-{self.digest()[:12]}")
         self.assertEqual(self.builds(), sorted(set(builds)))
         self.assertEqual((self.app / "previous").read_text(), builds[0] + "\n")
+
+    def tagged_release(self, tag):
+        image = self.release / tag / ASSET
+        image.parent.mkdir()
+        image.write_text(APPIMAGE + f"# {tag}\n")
+        digest = hashlib.sha256(image.read_bytes()).hexdigest()
+        (image.parent / CONFIG["checksums"]).write_text(f"{digest}  {ASSET}\n")
+        return f"{tag}-{digest[:12]}"
+
+    def wait_for(self, condition, what):
+        for _ in range(600):
+            if condition():
+                return
+            time.sleep(0.05)
+        self.fail(f"timed out waiting for {what}")
+
+    def overlapping_installs(self, flock):
+        """A paused run must not prune the build an overlapping run publishes, or vice versa."""
+        first = self.tagged_release("v1.2.3")
+        self.assertEqual(self.install("--version", "v1.2.3").returncode, 0)
+        paused, newest = self.tagged_release("v1.2.4"), self.tagged_release("v1.2.5")
+        self.add_tool("mv", f"#!{sys.executable}\n{PAUSING_MV}")
+        pause = self.root / "pause"
+        pause.mkdir()
+        env = dict(self.env, FIXTURE_REAL_MV=shutil.which("mv"))
+        logs = [self.root / "first.log", self.root / "second.log"]
+        outputs = [log.open("w") for log in logs]
+        runs = []
+        try:
+            runs.append(subprocess.Popen(
+                ["sh", str(self.script), "--version", "v1.2.4"], stdout=outputs[0],
+                stderr=subprocess.STDOUT,
+                env=dict(env, FIXTURE_TAG="v1.2.4", FIXTURE_PAUSE_DIR=str(pause))))
+            self.wait_for(lambda: (pause / "paused").exists() or runs[0].poll() is not None,
+                          "the first install to publish")
+            self.assertTrue((pause / "paused").exists(), logs[0].read_text())
+            runs.append(subprocess.Popen(
+                ["sh", str(self.script), "--version", "v1.2.5"], stdout=outputs[1],
+                stderr=subprocess.STDOUT, env=dict(env, FIXTURE_TAG="v1.2.5")))
+            if flock:
+                time.sleep(2)  # flock waits silently
+            else:
+                self.wait_for(lambda: runs[1].poll() is not None
+                              or "Waiting" in logs[1].read_text(),
+                              "the second install to reach the lock")
+        finally:
+            (pause / "resume").touch()
+            for run in runs:
+                run.wait(timeout=60)
+            for output in outputs:
+                output.close()
+        for run, log in zip(runs, logs):
+            self.assertEqual(run.returncode, 0, log.read_text())
+        self.assertEqual((self.app / "current").read_text(), newest + "\n")
+        self.assertEqual((self.app / "previous").read_text(), paused + "\n")
+        self.assertEqual(self.builds(), sorted([paused, newest]))
+        self.assertNotIn(first, self.builds())
+        self.assertEqual(self.launch().returncode, 0)
+        self.assertFalse((self.app / ".lock.pid").is_symlink())
+        self.assertEqual((self.app / ".lock").exists(), flock)
+
+    def test_overlapping_installs_serialize_without_flock(self):
+        self.overlapping_installs(flock=False)
+
+    def test_overlapping_installs_serialize_with_flock(self):
+        flock = shutil.which("flock")
+        if flock:
+            (self.system / "flock").symlink_to(flock)
+        else:
+            # Same semantics as util-linux `flock FD`: the lock follows the inherited descriptor.
+            self.add_tool("flock", f"#!{sys.executable}\nimport fcntl, sys\n"
+                                   "fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)\n")
+        self.overlapping_installs(flock=True)
+
+    def test_a_crashed_install_lock_is_reclaimed(self):
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        self.app.mkdir(parents=True)
+        (self.app / ".lock.pid").symlink_to(str(dead.pid))
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.app / ".lock.pid").is_symlink())
 
     def test_launcher_reports_an_incomplete_install(self):
         self.assertEqual(self.install().returncode, 0)
