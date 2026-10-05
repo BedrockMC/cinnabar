@@ -19,6 +19,8 @@ pub(in crate::compiler) fn is_selector_alias_cube_name(name: &str) -> bool {
     SELECTOR_ALIAS_CUBE_NAMES.binary_search(&name).is_ok()
 }
 
+/// The record's slot within its block (`explode_bit`, or `axis * 4 + deprecated`), taken
+/// from the typed state because sequential IDs vary by registry version.
 pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryRecord) -> Option<u32> {
     let state =
         serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
@@ -49,17 +51,12 @@ pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryReco
     {
         return None;
     }
-    let (stride, deprecated) = match record.name.as_ref() {
-        "minecraft:hay_block" | "minecraft:bone_block" => {
-            (4, exact_tagged_int(state.get("deprecated")?, 3)?)
-        }
-        "minecraft:quartz_block"
-        | "minecraft:smooth_quartz"
-        | "minecraft:chiseled_quartz_block"
-        | "minecraft:purpur_block" => (1, 0),
-        _ => return None,
+    let deprecated = if has_deprecated {
+        exact_tagged_int(state.get("deprecated")?, 3)?
+    } else {
+        0
     };
-    Some(axis_index * stride + deprecated)
+    Some(axis_index * 4 + deprecated)
 }
 
 pub(in crate::compiler) fn is_selector_alias_cube_record(record: &RegistryRecord) -> bool {
@@ -95,10 +92,8 @@ pub(in crate::compiler) fn selector_alias_cube_inventory_is_exact(
     selected.into_iter().all(|record| {
         is_selector_alias_cube_record(record)
             && ids.insert(record.sequential_id)
-            && states.insert((
-                record.name.as_ref(),
-                exact_selector_alias_cube_state(record),
-            ))
+            && exact_selector_alias_cube_state(record)
+                .is_some_and(|slot| states.insert((record.name.as_ref(), slot)))
     })
 }
 
