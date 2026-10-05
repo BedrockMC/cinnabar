@@ -35,46 +35,16 @@ pub struct ActorRigPresentation {
 #[derive(Debug)]
 pub struct ActorPresentationBatch {
     pub submissions: Vec<ActorRigSubmission>,
-    /// One standard-size RGBA8 layer per texture layer index.
+    /// One standard-size RGBA8 skin per frame-local texture layer index.
     pub skin_layers: Vec<SkinRgba8>,
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
-/// The packed skin payload, rebuilt only when the layer list changes so an
-/// unchanged frame neither copies nor compares the whole payload.
-#[derive(Debug, Default)]
-pub struct SkinLayerPack {
-    layers: Vec<SkinRgba8>,
-    packed: Arc<[u8]>,
-    rebuilds: u64,
-}
-
-impl SkinLayerPack {
-    pub fn pack(&mut self, layers: Vec<SkinRgba8>) -> Arc<[u8]> {
-        if layers != self.layers {
-            self.packed = layers
-                .iter()
-                .map(|layer| &**layer)
-                .collect::<Vec<_>>()
-                .concat()
-                .into();
-            self.rebuilds += 1;
-        }
-        self.layers = layers;
-        Arc::clone(&self.packed)
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub const fn rebuilds(&self) -> u64 {
-        self.rebuilds
-    }
-}
-
+/// Publishes `batch`; its frame-local skin indices become the scene's stable skin slots.
 pub fn update_actor_rig_scene<'a>(
     scene: &'a mut ActorRenderScene,
     partial_tick: f32,
     batch: ActorPresentationBatch,
-    skins: &mut SkinLayerPack,
 ) -> &'a ActorRenderFrame {
     // The app adapter has already applied the renderer's exact culling helper
     // to remotes before enforcing capacity. Passing no second cull view keeps
@@ -84,7 +54,7 @@ pub fn update_actor_rig_scene<'a>(
         partial_tick,
         None,
         batch.submissions,
-        skins.pack(batch.skin_layers),
+        &batch.skin_layers,
         &batch.artwork,
     )
 }

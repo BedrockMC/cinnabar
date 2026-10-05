@@ -84,11 +84,11 @@ pub use actor::{
     ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame, ActorRenderIdentity,
     ActorRenderInstance, ActorRenderScene, ActorRenderSource, ActorRigFrameBuilder,
     ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, ActorRuntimeWitness, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
-    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
-    MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
-    pack_overlay_rgba8,
+    ActorRigSubmission, ActorRuntimeWitness, ActorSkinResidency, ActorTexturePage, EquipmentRaster,
+    IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
+    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
+    MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES, ResidentSkin, actor_bounds_are_visible,
+    actor_rig_submission_is_visible, pack_actor_light, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
