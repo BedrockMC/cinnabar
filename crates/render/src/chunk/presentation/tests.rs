@@ -1110,4 +1110,11 @@ fn explicit_present_mode_evidence_comes_from_surface_capabilities() {
         resolve_surface_present_mode(WindowPresentMode::Fifo, &[WgpuPresentMode::Fifo]),
         Some(WgpuPresentMode::Fifo)
     );
+    assert_eq!(
+        resolve_surface_present_mode(
+            WindowPresentMode::AutoNoVsync,
+            &[WgpuPresentMode::Fifo, WgpuPresentMode::Mailbox],
+        ),
+        Some(WgpuPresentMode::Mailbox)
+    );
 }

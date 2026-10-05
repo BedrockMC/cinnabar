@@ -1,3 +1,14 @@
+## GPU terrain culling with Hi-Z occlusion
+
+- On Vulkan/DX12 with native multi-draw-indirect-count, opaque terrain (solid runs, cutout,
+  models, depth-writing liquid) is culled by a compute pass over persistent per-slot records:
+  frustum, cave visibility, facing runs and a two-phase depth-pyramid test, drawn from
+  compacted slot-ordered args. Metal, GL and probe frames keep the CPU path.
+- Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
+  against rendered ids, and the CPU path's pixels from a stale history.
+- Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
+  as is a GPU pass-time measurement once per-pass timestamps land.
+
 ## Menu frame passes and retained memory
 
 - The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.
@@ -55,6 +66,16 @@
 - Forward movement requests normal sprint; sneak, hunger and other restrictions still apply.
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
+
+## VSync video toggle
+
+- User-requested deviation: retail vanilla has no VSync menu control (it persists `gfx_vsync`,
+  default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
+- Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
+  on, persisted with the settings registry and applied live.
+- On keeps the automatic present-mode policy and its DX12 remedy; off requests AutoNoVsync
+  (Immediate, else Mailbox). `--vsync`, `--no-vsync` and evidence runs pin the session and show
+  the toggle locked to that state. Incomplete: rendered Video-screen acceptance pending.
 
 ## Unfilled sub-chunk slots light as air
 

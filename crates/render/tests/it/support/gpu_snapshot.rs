@@ -16,6 +16,7 @@ pub const SNAPSHOT_SIDE: u32 = 256;
 pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    pub backend: wgpu::Backend,
 }
 
 pub struct Draw<'a> {
@@ -73,6 +74,11 @@ impl Gpu {
 
     /// Skips absent hardware while preserving adapter, device and rendering errors.
     pub fn for_fixture(name: &str) -> Option<Self> {
+        Self::for_fixture_with(name, wgpu::Features::empty())
+    }
+
+    /// As [`Self::for_fixture`], enabling whichever of `features` the adapter offers.
+    pub fn for_fixture_with(name: &str, features: wgpu::Features) -> Option<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let adapter = fixture_adapter(
             name,
@@ -82,9 +88,18 @@ impl Gpu {
             eprintln!("skipping {name}: missing native GPU adapter fixture (Noop adapter)");
             return None;
         }
-        let (device, queue) = finish(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+        let descriptor = wgpu::DeviceDescriptor {
+            required_features: adapter.features() & features,
+            ..Default::default()
+        };
+        let (device, queue) = finish(adapter.request_device(&descriptor))
             .unwrap_or_else(|error| panic!("{name}: GPU fixture device creation failed: {error}"));
-        Some(Self { device, queue })
+        let backend = adapter.get_info().backend;
+        Some(Self {
+            device,
+            queue,
+            backend,
+        })
     }
 
     /// Uploads raw storage words, such as packed quads, for a fixture.
