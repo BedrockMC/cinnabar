@@ -12,6 +12,7 @@ enhanced = []
 
 [dependencies]
 mod-api = { path = "../mod-api" }
+mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
 bevy.workspace = true
 bytemuck = { version = "1", features = ["derive"] }

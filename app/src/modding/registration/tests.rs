@@ -30,7 +30,7 @@ fn registration(directory: &Scratch, request_id: &str) -> Registration {
         enabled: true,
         component: directory.0.join("selected.component.wat"),
         font: None,
-        grants: Grants {
+        grants: ModGrants {
             controls: true,
             ..Default::default()
         },
@@ -49,11 +49,11 @@ fn write_registration(directory: &Scratch, registration: &Registration) {
 
 #[test]
 fn packet_delay_grant_is_opt_in_and_survives_registration_decode() {
-    let old: Grants = serde_json::from_str(r#"{"controls":true}"#).unwrap();
-    assert!(!ModGrants::from(&old).packet_delay);
-    let selected: Grants =
+    let old: ModGrants = serde_json::from_str(r#"{"controls":true}"#).unwrap();
+    assert!(!old.packet_delay);
+    let selected: ModGrants =
         serde_json::from_str(r#"{"controls":true,"packet_delay":true}"#).unwrap();
-    assert!(ModGrants::from(&selected).packet_delay);
+    assert!(selected.packet_delay);
 }
 
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
@@ -97,6 +97,24 @@ fn candidate(directory: &Scratch, enabled: bool, text: &str) -> Box<Candidate> {
     Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap())
 }
 
+fn rendered_output() -> mod_host::mod_render::RenderOutput {
+    use mod_host::mod_render::{Billboard, BillboardPattern, Primitives, RenderOutput};
+    RenderOutput {
+        passes: Vec::new(),
+        primitives: Arc::new(Primitives {
+            billboards: vec![Billboard {
+                position: [0.0; 3],
+                width: 1.0,
+                height: 1.0,
+                color: [1.0; 4],
+                pattern: BillboardPattern::Spark,
+                upright: false,
+            }],
+            ..Default::default()
+        }),
+    }
+}
+
 fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
     let (_, updates) = bounded(1);
     let (messages, receive_messages) = bounded(8);
@@ -126,12 +144,12 @@ fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
 fn registration_is_bounded_absolute_and_optional_grants_default_denied() {
     let directory = Scratch::new();
     let mut registration = registration(&directory, "first");
-    registration.grants = Grants::default();
+    registration.grants = ModGrants::default();
     write_registration(&directory, &registration);
     let observed = observe(&directory.0.join(REGISTRATION_FILE));
     let registration = observed.result.unwrap().unwrap();
     assert_eq!(observed.request_id.as_deref(), Some("first"));
-    let grants = ModGrants::from(&registration.grants);
+    let grants = registration.grants;
     assert!(
         !grants.players
             && !grants.camera
@@ -344,6 +362,9 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_mod_panel_open(true);
+        let mut scene = render::ModRenderScene::default();
+        scene.apply(&rendered_output(), 7);
+        world.insert_resource(scene);
         world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
             name: "stale".into(),
             values: Vec::new(),
@@ -356,6 +377,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
                 result,
             },
         );
+        assert_eq!(world.resource::<render::ModRenderScene>().vertex_count(), 0);
         assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());

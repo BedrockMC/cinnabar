@@ -141,6 +141,74 @@ pub(super) fn publish_packet_delay(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mod_host::ModGrants;
+
+    /// A component whose `init` requests `delay` milliseconds of packet delay.
+    fn delaying(directory: &std::path::Path, index: usize, delay: u32) -> PathBuf {
+        let package = include_str!("../../../crates/mod-api/wit/extension.wit")
+            .lines()
+            .next()
+            .unwrap()
+            .trim_start_matches("package ")
+            .trim_end_matches(';');
+        let (name, version) = package.split_once('@').unwrap();
+        let source = format!(
+            r#"(component
+  (import "{name}/gameplay@{version}" (instance $gameplay
+    (export "set-packet-delay" (func (param "delay-ms" u32) (result (result (error string)))))))
+  (alias export $gameplay "set-packet-delay" (func $packet-delay))
+  (core module $memory-module
+    (memory (export "memory") 1)
+    (global $next (mut i32) (i32.const 4096))
+    (func (export "realloc") (param i32 i32 i32 i32) (result i32)
+      (local $old i32)
+      global.get $next local.tee $old
+      local.get 3 i32.add global.set $next local.get $old))
+  (core instance $mem (instantiate $memory-module))
+  (alias core export $mem "memory" (core memory $memory))
+  (alias core export $mem "realloc" (core func $realloc))
+  (core func $lower-delay (canon lower (func $packet-delay) (memory $memory) (realloc $realloc)))
+  (core module $code
+    (import "host" "delay" (func $delay (param i32 i32)))
+    (func (export "init") i32.const {delay} i32.const 256 call $delay)
+    (func (export "frame")))
+  (core instance $host (export "delay" (func $lower-delay)))
+  (core instance $run (instantiate $code (with "host" (instance $host))))
+  (func (export "init") (canon lift (core func $run "init")))
+  (func (export "frame") (canon lift (core func $run "frame"))))"#
+        );
+        let path = directory.join(format!("delay-{index}.wat"));
+        std::fs::write(&path, source).unwrap();
+        path
+    }
+
+    #[test]
+    fn the_earliest_granted_non_zero_packet_delay_wins_across_loaded_mods() {
+        let directory = tempfile::tempdir().unwrap();
+        let granted = ModGrants {
+            packet_delay: true,
+            ..Default::default()
+        };
+        let mods = [(0, true), (300, false), (200, true), (500, true)]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (delay, grant))| {
+                let grants = if grant {
+                    granted.clone()
+                } else {
+                    ModGrants::default()
+                };
+                (delaying(directory.path(), index, delay), grants)
+            })
+            .collect();
+        let mut app = App::new();
+        super::super::configure_set(&mut app, mods);
+        let mut runtime = app.world_mut().resource_mut::<ModRuntime>();
+        assert_eq!(runtime.host_count(), 4);
+        assert_eq!(requested(Some(&runtime)), 200);
+        runtime.suspended = true;
+        assert_eq!(requested(Some(&runtime)), 0);
+    }
 
     #[test]
     fn coalesced_disable_cannot_be_lost_behind_a_full_wake_queue() {
