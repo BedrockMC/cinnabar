@@ -65,6 +65,10 @@ pub(super) fn descriptor_for(
             }
         };
     }
+    if record.name.as_ref() == "minecraft:leaf_litter" {
+        // Grayscale art; the biome dry-foliage colour applies on every geometry route.
+        flags |= MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_DRY_FOLIAGE;
+    }
     Some((
         Descriptor {
             state_variant,
