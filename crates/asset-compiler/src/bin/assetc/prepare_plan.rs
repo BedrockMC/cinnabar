@@ -185,7 +185,10 @@ fn select(scope: &Scope) -> Result<Vec<&'static Carrier>, Box<dyn Error>> {
     for name in scope.only {
         let carrier = carriers::by_name(name).ok_or_else(|| {
             let names: Vec<_> = CARRIERS.iter().map(|carrier| carrier.name).collect();
-            format!("unknown carrier '{name}'; expected one of {}", names.join(", "))
+            format!(
+                "unknown carrier '{name}'; expected one of {}",
+                names.join(", ")
+            )
         })?;
         wanted.push(carrier.recipe);
     }

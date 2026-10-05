@@ -127,7 +127,10 @@ pub const ENTITY: Carrier = carrier(
     true,
 );
 pub const FONT: Carrier = Carrier {
-    inputs: &[Input::Manifest(FONT_MANIFEST), Input::FontFile(FONT_MANIFEST)],
+    inputs: &[
+        Input::Manifest(FONT_MANIFEST),
+        Input::FontFile(FONT_MANIFEST),
+    ],
     ..carrier(
         "font",
         "Compiling Cinnangles Sans",
@@ -364,8 +367,11 @@ impl Sources {
 /// The bundled compiler inside a preparation kit.
 #[must_use]
 pub fn kit_compiler(kit: &Path) -> PathBuf {
-    kit.join("bin")
-        .join(if cfg!(windows) { "assetc.exe" } else { "assetc" })
+    kit.join("bin").join(if cfg!(windows) {
+        "assetc.exe"
+    } else {
+        "assetc"
+    })
 }
 
 #[cfg(test)]

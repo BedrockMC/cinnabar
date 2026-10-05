@@ -161,8 +161,14 @@ impl Compiler<'_> {
             .stderr(Stdio::piped());
         fs::create_dir_all(&self.workspace)?;
         let mut child = command.spawn().context("start the asset compiler")?;
-        let stdout = child.stdout.take().context("capture asset compiler output")?;
-        let stderr = child.stderr.take().context("capture asset compiler errors")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("capture asset compiler output")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("capture asset compiler errors")?;
         let (lines, received) = mpsc::channel();
         let out_log = self.log_writer()?;
         let out = std::thread::spawn(move || {
@@ -207,7 +213,11 @@ impl Compiler<'_> {
 
 /// Copies `output` into `log` line by line, hands each line to `each`, and returns the last
 /// non-blank one.
-fn copy_lines(output: impl Read, mut log: impl Write, mut each: impl FnMut(&str)) -> Option<String> {
+fn copy_lines(
+    output: impl Read,
+    mut log: impl Write,
+    mut each: impl FnMut(&str),
+) -> Option<String> {
     let mut last = None;
     for line in BufReader::new(output).split(b'\n') {
         let Ok(line) = line else {
@@ -395,7 +405,10 @@ mod tests {
         let message = format!("{:#}", compiler.run(&args, |_| {}).unwrap_err());
         assert!(message.starts_with("missing texture atlas ("), "{message}");
         let log = fs::read_to_string(dir.path().join("log")).unwrap();
-        assert!(log.contains("progress") && log.contains("warning: slow"), "{log}");
+        assert!(
+            log.contains("progress") && log.contains("warning: slow"),
+            "{log}"
+        );
     }
 
     #[cfg(unix)]
@@ -406,7 +419,9 @@ mod tests {
         let compiler = shell_compiler(dir.path(), &cancel);
         let failed = r#"{"event":"failed","name":"hud","label":"Compiling HUD sprites","required":true,"error":"missing atlas"}"#;
         let optional = r#"{"event":"failed","name":"weather","label":"Compiling weather textures","required":false,"error":"no rain"}"#;
-        let args = script(&format!("echo '{optional}'; echo '{failed}'; echo boom >&2; exit 1"));
+        let args = script(&format!(
+            "echo '{optional}'; echo '{failed}'; echo boom >&2; exit 1"
+        ));
         let mut seen = Vec::new();
         let error = compiler
             .prepare_with(&args, |event| seen.push(event.clone()))
@@ -417,9 +432,10 @@ mod tests {
 
     #[test]
     fn progress_lines_decode_into_events() {
-        let start: Event =
-            serde_json::from_str(r#"{"event":"start","name":"world","label":"Compiling world assets"}"#)
-                .unwrap();
+        let start: Event = serde_json::from_str(
+            r#"{"event":"start","name":"world","label":"Compiling world assets"}"#,
+        )
+        .unwrap();
         assert_eq!(
             start,
             Event::Start {

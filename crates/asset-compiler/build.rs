@@ -70,8 +70,10 @@ fn collect_files(root: &Path, dir: &Path, files: &mut BTreeSet<PathBuf>) {
         let path = entry.path();
         let name = entry.file_name();
         if path.is_dir() {
-            let top_level_skip =
-                dir == root && SKIPPED_DIRS.iter().any(|skip| name == std::ffi::OsStr::new(skip));
+            let top_level_skip = dir == root
+                && SKIPPED_DIRS
+                    .iter()
+                    .any(|skip| name == std::ffi::OsStr::new(skip));
             if !top_level_skip {
                 collect_files(root, &path, files);
             }

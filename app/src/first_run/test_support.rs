@@ -40,7 +40,8 @@ pub(super) fn write_vanilla_manifest(root: &Path, url: &str, sha256: &str, archi
         "artifact_policy": "local-only",
         "cache_dir": ".local/assets/bedrock-samples/test/full",
     });
-    let path = assets::carriers::Sources::Kit(root.into()).resolve(assets::carriers::VANILLA_MANIFEST);
+    let path =
+        assets::carriers::Sources::Kit(root.into()).resolve(assets::carriers::VANILLA_MANIFEST);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, manifest.to_string()).unwrap();
 }

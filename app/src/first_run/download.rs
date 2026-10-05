@@ -89,7 +89,9 @@ pub(super) fn unpack(kit: &Path, workspace: &Path, cancel: &AtomicBool) -> Resul
 
 /// Deletes every download except the current pin's verified archive.
 pub(super) fn prune(kit: &Path, workspace: &Path) {
-    let keep = pack_paths(kit, workspace).ok().map(|(source, _)| source.archive);
+    let keep = pack_paths(kit, workspace)
+        .ok()
+        .map(|(source, _)| source.archive);
     let Ok(entries) = fs::read_dir(workspace.join(vanilla_pack::DOWNLOAD_DIR)) else {
         return;
     };

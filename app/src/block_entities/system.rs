@@ -27,7 +27,7 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
-pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
+pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = assets::carriers::BLOCK_ENTITY.output;
 /// Block entities farther than this from the eye are not drawn.
 const SCAN_RADIUS_BLOCKS: f32 = 64.0;
 const MAX_SUBMISSIONS: usize = 4_096;
