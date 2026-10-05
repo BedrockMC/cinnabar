@@ -17,6 +17,8 @@ pub struct OcclusionBasis {
     pub view_rotation: [f32; 9],
     /// Column-major `clip_from_view`; the near plane decides which occluders rasterise.
     pub clip_from_view: [f32; 16],
+    /// Origin and size inside the depth target; resizing changes which pixels the depth covers.
+    pub viewport: [u32; 4],
     pub depth_size: [u32; 2],
     /// Bumped whenever resident geometry may have uncovered something.
     pub world: u64,

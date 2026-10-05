@@ -235,6 +235,7 @@ fn basis_view(camera: &Camera, world: u64, size: [u32; 2]) -> OcclusionBasis {
         eye: camera.eye.to_array(),
         view_rotation: bevy::math::Mat3::from_mat4(world_from_view).to_cols_array(),
         clip_from_view: camera.clip_from_view.to_cols_array(),
+        viewport: [0, 0, size[0], size[1]],
         depth_size: size,
         world,
     }

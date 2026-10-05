@@ -3,7 +3,7 @@
 use super::app_tests::{
     KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin, render_plugin,
 };
-use super::direct::{DirectOcclusion, VerdictQueue, direct_occlusion_supported};
+use super::direct::{DirectOcclusion, VerdictQueue, direct_occlusion_supported, view_basis};
 use super::occlusion::{OcclusionBasis, OcclusionHistory, VerdictTag};
 use super::*;
 
@@ -14,6 +14,7 @@ fn view(eye: [f32; 3], world: u64) -> OcclusionBasis {
         eye,
         view_rotation: Mat3::IDENTITY.to_cols_array(),
         clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05).to_cols_array(),
+        viewport: [0, 0, 256, 256],
         depth_size: [256, 256],
         world,
     }
@@ -291,5 +292,81 @@ fn a_still_camera_skips_sub_chunks_behind_a_wall_on_a_native_device() {
     assert_eq!(
         still.solid_drawn, 0,
         "a settled view draws in the opaque pass: {still:?}"
+    );
+}
+
+/// A viewport that grows at the same aspect inside an unchanged target voids old verdicts.
+#[test]
+fn a_resized_viewport_voids_old_verdicts() {
+    let extracted = |viewport: UVec4| ExtractedView {
+        retained_view_entity: bevy::render::view::RetainedViewEntity::new(
+            Entity::PLACEHOLDER.into(),
+            None,
+            0,
+        ),
+        clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05),
+        world_from_view: GlobalTransform::from_translation(Vec3::from_array(EYE)),
+        clip_from_world: None,
+        hdr: false,
+        viewport,
+        color_grading: default(),
+        invert_culling: false,
+    };
+    let small = view_basis(&extracted(UVec4::new(0, 0, 960, 540)));
+    let large = view_basis(&extracted(UVec4::new(0, 0, 1920, 1080)));
+    let mut history = OcclusionHistory::default();
+    history.assign(0, 1);
+    for frame in 2..=3 {
+        history.apply(&tag(frame, small, 1), &words(&[0]));
+    }
+    assert!(history.skips(0, &small));
+    assert!(!history.skips(0, &large));
+}
+
+/// Removing many sub-chunks at once voids the verdicts once, not once per sub-chunk.
+#[test]
+fn a_bulk_removal_voids_verdicts_once_per_frame() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(WgpuFeatures::empty()),
+        Msaa::Sample4,
+        camera_transform(),
+    );
+    let keys = (0..8)
+        .map(|x| SubChunkKey::new(0, x, 0, 0))
+        .collect::<Vec<_>>();
+    insert_meshes(&mut app, &keys);
+    for _ in 0..4 {
+        frame(&mut app);
+    }
+    let entities = keys
+        .iter()
+        .map(|key| app.world().resource::<ChunkEntities>().0[key])
+        .collect::<Vec<_>>();
+    for entity in entities {
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<ChunkRenderInstance>();
+    }
+    let mut before = stats(&app).world_invalidations;
+    let mut total = 0;
+    for _ in 0..4 {
+        frame(&mut app);
+        let after = stats(&app).world_invalidations;
+        assert!(
+            after - before <= 1,
+            "{} invalidations in one frame",
+            after - before
+        );
+        total += after - before;
+        before = after;
+    }
+    assert!(total >= 1, "removals void the verdicts");
+    assert_eq!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<DirectOcclusion>()
+            .stats
+            .candidates,
+        0
     );
 }
