@@ -4,17 +4,16 @@ use super::input::field_editor;
 use super::*;
 
 impl MenuRuntime {
-    /// Creates a menu with the development install layout.
+    /// Creates a menu over the checkout's assets with private, empty user roots, so parallel test
+    /// processes never share saved settings, servers or accounts.
     #[cfg(test)]
     pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
         let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
-        Self::new_with_layout(
-            visible,
-            Some(gui_scale),
-            display_name,
-            InstallLayout::discover().expect("test executable must have a development layout"),
-            player_skin,
-        )
+        let mut layout = crate::install_layout::checkout();
+        let user = crate::install_layout::scratch("menu");
+        layout.user_config_root = user.user_config_root;
+        layout.user_data_root = user.user_data_root;
+        Self::new_with_layout(visible, Some(gui_scale), display_name, layout, player_skin)
     }
 
     /// Loads launcher state and both settings authorities for this install.
@@ -174,5 +173,18 @@ mod tests {
             assert_eq!(actual.auth_state, initial.auth_state);
             assert_eq!(actual.catalog_loading, initial.catalog_loading);
         }
+    }
+
+    /// Parallel test processes must not see each other's saved settings.
+    #[test]
+    fn test_menus_never_share_saved_settings() {
+        let mut first = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let default = first.settings_options.value("field_of_view");
+        first.set_named_option("field_of_view", default + 1);
+        first.sync_user_settings(None);
+        assert!(!first.settings_dirty, "{:?}", first.message);
+
+        let second = MenuRuntime::new(true, 2, "Steve".to_owned());
+        assert_eq!(second.settings_options.value("field_of_view"), default);
     }
 }
