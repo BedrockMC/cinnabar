@@ -540,6 +540,21 @@ impl TransparentSortState {
         self.committed.as_ref()
     }
 
+    /// Refs already written to each GPU slot: the committed snapshot and any uploaded staged prefix.
+    pub(in crate::chunk) fn resident_refs(
+        &self,
+    ) -> impl Iterator<Item = (u8, &[PackedTransparentDrawRef])> {
+        let committed = self
+            .committed
+            .as_ref()
+            .map(|snapshot| (snapshot.buffer_slot, &snapshot.refs[..]));
+        let staged = self
+            .staged
+            .as_ref()
+            .map(|snapshot| (snapshot.buffer_slot, &snapshot.refs[..snapshot.uploaded]));
+        committed.into_iter().chain(staged)
+    }
+
     #[must_use]
     pub fn staged_ref_count(&self) -> usize {
         self.staged

@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
     ObfuscationGlyphs, SafeArea, TextEffects, TextLayout, TextLayoutCache, TextLayoutRequest,
@@ -22,7 +22,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 8,
         height: 8,
-        rgba8: rgba8.clone(),
+        pixels: FontPixels::Rgba8(rgba8.clone()),
     };
     let glyph = |codepoint: char, page: u16, u0: u16| GlyphMetrics {
         codepoint,

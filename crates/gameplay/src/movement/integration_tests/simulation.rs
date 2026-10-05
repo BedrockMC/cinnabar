@@ -36,7 +36,7 @@ fn run_one_tick(physics: &mut LocalPhysicsController, world: &VersionedFloor) ->
 
 #[test]
 fn pos_delta_is_end_of_tick_velocity() {
-    // Ground friction distinguishes StateVector motion from displacement.
+    // Ground friction distinguishes end-of-tick velocity from displacement.
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
     let t1 = run_one_tick(&mut physics, &VersionedFloor(1));

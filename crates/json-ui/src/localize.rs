@@ -1,4 +1,4 @@
-//! Label localization as the client's `Localization::_get` applies it: text
+//! Label localization as the vanilla client applies it: text
 //! without `%` is one whole key; otherwise each `%token` (ASCII letters,
 //! digits, `-`, `.`, `_`) is replaced by its translation or, when missing, by
 //! its own text, so an empty token drops its `%`. The character ending a token

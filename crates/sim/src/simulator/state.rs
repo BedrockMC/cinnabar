@@ -12,11 +12,11 @@ pub struct PlayerState {
     pub movement: Vec3,
     pub on_ground: bool,
     pub jump_delay: u8,
-    /// Native SwimAmountComponent blend retained across ticks and replay. Both
+    /// Vanilla swim-amount blend retained across ticks and replay. Both
     /// the swimming and crawling flags advance it before the jump system.
     #[serde(default)]
     pub swim_amount: f32,
-    /// Retained native swimming-or-crawling flag observed by SwimAmount before
+    /// Retained swimming-or-crawling flag observed by the swim-amount blend before
     /// this tick's local swim/pose trigger applies its new choice.
     #[serde(default)]
     pub swim_pose_active: bool,

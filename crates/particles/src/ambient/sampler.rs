@@ -26,8 +26,7 @@ pub struct Sampler {
 
 impl Default for Sampler {
     fn default() -> Self {
-        // Target-version LevelRendererPlayer constructor starts
-        // mode 2 at 100 samples with its previous camera position zeroed.
+        // The target version starts mode 2 at 100 samples with its previous camera position zeroed.
         Self {
             sample_count: MIN_SAMPLES,
             previous_position: [0.0; 3],

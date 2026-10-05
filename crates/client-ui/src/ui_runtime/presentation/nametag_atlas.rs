@@ -12,12 +12,30 @@ use ui::{
 /// Widest line laid out before it would wrap, in font texels.
 const MAX_LINE_TEXELS: u32 = NAMETAG_ATLAS_SIDE;
 
-/// RGBA8 texels of one UI texture page a glyph samples.
+/// Texels of one UI texture page a glyph samples.
 #[derive(Clone, Copy)]
 pub struct GlyphPage<'a> {
     pub width: u32,
     pub height: u32,
-    pub rgba8: &'a [u8],
+    pub pixels: GlyphPixels<'a>,
+}
+
+#[derive(Clone, Copy)]
+pub enum GlyphPixels<'a> {
+    Rgba8(&'a [u8]),
+    /// One alpha byte per texel of a white page.
+    Coverage(&'a [u8]),
+}
+
+impl GlyphPage<'_> {
+    fn texel(&self, index: usize) -> Option<[u8; 4]> {
+        match self.pixels {
+            GlyphPixels::Rgba8(bytes) => bytes
+                .get(index * 4..index * 4 + 4)
+                .map(|texel| [texel[0], texel[1], texel[2], texel[3]]),
+            GlyphPixels::Coverage(bytes) => bytes.get(index).map(|&alpha| [255, 255, 255, alpha]),
+        }
+    }
 }
 
 /// The font's own pages, which lead the UI texture pages.
@@ -25,7 +43,10 @@ pub fn font_page(font: &RuntimeFontCatalog, page: usize) -> Option<GlyphPage<'_>
     font.pages().get(page).map(|page| GlyphPage {
         width: page.width,
         height: page.height,
-        rgba8: &page.rgba8,
+        pixels: match &page.pixels {
+            assets::FontPixels::Rgba8(bytes) => GlyphPixels::Rgba8(bytes),
+            assets::FontPixels::Coverage(bytes) => GlyphPixels::Coverage(bytes),
+        },
     })
 }
 
@@ -202,8 +223,7 @@ fn rasterize<'p>(
                 if sx >= page.width || sy >= page.height {
                     continue;
                 }
-                let source = ((sy * page.width + sx) * 4) as usize;
-                let Some(texel) = page.rgba8.get(source..source + 4) else {
+                let Some(texel) = page.texel((sy * page.width + sx) as usize) else {
                     continue;
                 };
                 if texel[3] == 0 {

@@ -1,7 +1,7 @@
 // Full-screen camera overlays composited back to front in one pass.
 // Fire follows the native cube and admitted texture timeline. Other procedural
 // patterns remain provisional and need native measurement.
-// Portal: native FullScreenEffectRenderer unit cube and the active atlas flipbook.
+// Portal: vanilla's full-screen effect unit cube and the active atlas flipbook.
 
 struct Layer {
     // rgb tint, alpha

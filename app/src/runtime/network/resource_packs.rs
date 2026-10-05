@@ -11,6 +11,7 @@ use super::{
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
 mod ui;
+pub(super) mod ui_catalog;
 use ui::collect_server_ui;
 
 /// Everything the session applies from its server pack stack.
@@ -61,6 +62,13 @@ impl Default for PackApplication {
 }
 
 impl PackApplication {
+    /// Resolves initial pack UI on the session worker before its first frame can use it.
+    pub(super) fn prepare_ui_catalog(&mut self, base: Option<&Arc<json_ui::Catalog>>) {
+        if let Some((source, base)) = self.server_ui.as_ref().zip(base) {
+            self.server_ui = Some(ui_catalog::prepare(source, base));
+        }
+    }
+
     /// Prepares against the exact base snapshot that this application will publish over.
     pub(super) fn prepare_actor_artwork(&mut self, base: Option<&render::ActorArtworkPages>) {
         self.prepared_actor_artwork = base.zip(self.entities.as_ref()).map(|(base, pack)| {

@@ -292,7 +292,7 @@ impl FromWorld for CloudPipeline {
                 buffers: Vec::new(),
                 ..default()
             },
-            // Native cloud PassState cull1 translates to BGFX CULL_CW:
+            // Vanilla's cloud material culls clockwise faces:
             // preserve the outward counter-clockwise texel faces.
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
@@ -489,7 +489,10 @@ fn cloud_bounds_center(viewport: CloudViewport, scroll_blocks: f32) -> [f32; 3] 
     ]
 }
 
-type DrawCloudCommands = (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds);
+type DrawCloudCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuSky as usize },
+    (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds),
+>;
 
 struct SetCloudBindGroup<const I: usize>;
 
