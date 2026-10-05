@@ -148,7 +148,7 @@ jobs:
         with:
           # Full runs on dev save the Windows and macOS caches; ci-cache.yml saves Linux's.
           shared-key: ci
-          save-if: ${{ github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
+          save-if: true
           cache-on-failure: true
       - uses: taiki-e/install-action@v2
         with:
@@ -275,7 +275,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
-          save-if: false
+          save-if: true
+          cache-on-failure: true
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
