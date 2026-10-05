@@ -481,8 +481,14 @@ fn summary(application: &super::PackApplication) -> String {
     format!(
         "{:?}\n{:?}\n{icons:?}\n{glyphs:?}\n{entities:?}\n{:?}\n{}",
         application.dependencies,
-        application.server_lang.as_ref().and_then(|lang| lang.lookup("a")),
-        application.server_ui.as_ref().map(|ui| format!("{:?}", ui.ui_layers)),
+        application
+            .server_lang
+            .as_ref()
+            .and_then(|lang| lang.lookup("a")),
+        application
+            .server_ui
+            .as_ref()
+            .map(|ui| format!("{:?}", ui.ui_layers)),
         application.server_sounds.is_some(),
     )
 }
@@ -515,7 +521,12 @@ fn cancellation_mid_compile_skips_the_remaining_parts() {
         .build()
         .unwrap()
         .install(|| {
-            super::compile_application(every_subscriber(23), every_input(), None, &cancel_after_first)
+            super::compile_application(
+                every_subscriber(23),
+                every_input(),
+                None,
+                &cancel_after_first,
+            )
         });
     assert!(prepared.is_none());
     assert!(

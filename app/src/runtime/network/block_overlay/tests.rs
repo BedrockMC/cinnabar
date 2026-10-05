@@ -704,10 +704,8 @@ fn join_preparation_icons_carry_the_compiled_block_sheets() {
         block_items: vec![("test:lucky".into(), "test:lucky".into())],
         ..Default::default()
     });
-    let application = super::super::resource_packs::prepare_validated_application(
-        view().shared_stack(),
-        inputs,
-    );
+    let application =
+        super::super::resource_packs::prepare_validated_application(view().shared_stack(), inputs);
     assert!(application.block_overlay.is_some());
     let icons = application.item_icons.expect("block item icons");
     assert_eq!(icons.block_sheets.len(), 1);

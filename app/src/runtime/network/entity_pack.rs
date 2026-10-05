@@ -91,7 +91,8 @@ impl EntityCache {
         } else {
             let (pack, blob) = compile(view, inputs.vanilla.as_deref(), disk.is_some());
             if let (Some(disk), Some(key), Some(files)) = (disk, &key, view.dependencies()) {
-                if let Some(entry) = encode_entry(&files.snapshot(), pack.as_deref(), blob.as_deref())
+                if let Some(entry) =
+                    encode_entry(&files.snapshot(), pack.as_deref(), blob.as_deref())
                 {
                     disk.store(key, &entry);
                 }
@@ -119,7 +120,12 @@ fn disk_key(inputs: &EntityInputs) -> [u8; 32] {
     use sha2::Digest;
     let mut key = cache_key("entities");
     for (id, version, subpack, content) in &inputs.stack {
-        for bytes in [id.as_bytes(), version.as_bytes(), subpack.as_bytes(), content] {
+        for bytes in [
+            id.as_bytes(),
+            version.as_bytes(),
+            subpack.as_bytes(),
+            content,
+        ] {
             part(&mut key, bytes);
         }
     }
@@ -135,7 +141,9 @@ fn vanilla_digest(refs: Option<&Arc<assets::VanillaEntityRefs>>) -> [u8; 32] {
     let Some(refs) = refs else {
         return [0; 32];
     };
-    let mut memo = MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut memo = MEMO
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((memoized, digest)) = memo.as_ref()
         && Arc::ptr_eq(memoized, refs)
     {
