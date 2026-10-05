@@ -180,14 +180,14 @@ impl WorldStream {
     /// pruning every announced requirement the grid no longer keeps. Cheap to
     /// call on every player move: it only rescans when the player's chunk or
     /// the confirmed radius changes.
-    pub(super) fn reevaluate_chunk_retention(&mut self) {
+    pub(super) fn reevaluate_chunk_retention(&mut self) -> bool {
         let Some(radius) = self.chunk_radius else {
-            return;
+            return false;
         };
         let center = self.player_chunk();
         if self.last_retention_center == Some(center) && self.last_retention_radius == Some(radius)
         {
-            return;
+            return false;
         }
         self.last_retention_center = Some(center);
         self.last_retention_radius = Some(radius);
@@ -209,11 +209,38 @@ impl WorldStream {
             .filter(|key| !is_retained(key))
             .collect::<Vec<_>>();
         self.evict_columns(stale.into_iter().collect());
+        true
     }
-    /// The local player's current chunk column, floored from the resolved
-    /// server-authoritative position so negative coordinates land in the
-    /// correct column.
+    /// Retains terrain around completed local physics without changing the last server position.
+    /// Rejects stale owners and any physics that has not yet applied a committed spatial control.
+    pub fn retain_for_local_player(
+        &mut self,
+        actor_session_id: u64,
+        dimension: i32,
+        dimension_epoch: u64,
+        position: [f32; 3],
+    ) -> bool {
+        if actor_session_id != self.authority.actor_session_id()
+            || dimension != self.authority.current_dimension()
+            || dimension_epoch != self.authority.form_dimension_epoch()
+            || !position.into_iter().all(f32::is_finite)
+            || self.authority.has_pending_spatial_control()
+        {
+            return false;
+        }
+        self.local_player_chunk = Some(ChunkKey::new(
+            dimension,
+            floor_to_i32(position[0]).div_euclid(16),
+            floor_to_i32(position[2]).div_euclid(16),
+        ));
+        self.reevaluate_chunk_retention()
+    }
+
+    /// Local physics advances the player grid between server corrections.
     fn player_chunk(&self) -> ChunkKey {
+        if let Some(chunk) = self.local_player_chunk {
+            return chunk;
+        }
         let position = self.authority.resolved_server_position().position;
         ChunkKey::new(
             self.authority.current_dimension(),
