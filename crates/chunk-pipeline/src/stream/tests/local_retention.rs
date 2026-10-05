@@ -15,16 +15,6 @@ fn stream() -> WorldStream {
     stream
 }
 
-/// Publishes a local physics position with the stream's current ownership identity.
-fn retain(stream: &mut WorldStream, position: [f32; 3]) -> bool {
-    stream.retain_for_local_player(
-        stream.authority.actor_session_id(),
-        stream.current_dimension(),
-        stream.form_dimension_epoch(),
-        position,
-    )
-}
-
 /// Populates the exact player grid, retaining overlapping columns from earlier moves.
 fn populate_view(stream: &mut WorldStream, center: [i32; 2]) -> usize {
     let radius = stream.chunk_radius.unwrap();
@@ -51,7 +41,7 @@ fn ordinary_local_movement_bounds_residency_without_server_echoes() {
     for center in 0..64 {
         let count = populate_view(&mut stream, [center, 0]);
         let position = [center as f32 * 16.0 + 0.5, 70.0, 0.5];
-        assert_eq!(retain(&mut stream, position), center != 0);
+        assert_eq!(stream.retain_local(position), center != 0);
         assert_eq!(stream.loaded_columns.len(), count);
         assert_eq!(stream.resident.len(), count);
         assert!(stream.tracked_columns().iter().all(|key| {
@@ -59,7 +49,7 @@ fn ordinary_local_movement_bounds_residency_without_server_echoes() {
         }));
         assert!(stream.column_is_data_interesting(ChunkKey::new(0, center, 0)));
         let generation = stream.connectivity_generation();
-        assert!(!retain(&mut stream, [position[0] + 1.0, 70.0, 0.5]));
+        assert!(!stream.retain_local([position[0] + 1.0, 70.0, 0.5]));
         assert_eq!(stream.connectivity_generation(), generation);
     }
     assert_eq!(stream.resolved_server_position(), server_position);
@@ -73,7 +63,7 @@ fn local_grid_eviction_cancels_out_of_range_requests() {
     stream.enqueue_request(old, 0, 1, None);
     assert!(stream.requests.is_expected(SubChunkKey::from_chunk(old, 0)));
     assert_ne!(stream.pending_request_count(), 0);
-    assert!(retain(&mut stream, [320.0, 70.0, 0.0]));
+    assert!(stream.retain_local([320.0, 70.0, 0.0]));
     assert!(!stream.requests.requested.contains_key(&old));
     assert_eq!(stream.pending_request_count(), 0);
     assert!(stream.pop_next_request().is_none());
@@ -94,21 +84,22 @@ fn local_retention_rejects_stale_owners_and_nonfinite_positions() {
         assert!(!stream.retain_for_local_player(owner, dimension, observed_epoch, position));
         assert_eq!(stream.local_player_chunk, None);
     }
-    assert!(retain(&mut stream, [-0.5, 70.0, -16.5]));
+    assert!(stream.retain_local([-0.5, 70.0, -16.5]));
     assert_eq!(stream.local_player_chunk, Some(ChunkKey::new(0, -1, -2)));
-    assert!(!retain(&mut stream, [-15.5, 70.0, -31.5]));
+    assert!(!stream.retain_local([-15.5, 70.0, -31.5]));
 }
 
 #[test]
 fn server_spatial_commits_replace_the_local_retention_center() {
     let mut stream = stream();
-    retain(&mut stream, [320.0, 70.0, 0.0]);
+    stream.retain_local([320.0, 70.0, 0.0]);
     stream
         .submit(
             2,
             WorldEvent::MovePlayer(MovePlayerEvent {
                 runtime_id: 1,
                 position: [-0.5, 70.0, -16.5],
+                mode: MovePlayerMode::Teleport,
                 ..Default::default()
             }),
         )
@@ -116,7 +107,7 @@ fn server_spatial_commits_replace_the_local_retention_center() {
     assert_eq!(stream.local_player_chunk, None);
     assert_eq!(stream.last_retention_center, Some(ChunkKey::new(0, -1, -2)));
     stream.take_committed_controls();
-    assert!(retain(&mut stream, [320.0, 70.0, 0.0]));
+    assert!(stream.retain_local([320.0, 70.0, 0.0]));
     let previous_epoch = stream.form_dimension_epoch();
     stream
         .submit(
@@ -152,44 +143,49 @@ fn deferred_spatial_controls_keep_stale_physics_from_evicting_destination_terrai
         )
         .unwrap();
     let destination = populate_view(&mut stream, [100, 0]);
-    assert!(!retain(&mut stream, [0.5, 70.0, 0.5]));
+    assert!(!stream.retain_local([0.5, 70.0, 0.5]));
     assert_eq!(stream.loaded_columns.len(), destination);
     assert!(stream.column_is_data_interesting(ChunkKey::new(0, 100, 0)));
     stream.take_committed_controls();
-    assert!(retain(&mut stream, [1616.5, 70.0, 0.5]));
+    assert!(stream.retain_local([1616.5, 70.0, 0.5]));
 }
 
-/// A delayed correction must not prune around its historical anchor before physics reconciles it.
+/// A delayed correction or unmarked move must not prune around its historical anchor before
+/// physics reconciles it.
 #[test]
-fn historical_correction_keeps_the_current_grid() {
-    for local_grid in [true, false] {
-        let mut stream = stream();
-        let center = if local_grid {
-            assert!(retain(&mut stream, [320.5, 70.0, 0.5]));
-            20
-        } else {
-            0
-        };
-        let current = populate_view(&mut stream, [center, 0]);
-        stream
-            .submit(
-                2,
-                WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
-                    position: [272.5, 70.0, 0.5],
-                    delta: [0.0; 3],
-                    pitch: 0.0,
-                    yaw: 0.0,
-                    subject: MovementCorrectionSubject::Player,
-                    on_ground: true,
-                    tick: 5,
-                }),
-            )
-            .unwrap();
-        assert_eq!(stream.loaded_columns.len(), current);
-        let leading = ChunkKey::new(0, center + 2, 0);
-        assert!(stream.loaded_columns.contains(&leading));
-        stream.take_committed_controls();
-        assert!(retain(&mut stream, [272.5, 70.0, 0.5]));
-        assert!(!stream.loaded_columns.contains(&leading));
+fn historical_server_moves_keep_the_current_grid() {
+    let correction = WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+        position: [272.5, 70.0, 0.5],
+        delta: [0.0; 3],
+        pitch: 0.0,
+        yaw: 0.0,
+        subject: MovementCorrectionSubject::Player,
+        on_ground: true,
+        tick: 5,
+    });
+    let unmarked_move = WorldEvent::MovePlayer(MovePlayerEvent {
+        runtime_id: 1,
+        position: [272.5, 70.0, 0.5],
+        source_tick: 5,
+        ..Default::default()
+    });
+    for event in [correction, unmarked_move] {
+        for local_grid in [true, false] {
+            let mut stream = stream();
+            let center = if local_grid {
+                assert!(stream.retain_local([320.5, 70.0, 0.5]));
+                20
+            } else {
+                0
+            };
+            let current = populate_view(&mut stream, [center, 0]);
+            stream.submit(2, event.clone()).unwrap();
+            assert_eq!(stream.loaded_columns.len(), current);
+            let leading = ChunkKey::new(0, center + 2, 0);
+            assert!(stream.loaded_columns.contains(&leading));
+            stream.take_committed_controls();
+            assert!(stream.retain_local([272.5, 70.0, 0.5]));
+            assert!(!stream.loaded_columns.contains(&leading));
+        }
     }
 }
