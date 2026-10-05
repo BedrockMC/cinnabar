@@ -120,7 +120,7 @@ fn disconnect(world: &mut World) -> Result<Value, String> {
     Ok(json!({ "disconnecting": true }))
 }
 
-/// Sends through the chat editor exactly as Enter does; a leading `/` makes it a command.
+/// Queues the line as Enter would, without touching any draft; a leading `/` makes it a command.
 fn chat(world: &mut World, text: &str) -> Result<Value, String> {
     let now_millis = world
         .resource::<Time<Real>>()
@@ -128,10 +128,43 @@ fn chat(world: &mut World, text: &str) -> Result<Value, String> {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX);
-    let mut ui = world.resource_mut::<client_ui::ui_runtime::UiRuntime>();
-    ui.insert_chat_text(text)
-        .map_err(|error| format!("{error:?}"))?;
-    ui.queue_chat_send(now_millis)
+    world
+        .resource_mut::<client_ui::ui_runtime::UiRuntime>()
+        .queue_chat_message(text, now_millis)
         .map_err(|error| format!("{error:?}"))?;
     Ok(json!({ "sent": text }))
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::{prelude::*, time::TimePlugin};
+    use client_ui::ui_runtime::UiRuntime;
+
+    #[test]
+    fn chat_sends_exactly_the_text_and_leaves_the_draft_alone() {
+        let mut app = App::new();
+        app.add_plugins(TimePlugin)
+            .insert_resource(UiRuntime::new(1));
+        app.update();
+        let world = app.world_mut();
+        world
+            .resource_mut::<UiRuntime>()
+            .insert_chat_text("half-typed ")
+            .unwrap();
+        super::chat(world, "/showcase souls").unwrap();
+        let ui = world.resource::<UiRuntime>();
+        let sent: Vec<&str> = ui
+            .pending_chat_sends()
+            .iter()
+            .map(|request| &*request.message)
+            .collect();
+        assert_eq!(sent, ["/showcase souls"]);
+        assert_eq!(ui.chat_editor().as_str(), "half-typed ");
+        assert!(super::chat(world, "").is_err());
+        assert_eq!(
+            world.resource::<UiRuntime>().chat_editor().as_str(),
+            "half-typed ",
+            "a refused send leaves no editor changes behind"
+        );
+    }
 }
