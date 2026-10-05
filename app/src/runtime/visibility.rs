@@ -230,14 +230,14 @@ mod tests {
         let mut writes = Vec::new();
         cache.next_visible = [key(0), key(1), key(9)].into_iter().collect();
         cache.publish_next(|entity, visible| writes.push((entity, visible)));
-        writes.sort();
+        writes.sort_by_key(|(entity, _)| entity.index());
         assert_eq!(writes, [(entity(2), false), (entity(3), false)]);
         assert_eq!(cache.visible_rendered, 2);
 
         writes.clear();
         cache.next_visible = [key(1), key(2), key(9)].into_iter().collect();
         cache.publish_next(|entity, visible| writes.push((entity, visible)));
-        writes.sort();
+        writes.sort_by_key(|(entity, _)| entity.index());
         assert_eq!(writes, [(entity(0), false), (entity(2), true)]);
         assert_eq!(cache.visible_rendered, 2);
 
