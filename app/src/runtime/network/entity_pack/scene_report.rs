@@ -348,13 +348,8 @@ pub(super) fn draw_actors(
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
-    let rendered = scene.update_rigs_with_artwork(
-        1.0,
-        None,
-        batch.submissions.clone(),
-        Arc::from([]),
-        &batch.artwork,
-    );
+    let rendered =
+        scene.update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork);
     let rig = rendered.rig.clone();
     for (instance, entry) in rig.instances.iter().zip(rig.manifest.iter()) {
         let Some(location) = batch.artwork.get(&entry.identity) else {
