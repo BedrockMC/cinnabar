@@ -373,16 +373,8 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             })
             .collect();
     }
-    // Keep an air halo above every possible block source inside the dense mixed solve.
-    let all_known_air = jobs.iter().all(|job| {
-        job.blocks
-            .blocks
-            .get(&job.key)
-            .is_some_and(|block| block.is_known_air(job.blocks.classifier))
-    });
-    let highest_mixed_source = (!all_known_air)
-        .then(|| super::prefix::highest_mixed_block_source(&jobs))
-        .flatten();
+    // Peel sections from the top only beyond every source the dense remainder could light them from.
+    let sources = super::prefix::PrefixSources::of(&jobs);
     let mut solved_prefix = Vec::new();
     let mut remaining = Vec::new();
     let mut solved_above = None::<(SubChunkKey, Arc<SubChunkLight>, Arc<DirectSkyMask>)>;
@@ -400,10 +392,14 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             );
             job.prior.trusted_boundaries.insert(*key);
         }
-        let uniform = (all_known_air
-            || super::prefix::above_mixed_block_sources(job.key, highest_mixed_source))
-        .then(|| uniform_known_air_light(&job))
-        .flatten();
+        // Maximal direct sky cannot rise further; dark air must be beyond skylight sources too.
+        let uniform = sources
+            .beyond_block_light(job.key)
+            .then(|| uniform_known_air_light(&job))
+            .flatten()
+            .filter(|(_, direct)| {
+                matches!(direct, DirectSkyMask::Uniform(true)) || sources.beyond_sky_light(job.key)
+            });
         let Some((replacement, direct_sky)) = uniform else {
             remaining.push(job);
             remaining.extend(candidates);
