@@ -11,6 +11,8 @@ use bevy::{
 use protocol::PlayerInputMode;
 use semantic_input::Action;
 
+#[cfg(feature = "local-mods")]
+use crate::modding::interaction::{ModInteraction, block_pick_reach, effective_reach};
 use crate::{
     interaction_authority::{BlockRayUnavailable, observe_block_ray, ray_is_current},
     local_player::InteractionOriginSnapshot,
@@ -72,6 +74,8 @@ pub(crate) struct MeleeContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
+    #[cfg(feature = "local-mods")]
+    mod_interaction: Option<Res<'w, ModInteraction>>,
 }
 
 /// Whether the attack button acts at all: only an open screen or spectator mode stops it,
@@ -119,13 +123,16 @@ pub(crate) fn produce_melee(
         return;
     }
     let caps = player_runtime.facts.game_mode_capabilities();
+    let attack_reach = caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
+    #[cfg(feature = "local-mods")]
+    let attack_reach = effective_reach(attack_reach, context.mod_interaction.as_deref());
     let input_mode = protocol_input_mode(input.input_mode);
     let (Some(crosshair), Some(stream)) = (
         resolve_crosshair(
             &player_runtime,
             &context,
             input_mode,
-            caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach),
+            attack_reach,
             caps.is_some_and(|caps| caps.creative_reach),
             (input.authority_generation, input.frame_sequence),
             movement.interaction_authority_identity().1,
@@ -182,6 +189,12 @@ fn resolve_crosshair(
     } else {
         survival_reach(input_mode)
     };
+    #[cfg(feature = "local-mods")]
+    let actor_reach = effective_reach(reach, context.mod_interaction.as_deref());
+    #[cfg(not(feature = "local-mods"))]
+    let actor_reach = reach;
+    #[cfg(feature = "local-mods")]
+    let reach = block_pick_reach(reach, actor_reach);
     let origin = ray.origin().to_array();
     // Vanilla picks against the world it holds, where unreadable space is empty; an
     // unreadable block ray therefore neither blocks the swing nor occludes a target.
@@ -221,7 +234,7 @@ fn resolve_crosshair(
         context.ui.gameplay_hud().mount_unique_id(),
         origin,
         ray.direction().to_array(),
-        reach,
+        actor_reach,
     );
     Some(classify(actor, block_distance, attack_reach))
 }

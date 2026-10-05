@@ -217,6 +217,13 @@ else:
         self.assertEqual(self.refs(), before)
         self.assertFalse(self.log.exists())
 
+    def test_scheduled_run_is_read_only_nightly_at_the_default_branch(self):
+        before = self.refs()
+        self.prepare(EVENT_NAME="schedule")
+        self.assertEqual(self.outputs(), {"channel": "nightly", "tag": "nightly", "version": SOURCE_VERSION,
+                                         "ref": self.initial, "commit": self.initial})
+        self.assertEqual(self.refs(), before)
+
     def test_current_creates_one_annotated_tag_and_no_version_commit(self):
         self.prepare()
         self.assertEqual(self.git("rev-parse", "HEAD"), self.initial)

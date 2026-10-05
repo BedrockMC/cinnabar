@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"net"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
+	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
@@ -793,6 +795,44 @@ func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	}
 }
 
+// A transferred session whose Close blocks must neither delay the next hop nor skip its close.
+func TestConnectUpstreamDoesNotWaitForTransferredSessionClose(t *testing.T) {
+	allowClose := make(chan struct{})
+	transferred := &gatedCloseUpstream{fakeUpstream: newFakeUpstream(nil), closeStarted: make(chan struct{}), allowClose: allowClose}
+	want := newFakeUpstream(nil)
+	dials := 0
+	result := make(chan upstreamSession, 1)
+	go func() {
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		got, err := connectUpstream(context.Background(), "zeqa.net:19132", "microsoft", logger, func(context.Context, string) (upstreamSession, error) {
+			dials++
+			if dials == 1 {
+				return transferred, &minecraft.TransferError{Address: "pvp.inpvp.net", Port: 19132}
+			}
+			return want, nil
+		})
+		if err != nil {
+			t.Errorf("connectUpstream() error = %v", err)
+		}
+		result <- got
+	}()
+	select {
+	case got := <-result:
+		if got != want {
+			t.Fatalf("connectUpstream() session = %p, want %p", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		close(allowClose)
+		t.Fatal("next hop waited for the transferred session's Close")
+	}
+	close(allowClose)
+	select {
+	case <-transferred.closeStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transferred session was never closed")
+	}
+}
+
 func TestConnectUpstreamReportsOrderedConnectionState(t *testing.T) {
 	var output lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
@@ -975,6 +1015,62 @@ func (s *fakeSession) ReadBatch() ([]packet.Packet, error) {
 	case result := <-s.batchReads:
 		return result.packets, result.err
 	}
+}
+
+func (s *fakeSession) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
+	values, err := s.ReadBatch()
+	return rawBatch(values, decode), err
+}
+
+func (s *fakeSession) WritePacketRaw(data []byte) error { return s.WritePacket(packetFromRaw(data)) }
+
+// testRawPackets maps an encoded test packet's first byte to the value it encodes, so fakes forwarding raw
+// bytes hand back the exact packet a test queued.
+var testRawPackets sync.Map
+
+var testPacketPool = func() packet.Pool {
+	pool := minecraft.DefaultProtocol.Packets(false)
+	maps.Copy(pool, minecraft.DefaultProtocol.Packets(true))
+	return pool
+}()
+
+// rawBatch is what a raw read of values returns: each packet encoded, the selected ones also decoded.
+func rawBatch(values []packet.Packet, decode func(uint32) bool) []minecraft.RawPacket {
+	if values == nil {
+		return nil
+	}
+	batch := make([]minecraft.RawPacket, len(values))
+	for index, value := range values {
+		batch[index] = minecraft.RawPacket{ID: value.ID(), Data: encodeTestPacket(value)}
+		testRawPackets.Store(&batch[index].Data[0], value)
+		if decode != nil && decode(value.ID()) {
+			batch[index].Decoded = []packet.Packet{value}
+		}
+	}
+	return batch
+}
+
+func encodeTestPacket(value packet.Packet) []byte {
+	buf := new(bytes.Buffer)
+	_ = (&packet.Header{PacketID: value.ID()}).Write(buf)
+	value.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
+	return buf.Bytes()
+}
+
+// packetFromRaw returns the queued value behind data, decoding bytes no fake produced.
+func packetFromRaw(data []byte) packet.Packet {
+	if value, ok := testRawPackets.Load(&data[0]); ok {
+		return value.(packet.Packet)
+	}
+	buf := bytes.NewBuffer(data)
+	var header packet.Header
+	_ = header.Read(buf)
+	var value packet.Packet = &packet.Unknown{PacketID: header.PacketID}
+	if newPacket, ok := testPacketPool[header.PacketID]; ok {
+		value = newPacket()
+	}
+	value.Marshal(minecraft.DefaultProtocol.NewReader(buf, 0, false))
+	return value
 }
 
 func (s *fakeSession) WritePacket(p packet.Packet) error {
@@ -1462,6 +1558,93 @@ func TestLocalListenerSkipsEncryptionAndServesLargePackChunks(t *testing.T) {
 	}
 	if got := <-chunkSizes; got != localResourcePackChunkSize {
 		t.Fatalf("local pack chunk size = %d, want %d", got, localResourcePackChunkSize)
+	}
+}
+
+// A client holding an offered pack declines it, so a rejoin moves no pack bytes over the local link.
+func TestLocalListenerSendsOnlyPacksTheClientLacks(t *testing.T) {
+	read := func(archive []byte) *resource.Pack {
+		pack, err := resource.ReadBytes(archive)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pack
+	}
+	first := read(admissionPackArchiveWithVersion(t, "00112233-4455-6677-8899-aabbccddeeff", "1, 0, 0"))
+	second := read(admissionPackArchiveWithVersion(t, "10112233-4455-6677-8899-aabbccddeeff", "1, 0, 0"))
+	bumped := read(admissionPackArchiveWithVersion(t, "10112233-4455-6677-8899-aabbccddeeff", "1, 0, 1"))
+	var offer atomic.Pointer[[]*resource.Pack]
+	network := streamnet.New(filepath.Join(t.TempDir(), "local"))
+	config := localListenConfig(func(_ context.Context, conn *minecraft.Conn) error {
+		return conn.ConfigureResourcePackOffer(*offer.Load(), false)
+	})
+	config.ErrorLog = slog.New(slog.DiscardHandler)
+	listener, err := config.ListenNetwork(network, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() { _ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{EntityRuntimeID: 1}) }()
+		}
+	}()
+	cache, err := packcache.New(filepath.Join(t.TempDir(), "client-packs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+	join := func(packs ...*resource.Pack) (sent []string, chunkBytes int) {
+		t.Helper()
+		offer.Store(&packs)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var mu sync.Mutex
+		conn, err := minecraft.Dialer{
+			IdentityData:      login.IdentityData{DisplayName: "Local"},
+			ResourcePackCache: cache,
+			PacketFunc: func(header packet.Header, payload []byte, _, _ net.Addr) {
+				mu.Lock()
+				defer mu.Unlock()
+				switch header.PacketID {
+				case packet.IDResourcePackDataInfo:
+					var pk packet.ResourcePackDataInfo
+					pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+					sent = append(sent, pk.UUID)
+				case packet.IDResourcePackChunkData:
+					var pk packet.ResourcePackChunkData
+					pk.Marshal(minecraft.DefaultProtocol.NewReader(bytes.NewBuffer(payload), 0, false))
+					chunkBytes += len(pk.Data)
+				}
+			},
+		}.DialContextNetwork(ctx, network, "")
+		if err != nil {
+			t.Fatalf("dial local listener: %v", err)
+		}
+		if got := len(conn.ResourcePacks()); got != len(packs) {
+			t.Fatalf("client holds %d packs, want %d", got, len(packs))
+		}
+		_ = conn.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		slices.Sort(sent)
+		return sent, chunkBytes
+	}
+	name := func(pack *resource.Pack) string { return pack.UUID().String() + "_" + pack.Version() }
+
+	sent, chunkBytes := join(first, second)
+	if want := []string{name(first), name(second)}; !slices.Equal(sent, want) || chunkBytes != first.Size()+second.Size() {
+		t.Fatalf("first join sent %v (%d bytes), want %v (%d bytes)", sent, chunkBytes, want, first.Size()+second.Size())
+	}
+	if sent, chunkBytes = join(first, second); len(sent) != 0 || chunkBytes != 0 {
+		t.Fatalf("rejoin sent %v (%d bytes), want nothing", sent, chunkBytes)
+	}
+	if sent, chunkBytes = join(first, bumped); !slices.Equal(sent, []string{name(bumped)}) || chunkBytes != bumped.Size() {
+		t.Fatalf("version bump sent %v (%d bytes), want only %v (%d bytes)", sent, chunkBytes, name(bumped), bumped.Size())
 	}
 }
 

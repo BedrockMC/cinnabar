@@ -21,7 +21,8 @@ use crate::semantic_controls::{
 };
 use bevy::math::Mat4;
 use client_ui::ui_runtime::UiRuntime;
-use render::{ActorCullView, ActorRenderScene, ActorRenderSource, MAX_RENDERED_PLAYERS};
+use render::{ActorCullView, ActorRenderScene, ActorRenderSource};
+use render_model::MAX_RENDERED_PLAYERS;
 use semantic_input::{
     Action, ControlSettings, ControllerFrame, DeviceFrame, InputContext, KeyboardMouseFrame,
     ReleaseReason, TouchContact,

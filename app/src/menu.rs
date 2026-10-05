@@ -8,6 +8,7 @@
 
 mod account;
 mod account_control;
+mod accounts;
 pub(crate) mod auth;
 mod construction;
 pub(crate) mod core_process;
@@ -30,6 +31,7 @@ mod settings_paths;
 pub(crate) mod settings_storage;
 pub(crate) mod settings_support;
 mod settings_values;
+mod sign_in_popup;
 #[cfg(test)]
 mod transfer_follow_tests;
 mod video_settings;
@@ -110,6 +112,7 @@ pub(crate) struct MenuRuntime {
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -145,6 +148,7 @@ pub(crate) struct MenuRuntime {
     /// The device code whose sign-in page was last opened, so each code opens once.
     sign_in_page_code: Option<String>,
     sign_out_requested: bool,
+    accounts: accounts::Manager,
     /// Marketplace actions waiting for the store driver.
     store_actions: Vec<crate::store::StoreAction>,
     pub(crate) global_resource_actions: Vec<crate::global_resources::Action>,
@@ -158,6 +162,10 @@ pub(crate) struct MenuRuntime {
     /// Failed writes wait until this deadline while retaining the newest edits.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
+    /// In-memory option overrides (index, persisted value) that saves never write.
+    session_overrides: Vec<(usize, i32)>,
+    /// A developer controller is driving: hotkey toggles stay in memory.
+    transient_toggles: bool,
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
@@ -185,6 +193,13 @@ impl MenuRuntime {
         if self.render_mode_request.is_none() {
             self.render_mode = applied;
         }
+    }
+
+    /// Shows the VSync toggle locked to a launch-flag override.
+    #[must_use]
+    pub(crate) const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
+        self.vsync_override = vsync;
+        self
     }
 
     /// Consume the pending Video-section change.
@@ -279,6 +294,7 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            vsync_override: self.vsync_override,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
@@ -472,6 +488,22 @@ impl MenuRuntime {
     }
 
     pub(crate) fn activate(&mut self, action: MenuAction) {
+        if self.account_change_pending()
+            && matches!(
+                action,
+                MenuAction::PlaySaved(_)
+                    | MenuAction::PlayFeatured(_)
+                    | MenuAction::PlayGathering(_)
+                    | MenuAction::PlayRealm(_)
+                    | MenuAction::PlayFriend(_)
+                    | MenuAction::PlayLocalWorld(_)
+                    | MenuAction::OpenLiveEvent
+                    | MenuAction::LocalWorld(_)
+            )
+        {
+            self.message = Some("Please wait for the account change to finish.".into());
+            return;
+        }
         if let Some(index) = self
             .focus_actions()
             .iter()
@@ -505,7 +537,10 @@ impl MenuRuntime {
                 self.dialog = None;
                 self.intents.exit = true;
             }
-            MenuAction::DismissDialog => self.dialog = None,
+            MenuAction::DismissDialog => self.dismiss_accounts(),
+            MenuAction::OpenAccounts => self.open_accounts(),
+            MenuAction::AddAccount => self.add_account(),
+            MenuAction::SwitchAccount(index) => self.switch_account(index),
             MenuAction::SelectServerTab(tab) => {
                 self.server_tab = tab;
                 self.focused = 0;
@@ -516,7 +551,13 @@ impl MenuRuntime {
                 self.catalog_message = None;
             }
             MenuAction::StartSignIn => self.start_sign_in(),
-            MenuAction::CancelSignIn => self.stop_sign_in(),
+            MenuAction::CancelSignIn => {
+                if self.feeds.account_adding {
+                    self.cancel_add_account();
+                } else {
+                    self.stop_sign_in();
+                }
+            }
             MenuAction::PlayAddServer => {
                 self.editing = None;
                 self.name.clear();
@@ -598,8 +639,9 @@ impl MenuRuntime {
             }
             MenuAction::AddName | MenuAction::AddAddress | MenuAction::AddPort => {}
             MenuAction::AddSave => {
+                // Saving pops the form back to the tab that opened it.
                 if self.save_draft() {
-                    self.enter(MenuScreen::Play);
+                    self.go_back();
                 }
             }
             MenuAction::AddSaveConnect => {
@@ -609,7 +651,7 @@ impl MenuRuntime {
             }
             MenuAction::AddBack => self.go_back(),
             MenuAction::ToggleRenderMode => {
-                if render::ENHANCED_RENDERING_ENABLED {
+                if render_model::ENHANCED_RENDERING_ENABLED {
                     self.render_mode = self.render_mode.toggled();
                     self.render_mode_request = Some(self.render_mode);
                 }
@@ -766,6 +808,10 @@ impl MenuRuntime {
 
     /// Queues a join to `address` for the session controller.
     pub(crate) fn request_connect(&mut self, address: String) {
+        if self.account_change_pending() {
+            self.message = Some("Please wait for the account change to finish.".into());
+            return;
+        }
         if address.trim().is_empty() {
             self.message = Some("That server has no address.".to_owned());
             return;
@@ -799,6 +845,7 @@ pub(crate) fn drive_menu_services(
 ) {
     menu.poll_catalog(launcher_account.is_some());
     menu.poll_saves();
+    menu.poll_accounts();
     menu.sync_audio_settings(audio_settings);
     menu.sync_user_settings(settings);
     menu.sync_language(&mut runtime);
@@ -819,6 +866,9 @@ pub(crate) fn drive_menu_services(
             client_blob_cache.enables_upstream_client_cache(),
             local_worlds.as_deref_mut(),
         );
+    }
+    if std::mem::take(&mut menu.accounts.skip_control) {
+        return;
     }
     match launcher_account {
         Some(mut account) => menu.sync_account_control(&mut *account),

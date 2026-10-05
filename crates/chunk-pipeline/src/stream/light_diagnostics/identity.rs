@@ -222,6 +222,7 @@ mod tests {
                     ..Default::default()
                 }),
             }]),
+            vanilla_blocks: Default::default(),
             skipped: 0,
         });
         stream

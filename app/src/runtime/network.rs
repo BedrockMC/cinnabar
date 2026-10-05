@@ -51,10 +51,11 @@ pub(crate) use inventory::{
 pub(crate) use pack_reload::{PackReload, reload_resource_packs};
 #[cfg(test)]
 pub(crate) use resource_packs::PackApplication;
+pub(crate) use resource_packs::ui_catalog::PackUiCatalog;
 pub(crate) use resource_packs::{
     BootstrapGenerationDisposition, ResourcePackAdmissionState, active_language_code,
     classify_bootstrap_generation, set_active_language, set_base_material_keys,
-    set_base_terrain_catalog,
+    set_base_terrain_catalog, set_compile_cache_dir,
 };
 pub(crate) use session::{
     BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
@@ -384,6 +385,7 @@ pub(crate) fn receive_network_events(
                     );
                 }
                 stream.begin_frame_work();
+                stream.set_startup_priority(true);
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);

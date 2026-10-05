@@ -133,6 +133,10 @@ impl MenuProfile {
 /// by address, the profile, and the featured server the info panel shows.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MenuFeeds {
+    pub accounts: Vec<crate::accounts::AccountProfile>,
+    pub account_active_id: Option<String>,
+    pub account_error: Option<String>,
+    pub account_adding: bool,
     pub inbox_state: super::inbox::InboxState,
     pub details: HashMap<String, ServerDetails>,
     pub profile: MenuProfile,
@@ -336,6 +340,8 @@ pub struct MenuView {
     pub gui_scale_choices: Vec<i8>,
     pub fullscreen: bool,
     pub render_mode: ui::RenderMode,
+    /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
+    pub vsync_override: Option<bool>,
     pub display_name: String,
     pub servers: Vec<SavedServer>,
     pub featured: Vec<MenuServerCard>,
@@ -455,6 +461,7 @@ impl MenuView {
             gui_scale_choices: vec![0],
             fullscreen: false,
             render_mode: ui::RenderMode::Vanilla,
+            vsync_override: None,
             display_name,
             servers: Vec::new(),
             featured: Vec::new(),

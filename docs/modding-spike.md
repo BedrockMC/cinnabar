@@ -21,7 +21,7 @@ CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p bedrock-client --fe
 Route local builds through the shared limiter as required by
 `docs/agents/multi-agent-workflow.md`. No Go core or server is needed for `probe`,
 `bench` or the tests. Launching the client still requires its normal pinned carriers.
-No mod is loaded when the environment variable is absent; builds without `local-mods`
+No mod is loaded without an environment selection or enabled local registration; builds without `local-mods`
 do not compile Wasmtime and ignore it with a warning.
 
 The last command opens the launcher. Select a server only in a separately
@@ -138,7 +138,7 @@ module and embedded WIT metadata to a component. The guest's actual imports
 declare its requirements; unknown imports fail linking. The prototype's
 grant is HUD, the demo action and environment for the developer-selected mod,
 with separate explicit opt-ins for gameplay reads and camera writes. It has
-no permission prompt or install manifest yet.
+no marketplace permission prompt or signed package format.
 
 The host admits no WASI, filesystem, network, Bevy or GPU import. Gameplay data
 arrives only as a bounded app-owned snapshot, not a world handle. Each
@@ -150,10 +150,173 @@ The label's original host-owned JSON template goes through the existing JSON-UI
 engine and compiled carrier. Guest strings never become JSON or binding expressions.
 
 The app integration sits after semantic input finalization and before UI
-publication, between physical look and movement. With the switch absent it
-installs no mod resource or update system.
+publication, between physical look and movement. Without an active selection it
+installs no guest runtime or gameplay output. A `local-mods` build watches its
+local registration on a background worker; default builds have no watcher.
 Required vanilla carriers remain required. The extension adds no protocol types
 or dependencies on gameplay state to the component host.
+
+## Personal controls and interaction
+
+Three additional per-component grants are opt-in: `CINNABAR_MOD_CONTROLS=1`,
+`CINNABAR_MOD_INTERACTION=1` and `CINNABAR_MOD_SETTINGS=1`.
+They are developer extension capabilities and do not change the vanilla client.
+
+`panel.set-content` retains a bounded JSON panel of toggles, sliders, buttons and
+choices. It uses the host's JSON-UI engine; guests cannot provide templates or
+binding expressions. Optional `style: "compact"` renders a unified menu with up
+to three equal-height cards. Sections can select a bounded `icon` (`pointer`,
+`crosshair`, `ruler`, `settings` or `none`). A `keybind` control has `id`, `label`,
+`key` and optional `capturing` fields; pressing its keycap emits a button event,
+and the guest owns key capture and reservations. Key changes retain geometry.
+Choices open a host-owned option list. Slider numbers open a bounded text editor;
+Enter applies finite values within the declared range and normalizes the step.
+Escape or an outside click cancels an editor before closing the panel. Keyboard
+input belongs to the editor while it is open; reserved emergency and panel keys
+retain priority. The existing choice/slider event payloads are unchanged.
+Optional sections organize controls into category tabs and
+cards; omitting them keeps a flat panel. `input.read-controls` supplies current-window physical key
+edges and panel events. `input.reserve-keys` prevents selected bindings reaching
+gameplay. The panel's `toggle_key` opens or closes it before the ordinary input
+sample; Escape closes it. Other absorbing screens and lost focus close it, release
+input, and suppress gameplay output. Removing or quarantining a guest releases
+the panel and its reservations.
+
+`gameplay.set-attack-reach` requests a current-frame actor selection/admission
+range up to `mod_api::MAX_ENTITY_REACH_BLOCKS`. It preserves obstruction checks
+and normal attack transactions; the server still decides whether a hit is valid.
+`gameplay.pulse-attack` requests one press only while the captured semantic Attack
+action is physically held. Neither operation synthesizes OS input. These requests
+commit after a successful guest callback and expire each frame.
+
+`settings.load/save` reads or atomically replaces only the selected component's
+`.settings.json` companion. JSON objects and file reads are bounded by
+`mod_api::MAX_SETTINGS_BYTES`; there is no guest-selected filesystem path.
+Successful callbacks commit settings in memory immediately. One worker coalesces
+atomic disk writes, reports failures separately, and flushes the last value on exit.
+
+With an explicit component and controls grant, `CINNABAR_MOD_FONT` may select a
+bounded local outline font for the personal panel. It is rasterized once per
+selected font into an isolated atlas alias with filtered sampling. Panel sizing follows display DPI
+independently of the game GUI scale; vanilla and server glyph ownership are preserved.
+
+## Custom rendering
+
+`render` is a separate local grant (`CINNABAR_MOD_RENDER=1`, or `"render": true` in
+`local-mod.json`); depth reads also need `render_depth`. Budgets live in `mod_api`.
+
+- **Post passes.** `register-pass` takes WGSL that defines
+  `fn effect(uv: vec2<f32>) -> vec3<f32>` against a host prelude (`scene`, `param`,
+  `blur`, `bloom`, `world_to_uv`, and `depth` or `world_position` with depth). naga
+  validates the composed module. The guest may not declare resources, overrides or entry
+  points, and may not loop. Worst-case texture reads and expressions per pixel, with call
+  sites expanded, must fit the budget, as must source size, tokens per statement (which
+  bounds nesting) and the size of every type. Validation runs on its own thread, and a frame
+  callback may compile one shader. A rejection returns the reason to the guest. Passes
+  run by `(order, name)` after post-processing and before the HUD, each reading the
+  previous colour. `update-pass` retains an enable flag and 16 floats, and disabled passes
+  cost nothing, and replaced or reloaded passes release their pipelines. Each slot is
+  timed as `gpu_mod_pass_N`.
+- **World primitives.** `draw` appends decals, ribbons, beams and billboards for the
+  current callback. Each successful callback replaces the drawn set; an identical set
+  rebuilds and uploads nothing. One premultiplied,
+  depth-tested draw without depth writes runs in the transparent phase, timed as
+  `gpu_mod_primitives`.
+- Both commit only after a successful callback. A trap, reload, revocation or unload
+  clears them.
+
+### Render sample
+
+`examples/mods/render-sample` registers a vignette pass, which F8 toggles, and draws a
+pulsing ring at the player's feet:
+
+```sh
+cargo build -p render-sample-mod --target wasm32-unknown-unknown --locked
+cargo run -p mod-host --locked -- pack \
+  target/wasm32-unknown-unknown/debug/render_sample_mod.wasm /tmp/cinnabar-render.wasm
+cargo run -p mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_MOD_PLAYERS=1 \
+  cargo run -p bedrock-client --features local-mods --locked
+```
+
+Replacing the component reloads it as for other mods. A rejected shader shows its error as
+the mod's label.
+
+## Mobs, camera rig, commands and cues
+
+`CINNABAR_MOD_ENTITIES=1` grants `gameplay.read-mobs`: up to
+`mod_api::MAX_GAMEPLAY_MOBS` non-player actors within `MAX_MOB_RANGE_BLOCKS` of the
+eye, nearest first, with type ID and replicated health. `gameplay.set-camera-rig`
+(camera grant) retains a third-person boom in camera-local blocks plus roll and FOV
+change, swept against blocks like the vanilla boom; it presents third-person-back
+until `none`, a trap or a reload. `CINNABAR_MOD_COMMANDS=ability` (comma-separated)
+lets `gameplay.request-command` send `/ability ...` as a vanilla player command
+request; any other command is refused, and requests are capped by
+`MAX_COMMANDS_PER_FRAME` and `MAX_COMMANDS_PER_SECOND`. `events.emit` publishes bounded
+cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
+`MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
+only after a successful callback and is dropped on a trap or reload.
+
+## Several mods at once
+
+`CINNABAR_MOD_SET=/abs/mods.json` loads up to `mod_api::MAX_LOADED_MODS` components,
+each with its own grants (the `local-mod.json` names), budgets, trap quarantine and hot
+reload. A component that fails to load is skipped:
+
+```json
+{"version": 1, "mods": [
+  {"component": "/abs/camera.wasm", "grants": {"players": true, "camera": true, "controls": true}},
+  {"component": "/abs/hud.wasm", "grants": {"environment": true}}
+]}
+```
+
+File order settles conflicts: the earliest camera rig, rotation, time override, attack
+reach and non-zero packet delay win; a key reserved by an earlier mod never reaches a later
+one; the first mod with a panel owns it; labels join with ` | `; commands and cues keep load
+order. Render passes merge by name with the earliest mod keeping a contested name, and passes
+and each primitive kind fill the single-mod budgets in load order. Each mod polls
+every mod's previous-frame cues. The set takes precedence over `CINNABAR_MOD_COMPONENT`
+and the registration watcher, which still load a single mod.
+
+## Attach a local component to a running client
+
+A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
+(on an installed Windows client, `%LOCALAPPDATA%/Cinnabar/`). Write it atomically:
+
+```json
+{
+  "version": 1,
+  "request_id": "local-request-1",
+  "enabled": true,
+  "component": "C:/Local/mod.component.wasm",
+  "font": "C:/Local/panel.ttf",
+  "grants": {
+    "environment": false,
+    "players": true,
+    "camera": true,
+    "controls": true,
+    "interaction": true,
+    "settings": true,
+    "render": false,
+    "render_depth": false,
+    "entities": false,
+    "commands": []
+  }
+}
+```
+
+The registration is bounded to 16 KiB, paths must be absolute, and grants default
+to false. Component compilation, source polling, font rasterization and status
+writes run on the worker. The current generation is installed before physical
+input sampling; deleting, disabling or invalidating the registration revokes its
+runtime and restores input ownership. A request-ID-only change preserves guest
+state. An environment-selected component takes precedence over registration.
+
+`local-mod.status.json` reports the request ID, client PID and `loaded`, `error`
+or `disabled` state. `loaded` acknowledges actual installation, rather than only
+successful compilation. The guest still has no filesystem or process access.
+This loader cannot be added to an executable that is already running without it;
+older clients require one update and restart.
 
 ## Verification and limits
 
@@ -185,7 +348,7 @@ CINNABAR_MOD_SNAPSHOT_COMPONENT=/tmp/cinnabar-hello.wasm \
 This alternates warmed baseline/sample batches at the same viewport and reports
 both totals and paired differences. It includes the guest callback, label adapter
 and JSON-UI build; it excludes Bevy scheduling, reload polling, rasterization and
-GPU work. No-mod scheduling installs zero extension systems. These development
+GPU work. Default builds install zero extension systems. These development
 profile measurements are diagnostic, not a release frame-budget acceptance test.
 
 The host tests execute actual components, including traps, endless loops,
@@ -197,7 +360,8 @@ costs. Its development-profile figures are spike evidence, not a release frame
 budget or vanilla performance acceptance.
 
 This in-process spike cannot contain compiler OOM, host defects or runtime native
-crashes. Compilation and file reads are synchronous. Before admitting downloaded
+crashes. Environment-selected reload compilation and file reads remain synchronous;
+registration loading uses its bounded worker. Before admitting downloaded
 mods, move compilation/execution to a restricted helper with process memory/time
 limits, bounded IPC and watchdog restart. Recheck the runtime's security support
 and advisories before release. The design also requires signed packages, explicit

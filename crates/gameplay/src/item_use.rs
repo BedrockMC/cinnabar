@@ -12,7 +12,7 @@ pub use admission::step_and_send;
 pub use classify::{AirUse, Cooldown, Needs, classify};
 
 pub const QUICK_CHARGE_ENCHANTMENT_ID: i16 = 35;
-/// `handleBuildAction` re-arms the next build action this long after an air use.
+/// Vanilla re-arms the next build action this long after an air use.
 const USE_REARM_MILLIS: u64 = 200;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,13 +73,15 @@ pub struct ItemUseRuntime {
     /// Cooldown category and the tick it ends.
     cooldowns: Vec<(&'static str, u64)>,
     predicted: Option<PredictedStack>,
+    /// A throw's emptied slot and the authoritative revision it consumed, until the ledger takes it.
+    emptied_slot: Option<(u8, u64)>,
     /// The use button has stayed down since a press no block interaction consumed.
     repeat_armed: bool,
     /// A rejected click retries only while its verified selection remains current.
     deferred_selection: Option<FrozenMiningSelection>,
     /// A rejected release still precedes the next use, even if Use is pressed again.
     release_pending: bool,
-    /// `TypedClientNetId<ItemStackLegacyRequestIdTag>`'s process-wide counter.
+    /// Vanilla's process-wide legacy item-stack request id counter.
     last_legacy_request_id: i32,
     crossbows: crossbow::CrossbowPredictions,
 }
@@ -140,8 +142,14 @@ impl ItemUseRuntime {
         self.rearm_millis = None;
         self.cooldowns.clear();
         self.predicted = None;
+        self.emptied_slot = None;
         self.release_pending = false;
         self.crossbows.clear();
+    }
+
+    /// The slot and authoritative revision an admitted throw of the last item emptied, once.
+    pub fn take_emptied_slot(&mut self) -> Option<(u8, u64)> {
+        self.emptied_slot.take()
     }
 
     /// Whether this frame has anything to resolve against an unsent tick.
@@ -177,7 +185,7 @@ impl ItemUseRuntime {
                 if current.slot != active.selection.slot
                     || current.item.network_id() != active.selection.item.network_id() =>
             {
-                // Switching away stops the use without a release, as `Player::stopUsingItem`.
+                // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
                 return;
             }
@@ -189,8 +197,8 @@ impl ItemUseRuntime {
             frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);
         // Queue pressure must not turn an already-observed early release into a full charge.
         if !release_pending && depleted && (frame.held || active.crossbow) {
-            // `completeUsingItem` finishes locally, without a release transaction.
-            // CrossbowItem stores its loaded projectile for the next press's pose/action.
+            // A depleted use finishes locally, without a release transaction.
+            // A crossbow stores its loaded projectile for the next press's pose/action.
             if active.crossbow && frame.charge_projectile.is_some() {
                 self.crossbows.predict(
                     &selection,
@@ -253,7 +261,7 @@ impl ItemUseRuntime {
             return;
         };
         self.rearm_millis = Some(frame.now_millis.saturating_add(USE_REARM_MILLIS));
-        // `baseUseItem` opens a legacy request scope on every air use.
+        // Vanilla opens a legacy request scope on every air use.
         let legacy_request_id = self.next_legacy_request_id();
         let on_cooldown = air_use
             .and_then(AirUse::cooldown)
@@ -261,6 +269,7 @@ impl ItemUseRuntime {
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
+        let mut emptied_slot = None;
         let mut throw_cooldown = None;
         let mut swung = false;
         match air_use {
@@ -284,6 +293,11 @@ impl ItemUseRuntime {
                 }
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
+                    if to.is_empty() {
+                        emptied_slot = frame
+                            .inventory_revision
+                            .map(|revision| (selection.slot, revision));
+                    }
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
                         slot: selection.slot,
                         server: server.item.clone(),
@@ -309,6 +323,9 @@ impl ItemUseRuntime {
             }
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
+            }
+            if emptied_slot.is_some() {
+                self.emptied_slot = emptied_slot;
             }
             if air_use == Some(AirUse::Instant) {
                 self.crossbows
@@ -341,7 +358,7 @@ impl ItemUseRuntime {
         self.cooldowns.iter().any(|(active, _)| *active == category)
     }
 
-    /// `TypedClientNetId::_generateNext`: even ids from -4 downward, restarting past the range.
+    /// Vanilla legacy request ids: even ids from -4 downward, restarting past the range.
     fn next_legacy_request_id(&mut self) -> i32 {
         let current = if self.last_legacy_request_id < -2 {
             self.last_legacy_request_id

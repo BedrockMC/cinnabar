@@ -1,4 +1,4 @@
-//! CPU drawing for the setup overlay: rectangles, the logo and Monocraft text into premultiplied
+//! CPU drawing for the setup overlay: rectangles, the logo and Cinnangles Sans text into premultiplied
 //! sRGB RGBA8.
 
 use std::collections::HashMap;
@@ -119,7 +119,7 @@ fn linear_to_srgb(value: f32) -> u8 {
     (encoded * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-/// Monocraft rasterized on demand, cached per glyph and size.
+/// Cinnangles Sans rasterized on demand, cached per glyph and size.
 pub(super) struct Text {
     font: Font,
     cache: HashMap<(char, u32), (Metrics, Vec<u8>)>,

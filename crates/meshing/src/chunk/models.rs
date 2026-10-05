@@ -10,6 +10,7 @@ use assets::{
 use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
+mod fire;
 use crate::{
     BlockClassifier, Face, SIDE,
     contributors::{PaletteFacts, ResolvedPaletteEntry},
@@ -35,6 +36,32 @@ pub(crate) fn select_model_templates<'a>(
     entry: ResolvedPaletteEntry,
 ) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
+    if flags & assets::MODEL_TEMPLATE_FLAG_FIRE != 0 {
+        return (
+            [
+                fire::select_template(context, facts, neighbour_facts, coordinate, entry),
+                NO_MODEL_TEMPLATE,
+            ],
+            1,
+        );
+    }
+    if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
+        let legacy_axis_x = entry.variant & assets::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN != 0
+            && [Face::NegativeX, Face::PositiveX].into_iter().any(|face| {
+                let neighbour =
+                    adjacent_palette_entry(context, facts, neighbour_facts, coordinate, face);
+                model_template_flags(context.visuals, neighbour)
+                    & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                    != 0
+            });
+        return (
+            [
+                entry.model_template + u32::from(legacy_axis_x),
+                NO_MODEL_TEMPLATE,
+            ],
+            1,
+        );
+    }
     if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
         let mask = connected_model_mask(
             context,

@@ -18,6 +18,7 @@ mod doors;
 mod flow;
 mod scaffolding;
 mod selection;
+mod session_palette;
 mod stairs;
 
 const COLLISION_COORDINATE_SCALE: f64 = 1.0 / 100_000_000.0;
@@ -271,7 +272,10 @@ impl PhysicsCollisionRegistries {
         self.sequential.remove_runtime_ids_from(first);
         self.interaction_blocks.split_off(&first);
         if custom.blocks.is_empty() {
-            return Some((first..first, assets::SequentialIdRemap::default()));
+            return Some((
+                first..first,
+                self.admit_server_definitions(custom, assets::SequentialIdRemap::default(), first),
+            ));
         }
         let physics = self.custom_block_physics?;
         let mut next = first;
@@ -322,7 +326,10 @@ impl PhysicsCollisionRegistries {
         } else {
             assets::SequentialIdRemap::new(runs)
         };
-        Some((first..next, remap))
+        Some((
+            first..next,
+            self.admit_server_definitions(custom, remap, next),
+        ))
     }
 
     /// Registers this session's custom block states under their network hashes
@@ -526,6 +533,7 @@ fn collision_box_to_aabb(collision: assets::CollisionBox) -> Aabb {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     use sha2::{Digest, Sha256};
 
@@ -699,7 +707,33 @@ mod tests {
         }
     }
 
-    /// Custom states take the ids after vanilla, reset per session, and refuse id shifts.
+    /// Remote clients register vanilla definitions only when the server supplies them.
+    #[test]
+    fn remote_palette_omits_unsupplied_vanilla_definitions() {
+        let records =
+            assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol())
+                .unwrap();
+        let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
+        let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
+        let (_, remap) = registries
+            .begin_session_custom_blocks(&protocol::CustomBlocks::default())
+            .unwrap();
+        for (wire, name) in [
+            (15_844, "minecraft:air"),
+            (3_219, "minecraft:stone"),
+            (9_650, "minecraft:polished_blackstone_bricks"),
+            (19_595, "minecraft:brown_terracotta"),
+            (17_951, "minecraft:gray_concrete"),
+        ] {
+            let resolved = records
+                .iter()
+                .find(|record| record.sequential_id == remap.to_internal(wire))
+                .unwrap();
+            assert_eq!(resolved.name.as_ref(), name, "wire block {wire}");
+            assert_eq!(remap.to_wire(resolved.sequential_id), wire);
+        }
+    }
+
     #[test]
     fn session_custom_blocks_append_after_vanilla_ids() {
         let records =
@@ -708,12 +742,17 @@ mod tests {
         let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
         let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
         let first = u32::try_from(records.len()).unwrap();
+        let vanilla_blocks = assets::server_defined_blocks()
+            .iter()
+            .map(|definition| Arc::from(definition.name))
+            .collect::<Arc<[Arc<str>]>>();
         let appended = protocol::CustomBlocks {
             blocks: vec![
                 custom_block("lifeboat:lucky_block_9nnvjzz", 1),
                 custom_block("lifeboat:coal_ore_generator_a451ess", 4),
             ]
             .into(),
+            vanilla_blocks: Arc::clone(&vanilla_blocks),
             skipped: 0,
         };
         let (range, remap) = registries.begin_session_custom_blocks(&appended).unwrap();
@@ -727,6 +766,7 @@ mod tests {
         );
         let interleaved = protocol::CustomBlocks {
             blocks: vec![custom_block("minecraft:stone", 1)].into(),
+            vanilla_blocks: Arc::clone(&vanilla_blocks),
             skipped: 0,
         };
         assert_eq!(registries.begin_session_custom_blocks(&interleaved), None);
@@ -734,6 +774,7 @@ mod tests {
         // it, so every later vanilla wire id is one more than the carrier's.
         let among = protocol::CustomBlocks {
             blocks: vec![custom_block("benergistics:controller", 1)].into(),
+            vanilla_blocks,
             skipped: 0,
         };
         let (range, remap) = registries.begin_session_custom_blocks(&among).unwrap();
@@ -768,6 +809,55 @@ mod tests {
         assert_eq!(remap.to_internal(first), first - 1);
     }
 
+    #[test]
+    fn remote_palette_rebuilds_admission_and_custom_order_each_session() {
+        let protocol = active_content_registry_protocol();
+        let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+        let mut registries = bind(
+            BREG_V2193,
+            &synthetic_preg(protocol, BREG_V2193, &records),
+            protocol,
+        )
+        .unwrap();
+        let first = records.len() as u32;
+        let supplied = assets::server_defined_blocks();
+        for admitted_count in [0, 1, supplied.len(), 0] {
+            let custom = protocol::CustomBlocks {
+                blocks: vec![
+                    custom_block("benergistics:controller", 2),
+                    custom_block("lifeboat:lucky_block_9nnvjzz", 1),
+                ]
+                .into(),
+                vanilla_blocks: supplied[..admitted_count]
+                    .iter()
+                    .map(|block| Arc::from(block.name))
+                    .collect(),
+                skipped: 0,
+            };
+            let (range, remap) = registries.begin_session_custom_blocks(&custom).unwrap();
+            assert_eq!(range, first..first + 3);
+            let omitted = supplied[admitted_count..]
+                .iter()
+                .map(|block| block.state_count)
+                .sum::<u32>();
+            let wire_count = first + 3 - omitted;
+            let actual = (0..wire_count)
+                .filter_map(|wire| {
+                    let internal = remap.to_internal(wire);
+                    assert_eq!(remap.to_wire(internal), wire);
+                    registries
+                        .block_identifier(assets::NetworkIdMode::Sequential, internal)
+                        .filter(|name| *name != super::RESERVED_RECORD_NAME)
+                        .map(|name| (protocol::block_name_sort_key(name), name))
+                })
+                .collect::<Vec<_>>();
+            assert!(actual.windows(2).all(|pair| pair[0] <= pair[1]));
+            for block in &supplied[admitted_count..] {
+                assert_eq!(remap.to_wire(block.first_internal_id), u32::MAX);
+            }
+        }
+    }
+
     /// Hashed custom states register under their hashes and are dropped by the next session.
     #[test]
     fn session_hashed_custom_blocks_register_and_reset() {
@@ -778,6 +868,7 @@ mod tests {
         let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
         let custom = protocol::CustomBlocks {
             blocks: vec![custom_block("test:hashed", 1)].into(),
+            vanilla_blocks: Default::default(),
             skipped: 0,
         };
         let hash = custom.blocks[0].hashed_states()[0].hash;

@@ -1,5 +1,3 @@
-use sha2::{Digest, Sha256};
-
 use super::RuntimeAssets;
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
@@ -12,7 +10,7 @@ use crate::{
     MAX_BIOME_NAME_BYTES, MAX_BIOME_NAMES_BYTES, MAX_BIOME_RULES, MAX_MATERIALS, MAX_MODEL_QUADS,
     MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
     MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelQuad, ModelTemplate, NO_ANIMATION,
@@ -34,11 +32,17 @@ impl RuntimeAssets {
     /// Validates the complete world-carrier envelope, its embedded source
     /// provenance, and every cross-reference before allocating tables.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
+        Self::decode_sealed(bytes).map(|(assets, _)| assets)
+    }
+
+    /// [`Self::decode`], also returning the SHA-256 of the whole carrier from its envelope check.
+    pub fn decode_sealed(bytes: &[u8]) -> Result<(Self, [u8; 32]), AssetError> {
         let header = Header::decode(bytes)?;
         let provenance = decode_provenance(bytes)?;
         header.validate_layout(bytes)?;
         let sections = header.sections(bytes);
-        validate_hash(bytes, header.offsets[12])?;
+        let identity = crate::encoding::sealed_identity(bytes, header.offsets[12])
+            .ok_or_else(|| invalid("compiled asset SHA-256 mismatch"))?;
         let page_meta = validate_pages(
             sections[7],
             sections[8],
@@ -49,7 +53,7 @@ impl RuntimeAssets {
         let materials = decode_materials(sections[2])?;
         crate::material_variations::validate(&materials)?;
         let biomes = decode_biomes(sections[9], sections[10], sections[11])?;
-        Ok(Self {
+        let assets = Self {
             visuals: decode_visuals(sections[0])?,
             light_properties: decode_light_properties(sections[0]),
             hashed: decode_hashes(sections[1]),
@@ -62,7 +66,8 @@ impl RuntimeAssets {
             biomes,
             provenance,
             missing: AtomicU64::new(0),
-        })
+        };
+        Ok((assets, identity))
     }
 }
 
@@ -235,12 +240,10 @@ fn validate_pages(
             checked_add(total, meta.length, "page relative offset")
         })?;
         let relative_end = checked_add(relative_offset, length, "page relative end")?;
-        let data = payload
+        // The envelope seals the page; the encoder writes its digest.
+        payload
             .get(relative_offset..relative_end)
             .ok_or_else(|| invalid("texture page exceeds payload section"))?;
-        if Sha256::digest(data).as_slice() != &record[32..64] {
-            return Err(invalid("texture page SHA-256 mismatch"));
-        }
         metas.push(PageMeta {
             layers,
             relative_offset,
@@ -337,7 +340,8 @@ fn validate_fixed(
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                    | MODEL_TEMPLATE_FLAG_FIRE);
             if connected_flag != 0 {
                 let Some(base_index) = connected_bases
                     .iter()
@@ -602,6 +606,19 @@ fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>, AssetError
             }
             bases.push((index, flag));
             index += 17;
+        } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
+            let Some(group) = records.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            else {
+                return Err(invalid("fire template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, record)| {
+                u32_at(record, 8) != flag
+                    || u32_at(record, 4) != crate::fire_template_quad_count(offset as u32)
+            }) {
+                return Err(invalid("fire template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += crate::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }
@@ -843,12 +860,6 @@ fn decode_biomes(
     Ok(result)
 }
 
-fn validate_hash(bytes: &[u8], payload: usize) -> Result<(), AssetError> {
-    if Sha256::digest(&bytes[..payload]).as_slice() != &bytes[payload..] {
-        return Err(invalid("compiled asset SHA-256 mismatch"));
-    }
-    Ok(())
-}
 fn texture_byte_length(layers: usize) -> Result<usize, AssetError> {
     let mut total = 0;
     for level in 0..MIP_COUNT {

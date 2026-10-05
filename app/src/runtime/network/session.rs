@@ -20,16 +20,30 @@ pub struct NetworkConfig {
     pub player_skin: crate::player_skin::LocalPlayerSkin,
     /// Rechecked against live artwork before presentation publication.
     pub actor_artwork: Option<render::ActorArtworkPages>,
+    /// The carrier catalog initial server UI resolves against on the worker.
+    pub ui_catalog: Option<std::sync::Arc<json_ui::Catalog>>,
 }
 
 /// A Bevy resource retaining the domain's exact command and event queues.
 #[derive(Resource, Deref, DerefMut)]
-pub struct NetworkHandle(client_session::NetworkHandle<PackApplication>);
+pub struct NetworkHandle(
+    #[deref] client_session::NetworkHandle<PackApplication>,
+    Option<PathBuf>,
+);
 
 impl NetworkHandle {
+    pub(crate) fn core_socket_dir(&self) -> Option<&std::path::Path> {
+        self.1.as_deref()
+    }
+
+    pub fn shutdown(&mut self) {
+        self.1 = None;
+        self.0.shutdown();
+    }
+
     /// Supplies an idle session until the launcher starts a join.
     pub(crate) fn disconnected() -> Self {
-        Self(client_session::NetworkHandle::disconnected())
+        Self(client_session::NetworkHandle::disconnected(), None)
     }
 
     /// Couples the gameplay outbox epoch to the session's socket-write cancellation fence.
@@ -41,14 +55,14 @@ impl NetworkHandle {
     #[cfg(test)]
     pub(crate) fn stub() -> (Self, tokio::sync::watch::Receiver<u64>) {
         let (handle, epoch) = client_session::NetworkHandle::stub();
-        (Self(handle), epoch)
+        (Self(handle, None), epoch)
     }
 
     /// Keeps a bounded test queue open until the caller drops its guard.
     #[cfg(test)]
     pub(crate) fn with_command_capacity(capacity: usize) -> (Self, Box<dyn std::any::Any>) {
         let (handle, guard) = client_session::NetworkHandle::with_command_capacity(capacity);
-        (Self(handle), guard)
+        (Self(handle, None), guard)
     }
 
     /// Lets an app adapter test publish terminal or bootstrap controls.
@@ -56,20 +70,22 @@ impl NetworkHandle {
     pub(crate) fn stub_with_control_sender()
     -> (Self, tokio::sync::mpsc::Sender<NetworkControlEvent>) {
         let (handle, sender) = client_session::NetworkHandle::stub_with_control_sender();
-        (Self(handle), sender)
+        (Self(handle, None), sender)
     }
 
     /// Captures outbound packets through the domain's production FIFO.
     #[cfg(test)]
     pub(crate) fn stub_capturing_packets() -> (Self, client_session::CapturedPackets) {
         let (handle, packets) = client_session::NetworkHandle::stub_capturing_packets();
-        (Self(handle), packets)
+        (Self(handle, None), packets)
     }
 }
 
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
 pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Error> {
+    let socket_dir = config.socket_dir.clone();
     let actor_artwork = config.actor_artwork;
+    let ui_catalog = config.ui_catalog;
     client_session::spawn_network(
         client_session::NetworkConfig {
             session_generation: config.session_generation,
@@ -77,12 +93,22 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             display_name: config.display_name,
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
+            resource_pack_store: super::resource_packs::compile_cache().map(|cache| {
+                std::sync::Arc::new(cache.clone())
+                    as std::sync::Arc<dyn protocol::ResourcePackStore>
+            }),
         },
-        move |preparation, game_data| {
-            let mut packs =
-                super::resource_packs::prepare_session_presentation(preparation, game_data)?;
-            packs.prepare_actor_artwork(actor_artwork.as_ref());
-            Ok(packs)
+        move |preparation, game_data, cancelled| {
+            let packs = super::resource_packs::prepare_session_presentation(
+                preparation,
+                game_data,
+                cancelled,
+            )?;
+            Some(packs.map(|mut packs| {
+                packs.prepare_actor_artwork(actor_artwork.as_ref());
+                packs.prepare_ui_catalog(ui_catalog.as_ref());
+                packs
+            }))
         },
         client_session::SessionTrace {
             movement_line: crate::movement::pending_trace_line,
@@ -91,7 +117,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
     )
-    .map(NetworkHandle)
+    .map(|handle| NetworkHandle(handle, Some(socket_dir)))
 }
 
 /// Attaches the acceptance-owned marker to the transport's serialized observation.

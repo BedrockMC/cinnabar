@@ -4,17 +4,16 @@ use super::input::field_editor;
 use super::*;
 
 impl MenuRuntime {
-    /// Creates a menu with the development install layout.
+    /// Creates a menu over the checkout's assets with private, empty user roots, so parallel test
+    /// processes never share saved settings, servers or accounts.
     #[cfg(test)]
     pub(crate) fn new(visible: bool, gui_scale: u8, display_name: String) -> Self {
         let player_skin = crate::player_skin::LocalPlayerSkin::generated_default(&display_name);
-        Self::new_with_layout(
-            visible,
-            Some(gui_scale),
-            display_name,
-            InstallLayout::discover().expect("test executable must have a development layout"),
-            player_skin,
-        )
+        let mut layout = crate::install_layout::checkout();
+        let user = crate::install_layout::scratch("menu");
+        layout.user_config_root = user.user_config_root;
+        layout.user_data_root = user.user_data_root;
+        Self::new_with_layout(visible, Some(gui_scale), display_name, layout, player_skin)
     }
 
     /// Loads launcher state and both settings authorities for this install.
@@ -44,7 +43,12 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices =
             settings_options::SettingsOptions::language_choices(&layout.resource_root);
-        let initial = MenuView::new(visible, display_name);
+        let mut initial = MenuView::new(visible, display_name);
+        if layout.auth_cache().is_file() {
+            let store = launcher::accounts::AccountStore::new(layout.auth_cache());
+            initial.feeds.accounts = store.list().unwrap_or_default();
+            initial.feeds.account_active_id = store.active_id().ok().flatten();
+        }
         Self {
             // The launcher owns the session lifecycle only when the client
             // started on the menu. `--address` keeps the historical behaviour
@@ -84,6 +88,7 @@ impl MenuRuntime {
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers,
             saves: ServerWriter::new(config_path.clone(), loaded.allow_writes),
@@ -113,6 +118,7 @@ impl MenuRuntime {
             control_auth: None,
             sign_in_page_code: None,
             sign_out_requested: false,
+            accounts: Default::default(),
             store_actions: Vec::new(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,
@@ -123,6 +129,8 @@ impl MenuRuntime {
             settings_dirty: false,
             settings_retry_at: None,
             settings_apply: true,
+            session_overrides: Vec::new(),
+            transient_toggles: false,
             language_choices,
             language_pending,
             language_asset_path,
@@ -167,5 +175,18 @@ mod tests {
             assert_eq!(actual.auth_state, initial.auth_state);
             assert_eq!(actual.catalog_loading, initial.catalog_loading);
         }
+    }
+
+    /// Parallel test processes must not see each other's saved settings.
+    #[test]
+    fn test_menus_never_share_saved_settings() {
+        let mut first = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let default = first.settings_options.value("field_of_view");
+        first.set_named_option("field_of_view", default + 1);
+        first.sync_user_settings(None);
+        assert!(!first.settings_dirty, "{:?}", first.message);
+
+        let second = MenuRuntime::new(true, 2, "Steve".to_owned());
+        assert_eq!(second.settings_options.value("field_of_view"), default);
     }
 }

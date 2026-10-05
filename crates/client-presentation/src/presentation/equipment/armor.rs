@@ -1,6 +1,6 @@
 //! Armor layers reuse the body's bone poses by bone name.
 
-use render::RenderBoneTransform;
+use render_model::RenderBoneTransform;
 
 /// Undyed leather colour (RGB); needs native measurement against the retail client.
 pub(super) const DEFAULT_LEATHER_RGB: u32 = 0x00a0_6540;
@@ -10,7 +10,7 @@ pub(super) fn hidden_bone() -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0; 4],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 

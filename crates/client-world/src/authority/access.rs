@@ -13,6 +13,14 @@ impl WorldAuthority {
     pub const fn air_block_id(&self) -> u32 {
         self.air_block_id
     }
+    /// Encodes a store identity for a block interaction in the current session.
+    pub fn block_network_id(&self, internal_id: u32) -> Option<u32> {
+        let wire = match self.network_id_mode {
+            NetworkIdMode::Sequential => self.id_remap.to_wire(internal_id),
+            NetworkIdMode::Hashed => internal_id,
+        };
+        (self.network_id_mode == NetworkIdMode::Hashed || wire != u32::MAX).then_some(wire)
+    }
     /// Reads the committed biome tint stream id.
     pub const fn biome_tint_stream_id(&self) -> u64 {
         self.biome_tint_stream_id
@@ -89,10 +97,15 @@ impl WorldAuthority {
     /// Retains the single wire-to-internal sequential palette mapping.
     pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
         eprintln!(
-            "SESSION_BLOCK_PALETTE session={} mode={:?} air={:#010x} visual_count={} block_registry_sha256={} custom_internal_ids={:?} sequential_id_remapped={}",
+            "SESSION_BLOCK_PALETTE session={} mode={:?} air={:#010x} wire_air={:#010x} visual_count={} block_registry_sha256={} custom_internal_ids={:?} sequential_id_remapped={}",
             self.actor_session_id,
             self.network_id_mode,
             self.air_block_id,
+            if self.network_id_mode == NetworkIdMode::Sequential {
+                remap.to_wire(self.air_block_id)
+            } else {
+                self.air_block_id
+            },
             self.runtime_assets.visual_count(),
             crate::ingestion::block_registry_sha256(&self.runtime_assets),
             self.custom_block_ids,

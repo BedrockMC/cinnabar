@@ -11,7 +11,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::ExtractResourcePlugin,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_resource::{
             AddressMode, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
             BlendComponent, BlendFactor, BlendOperation, BlendState, Buffer, BufferBindingType,
@@ -54,12 +54,20 @@ pub(crate) use overlay::{UiHandCoverage, UiOverlayLabel, UiWorldLabel, install_o
 use pipeline::UiPipelineKey;
 use shader::UiViewportUniform;
 
-use crate::ui::{
+use render_model::{
     MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_INVERT, UiRenderBatch, UiRenderInput,
     UiRenderRejectReason, UiRenderScene, UiRenderStats, UiRenderVertex,
 };
 #[cfg(test)]
-use crate::ui::{UiRenderReject, UiScissor};
+use render_model::{UiRenderReject, UiScissor};
+
+/// Main-world holder of the published [`UiRenderScene`], cloned into the render world.
+#[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+pub struct UiRenderSceneResource(pub UiRenderScene);
+
+/// The [`UiRenderStats`] handle both worlds share.
+#[derive(Resource, Clone, Debug, Default, Deref, DerefMut)]
+pub struct UiRenderStatsResource(pub UiRenderStats);
 
 const UI_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7cfb904c-c8cf-4dd2-9214-7d208ce454e7");
 
@@ -80,9 +88,9 @@ impl Plugin for UiRenderPlugin {
 struct UiRenderInstalled;
 
 fn install_ui_render(app: &mut App) {
-    app.init_resource::<UiRenderScene>()
+    app.init_resource::<UiRenderSceneResource>()
         .init_resource::<UiGlintSettings>()
-        .init_resource::<UiRenderStats>();
+        .init_resource::<UiRenderStatsResource>();
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };
@@ -90,9 +98,9 @@ fn install_ui_render(app: &mut App) {
         install_overlay_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
-    let stats = app.world().resource::<UiRenderStats>().clone();
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
     app.add_plugins((
-        ExtractResourcePlugin::<UiRenderScene>::default(),
+        ExtractResourcePlugin::<UiRenderSceneResource>::default(),
         ExtractResourcePlugin::<UiGlintSettings>::default(),
     ));
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
@@ -108,6 +116,7 @@ fn install_ui_render(app: &mut App) {
         .init_resource::<composite::UiCompositePipeline>()
         .insert_resource(stats)
         .init_resource::<UiHandCoverage>()
+        .init_resource::<composite::UiLayerStore>()
         .init_resource::<model_depth::UiModelDepths>()
         .add_systems(RenderStartup, init_ui_gpu)
         .add_systems(
@@ -141,6 +150,8 @@ pub(crate) struct UiGpu {
     linear_sampler: Sampler,
     batches: Arc<[UiRenderBatch]>,
     accepted_revision: Option<u64>,
+    /// The accepted revision draws glint, which animates without a new revision.
+    animated: bool,
     // Admission watermark survives every draw rejection, even after payload drop.
     last_admitted_revision: Option<u64>,
     last_admitted_publication: Weak<UiRenderInput>,
@@ -148,8 +159,8 @@ pub(crate) struct UiGpu {
     uploads: uploads::BufferUploads,
     view_pipelines:
         std::collections::BTreeMap<Entity, (CachedRenderPipelineId, CachedRenderPipelineId)>,
-    /// Each view's UI-layer composite pipeline.
-    composite_pipelines: std::collections::BTreeMap<Entity, CachedRenderPipelineId>,
+    /// Each view's UI-layer composite pipelines.
+    composite_pipelines: std::collections::BTreeMap<Entity, composite::CompositePipelines>,
     world_view_pipelines: std::collections::BTreeMap<
         (Entity, bool, bool),
         (CachedRenderPipelineId, CachedRenderPipelineId),
@@ -201,6 +212,7 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
         linear_sampler,
         batches: Arc::from([]),
         accepted_revision: None,
+        animated: false,
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
         index_count: 0,
@@ -213,11 +225,11 @@ fn init_ui_gpu(mut commands: Commands, render_device: Res<RenderDevice>, tick: S
 }
 
 pub(crate) fn prepare_ui_resources(
-    scene: Res<UiRenderScene>,
+    scene: Res<UiRenderSceneResource>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<UiGpu>,
-    stats: Res<UiRenderStats>,
+    stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
     (coverage, glint): (Option<Res<UiHandCoverage>>, Option<Res<UiGlintSettings>>),
 ) {
@@ -357,6 +369,10 @@ pub(crate) fn prepare_ui_resources(
     gpu.viewport_size = input.viewport_size;
 
     gpu.batches = Arc::clone(&input.batches);
+    gpu.animated = input
+        .vertices
+        .iter()
+        .any(|vertex| vertex.style_flags & render_model::UI_STYLE_GLINT != 0);
     gpu.index_count = input.indices.len();
     gpu.accepted_revision = Some(input.revision);
     gpu.last_admitted_revision = Some(input.revision);
@@ -470,6 +486,16 @@ pub(crate) fn ui_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(16),
+                },
+                count: None,
+            },
         ],
     )
 }
@@ -547,6 +573,11 @@ pub(crate) fn ui_pipeline_descriptor(
                         format: VertexFormat::Float32,
                         offset: std::mem::offset_of!(UiRenderVertex, model_light) as u64,
                         shader_location: 5,
+                    },
+                    VertexAttribute {
+                        format: VertexFormat::Float32x4,
+                        offset: std::mem::offset_of!(UiRenderVertex, overlay_color) as u64,
+                        shader_location: 6,
                     },
                 ],
             }],
@@ -690,7 +721,7 @@ impl UiRenderHarness {
     }
 
     #[must_use]
-    pub fn stats(&self) -> crate::ui::UiRenderStatsSnapshot {
+    pub fn stats(&self) -> render_model::UiRenderStatsSnapshot {
         self.stats.snapshot()
     }
 }

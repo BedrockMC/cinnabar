@@ -41,7 +41,7 @@ pub enum CorrectionShape {
 }
 
 /// Squared distance within which vanilla treats a correction's position and
-/// motion as already matching the retained frame (`getAdvanceFrameResult`).
+/// motion as already matching the retained frame.
 const CORRECTION_MATCH_EPSILON_SQUARED: f32 = 1.0e-5;
 
 impl LocalPhysicsController {
@@ -179,11 +179,11 @@ pub fn reconcile_prediction_correction(
 }
 
 /// Live-to-target distance under which vanilla rewinds a tick-stamped teleport
-/// `MovePlayer` (`_onPlayerMovePacketReceived`, 16.0 read from the 26.30 client).
+/// `MovePlayer`.
 const MOVE_PLAYER_REWIND_DISTANCE: f32 = 16.0;
 
 /// Enters one teleport-mode `MovePlayer`: a nearby, retained, unmounted tick
-/// replays from it with motion cleared as `MovePlayerInput` does; anything
+/// replays from it with motion cleared, as vanilla does; anything
 /// else resets history and snaps.
 pub fn reconcile_move_player_teleport(
     ticker: &mut MovementTicker,
@@ -223,7 +223,7 @@ pub struct PhysicsAnchor {
     pub network_position: [f32; 3],
     pub tick: u64,
     pub on_ground: bool,
-    /// Server StateVector motion; `None` keeps the retained velocity.
+    /// Server velocity; `None` keeps the retained velocity.
     pub velocity: Option<[f32; 3]>,
 }
 

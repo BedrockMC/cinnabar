@@ -4,7 +4,7 @@ use bevy::math::Quat;
 #[test]
 fn block_idle_keeps_centered_cube_geometry_and_native_camera_yaw() {
     let idle = block_pose(ItemAnimationState::default()).unwrap();
-    assert_eq!(idle.axis_scale, render::UNIT_AXIS_SCALE);
+    assert_eq!(idle.axis_scale, render_model::UNIT_AXIS_SCALE);
     assert!((idle.translation_scale[3] - FIRST_PERSON_ITEM_SCALE).abs() < 1e-6);
     let center = Vec3::from_array(idle.translation_scale[..3].try_into().unwrap());
     assert!(center.abs_diff_eq(CAMERA_ANCHOR, 1e-6));
@@ -29,7 +29,7 @@ fn sprite_idle_uses_a_camera_pose_not_the_third_person_grip() {
     let idle = sprite_pose(ItemAnimationState::default()).unwrap();
     // Native legacy icon scale: camera scale times default item scale. Not the grip scale.
     assert!((idle.translation_scale[3] - 0.6).abs() < 1e-6);
-    assert_eq!(idle.axis_scale, render::UNIT_AXIS_SCALE);
+    assert_eq!(idle.axis_scale, render_model::UNIT_AXIS_SCALE);
     assert!(idle.translation_scale[0] > 0.4);
     assert!(idle.translation_scale[1] < 0.0);
     assert!(idle.translation_scale[2] < -0.4);
@@ -106,7 +106,7 @@ fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
         // Read actual front/back vertices and UV-labelled texel corners from the
         // production mesh. Native front depth is 0; its back is 1 texel.
         let pixels = vec![255; usize::from(width) * usize::from(height) * 4];
-        let mesh = render::held_sprite_vertices(
+        let mesh = render_model::held_sprite_vertices(
             usize::from(width),
             usize::from(height),
             &pixels,

@@ -220,7 +220,7 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
         .textures
         .pages()
         .iter()
-        .map(render::UiTexturePage::identity)
+        .map(render_model::UiTexturePage::identity)
         .collect();
     for now in 1..6 {
         let frame = presentation
@@ -240,7 +240,7 @@ fn spirit_bundle_before_pack_has_stable_resident_pages_after_install() {
                 .textures
                 .pages()
                 .iter()
-                .map(render::UiTexturePage::identity)
+                .map(render_model::UiTexturePage::identity)
                 .collect::<Vec<_>>(),
             pages
         );

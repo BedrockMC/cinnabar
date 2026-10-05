@@ -69,12 +69,13 @@ pub(super) fn compiled_fixture(
     let bytes = encode_entity_blob(&entities).unwrap();
     let compiled = pack_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
     // The compiler binds every rig as a compiled pose; re-encode with the requested route.
-    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &bytes).unwrap();
+    let decoded = RuntimeEntityAssets::decode(&bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &decoded).unwrap();
     let mut bindings = catalog.bindings().to_vec();
     assert_eq!(bindings.len(), 1);
     bindings[0].pose_mode = pose_mode;
     let rest_bytes = assets::encode_actor_catalog(&bytes, catalog.textures(), &bindings).unwrap();
-    let catalog = RuntimeActorCatalog::decode(&rest_bytes, &bytes).unwrap();
+    let catalog = RuntimeActorCatalog::decode(&rest_bytes, &decoded).unwrap();
     (
         pack,
         ActorArtworkPages::new(&catalog),
@@ -146,7 +147,7 @@ fn inherited_rotated_rest_is_drawn_instead_of_animated_pose_and_survives_replace
         drawn.submission.input.current_bones
     );
     for (actual, expected) in drawn.submission.input.current_bones.iter().zip(&rest) {
-        let expected = render::RenderBoneTransform::from_model_space(
+        let expected = render_model::RenderBoneTransform::from_model_space(
             expected.rotation,
             expected.translation_scale,
         )
@@ -270,6 +271,7 @@ fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_o
                 teleported: true,
                 player_mode: None,
                 source_tick: Some(2),
+                interpolation: Default::default(),
             })),
         )
         .unwrap();

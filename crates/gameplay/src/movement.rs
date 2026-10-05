@@ -22,6 +22,7 @@ mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod respawn;
 mod speed_authority;
 mod state;
 mod teleport_ack;
@@ -392,7 +393,7 @@ impl MovementTicker {
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
-            // LocalPlayer::sendInput copies end-of-tick StateVector motion.
+            // Vanilla sends the end-of-tick velocity as the position delta.
             delta: sample.velocity,
             move_vector,
             analogue_move_vector,
@@ -918,4 +919,4 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameInput};
+pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};

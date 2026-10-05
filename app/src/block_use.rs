@@ -166,9 +166,12 @@ pub(crate) fn produce_block_use(
         return;
     }
     let duration = swing_duration(context.effects.mining_effects());
+    let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
+        return;
+    };
     let before_swing = swings.clone();
     let packets = use_packets(
-        &observed,
+        (&observed, block_network_id),
         sample.position,
         trigger,
         local_use,
@@ -187,7 +190,9 @@ pub(crate) fn produce_block_use(
             .audio_cues
             .write(crate::audio::LocalBlockCue::Place {
                 position,
-                block_runtime_id: observed.selection.item.block_runtime_id(),
+                block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
+                    observed.selection.item.block_runtime_id().to_ne_bytes(),
+                )) as i32,
             });
     }
     // Vanilla places locally as it sends; a correction replaces the prediction.

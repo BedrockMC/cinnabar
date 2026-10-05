@@ -24,8 +24,6 @@ use crate::{
     runtime::endpoint::bridge_endpoint_exists, session_cleanup::SessionDirectoryGuard,
 };
 
-/// Session generation reserved for the launcher core's directory; sessions start at 1.
-const LAUNCHER_GENERATION: u64 = 0;
 /// How long a join waits for the core to answer `connect.v1`.
 const SELECT_TIMEOUT: Duration = Duration::from_secs(3);
 const DEFAULT_PORT: u16 = 19132;
@@ -51,15 +49,39 @@ pub(crate) struct LauncherCoreSlot {
     core: Option<LauncherCore>,
     /// Sign-in mode whose spawn failed; retried only once the mode changes.
     failed: Option<bool>,
+    retiring: Option<crossbeam_channel::Receiver<()>>,
 }
 
 struct LauncherCore {
-    _guard: CoreProcessGuard, // declared first: the core stops before its directory goes
+    _guard: CoreProcessGuard,
     _directory: SessionDirectoryGuard,
     socket_dir: PathBuf,
     authenticated: bool,
+    auth_cache: Option<PathBuf>,
     /// Account and local-world clients are attached once the game socket is up.
     attached: bool,
+}
+
+impl Drop for LauncherCore {
+    fn drop(&mut self) {
+        let stopped = self._guard.stop();
+        #[cfg(unix)]
+        if stopped != super::core_process::CoreStopOutcome::Unreaped {
+            // Long Unix socket paths live outside the owned session directory.
+            for endpoint in [
+                protocol::bridge_endpoint_path(&self.socket_dir),
+                launcher_control::control_endpoint_path(&self.socket_dir),
+            ] {
+                if let Err(error) = std::fs::remove_file(&endpoint)
+                    && error.kind() != std::io::ErrorKind::NotFound
+                {
+                    bevy::log::warn!("remove core endpoint {}: {error}", endpoint.display());
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = stopped;
+    }
 }
 
 impl LauncherCoreSlot {
@@ -73,6 +95,15 @@ impl LauncherCoreSlot {
         upstream_client_cache: bool,
         mut worlds: Option<&mut LocalWorlds>,
     ) {
+        if let Some(retiring) = &self.retiring {
+            if matches!(
+                retiring.try_recv(),
+                Err(crossbeam_channel::TryRecvError::Empty)
+            ) {
+                return;
+            }
+            self.retiring = None;
+        }
         if self.core.as_mut().is_some_and(|core| core._guard.exited()) {
             bevy::log::warn!("launcher core exited; reconnecting its control clients when idle");
             self.retire(commands, menu, worlds.as_deref_mut());
@@ -81,11 +112,65 @@ impl LauncherCoreSlot {
         if self.core.is_none() && std::mem::take(&mut menu.feeds.profile_refresh_requested) {
             self.failed = None;
         }
+        if idle
+            && menu.accounts.operation.is_some()
+            && menu.accounts.remember.is_none()
+            && menu
+                .auth_process
+                .as_ref()
+                .is_none_or(|p| p.cleanup_complete())
+        {
+            let job = menu.account_operation_job();
+            if let Some(mut old) = self.core.take() {
+                commands.remove_resource::<LauncherAccount>();
+                if let Some(worlds) = worlds.as_deref_mut() {
+                    worlds.detach();
+                }
+                menu.control_auth = None;
+                menu.accounts.skip_control = true;
+                let mut guard = std::mem::take(&mut old._guard);
+                guard.stop_detached(move || {
+                    drop(old);
+                    job();
+                });
+            } else {
+                let _ = std::thread::Builder::new()
+                    .name("account-switch".into())
+                    .spawn(job);
+            }
+            self.failed = None;
+            return;
+        }
+        if menu.accounts.work.is_some() {
+            return;
+        }
         if idle && !menu.sign_in_in_flight() {
             let auth_cache = menu.launcher_auth_cache();
             let wanted = auth_cache.is_some();
             let current = self.core.as_ref().map(|core| core.authenticated);
-            if current != Some(wanted) && self.failed != Some(wanted) {
+            let path_changed = self
+                .core
+                .as_ref()
+                .is_some_and(|core| core.auth_cache != auth_cache);
+            if path_changed && self.core.is_some() && menu.accounts.pending_ready {
+                let mut old = self.core.take().expect("account core");
+                commands.remove_resource::<LauncherAccount>();
+                if let Some(worlds) = worlds.as_deref_mut() {
+                    worlds.detach();
+                }
+                menu.control_auth = None;
+                menu.accounts.skip_control = true;
+                menu.feeds.profile = Default::default();
+                let (done, retired) = crossbeam_channel::bounded(1);
+                self.retiring = Some(retired);
+                let mut guard = std::mem::take(&mut old._guard);
+                guard.stop_detached(move || {
+                    drop(old);
+                    let _ = done.send(());
+                });
+                return;
+            }
+            if (current != Some(wanted) || path_changed) && self.failed != Some(wanted) {
                 self.retire(commands, menu, worlds.as_deref_mut());
                 match LauncherCore::spawn(
                     &menu.layout,
@@ -131,6 +216,8 @@ impl LauncherCoreSlot {
                 worlds.detach();
             }
             menu.control_auth = None;
+            menu.accounts.skip_control = true;
+            menu.feeds.profile = Default::default();
         }
     }
 
@@ -172,7 +259,7 @@ impl LauncherCore {
     ) -> Result<Self> {
         let executable =
             core_executable(layout).ok_or_else(|| anyhow!("bedrock-core executable not found"))?;
-        let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
+        let socket_dir = next_account_socket_dir(layout);
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
@@ -193,9 +280,16 @@ impl LauncherCore {
             _directory: directory,
             socket_dir,
             authenticated: auth_cache.is_some(),
+            auth_cache: auth_cache.map(Path::to_path_buf),
             attached: false,
         })
     }
+}
+
+fn next_account_socket_dir(layout: &InstallLayout) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    layout.account_socket_dir(std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Waits for the core and selects `target`; blocks, so it runs on the join worker.
@@ -317,6 +411,11 @@ pub(super) fn target_for(address: &str) -> ConnectTarget {
 impl MenuRuntime {
     /// The validated sign-in's auth cache, for the launcher core and joins.
     pub(crate) fn launcher_auth_cache(&self) -> Option<PathBuf> {
+        if self.feeds.account_adding && self.accounts.pending_ready {
+            return Some(
+                launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache(),
+            );
+        }
         account::validated_auth_cache(
             &self.layout,
             self.auth_process.as_ref().map(AuthSupervisor::state),
@@ -341,7 +440,7 @@ mod tests {
     #[test]
     fn direct_startup_local_world_uses_its_owning_core_after_save_and_quit() {
         let layout = crate::install_layout::scratch("direct-local-world-routing");
-        let socket_dir = layout.connect_socket_dir(std::process::id(), LAUNCHER_GENERATION);
+        let socket_dir = layout.account_socket_dir(std::process::id(), 0);
         let directory = SessionDirectoryGuard::bind(socket_dir.clone()).unwrap();
         // Readiness only: no game connection or server process is needed to select the route.
         std::fs::write(
@@ -355,9 +454,11 @@ mod tests {
                 _directory: directory,
                 socket_dir: socket_dir.clone(),
                 authenticated: false,
+                auth_cache: None,
                 attached: true,
             }),
             failed: None,
+            retiring: None,
         };
         let mut menu = MenuRuntime::new_with_layout(
             false,

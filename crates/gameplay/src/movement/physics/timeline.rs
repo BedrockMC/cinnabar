@@ -48,7 +48,7 @@ impl LocalPhysicsController {
     /// Zero-stamped motion only replaces live velocity; it is not replay input.
     /// Stamped motion replaces velocity before the tick after its stamp.
     /// Live ticks replace velocity now; stale ticks clamp to the oldest retained
-    /// frame as `ReplayStateComponent::applyFrameCorrection` does. Non-finite
+    /// frame as vanilla's frame correction does. Non-finite
     /// motion is ignored; when inactive there is no timeline to enter.
     pub fn queue_server_motion(&mut self, motion: [f32; 3], tick: u64) -> Option<u64> {
         if !motion.into_iter().all(f32::is_finite) {
@@ -157,7 +157,7 @@ impl LocalPhysicsController {
     ///
     /// A retained tick rewrites only the client's unchanged run after it, so a
     /// later client transition still wins; stale ticks clamp to the oldest
-    /// frame as `applyFrameCorrection` does. Modes are only ended, never
+    /// frame as vanilla's frame correction does. Modes are only ended, never
     /// started: entry needs environment predicates the flag does not carry.
     pub fn apply_server_movement_flags(
         &mut self,

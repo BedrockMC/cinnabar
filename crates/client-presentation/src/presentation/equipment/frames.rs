@@ -8,7 +8,8 @@ use bevy::math::{Mat4, Vec3, Vec4};
 use chunk_pipeline::WorldStream;
 use client_world::LocalPlayerFeed;
 use protocol::{PlayerSkin, WorldBootstrap};
-use render::{ActorRigFrameBuilder, ActorRigVertex, RenderBoneTransform};
+use render::ActorRigFrameBuilder;
+use render_model::{ActorRigVertex, RenderBoneTransform};
 
 use super::display::{
     FirstPersonHand, FirstPersonShape, attach_to_bone, first_person_display, held_block_display,
@@ -337,7 +338,7 @@ fn render_first_person_held_item_frames() {
                 let Some(icon) = Image::load(&samples.join(path)) else {
                     return;
                 };
-                let vertices = render::held_sprite_vertices(
+                let vertices = render_model::held_sprite_vertices(
                     icon.width,
                     icon.height,
                     &icon.rgba8,
@@ -374,8 +375,9 @@ fn render_first_person_held_item_frames() {
                     height: 32,
                     rgba8: sheet,
                 };
-                let vertices =
-                    render::textured_cube_vertices(super::blocks::face_rects([0.0, 0.0, 1.0, 1.0]));
+                let vertices = render_model::textured_cube_vertices(super::blocks::face_rects([
+                    0.0, 0.0, 1.0, 1.0,
+                ]));
                 let display = if third {
                     held_block_display()
                 } else {

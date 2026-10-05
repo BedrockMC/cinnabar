@@ -24,7 +24,7 @@ pub const BLOCK_VISUAL_VARIANT_SEASONAL_LEAF: u32 = 1 << 28;
 pub const SEASONAL_LEAF_EXPOSED_OFFSET: u32 = crate::BlockFace::ALL.len() as u32;
 pub const SEASONAL_LEAF_DEEP_OFFSET: u32 = SEASONAL_LEAF_EXPOSED_OFFSET * 2;
 pub const SEASONAL_LEAF_MATERIAL_COUNT: u32 = SEASONAL_LEAF_DEEP_OFFSET * 2;
-/// SeasonsAgnosticLeaves uses the same cutout/deep group layout, without a
+/// Season-agnostic leaves use the same cutout/deep group layout, without a
 /// seasonal colour selector. Its carried face table is unchanged.
 pub const BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF: u32 = 1 << 27;
 pub const BLOCK_VISUAL_VARIANT_MATERIAL_MASK: u32 = crate::MAX_MATERIALS as u32 - 1;
@@ -93,6 +93,22 @@ pub const MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE: u32 = 1 << 9;
 pub const MODEL_TEMPLATE_FLAG_SNOW_LAYER: u32 = 1 << 10;
 /// Native lily-pad planes use positional quarter turns and own-cell flat light.
 pub const MODEL_TEMPLATE_FLAG_LILY_PAD: u32 = 1 << 11;
+/// Template belongs to the supported/attached native fire topology group.
+pub const MODEL_TEMPLATE_FLAG_FIRE: u32 = 1 << 12;
+/// Nether portal cuboids; legacy unknown-axis visuals select between a Z/X pair.
+pub const MODEL_TEMPLATE_FLAG_NETHER_PORTAL: u32 = 1 << 13;
+/// Neighbor-selected portal axis. The low two model-transform bits stay zero.
+pub const BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN: u32 = 1 << 2;
+pub const NETHER_PORTAL_IDENTIFIER: &str = "minecraft:portal";
+
+/// The End portal surface is drawn by the block-entity renderer.
+pub const END_PORTAL_IDENTIFIER: &str = "minecraft:end_portal";
+
+/// The End gateway uses the same animated surface family.
+pub const END_GATEWAY_IDENTIFIER: &str = "minecraft:end_gateway";
+
+/// End portal frame state identity shared by compilation and presentation.
+pub const END_PORTAL_FRAME_IDENTIFIER: &str = "minecraft:end_portal_frame";
 
 pub(crate) fn transparent_cube_quad_geometry_is_valid(
     index: usize,
@@ -124,6 +140,8 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
             | MODEL_TEMPLATE_FLAG_SNOW_LAYER
             | MODEL_TEMPLATE_FLAG_LILY_PAD
+            | MODEL_TEMPLATE_FLAG_FIRE
+            | MODEL_TEMPLATE_FLAG_NETHER_PORTAL
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

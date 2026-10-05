@@ -162,8 +162,6 @@ func Write(ctx context.Context, path string, account *authcache.Account) error {
 	return nil
 }
 
-const maxArtworkBytes = 8 * 1024 * 1024
-
 func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) string {
 	for _, game := range games {
 		if game.ImageTag == "" {
@@ -213,7 +211,7 @@ func artworkCache(directory string) *imagecache.Cache {
 
 // artworkPolicy keeps catalog paths and download limits stable across both catalog entry points.
 var artworkPolicy = imagecache.Config{
-	MaxBytes: maxArtworkBytes, MaxFiles: maxCachedArtwork,
+	MaxBytes: int64(maxArtworkBytes), MaxFiles: maxCachedArtwork,
 	Timeout: 8 * time.Second, MaxRedirects: 9,
 	UserAgent: "Cinnabar/1.0", Extension: ".img",
 }

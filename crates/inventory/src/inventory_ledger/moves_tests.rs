@@ -219,3 +219,55 @@ fn world_drop_works_without_an_open_window() {
     ledger.begin_world_drop(2, Some(1)).unwrap();
     assert_eq!(ledger.displayed_stack(2).unwrap().count, 2);
 }
+
+#[test]
+fn world_drop_feedback_is_once_per_admitted_gesture_not_per_item() {
+    let mut ledger = known_ledger(&[(2, stack(8, 100, 3))]);
+    ledger.begin_world_drop(2, Some(1)).unwrap();
+    ledger.begin_world_drop(2, None).unwrap();
+    assert_eq!(ledger.take_world_drops(), 2);
+    assert_eq!(ledger.take_world_drops(), 0);
+    assert!(ledger.mark_transport_enqueued(10));
+    assert_eq!(ledger.take_world_drops(), 0);
+}
+
+#[test]
+fn failed_world_drops_do_not_emit_feedback() {
+    let mut ledger = known_ledger(&[(2, stack(8, 100, 3))]);
+    for (slot, amount) in [(1, Some(1)), (2, Some(0)), (2, Some(4)), (36, None)] {
+        assert!(ledger.begin_world_drop(slot, amount).is_err());
+        assert_eq!(ledger.take_world_drops(), 0);
+    }
+    ledger.begin_world_drop(2, Some(1)).unwrap();
+    ledger.begin_session(2);
+    assert_eq!(ledger.take_world_drops(), 0);
+}
+
+#[test]
+fn screen_drops_do_not_emit_world_drop_feedback() {
+    let mut ledger = open_ledger(&[(2, stack(8, 100, 3))]);
+    ledger
+        .begin_drop(DropSource::Target(InventoryTarget::Player(2)), Some(1))
+        .unwrap();
+    assert_eq!(ledger.take_world_drops(), 0);
+}
+
+#[test]
+fn server_rejection_does_not_repeat_world_drop_feedback() {
+    let original = stack(8, 100, 3);
+    let mut ledger = known_ledger(&[(2, original.clone())]);
+    let request = ledger.begin_world_drop(2, Some(1)).unwrap();
+    assert_eq!(ledger.take_world_drops(), 1);
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                status: protocol::StackResponseStatus::Rejected,
+                request_id: request,
+                containers: Arc::from([]),
+            }]),
+        },
+    ));
+    assert_eq!(ledger.displayed_stack(2), Some(&original));
+    assert_eq!(ledger.take_world_drops(), 0);
+}

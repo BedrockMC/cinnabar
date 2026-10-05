@@ -81,10 +81,10 @@ fn int_pair(control: &ResolvedControl, key: &str) -> Option<[f64; 2]> {
     Some([int(pair.first()), int(pair.get(1))])
 }
 
-/// `maximum_grid_items`, a bound `#maximum_grid_items` winning; only an integer
-/// counts, else zero.
+/// The evaluated component capacity wins over its source property bag.
+/// A bag-only tree falls back to `#maximum_grid_items`; only integers count.
 pub(crate) fn maximum_items(control: &ResolvedControl) -> usize {
-    ["#maximum_grid_items", "maximum_grid_items"]
+    ["maximum_grid_items", "#maximum_grid_items"]
         .iter()
         .find_map(|key| control.properties.get(*key))
         .and_then(int)

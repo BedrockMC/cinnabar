@@ -1,4 +1,5 @@
-use render::{VisibilityDiagnosticSnapshot, VisibilityDiagnosticsInput};
+use render::VisibilityDiagnosticsInput;
+use render_model::VisibilityDiagnosticSnapshot;
 
 /// Excludes a retained startup witness after normal play stops collecting visibility evidence.
 pub(super) fn active_snapshot(

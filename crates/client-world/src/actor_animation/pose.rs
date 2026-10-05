@@ -2,8 +2,8 @@ use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
 use super::{tick::WeightedClip, *};
 
-// ModelPart loader uses 24, then the model
-// constructor negates native Y into BoneOrientation default position.
+// Vanilla bone loading uses a 24-pixel Y origin, then negates Y for the
+// bone's default position.
 pub const MODEL_PART_ORIGIN_Y: f32 = assets::gui_item::SHIELD_MODEL_PART_HEIGHT;
 
 #[derive(Clone, Copy)]
@@ -92,8 +92,8 @@ pub(super) fn sample_clips(
             // Native blending retains the greatest frame setting across active clips.
             bone.rotation_relative_to_entity |= channel.rotation_relative_to_entity;
             let current = bone.property(channel.property);
-            // `this` reads BoneOrientation, not an animation-only delta. ModelPart's
-            // defaults are copied into that orientation before channels add their values.
+            // `this` reads the bone orientation, not an animation-only delta. The
+            // bone's defaults are copied into that orientation before channels add their values.
             let defaults = default_channel(bones, channel.bone as usize, channel.property)
                 .ok_or(EvalError::Invalid)?;
             let this = std::array::from_fn(|axis| match channel.property {
@@ -135,9 +135,9 @@ fn default_channel(
         EntityAnimationProperty::Rotation => bone.rotation,
         EntityAnimationProperty::Scale => [1.0; 3],
         EntityAnimationProperty::Translation => {
-            // ModelPart uses an authored X/Z frame and a 24-pixel Y origin. A
+            // Bones use an authored X/Z frame and a 24-pixel Y origin. A
             // parented part stores a relative pivot; only roots retain that origin.
-            // BoneOrientation negates ModelPart's Y before exposing it to Molang.
+            // Vanilla negates that Y before exposing it to Molang.
             let origin = match bone.parent {
                 Some(parent) => bones.get(parent)?.pivot,
                 None => [0.0, MODEL_PART_ORIGIN_Y, 0.0],
@@ -282,7 +282,7 @@ fn compose_bone(
     }
     let bone = bones.get(index)?;
     let delta = local.get(index).copied().unwrap_or_default();
-    // Owner-name binding clears defaults; an explicit expression keeps ModelPart defaults.
+    // Owner-name binding clears defaults; an explicit expression keeps bone defaults.
     // Keep the authored pivot unchanged: child offsets and mesh bind coordinates still use it.
     let (root_pivot, root_rotation) = match bone.attachable_root {
         AttachableRootFrame::Actor => (bone.pivot, bone.rotation),

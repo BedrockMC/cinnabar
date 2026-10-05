@@ -4,8 +4,8 @@ struct UiViewport {
     glint_strength: f32,
 };
 
-// Vertex style bits (`ui::UI_STYLE_GLINT`, `UI_STYLE_GRAYSCALE`, `UI_STYLE_BILINEAR`).
-const STYLE_GLINT: u32 = 2u;
+// Vertex style bits (the UI crate's glint, grayscale and bilinear flags).
+const STYLE_GLINT: u32 = UI_STYLE_GLINT;
 const STYLE_GRAYSCALE: u32 = 4u;
 const STYLE_BILINEAR: u32 = 8u;
 // Injected from the renderer's single Rust style-bit definition.
@@ -15,6 +15,8 @@ const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
 @group(0) @binding(2) var ui_sampler: sampler;
 @group(0) @binding(3) var ui_linear_sampler: sampler;
+// x is 1 when the bucket stores one coverage byte per texel of a white page.
+@group(0) @binding(4) var<uniform> ui_page_format: vec4<u32>;
 
 struct UiVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -24,6 +26,7 @@ struct UiVertexOutput {
     @location(3) @interpolate(flat) style_flags: u32,
     @location(4) @interpolate(flat) alpha_cutoff: f32,
     @location(5) model_light: f32,
+    @location(6) overlay_color: vec4<f32>,
 };
 
 @vertex
@@ -34,6 +37,7 @@ fn ui_vertex(
     @location(3) style_flags: u32,
     @location(4) alpha_cutoff: f32,
     @location(5) model_light: f32,
+    @location(6) overlay_color: vec4<f32>,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
     let ndc = vec2<f32>(
@@ -50,6 +54,7 @@ fn ui_vertex(
     output.style_flags = style_flags;
     output.alpha_cutoff = alpha_cutoff;
     output.model_light = model_light;
+    output.overlay_color = overlay_color;
     return output;
 }
 
@@ -86,6 +91,9 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
     } else {
         sample = textureSampleLevel(ui_pages, ui_sampler, normalized_uv, i32(input.texture_page), 0.0);
     }
+    if ui_page_format.x != 0u {
+        sample = vec4<f32>(1.0, 1.0, 1.0, sample.r);
+    }
     if (input.style_flags & STYLE_GRAYSCALE) != 0u {
         // Provisional luma weights (Rec. 601); the retail material is not inspected.
         sample = vec4<f32>(vec3<f32>(dot(sample.rgb, vec3<f32>(0.299, 0.587, 0.114))), sample.a);
@@ -97,12 +105,17 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         discard;
     }
     var straight_color = input.color;
+    // Mix the render-controller overlay into sampled RGB before lighting.
+    // Sampled and node alpha remain unchanged.
+    var model_rgb = mix(sample.rgb * straight_color.rgb, input.overlay_color.rgb, input.overlay_color.a);
     if direct {
         sample = vec4<f32>(srgb_to_linear(sample.rgb), sample.a);
         straight_color = vec4<f32>(srgb_to_linear(straight_color.rgb), straight_color.a);
+        model_rgb = mix(sample.rgb * straight_color.rgb,
+            srgb_to_linear(input.overlay_color.rgb), input.overlay_color.a);
     }
     let alpha = sample.a * straight_color.a;
-    var premultiplied_rgb = sample.rgb * sample.a * straight_color.rgb * straight_color.a * input.model_light;
+    var premultiplied_rgb = model_rgb * sample.a * straight_color.a * input.model_light;
     if (input.style_flags & STYLE_GLINT) != 0u {
         // Vanilla scales glint RGB without changing alpha.
         premultiplied_rgb += glint(input.clip_position.xy) * viewport.glint_strength * alpha;

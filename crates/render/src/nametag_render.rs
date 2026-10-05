@@ -12,7 +12,7 @@ use bevy::{
     prelude::*,
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
-        extract_resource::ExtractResourcePlugin,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_phase::{
             AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
@@ -34,10 +34,14 @@ use bevy::{
     },
 };
 
-use crate::nametag::{
+use render_model::{
     MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,
     NametagRecord, NametagScene,
 };
+
+/// Main-world holder of this frame's [`NametagScene`], cloned into the render world.
+#[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+pub struct NametagSceneResource(pub NametagScene);
 
 const NAMETAG_SHADER_HANDLE: Handle<Shader> = uuid_handle!("5d1f0c8e-2a47-4b93-9e6c-1f7a3b8d4c20");
 const RECORD_BYTES: usize = std::mem::size_of::<NametagRecord>();
@@ -79,8 +83,8 @@ fn phase_batch_range(index: usize) -> Range<u32> {
 }
 
 pub(crate) fn install_nametag_render(app: &mut App) {
-    app.init_resource::<NametagScene>()
-        .add_plugins(ExtractResourcePlugin::<NametagScene>::default());
+    app.init_resource::<NametagSceneResource>()
+        .add_plugins(ExtractResourcePlugin::<NametagSceneResource>::default());
     load_internal_asset!(
         app,
         NAMETAG_SHADER_HANDLE,
@@ -162,7 +166,7 @@ fn init_nametag_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 }
 
 fn prepare_nametags(
-    scene: Res<NametagScene>,
+    scene: Res<NametagSceneResource>,
     render_queue: Res<RenderQueue>,
     mut gpu: ResMut<NametagGpu>,
 ) {
@@ -481,7 +485,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawNametagRange {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nametag::{NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_BLOCKS_PER_FONT_PIXEL};
+    use render_model::{NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_BLOCKS_PER_FONT_PIXEL};
 
     // Storage layout and native geometry, with no invented glyph-to-plate separation.
     #[test]

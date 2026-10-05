@@ -19,6 +19,7 @@ impl SettingsOptions {
         settings.video.damage_bob = self.value("damage_bob") as f32 / 100.0;
         settings.video.frame_cap =
             (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
+        settings.video.vsync = self.value("vsync") != 0;
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
         settings.video.outline_selection = self.value("classic_box_selection") != 0;
@@ -26,6 +27,7 @@ impl SettingsOptions {
         settings.controls.mouse_sensitivity =
             (self.value("keyboard_mouse_sensitivity") as f32 / 50.0).max(0.01);
         settings.controls.invert_mouse_y = self.value("keyboard_mouse_invert_y_axis") != 0;
+        settings.gameplay.always_sprint = self.value("always_sprint") != 0;
         settings.gameplay.default_perspective = match self.value("third_person") {
             1 => PerspectiveMode::ThirdPersonBack,
             2 => PerspectiveMode::ThirdPersonFront,

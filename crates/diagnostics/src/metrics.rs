@@ -367,8 +367,8 @@ pub struct TransparentSortMetricsSnapshot {
     pub transparent_water_distinct_tint_count: usize,
 }
 
-impl From<render::TransparentSortMetricsSnapshot> for TransparentSortMetricsSnapshot {
-    fn from(snapshot: render::TransparentSortMetricsSnapshot) -> Self {
+impl From<render_model::TransparentSortMetricsSnapshot> for TransparentSortMetricsSnapshot {
+    fn from(snapshot: render_model::TransparentSortMetricsSnapshot) -> Self {
         Self {
             request_generation: snapshot.request_generation,
             result_generation: snapshot.result_generation,
@@ -395,8 +395,8 @@ pub struct ModelWorkloadCountSnapshot {
     pub legacy_fixed_slot_quad_invocations_avoided: usize,
 }
 
-impl From<render::ModelWorkloadCount> for ModelWorkloadCountSnapshot {
-    fn from(snapshot: render::ModelWorkloadCount) -> Self {
+impl From<render_model::ModelWorkloadCount> for ModelWorkloadCountSnapshot {
+    fn from(snapshot: render_model::ModelWorkloadCount) -> Self {
         Self {
             model_ref_count: snapshot.model_ref_count,
             model_draw_ref_count: snapshot.model_draw_ref_count,
@@ -412,8 +412,8 @@ pub struct ModelWorkloadMetricsSnapshot {
     pub visible: ModelWorkloadCountSnapshot,
 }
 
-impl From<render::ModelWorkloadMetricsSnapshot> for ModelWorkloadMetricsSnapshot {
-    fn from(snapshot: render::ModelWorkloadMetricsSnapshot) -> Self {
+impl From<render_model::ModelWorkloadMetricsSnapshot> for ModelWorkloadMetricsSnapshot {
+    fn from(snapshot: render_model::ModelWorkloadMetricsSnapshot) -> Self {
         Self {
             resident: snapshot.resident.into(),
             visible: snapshot.visible.into(),

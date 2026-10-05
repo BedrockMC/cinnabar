@@ -147,7 +147,7 @@ const CHAT_DURATIONS: &[SettingChoice] = &[
 ];
 
 // Defaults retained from the existing desktop host are provisional until the
-// current OptionRegistry values are recovered; see plan.md.
+// current vanilla option defaults are confirmed; see plan.md.
 pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     dropdown(
         "content_log_gui_level",
@@ -215,6 +215,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         render_api::PHASE0_MAX_VIEW_RADIUS_CHUNKS,
     ),
     slider("max_framerate", "options.framerateLimit", 0, 240, 0),
+    // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
+    toggle("vsync", "options.vsync", true),
     slider("field_of_view", "options.fov", 30, 110, 60),
     slider("gamma", "options.gamma", 0, 100, 50),
     slider("interface_opacity", "options.hudOpacity", 0, 100, 100),
@@ -460,4 +462,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     slider("chat_font_size", "chat.settings.fontSize", 5, 20, 10),
     slider("chat_line_spacing", "chat.settings.lineSpacing", 0, 100, 0),
+    toggle("always_sprint", "Always Sprint", false),
 ];

@@ -9,10 +9,9 @@ deviation). A dev-only mode can load the install's originals for comparison (bel
 
 ## Which screens are OreUI by default (26.30)
 
-The client picks a tech stack per screen (`ScreenTechStackSelector::getTechStackForScreen`): a
-non-zero dev override wins (1 OreUI, 2 JSON-UI), then a preference option, then the screen's
-`isSelected() && isSupported()`. Treatment toggles are true only when the service's treatment list
-names them, so they default off. The local install's `routes.json` lists screen routes.
+The client picks a tech stack per screen: a non-zero dev override wins (1 OreUI, 2 JSON-UI),
+then a preference option, then OreUI only when the screen's OreUI version is both selected
+and supported. Treatment toggles are true only when the service's treatment list names them, so they default off. The local install's `routes.json` lists screen routes.
 
 | Screen | Route | Default | Cinnabar |
 | --- | --- | --- | --- |

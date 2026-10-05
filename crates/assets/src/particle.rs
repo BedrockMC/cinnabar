@@ -18,6 +18,8 @@ pub const MAX_PARTICLE_KEY_BYTES: usize = 256;
 pub const MAX_PARTICLE_TEXTURE_SIDE: u32 = 1024;
 pub const MAX_PARTICLE_EFFECT_BYTES: usize = 512 * 1024;
 pub const MAX_PARTICLE_CARRIER_BYTES: usize = 32 * 1024 * 1024;
+/// Native actor flame rendering samples this vertically stacked square-frame texture.
+pub const ACTOR_FLAME_TEXTURE: &str = "textures/flame_atlas";
 
 const HEADER_BYTES: usize = 72;
 const HASH_BYTES: usize = 32;

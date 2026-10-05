@@ -1,7 +1,7 @@
 //! Acknowledges local MovePlayer teleports on the next transmitted input.
 //!
-//! Vanilla Player::handleMovePlayerPacket, mode 2,
-//! sets the action that setFromComponent maps to HandledTeleport.
+//! Vanilla answers a MovePlayer teleport (mode 2) by setting the HandledTeleport
+//! input flag.
 //! Correction-snap and respawn routes remain provisional and require the
 //! opt-in marker the configured teleport-ack marker with value exactly `1`.
 //!

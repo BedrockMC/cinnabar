@@ -17,6 +17,8 @@ mod crafting_tests;
 mod distribute;
 #[cfg(test)]
 mod fixed_window_tests;
+#[cfg(test)]
+mod generic_storage_tests;
 mod gesture;
 #[cfg(test)]
 mod gesture_tests;
@@ -36,6 +38,8 @@ mod personal;
 mod queue;
 mod quick_move;
 mod registry;
+#[cfg(test)]
+mod request_tests;
 mod response;
 mod revisions;
 mod screen_actions;
@@ -181,7 +185,7 @@ pub enum InventoryGestureError {
 #[derive(Debug, Clone)]
 pub struct PlayerInventoryLedger {
     authority: Option<InventoryAuthority>,
-    /// Server truth only; predictions never write here.
+    /// Server truth; gesture predictions never write here, only throws that empty a slot.
     confirmed: Cells,
     /// Backing truth covered by active absolute sparse cells; `None` while idle.
     view: Option<Cells>,
@@ -194,6 +198,7 @@ pub struct PlayerInventoryLedger {
     /// Bundle contents by dynamic container id.
     bundles: BTreeMap<u32, Vec<NetworkItemStack>>,
     queue: VecDeque<PendingRequest>,
+    pending_world_drops: usize,
     next_request_id: i32,
     session_generation: u64,
     next_open_generation: u64,
@@ -226,6 +231,7 @@ impl Default for PlayerInventoryLedger {
             enchant_options: None,
             bundles: BTreeMap::new(),
             queue: VecDeque::new(),
+            pending_world_drops: 0,
             next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,

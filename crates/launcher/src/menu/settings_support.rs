@@ -22,7 +22,7 @@ pub enum SupportAction {
 }
 
 impl SupportLink {
-    /// Fixed destinations from general_section.json and AppPlatform::getFeedbackHelpLink.
+    /// Fixed destinations from general_section.json and vanilla's feedback link.
     pub fn url(self) -> &'static str {
         match self {
             Self::Help => "https://aka.ms/MCHelp",
@@ -34,11 +34,7 @@ impl SupportLink {
     }
 }
 
-/// The open fonts' actual shipped licenses, rather than vanilla's different font license.
+/// Attribution shown for the font bundled with the client.
 pub fn font_licenses() -> String {
-    [
-        include_str!("../../../../assets/licenses/Monocraft-OFL-1.1.txt"),
-        include_str!("../../../../assets/licenses/NotoSansCJK-OFL-1.1.txt"),
-    ]
-    .join("\n\n")
+    "Cinnangles Sans\n\nBundled with Cinnabar.".to_owned()
 }

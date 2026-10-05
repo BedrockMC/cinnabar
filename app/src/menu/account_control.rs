@@ -171,6 +171,8 @@ impl MenuRuntime {
     /// launcher core then restarts offline and signing in again runs the
     /// device-code helper.
     fn finish_sign_out(&mut self) {
+        self.accounts.operation = Some(super::accounts::Operation::SignOut);
+        self.feeds.account_active_id = None;
         self.auth_process = None;
         self.auth_attempted = true;
         self.control_auth = None;

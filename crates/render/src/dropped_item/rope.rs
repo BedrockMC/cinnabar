@@ -1,5 +1,6 @@
 use super::WHITE_LAYER;
-use super::mesh::{ItemMeshVertex, OPAQUE_WHITE};
+use super::mesh::ItemMeshVertex;
+use render_model::OPAQUE_WHITE;
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]

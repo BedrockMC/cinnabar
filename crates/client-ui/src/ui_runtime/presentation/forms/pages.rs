@@ -3,7 +3,7 @@
 //! bucket; pixel UVs stay valid because padding only extends right and down.
 
 use assets::RuntimeUiAssets;
-use render::{UiRenderTextureArray, UiTexturePage};
+use render_model::{UiRenderTextureArray, UiTexturePage};
 use sha2::{Digest, Sha256};
 
 use super::super::UiPresentationError;

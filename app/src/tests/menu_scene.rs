@@ -72,9 +72,9 @@ fn player_world(entities: Arc<assets::RuntimeEntityAssets>) -> ClientWorld {
                     skin: PlayerSkin::Standard(StandardSkin {
                         geometry: None,
                         cape: None,
-                        width: render::STANDARD_SKIN_SIDE as u32,
-                        height: render::STANDARD_SKIN_SIDE as u32,
-                        rgba8: vec![255; render::STANDARD_SKIN_BYTES].into(),
+                        width: render_model::STANDARD_SKIN_SIDE as u32,
+                        height: render_model::STANDARD_SKIN_SIDE as u32,
+                        rgba8: vec![255; render_model::STANDARD_SKIN_BYTES].into(),
                     }),
                 }]
                 .into(),

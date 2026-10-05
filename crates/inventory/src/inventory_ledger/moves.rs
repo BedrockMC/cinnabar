@@ -89,11 +89,21 @@ impl PlayerInventoryLedger {
         slot: u8,
         amount: Option<u16>,
     ) -> Result<i32, InventoryGestureError> {
-        self.drop_from(
+        let request = self.drop_from(
             DropSource::Target(InventoryTarget::Player(slot)),
             amount,
             false,
-        )
+        )?;
+        self.pending_world_drops = self
+            .pending_world_drops
+            .saturating_add(1)
+            .min(super::MAX_PENDING_REQUESTS);
+        Ok(request)
+    }
+
+    /// Takes admitted in-world drop gestures once, independently of transport or server replies.
+    pub fn take_world_drops(&mut self) -> usize {
+        std::mem::take(&mut self.pending_world_drops)
     }
 
     fn drop_from(

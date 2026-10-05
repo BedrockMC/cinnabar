@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resolve the package workflow's exact source commit and optional release tag.
 
-Environment: EVENT_NAME=push|workflow_dispatch, DEFAULT_BRANCH (main),
+Environment: EVENT_NAME=push|schedule|workflow_dispatch, DEFAULT_BRANCH (main),
 BUMP=current|patch|minor|major|custom, CUSTOM_VERSION=X.Y.Z, TARGET_BRANCH,
 optional RELEASE_TAG for a tag push, and the
 standard GITHUB_REF, GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GH_TOKEN.
@@ -137,7 +137,7 @@ def prepare() -> dict[str, str]:
             raise ReleaseError("BUMP must be current, patch, minor, major, or custom")
         tag, source_version = dispatch(target_branch, bump)
         channel = "stable"
-    elif event == "push":
+    elif event in {"push", "schedule"}:
         ref = os.environ.get("GITHUB_REF", "")
         source_version = version()
         if ref == f"refs/heads/{default_branch}":
@@ -152,7 +152,7 @@ def prepare() -> dict[str, str]:
                 raise ReleaseError(f"tag {tag} is on another commit")
             channel = "stable"
         else:
-            raise ReleaseError("only default-branch and v* tag pushes can package releases")
+            raise ReleaseError("only the default branch and v* tag pushes can package releases")
         event_sha = os.environ.get("GITHUB_SHA", "")
         if event_sha:
             if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", event_sha):
@@ -160,7 +160,7 @@ def prepare() -> dict[str, str]:
             if git("rev-parse", f"{event_sha}^{{commit}}") != git("rev-parse", "HEAD"):
                 raise ReleaseError("checkout does not match the pushed commit")
     else:
-        raise ReleaseError("EVENT_NAME must be push or workflow_dispatch")
+        raise ReleaseError("EVENT_NAME must be push, schedule or workflow_dispatch")
     commit = git("rev-parse", "HEAD")
     return {"channel": channel, "tag": tag, "version": source_version, "ref": commit, "commit": commit}
 

@@ -19,6 +19,8 @@ pub struct UiMeshVertex {
     pub color: [u8; 4],
     /// Producer-authored, interpolated linear lighting multiplier; ordinary UI uses one.
     pub model_light: f32,
+    /// Native entity overlay RGB and its mix amount, before model lighting.
+    pub overlay_color: [f32; 4],
     pub style_flags: u8,
     pub alpha_test: bool,
 }
@@ -107,6 +109,7 @@ impl UiMesh {
                 || !vertex.clip_z.is_finite()
                 || !vertex.clip_w.is_finite()
                 || !vertex.uv.iter().all(|value| value.is_finite())
+                || !vertex.overlay_color.iter().all(|value| value.is_finite())
         }) {
             return Err(UiMeshError::NonFiniteVertex);
         }

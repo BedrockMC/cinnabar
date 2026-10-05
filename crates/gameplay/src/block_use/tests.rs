@@ -319,7 +319,7 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
     );
     let kinds = |local_use| {
         use_packets(
-            &observed,
+            (&observed, observed.target.runtime_id),
             [0.5, 65.62, 0.5],
             ItemUseTrigger::PlayerInput,
             local_use,
@@ -341,7 +341,7 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
     );
     assert_eq!(kinds(LocalUse::Nothing), ["InventoryTransactionPacket"]);
     let guarded = use_packets(
-        &observed,
+        (&observed, observed.target.runtime_id),
         [0.5, 65.62, 0.5],
         ItemUseTrigger::SimulationTick,
         LocalUse::Place,

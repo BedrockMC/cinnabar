@@ -63,7 +63,7 @@ pub struct CrafterView {
     pub pending: Option<(u16, Option<u64>)>,
 }
 
-/// How long local toggles override the block entity, as `CrafterScreenController::tick`.
+/// How long vanilla's local crafter toggles override the block entity.
 pub const CRAFTER_TOGGLE_HOLD_MILLIS: u64 = 1_000;
 
 impl CrafterView {

@@ -1,9 +1,8 @@
 //! Air item use: the click-air transaction every held item sends, and holding, releasing and
 //! throwing.
 //!
-//! Follows `ClientInputCallbacks::handleBuildAction`, `GameMode::baseUseItem`,
-//! `GameMode::releaseUsingItem` and `Player::completeUsingItem`; projectiles, food effects and
-//! ammunition stay server-owned.
+//! Follows vanilla's build action, air use, release and use completion; projectiles,
+//! food effects and ammunition stay server-owned.
 
 use bevy::{
     ecs::system::SystemParam,
@@ -64,7 +63,7 @@ impl ItemUseRuntime {
         frame_alpha: f32,
     ) -> client_world::AttachableAnimationInput<'static> {
         let max_use_ticks = self.active_timing().map_or_else(
-            // Native CrossbowItem::getMaxUseDuration remains its charge duration
+            // A crossbow's maximum use duration remains its charge duration
             // when loaded; Instant describes the next action, not that query.
             || match selected_air_use_with_projectile(player_runtime, stream, Some(None)) {
                 Some(AirUse::Hold { max_ticks, .. }) => max_ticks,
@@ -297,7 +296,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
 
 /// Runs after block use so a press that interacted with a block starts no item use.
 pub(crate) fn produce_item_use(
-    player_runtime: bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
+    mut player_runtime: ResMut<crate::player_runtime::PlayerRuntime>,
     context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
@@ -385,10 +384,16 @@ pub(crate) fn produce_item_use(
         duration,
         |packets| context.network.send_inventory_packets(packets),
     );
+    if let Some((slot, revision)) = runtime.take_emptied_slot() {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .settle_use_emptied_slot(slot, revision);
+    }
 }
 
-/// `releaseUsing` checks the offhand for either projectile first, then inventory
-/// arrows, and synthesizes an arrow only in creative (09a157e0).
+/// Release checks the offhand for either projectile first, then inventory
+/// arrows, and synthesizes an arrow only in creative.
 fn loading_projectile(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     stream: &chunk_pipeline::WorldStream,

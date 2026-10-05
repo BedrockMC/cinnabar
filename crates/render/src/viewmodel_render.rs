@@ -107,10 +107,11 @@ pub(crate) fn install_hand_graph(world: &mut World) {
     if graph.get_node_state(HandLabel).is_err() {
         graph.add_node(HandLabel, runner);
     }
+    // Inside the main pass, so FXAA smooths the hand before the HUD composites over it.
     graph.add_node_edges((
         crate::ui_render::UiWorldLabel,
         HandLabel,
-        crate::ui_render::UiOverlayLabel,
+        bevy::core_pipeline::core_3d::graph::Node3d::EndMainPass,
     ));
 }
 

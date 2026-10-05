@@ -135,6 +135,8 @@ fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
         ..Default::default()
     };
     tracing::subscriber::with_default(subscriber, || {
+        // Another test may have cached this callsite as uninteresting process-wide.
+        tracing::callsite::rebuild_interest_cache();
         super::blob_cache_telemetry::emit_blob_cache_telemetry(stats);
     });
     let logged = std::fs::read_to_string(&path).unwrap();

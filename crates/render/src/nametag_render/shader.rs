@@ -1,7 +1,7 @@
-use crate::nametag::{
+use bevy::prelude::Shader;
+use render_model::{
     NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_BLOCKS_PER_FONT_PIXEL, NAMETAG_HORIZONTAL_ZERO,
 };
-use bevy::prelude::Shader;
 
 pub(super) fn from_wgsl(raw: &str, path: impl Into<String>) -> Shader {
     let source = raw

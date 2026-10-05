@@ -318,3 +318,46 @@ fn covered_snow_and_foliage_keep_separate_selection_bounds_in_both_layer_orders(
         }
     }
 }
+
+#[test]
+fn barrier_selection_is_creative_only_without_removing_collision_or_the_pick() {
+    use protocol::PlayerGameMode;
+    let fixture = fixture();
+    let barrier = record("minecraft:barrier");
+    let stone = record("minecraft:stone");
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let id = runtime_id(barrier, mode);
+        let registry = fixture.registries.registry(mode);
+        assert!(!registry.collision_shapes(id).unwrap().is_empty());
+        let store = store(mode, barrier);
+        let world = PaletteWorld::new(&store, registry, 0);
+        let hit = world
+            .block_interaction_ray_current(
+                Vec3::new(8.5, 10.0, 8.5),
+                Vec3::new(0.0, -1.0, 0.0),
+                4.0,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(hit.runtime_id, id);
+        for game_mode in [
+            None,
+            Some(PlayerGameMode::Unknown),
+            Some(PlayerGameMode::Survival),
+            Some(PlayerGameMode::Adventure),
+            Some(PlayerGameMode::Creative),
+        ] {
+            assert_eq!(
+                fixture
+                    .registries
+                    .selection_overlay_visible(mode, hit.runtime_id, game_mode),
+                game_mode == Some(PlayerGameMode::Creative)
+            );
+            assert!(fixture.registries.selection_overlay_visible(
+                mode,
+                runtime_id(stone, mode),
+                game_mode
+            ));
+        }
+    }
+}

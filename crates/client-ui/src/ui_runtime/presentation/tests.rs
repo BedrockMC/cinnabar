@@ -1,5 +1,6 @@
 use assets::{
-    FontTexturePage, GlyphMetrics, RuntimeFontCatalog, RuntimeHudCatalog, encode_font_catalog,
+    FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, RuntimeHudCatalog,
+    encode_font_catalog,
 };
 use protocol::{
     BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
@@ -7,7 +8,7 @@ use protocol::{
     ScoreAction as ProtocolScoreAction, ScoreEntry as ProtocolScoreEntry, ScoreEvent,
     ScoreIdentity as ProtocolScoreIdentity, TextCategory, TextEvent, TextKind, UiEvent,
 };
-use render::{UiRenderScene, UiRenderStats};
+use render_model::{UiRenderScene, UiRenderStats};
 use sha2::{Digest, Sha256};
 use ui::BoundedStat;
 
@@ -17,6 +18,7 @@ use crate::ui_runtime::SequencedUiEvent;
 mod bed_screen_tests;
 mod chat_screen_tests;
 mod container_screen_tests;
+mod credits_screen_tests;
 mod debug_overlay_tests;
 pub mod engine_hud_tests;
 mod forms_tests;
@@ -68,9 +70,47 @@ fn missing_local_hud_carrier_never_falls_back_to_numeric_corner_text() {
     assert!(input.batches.is_empty());
 }
 
+/// An unchanged frame reuses the last draw list; a changed screen or viewport rebuilds it.
+#[test]
+fn unchanged_frames_skip_tree_layout_and_draw_list() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.publish_inventory_authority(&mut player_runtime, protocol::InventoryAuthority::Server);
+    runtime
+        .publish_local_runtime_id(&mut player_runtime, 1, 42)
+        .unwrap();
+    runtime.toggle_inventory(&mut player_runtime);
+    let dpi = DpiScale::new(1.0).unwrap();
+    let first = presentation
+        .build(&player_runtime, &runtime, 100, [1280, 720], dpi)
+        .unwrap();
+    assert!(!first.vertices.is_empty(), "the inventory must draw");
+    let builds = presentation.tree_builds;
+    for now in 101..120 {
+        let again = presentation
+            .build(&player_runtime, &runtime, now, [1280, 720], dpi)
+            .unwrap();
+        assert_eq!(again, first);
+    }
+    assert_eq!(presentation.tree_builds, builds);
+    runtime.toggle_inventory(&mut player_runtime);
+    let closed = presentation
+        .build(&player_runtime, &runtime, 120, [1280, 720], dpi)
+        .unwrap();
+    assert_ne!(closed.vertices, first.vertices);
+    assert_eq!(presentation.tree_builds, builds + 1);
+    runtime.toggle_inventory(&mut player_runtime);
+    let resized = presentation
+        .build(&player_runtime, &runtime, 121, [1920, 1080], dpi)
+        .unwrap();
+    assert_eq!(resized.viewport_size, [1920, 1080]);
+    assert_eq!(presentation.tree_builds, builds + 2);
+}
+
 #[test]
 fn maximum_page_font_is_rejected_before_appending_the_solid_layer() {
-    let font = fixture_font_with_page_count(render::MAX_UI_TEXTURE_LAYERS as usize);
+    let font = fixture_font_with_page_count(render_model::MAX_UI_TEXTURE_LAYERS as usize);
     assert!(matches!(
         UiPresentationRuntime::new(font),
         Err(UiPresentationError::InvalidFontTexture)
@@ -127,7 +167,7 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: 1,
                 height: 1,
-                rgba8: pixels,
+                pixels: FontPixels::Rgba8(pixels),
             }
         })
         .collect::<Vec<_>>();

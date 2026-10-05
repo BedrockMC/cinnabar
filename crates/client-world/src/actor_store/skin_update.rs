@@ -28,6 +28,9 @@ impl ActorStore {
         };
         profile.skin = skin;
         self.retained_player_skin_bytes = total;
+        if self.synthetic_local_uuid == Some(uuid) {
+            self.synthetic_local_skin_pending = false;
+        }
         ActorApplyResult::Updated
     }
 }

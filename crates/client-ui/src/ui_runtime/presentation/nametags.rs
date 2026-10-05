@@ -7,7 +7,7 @@ use assets::RuntimeFontCatalog;
 use bevy::{camera::Camera, math::Vec3, prelude::GlobalTransform};
 use client_world::ActorSnapshot;
 use protocol::{ActorKind, ActorMetadataValue};
-use render::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
+use render_model::{MAX_NAMETAG_RECORDS, NAMETAG_ATLAS_SIDE, NametagRecord, NametagScene};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache};
 
 use super::nametag_atlas::{GlyphPage, NametagAtlas};

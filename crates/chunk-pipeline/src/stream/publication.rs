@@ -87,6 +87,7 @@ impl WorldStream {
             self.applied_mesh_generations.remove(&key);
         }
         self.revisions.clear_if_current(key, generation);
+        self.acknowledge_actor_block_syncs(key, generation);
         self.stats.phase2_stages.mesh_uploads_acknowledged = self
             .stats
             .phase2_stages
@@ -248,6 +249,7 @@ impl WorldStream {
         self.stats.max_decode_queue_wait = Duration::ZERO;
         self.stats.max_light_queue_wait = Duration::ZERO;
         self.stats.max_mesh_queue_wait = Duration::ZERO;
+        self.stats.max_mesh_dispatch_wait = Duration::ZERO;
         self.stats.max_decode_duration = Duration::ZERO;
         self.stats.max_mesh_duration = Duration::ZERO;
         self.stats.max_light_duration = Duration::ZERO;

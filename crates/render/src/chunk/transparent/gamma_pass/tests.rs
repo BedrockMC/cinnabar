@@ -7,7 +7,7 @@ fn gamma_target_admission_is_narrow() {
     assert!(!target::admitted(false, Msaa::Sample4, false));
     assert_eq!(
         target::admitted(false, Msaa::Off, true),
-        !crate::ENHANCED_RENDERING_ENABLED
+        !render_model::ENHANCED_RENDERING_ENABLED
     );
 }
 

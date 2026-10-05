@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -27,12 +29,17 @@ import (
 )
 
 const (
+	// The core relays one session beside a game client that owns the remaining cores.
+	coreMaxProcs = 2
+	// Soft heap target; GC works harder near it instead of growing past it.
+	coreMemoryLimit = 512 << 20
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second
 	parentPollInterval = 250 * time.Millisecond
 )
 
 func main() {
+	configureRuntime(os.Getenv)
 	args := os.Args[1:]
 	var stdin io.Reader
 	if bindsStdin(args) {
@@ -51,6 +58,17 @@ func main() {
 	stop()
 	if exitCode != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+// configureRuntime caps scheduler threads and sets a soft memory limit unless GOMAXPROCS or
+// GOMEMLIMIT already chose them.
+func configureRuntime(getenv func(string) string) {
+	if getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(min(coreMaxProcs, runtime.NumCPU()))
+	}
+	if getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(coreMemoryLimit)
 	}
 }
 
@@ -166,6 +184,13 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 
 type sourceFunc func(context.Context, authcache.Config) (oauth2.TokenSource, error)
 type serveFunc func(context.Context, proxy.Config) error
+
+// Replaced in tests that must not reach the network.
+var (
+	startVerifierPreload = proxy.StartVerifierPreload
+	keepAccountFresh     = (*authcache.Account).KeepFresh
+)
+
 type ownedResourcePackCache interface {
 	minecraft.ResourcePackCache
 	Close() error
@@ -209,11 +234,20 @@ func runWithResourcePackCacheFactory(
 		if opts.socketDir != "" || opts.upstream != "" || opts.catalogFile != "" || opts.resourcePackCacheDir != "" || opts.controlStatus {
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
-		return authflow.Run(ctx, authflow.Config{Path: opts.authCache, Writer: stdout})
+		return authflow.Run(ctx, authflow.Config{
+			Path: opts.authCache, Writer: stdout,
+			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
+				return authcache.CompleteSignIn(ctx, path, source, stderr)
+			},
+		})
 	}
 	logger.Info("core starting", "endpoint", opts.socketDir, "upstream", opts.upstream)
+	if opts.catalogFile == "" {
+		defer startVerifierPreload(ctx, logger)()
+	}
 	var statusStore *control.Store
 	var controlServer *control.Server
+	packetDelay := new(proxy.PacketDelay)
 	if opts.controlStatus && opts.catalogFile == "" {
 		// Bound before authentication so a launcher can poll the device code.
 		statusStore = control.NewStore()
@@ -222,6 +256,7 @@ func runWithResourcePackCacheFactory(
 			return fmt.Errorf("start control endpoint: %w", err)
 		}
 		defer func() { _ = controlServer.Close() }()
+		controlServer.SetPacketDelay(packetDelay)
 	}
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
@@ -264,6 +299,18 @@ func runWithResourcePackCacheFactory(
 		}
 		logger.Info("launcher catalog written", "path", opts.catalogFile)
 		return nil
+	}
+	if account != nil {
+		// Sign-out or an account change closes the account, which ends the refresher.
+		refreshed := make(chan struct{})
+		go func() {
+			defer close(refreshed)
+			keepAccountFresh(account, ctx)
+		}()
+		defer func() {
+			_ = account.Close()
+			<-refreshed
+		}()
 	}
 	var resourcePackCache minecraft.ResourcePackCache
 	var closeResourcePackCache func() error
@@ -329,6 +376,7 @@ func runWithResourcePackCacheFactory(
 		onDisconnect = statusStore.ObserveDisconnect
 	}
 	serveErr := serve(ctx, proxy.Config{
+		PacketDelay:         packetDelay,
 		SocketDir:           opts.socketDir,
 		Upstream:            opts.upstream,
 		Account:             account,

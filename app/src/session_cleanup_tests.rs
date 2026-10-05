@@ -662,3 +662,20 @@ fn review_final_directory_removal_failure_preserves_retry_authority() {
     assert_eq!(guard.release(), ReleaseOutcome::Removed);
     assert!(!directory.exists());
 }
+
+#[test]
+fn account_core_directories_are_owned_and_retiring_one_keeps_the_next() {
+    let layout = crate::install_layout::scratch("account-incarnations");
+    let _root = TempRoot(layout.runtime_root.clone());
+    let first = layout.account_socket_dir(process::id(), 1);
+    let second = layout.account_socket_dir(process::id(), 2);
+    let old = SessionDirectoryGuard::bind(first.clone()).unwrap();
+    let new = SessionDirectoryGuard::bind(second.clone()).unwrap();
+    assert!(first.is_dir());
+    assert!(second.is_dir());
+    drop(old);
+    assert!(!first.exists());
+    assert!(second.is_dir());
+    drop(new);
+    assert!(!second.exists());
+}

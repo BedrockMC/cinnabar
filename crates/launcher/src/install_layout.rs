@@ -180,7 +180,7 @@ impl InstallLayout {
         self.user_data_root.join("prepare")
     }
 
-    /// Bundled scripts, manifests, registries and `assetc` used by first-run preparation.
+    /// Bundled manifests, registries and `assetc` used by first-run preparation.
     #[must_use]
     pub fn prep_kit(&self) -> PathBuf {
         self.resource_root.join("prep-kit")
@@ -203,7 +203,7 @@ impl InstallLayout {
 
     #[must_use]
     pub fn world_assets(&self) -> PathBuf {
-        self.compiled_assets.join("vanilla-v2193.mcbea")
+        self.compiled_assets.join(assets::carriers::WORLD.output)
     }
 
     /// The local player's own skin PNG, shipped beside the other assets under `resources/assets`
@@ -234,6 +234,12 @@ impl InstallLayout {
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    /// Join-time server-pack archives and compilations reused across launches; safe to delete.
+    #[must_use]
+    pub fn compiled_pack_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("resource-packs/compiled")
     }
 
     /// Immutable extension bundles, separate from per-server trust settings.
@@ -273,6 +279,13 @@ impl InstallLayout {
     pub fn direct_socket_dir(&self, process_id: u32) -> PathBuf {
         self.transient_runtime_root
             .join(format!("direct-{process_id}"))
+    }
+
+    /// Account-core incarnations have separate endpoints from each other and game sessions.
+    #[must_use]
+    pub fn account_socket_dir(&self, pid: u32, incarnation: u64) -> PathBuf {
+        self.transient_runtime_root
+            .join(format!("account-{pid}-{incarnation}"))
     }
 
     #[must_use]

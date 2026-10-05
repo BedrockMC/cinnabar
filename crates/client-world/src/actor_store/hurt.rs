@@ -43,23 +43,31 @@ pub struct ActorPickup {
 /// Client-derived damage and death presentation state, advanced per tick.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ActorStatus {
-    /// Native StateVector displacement per tick, distinct from query-derived movement speed.
+    pub(super) terrain_interlock: super::terrain_interlock::TerrainInterlock,
+    pub(super) movement_interpolation: super::movement_interpolation::MovementInterpolation,
+    /// Vanilla velocity per tick, distinct from query-derived movement speed.
     pub(crate) native_velocity: [f32; 3],
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
     pub shake_time: i32,
-    /// The current hurt came without damage, so it shows no red flash (`SkipRedFlashComponent`).
+    /// The current hurt came without damage, so it shows no red flash.
     pub skip_red_flash: bool,
     /// Server-streamed hurt direction, when the server provides one.
     pub hurt_direction: Option<f32>,
     /// Ticks elapsed since death, saturating at [`DEATH_DURATION_TICKS`].
     pub death_time: u8,
+    pub(crate) dragon_death_time: u16,
+    pub(crate) cloud_start_tick: Option<u32>,
+    pub(crate) cloud_particles_expired: bool,
     pub dead: bool,
     /// `age_ticks` when the fuse metadata was last received.
     pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
+    pub(super) fire: super::fire::FireAnimation,
+    /// Runtime ID and spawn revision of the dragon's last selected healing crystal.
+    pub(crate) healing_crystal: Option<(u64, u64)>,
     pub pickup: Option<ActorPickup>,
     /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
@@ -68,6 +76,16 @@ pub struct ActorStatus {
 }
 
 impl ActorStatus {
+    /// Death ticks presented to animations, including the dragon's longer sequence.
+    #[must_use]
+    pub fn death_ticks(&self) -> u16 {
+        if self.dragon_death_time != 0 {
+            self.dragon_death_time
+        } else {
+            u16::from(self.death_time)
+        }
+    }
+
     /// Whether the red damage overlay should tint the actor this frame.
     #[must_use]
     pub fn overlay_active(&self) -> bool {
@@ -86,11 +104,12 @@ impl ActorStatus {
 
     pub(super) fn tick(&mut self) {
         self.age_ticks = self.age_ticks.saturating_add(1);
+        self.fire.tick(self.age_ticks);
         if let Some(pickup) = &mut self.pickup {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }
         self.hurt_time = self.hurt_time.saturating_sub(1);
-        // Native Actor::baseTick decrements only positive
+        // Vanilla's actor tick decrements only positive
         // shake values. Zero and well-formed negative server values stay unchanged.
         if self.shake_time > 0 {
             self.shake_time -= 1;
@@ -110,6 +129,7 @@ impl ActorStatus {
         self.hurt_time = 0;
         self.hurt_direction = None;
         self.death_time = 0;
+        self.dragon_death_time = 0;
         self.dead = false;
     }
 }
@@ -163,12 +183,16 @@ impl ActorStore {
                 actor.status.hurt_direction = actor.streamed_hurt_direction();
             }
             ActorStatusKind::Death => {
-                if !actor.status.dead {
+                if matches!(&actor.kind, super::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")
+                {
+                    actor.status.dead = true;
+                    actor.status.dragon_death_time = 1;
+                } else if !actor.status.dead {
                     actor.status.die();
                 }
             }
             ActorStatusKind::SpawnAlive => actor.status.revive(),
-            // Actor::handleEntityEvent, case 0x27.
+            // Entity event 39 (0x27) sets the shake countdown verbatim.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
             // Particle-only kinds have no retained actor state.
             _ => {}

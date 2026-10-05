@@ -1,5 +1,8 @@
 use super::*;
 mod gameplay;
+mod prepared_settings;
+mod render;
+mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
 fn fixture(frame: &str, text: &str) -> String {
@@ -100,7 +103,7 @@ fn unknown_authority_and_oversized_packages_fail_admission() {
         fixture("", "Hello").replacen("(component", "(component (import \"network\" (func))", 1);
     std::fs::write(&path, source).unwrap();
     assert!(ModHost::load(&path).is_err());
-    let file = File::create(&path).unwrap();
+    let file = std::fs::File::create(&path).unwrap();
     file.set_len((MAX_COMPONENT_BYTES + 1) as u64).unwrap();
     assert!(ModHost::load(&path).is_err());
 }
@@ -278,4 +281,28 @@ fn default_loader_denies_environment_authority() {
     host.frame(false).unwrap();
     assert_eq!(host.time_override(), None);
     assert!(host.is_active());
+}
+
+#[test]
+fn startup_loads_companion_and_reload_keeps_current_in_memory_preferences() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("selected.component.wat");
+    let companion = path.with_extension("settings.json");
+    std::fs::write(&path, fixture("", "Initial")).unwrap();
+    std::fs::write(&companion, "{\"cps\":20}").unwrap();
+    let mut host = ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            settings: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(host.instance.settings(), "{\"cps\":20}");
+    // The pending writer may leave an older disk value while current settings are committed.
+    std::fs::write(&companion, "{\"cps\":12}").unwrap();
+    std::fs::write(&path, fixture("", "Reloaded")).unwrap();
+    assert!(host.reload_if_changed().unwrap());
+    assert_eq!(host.instance.settings(), "{\"cps\":20}");
+    assert_eq!(host.label(), Some("Reloaded"));
 }

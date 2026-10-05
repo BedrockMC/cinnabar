@@ -106,7 +106,10 @@ fn menu_frames_on_native_gpu() {
     runtime
         .publish_local_runtime_id(&mut player_runtime, 1, 42)
         .unwrap();
-    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    let stats = app
+        .world()
+        .resource::<render::UiRenderStatsResource>()
+        .clone();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("Test");
     let skin_pixels = image::open(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -186,7 +189,7 @@ fn menu_frames_on_native_gpu() {
             let paint_done = Instant::now();
             geometry = (input.vertices.len(), input.batches.len());
             app.world_mut()
-                .resource_mut::<render::UiRenderScene>()
+                .resource_mut::<render::UiRenderSceneResource>()
                 .publish(input, &stats)
                 .unwrap();
             let published = Instant::now();
@@ -251,7 +254,10 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
     presentation.sync_menu_artwork(paths.clone());
     presentation.set_menu_view(Some(view));
     let mut app = app();
-    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    let stats = app
+        .world()
+        .resource::<render::UiRenderStatsResource>()
+        .clone();
     for phase in 0..3 {
         if phase != 0 {
             presentation.set_menu_view(None);
@@ -282,7 +288,7 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
                 .unwrap();
             let expected = (phase != 0).then(|| super::snapshot::rasterize(&input));
             app.world_mut()
-                .resource_mut::<render::UiRenderScene>()
+                .resource_mut::<render::UiRenderSceneResource>()
                 .publish(input, &stats)
                 .unwrap();
             app.world_mut()
@@ -336,7 +342,10 @@ fn profile_frames_on_native_gpu() {
     presentation.sync_player_preview(Some(&skin.rgba8), Default::default(), true, false, 0.0);
     view.profile_icon = presentation.player_preview_icon();
     let mut app = app();
-    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    let stats = app
+        .world()
+        .resource::<render::UiRenderStatsResource>()
+        .clone();
     for state in [
         "signed-out",
         "loading",
@@ -395,7 +404,7 @@ fn profile_frames_on_native_gpu() {
                 )
                 .unwrap();
             app.world_mut()
-                .resource_mut::<render::UiRenderScene>()
+                .resource_mut::<render::UiRenderSceneResource>()
                 .publish(input, &stats)
                 .unwrap();
             app.update();

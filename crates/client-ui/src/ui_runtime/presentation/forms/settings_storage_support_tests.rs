@@ -6,12 +6,12 @@ use crate::menu::{
 };
 
 #[test]
-fn settings_help_uses_rating_prompt_and_licenses_scroll() {
+fn settings_help_owns_input_and_short_font_attribution_stays_clamped() {
     let player_runtime = player_state::PlayerState::new(1);
 
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         eprintln!(
-            "skipping settings_help_uses_rating_prompt_and_licenses_scroll: fixture unavailable; requires installed local carriers (make assets)"
+            "skipping settings_help_owns_input_and_short_font_attribution_stays_clamped: fixture unavailable; requires installed local carriers (make assets)"
         );
         return;
     };
@@ -35,14 +35,15 @@ fn settings_help_uses_rating_prompt_and_licenses_scroll() {
     );
     assert!(
         presentation.scroll_menu(ui::UiPoint::new(640.0, 360.0).unwrap(), -8.0, false),
-        "font license body must scroll"
+        "font attribution modal must own wheel input"
     );
     assert!(
         presentation
             .menu_scrolls
             .offsets()
             .values()
-            .any(|offset| *offset > 0.0)
+            .all(|offset| *offset == 0.0),
+        "short font attribution must not scroll beyond its content"
     );
     super::play_flow_snapshots::snapshot(&player_runtime, &view, "settings-font-license");
 }

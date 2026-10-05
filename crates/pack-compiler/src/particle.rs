@@ -22,8 +22,6 @@ use sha2::{Digest, Sha256};
 const MAX_TEXTURE_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 /// Pack directories whose pngs are particle-referenced textures.
 const TEXTURE_DIRS: [&str; 2] = ["textures/particle", "textures/particles"];
-/// Loose pack textures particle effects reference by path.
-const TEXTURE_FILES: [&str; 1] = ["textures/flame_atlas.png"];
 const MAX_WALK_ENTRIES: usize = 100_000;
 
 #[derive(Debug)]
@@ -60,10 +58,9 @@ pub fn compile_particle_assets(
     for dir in TEXTURE_DIRS {
         walk(&pack.join(dir), pack, "png", &mut png_paths, &mut budget)?;
     }
-    for file in TEXTURE_FILES {
-        if pack.join(file).is_file() {
-            png_paths.push(file.to_owned());
-        }
+    let flame_file = format!("{}.png", assets::ACTOR_FLAME_TEXTURE);
+    if pack.join(&flame_file).is_file() {
+        png_paths.push(flame_file);
     }
     let mut json_paths = Vec::new();
     walk(

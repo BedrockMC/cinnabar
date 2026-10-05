@@ -17,7 +17,7 @@ fn geometry_digest(frame: &ActorRenderFrame) -> u64 {
 }
 
 /// Hashes the exact vertex payload without depending on its storage address.
-fn hash_vertices(digest: &mut impl std::hash::Hasher, vertices: &[render::ActorRigVertex]) {
+fn hash_vertices(digest: &mut impl std::hash::Hasher, vertices: &[render_model::ActorRigVertex]) {
     for vertex in vertices {
         for value in vertex
             .position
@@ -62,7 +62,7 @@ fn lobby_join_setup_bench() {
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("captured pack required");
     let capture = read_capture(Path::new(&capture));
     for trial in 0..3 {
-        let (mut world, _, _) = build_world(&capture, Path::new(&pack), false);
+        let (mut world, _, _) = build_world(&capture, Some(Path::new(&pack)), false);
         world
             .resource_mut::<Time<Real>>()
             .update_with_instant(Instant::now());

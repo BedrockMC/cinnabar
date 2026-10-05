@@ -2,7 +2,7 @@ use super::super::*;
 
 impl WorldStream {
     /// Keeps nearby pending work's priority while executing its highest light dependency.
-    fn near_light_column_candidate(
+    pub(in crate::stream) fn near_light_column_candidate(
         &self,
         key: SubChunkKey,
         view: SchedulerView,
@@ -33,6 +33,7 @@ impl WorldStream {
             }
         }
         candidate.distance_squared = priority.distance_squared;
+        candidate.startup_class = priority.startup_class;
         candidate.urgent = priority.urgent;
         Some(candidate)
     }
@@ -61,10 +62,7 @@ impl WorldStream {
             return 0;
         }
 
-        let view = SchedulerView {
-            position: camera_position,
-            forward: self.view_forward,
-        };
+        let view = self.scheduler_view(camera_position);
         let wakeups = &self.lighting.priority_wakeups;
         let probe_near =
             self.lighting
@@ -73,13 +71,13 @@ impl WorldStream {
                     (0, pending.urgent || wakeups.get(&key) == Some(&revision))
                 });
 
-        let mut near = if probe_near {
-            scheduler::near_light_columns(view, self.authority.current_dimension())
-                .filter_map(|key| self.near_light_column_candidate(key, view))
-                .collect::<BinaryHeap<_>>()
-        } else {
-            BinaryHeap::new()
-        };
+        let mut near = self.transfer_light_candidates();
+        if probe_near {
+            near.extend(
+                scheduler::near_light_columns(view, self.authority.current_dimension())
+                    .filter_map(|key| self.near_light_column_candidate(key, view)),
+            );
+        }
         let mut prepared_batches = Vec::with_capacity(solve_budget);
         let mut selected = HashSet::new();
         let mut scanned = 0;
@@ -101,7 +99,7 @@ impl WorldStream {
             };
             let mut queued = queued;
             if queued {
-                candidate.distance_squared = view.rank(candidate.key);
+                candidate.refresh_rank(view);
             }
             if queued && near.peek().is_some_and(|local| *local > candidate) {
                 self.lighting.jobs.lanes[0].ready.push(candidate);
@@ -125,6 +123,8 @@ impl WorldStream {
                     highest_pending.urgent || priority.urgent,
                 );
                 candidate.distance_squared = priority.distance_squared;
+                candidate.startup_class = priority.startup_class;
+                candidate.transfer = priority.transfer;
             }
             let key = candidate.key;
             let revision = candidate.revision;
@@ -272,7 +272,7 @@ impl WorldStream {
         for batch in prepared_batches {
             let tx = self.lighting.tx.clone();
             let running = RunningLightJob::start(&self.lighting.running_jobs);
-            workers::WORKERS.light.spawn(move || {
+            workers::WORKERS.spawn(workers::Lane::Light, move || {
                 let started = Instant::now();
                 let solved = solve_prepared_light_batch(batch);
                 let duration = started.elapsed();
@@ -598,7 +598,17 @@ impl WorldStream {
                 if neighbour_in_same_batch {
                     continue;
                 }
-                if completed_uniform_direct_sky && self.known_air_has_vertical_direct_sky(neighbour)
+                if completed_uniform_direct_sky
+                    && self.known_air.contains(&neighbour)
+                    && self.light_is_current(neighbour)
+                    && self.lighting.store.light(neighbour).is_some_and(|light| {
+                        self.lighting
+                            .direct_sky
+                            .get(&neighbour)
+                            .is_some_and(|direct| {
+                                is_uniform_direct_sky(light, direct.mask.as_ref())
+                            })
+                    })
                 {
                     continue;
                 }

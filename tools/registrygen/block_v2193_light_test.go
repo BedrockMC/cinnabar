@@ -36,8 +36,7 @@ func TestRetailLightCorrectionsReplaceOnlyUnimplementedDefaults(t *testing.T) {
 	}
 }
 
-// 1.26.50.26 TopSnowBlock sets dampening to zero; the
-// inherited getter and per-height component override do not change it.
+// 1.26.50.26 snow layers have zero light dampening at every height.
 func TestSnowLayerNativeLightDampening(t *testing.T) {
 	var records []Record
 	var properties []byte

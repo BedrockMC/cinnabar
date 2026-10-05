@@ -21,7 +21,7 @@ impl WorldStream {
         }
 
         // Vanilla keeps chunk data across a teleport and drops only what the moved view no
-        // longer covers (`NetworkChunkSubscriber::moveRegion`), so overlap stays presented.
+        // longer covers, so overlap stays presented.
         self.arrival_cohort = None;
         self.requests.transport_pending = 0;
         self.publisher.center = Some(center);
@@ -62,6 +62,7 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        self.actor_block_syncs.remove_columns(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
@@ -100,14 +101,16 @@ impl WorldStream {
             )
         });
         if !changed.is_empty() {
-            self.resident.retain(|key| !columns.contains(&key.chunk()));
-            self.known_air.retain(|key| !columns.contains(&key.chunk()));
+            for key in &changed {
+                self.resident.remove(key);
+                self.known_air.remove(key);
+            }
             self.applied_mesh_generations
                 .retain(|key, _| !columns.contains(&key.chunk()));
             self.mesh_dependency_masks
                 .retain(|key, _| !columns.contains(&key.chunk()));
             self.connectivity
-                .retain(|key, _| !columns.contains(&key.chunk()));
+                .retain(|key| !columns.contains(&key.chunk()));
         }
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
@@ -143,24 +146,12 @@ impl WorldStream {
             rayon::spawn(move || drop((retired, retired_indexes)));
         }
     }
-    /// Fresh column arrivals search one ordered X range instead of every resident slot.
+    /// Collects only the sections belonging to the columns being retired.
     fn resident_keys_in_columns(&self, columns: &BTreeSet<ChunkKey>) -> BTreeSet<SubChunkKey> {
-        if columns.len() == 1 {
-            let column = *columns.first().unwrap();
-            let first = SubChunkKey::new(column.dimension, column.x, i32::MIN, i32::MIN);
-            let last = SubChunkKey::new(column.dimension, column.x, i32::MAX, i32::MAX);
-            self.resident
-                .range(first..=last)
-                .filter(|key| key.z == column.z)
-                .copied()
-                .collect()
-        } else {
-            self.resident
-                .iter()
-                .copied()
-                .filter(|key| columns.contains(&key.chunk()))
-                .collect()
-        }
+        columns
+            .iter()
+            .flat_map(|column| self.resident.column(*column).copied())
+            .collect()
     }
     pub(super) fn evict_all_resident(&mut self) {
         self.light_diagnostics.columns.clear();
@@ -189,14 +180,14 @@ impl WorldStream {
     /// pruning every announced requirement the grid no longer keeps. Cheap to
     /// call on every player move: it only rescans when the player's chunk or
     /// the confirmed radius changes.
-    pub(super) fn reevaluate_chunk_retention(&mut self) {
+    pub(super) fn reevaluate_chunk_retention(&mut self) -> bool {
         let Some(radius) = self.chunk_radius else {
-            return;
+            return false;
         };
         let center = self.player_chunk();
         if self.last_retention_center == Some(center) && self.last_retention_radius == Some(radius)
         {
-            return;
+            return false;
         }
         self.last_retention_center = Some(center);
         self.last_retention_radius = Some(radius);
@@ -218,11 +209,44 @@ impl WorldStream {
             .filter(|key| !is_retained(key))
             .collect::<Vec<_>>();
         self.evict_columns(stale.into_iter().collect());
+        true
     }
-    /// The local player's current chunk column, floored from the resolved
-    /// server-authoritative position so negative coordinates land in the
-    /// correct column.
+    /// Retains terrain around completed local physics without changing the last server position.
+    /// Rejects stale owners and any physics that has not yet applied a committed spatial control.
+    pub fn retain_for_local_player(
+        &mut self,
+        actor_session_id: u64,
+        dimension: i32,
+        dimension_epoch: u64,
+        position: [f32; 3],
+    ) -> bool {
+        if actor_session_id != self.authority.actor_session_id()
+            || dimension != self.authority.current_dimension()
+            || dimension_epoch != self.authority.form_dimension_epoch()
+            || !position.into_iter().all(f32::is_finite)
+            || self.authority.has_pending_spatial_control()
+        {
+            return false;
+        }
+        self.local_player_chunk = Some(ChunkKey::new(
+            dimension,
+            floor_to_i32(position[0]).div_euclid(16),
+            floor_to_i32(position[2]).div_euclid(16),
+        ));
+        self.reevaluate_chunk_retention()
+    }
+
+    /// Retains terrain around the committed server position while no local physics owns the player.
+    pub fn retain_for_server_position(&mut self) -> bool {
+        self.local_player_chunk = None;
+        self.reevaluate_chunk_retention()
+    }
+
+    /// Local physics advances the player grid between server corrections.
     fn player_chunk(&self) -> ChunkKey {
+        if let Some(chunk) = self.local_player_chunk {
+            return chunk;
+        }
         let position = self.authority.resolved_server_position().position;
         ChunkKey::new(
             self.authority.current_dimension(),

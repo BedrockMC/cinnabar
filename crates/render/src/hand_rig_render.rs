@@ -1,7 +1,7 @@
 //! Near-camera first-person pass that draws the local player's own animated rig (arms + hands)
 //! over the scene, reusing the actor rig's packed buffers with a hand-local view and lighting.
 //! The rendered content is the player's own skin on the standard samples player geometry.
-use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame, ActorRigVertex};
+use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigRenderFrame};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, graph::Core3d},
@@ -16,6 +16,7 @@ use bevy::{
     },
 };
 use render_api::SkinRgba8;
+use render_model::ActorRigVertex;
 use std::{mem::size_of, sync::Arc};
 
 mod node;
@@ -29,6 +30,49 @@ const HAND_RIG_NEAR_PLANE: f32 = 0.025;
 /// Instance texture-selector bits shared with the hand shader.
 pub const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 pub const HAND_OFFHAND_LAYER_FLAG: u32 = 0x4000_0000;
+const HAND_BLEND_LAYER_FLAG: u32 = 0x2000_0000;
+const HAND_CUTOUT_LAYER_FLAG: u32 = 0x1000_0000;
+const HAND_TEXTURE_LAYER_MASK: u32 = !(HAND_ITEM_LAYER_FLAG
+    | HAND_OFFHAND_LAYER_FLAG
+    | HAND_BLEND_LAYER_FLAG
+    | HAND_CUTOUT_LAYER_FLAG);
+
+/// Alpha treatment selected from a held block's admitted face materials.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum HandItemAlphaMode {
+    #[default]
+    Opaque,
+    Cutout,
+    Blend,
+}
+
+impl HandItemAlphaMode {
+    /// Encodes the item's alpha mode alongside its artwork-array layer.
+    pub const fn texture_layer_flag(self) -> u32 {
+        match self {
+            Self::Opaque => 0,
+            Self::Cutout => HAND_CUTOUT_LAYER_FLAG,
+            Self::Blend => HAND_BLEND_LAYER_FLAG,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct HandMaterialUniform {
+    texture_flags: [u32; 4],
+    layer_mask: [u32; 4],
+}
+
+const HAND_MATERIAL: HandMaterialUniform = HandMaterialUniform {
+    texture_flags: [
+        HAND_ITEM_LAYER_FLAG,
+        HAND_OFFHAND_LAYER_FLAG,
+        HAND_BLEND_LAYER_FLAG,
+        HAND_CUTOUT_LAYER_FLAG,
+    ],
+    layer_mask: [HAND_TEXTURE_LAYER_MASK, 0, 0, 0],
+};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub(crate) struct HandRigLabel;
@@ -104,7 +148,7 @@ impl HandRigScene {
             || rig.previous_bones.is_empty()
             || rig.previous_bones.len() != rig.current_bones.len()
             || rig.maximum_vertex_count == 0
-            || skin.len() != crate::STANDARD_SKIN_BYTES
+            || skin.len() != render_model::STANDARD_SKIN_BYTES
             || !(fov_radians > 0.0 && fov_radians < std::f32::consts::PI)
             || revision == 0
         {
@@ -162,7 +206,8 @@ fn install(app: &mut App) {
         HAND_RIG_SHADER,
         "hand_rig.wgsl",
         crate::shader_safety::from_actor_wgsl,
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS
     );
     let render_app = app.sub_app_mut(RenderApp);
     render_app
@@ -204,10 +249,11 @@ fn install_graph(world: &mut World) {
     if graph.get_node_state(HandRigLabel).is_err() {
         graph.add_node(HandRigLabel, runner);
     }
+    // Inside the main pass, so FXAA smooths the hand before the HUD composites over it.
     graph.add_node_edges((
         crate::ui_render::UiWorldLabel,
         HandRigLabel,
-        crate::ui_render::UiOverlayLabel,
+        bevy::core_pipeline::core_3d::graph::Node3d::EndMainPass,
     ));
 }
 
@@ -266,15 +312,9 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         })
     };
-    // The material class matches the standard player skin (alpha < 0.1 discards).
     let material = device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("first-person rig material class"),
-        contents: bytemuck::cast_slice(&[
-            0,
-            HAND_ITEM_LAYER_FLAG,
-            HAND_OFFHAND_LAYER_FLAG,
-            !(HAND_ITEM_LAYER_FLAG | HAND_OFFHAND_LAYER_FLAG),
-        ]),
+        label: Some("first-person rig texture and alpha selectors"),
+        contents: bytemuck::bytes_of(&HAND_MATERIAL),
         usage: BufferUsages::UNIFORM,
     });
     commands.insert_resource(HandRigGpu {
@@ -459,7 +499,7 @@ fn upload_skin(
     {
         return;
     }
-    let side = crate::STANDARD_SKIN_SIDE as u32;
+    let side = render_model::STANDARD_SKIN_SIDE as u32;
     let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
@@ -736,7 +776,7 @@ fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescr
             entry_point: Some("hand_fragment".into()),
             targets: vec![Some(ColorTargetState {
                 format: TextureFormat::bevy_default(),
-                blend: None,
+                blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],
             ..default()
@@ -803,7 +843,7 @@ fn hand_rig_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16),
+                    min_binding_size: BufferSize::new(size_of::<HandMaterialUniform>() as u64),
                 },
                 count: None,
             },

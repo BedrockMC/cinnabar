@@ -12,8 +12,7 @@ use serde_json::Value;
 use super::{menu_caret::with_caret, play_screen};
 use crate::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 
-/// Settings selector index vars as 1.26.50's `SettingsScreenController`
-/// assigns them.
+/// Settings selector index vars as 1.26.50's settings screen assigns them.
 pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("server_forced_index", 1),
     ("accessibility_forced_index", 2),
@@ -73,7 +72,7 @@ pub(super) fn retail_context() -> Context {
     Context::retail(cfg!(target_os = "macos"))
 }
 
-/// `StartMenuScreenController::addStaticScreenVars` for a full-game, non-edu
+/// Vanilla start screen variables for a full-game, non-edu
 /// account: demo, edu and unlock controls stay ignored.
 fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
@@ -147,7 +146,9 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         };
         data.set_global("#disconnect_text", text(body));
         "disconnect.disconnect_screen"
-    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state
+        && !view.feeds.account_adding
+    {
         data.set_global("#url", text(uri.clone()));
         data.set_global("#code", text(code.clone()));
         "xbl_console_signin.xbl_console_signin"
@@ -325,15 +326,11 @@ fn store_screen(
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
-    let profile = &view.feeds.profile;
-    let gamertag = if profile.gamertag.is_empty() {
-        view.display_name.clone()
-    } else {
-        profile.gamertag.clone()
-    };
+    let gamertag = super::accounts::current_name(view).to_owned();
     data.set_global("#playername", text(gamertag.clone()));
     data.set_global("#gamertag_label", text(gamertag));
-    let portrait = !profile.picture_path.is_empty() || !view.feeds.home.persona_head.is_empty();
+    let portrait = super::accounts::current_picture(view).is_some()
+        || !view.feeds.home.persona_head.is_empty();
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(
         data,
@@ -383,8 +380,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     }
 }
 
-/// The pause store button on a third-party server, as `PauseScreenController`
-/// names it: "%s Store" with the server's store name, else the generic "Server".
+/// The pause store button on a third-party server, as vanilla names it: "%s Store" with the server's store name, else the generic "Server".
 fn server_store_text(translate: Translate<'_>) -> String {
     let server = translated(translate, "menu.serverGenericName", "Server");
     translated(translate, "menu.serverStore", "%s Store").replacen("%s", &server, 1)
@@ -406,6 +402,13 @@ pub(super) fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::Accounts => (
+            "Accounts".into(),
+            String::new(),
+            "Close".into(),
+            "Close".into(),
+            MenuAction::DismissDialog,
+        ),
         MenuDialog::SettingsResetGroup(group) => {
             return super::settings_reset::dialog_model(group, translate);
         }
@@ -588,7 +591,7 @@ fn base_context() -> Context {
     )
 }
 
-/// The static vars `SettingsScreenController` sets for the global settings a
+/// The static vars vanilla's settings screen sets for the global settings a
 /// desktop client opens from the start screen: no world, realm or creation state.
 fn settings_context(context: Context) -> Context {
     let flags: &[(&str, bool)] = &[
@@ -714,6 +717,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,
+        "button.menu_profile" if view.screen == MenuScreen::Home => MenuAction::OpenAccounts,
         "button.menu_profile" | "button.to_profile_screen" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }

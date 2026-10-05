@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use client_world::ActorRigSnapshot;
 use render::{
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry, ActorRigRoute,
-    ActorRigSubmission, EquipmentRaster,
+    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRoute, ActorRigSubmission,
+    EquipmentRaster,
 };
+use render_model::ActorRigGeometry;
 
 use super::{
     actors::ActorPresentationBatch, entity_layers::LayerPoseCache, skin_rig::SkinRigCache,

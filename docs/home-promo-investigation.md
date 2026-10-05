@@ -28,7 +28,7 @@ not read. No account identifiers or cached payloads are included here.
 | Lifecycle | Start first and refresh only after start succeeds. |
 | Event | Send JSON `SessionId`, `continuationToken`, `events`. |
 | Surfaces | Construct message surface controllers. |
-| Images | Associate fetched images by message and image ID with a local Core::Path. |
+| Images | Associate fetched images by message and image ID with a local file path. |
 
 The refresh request uses the discovered messaging service URI and has no
 placement, platform or locale query. Locale is an HTTP header. The service's
