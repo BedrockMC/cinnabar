@@ -87,19 +87,6 @@ impl Gpu {
         Some(Self { device, queue })
     }
 
-    /// A native device when this host has one; fixtures that need it skip otherwise.
-    pub fn try_native() -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter =
-            finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-        if adapter.get_info().backend == wgpu::Backend::Noop {
-            return None;
-        }
-        let (device, queue) =
-            finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-        Some(Self { device, queue })
-    }
-
     /// Uploads raw storage words, such as packed quads, for a fixture.
     pub fn words(&self, data: &[u32], usage: wgpu::BufferUsages) -> wgpu::Buffer {
         self.device
