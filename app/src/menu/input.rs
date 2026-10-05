@@ -384,7 +384,15 @@ pub(crate) fn drive_menu_input(
     if !window.focused {
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
-        if !menu.is_visible() && menu.settings_options.value("pause_menu_on_focus_lost") != 0 {
+        if !menu.is_visible()
+            && menu.settings_options.value("pause_menu_on_focus_lost") != 0
+            && !crate::screen_policy::absorbs_input(
+                &player_runtime,
+                runtime.as_deref(),
+                Some(&menu),
+                Some(&presentation),
+            )
+        {
             menu.open_pause();
             crate::camera::release_cursor(&mut cursor);
         }
