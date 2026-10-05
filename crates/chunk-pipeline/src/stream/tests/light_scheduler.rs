@@ -262,6 +262,7 @@ mod mixed_prefix;
 mod mutation_summary;
 mod pending_coalescing;
 mod resident_air;
+mod startup_lanes;
 mod transfer_priority;
 mod uniform_air;
 

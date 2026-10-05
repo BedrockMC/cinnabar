@@ -159,10 +159,7 @@ fn resident_air_reclassifies_a_cached_geometry_candidate_while_old_worker_is_ret
     assert_eq!(stream.dispatch_mesh_jobs([8.0; 3], 1), 1);
     let old_completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     let revision = stream.mark_dirty_exact(key, Instant::now());
-    let view = SchedulerView {
-        position: [8.0; 3],
-        forward: stream.view_forward,
-    };
+    let view = stream.scheduler_view([8.0; 3]);
     stream.mesh_jobs.scan.clear();
     stream.mesh_jobs.lanes[RESIDENT_MESH_LANE]
         .ready

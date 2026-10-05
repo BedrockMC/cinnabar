@@ -153,7 +153,10 @@ pub use item::{
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
-pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
+pub use jolyne::stream::{
+    ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
+    ResourcePackStore,
+};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
