@@ -1,0 +1,455 @@
+use std::collections::{HashSet, VecDeque};
+
+use hashbrown::HashMap;
+
+use meshing::{Face, FaceConnectivity};
+use world::SubChunkKey;
+
+use super::*;
+
+fn grid(entries: impl IntoIterator<Item = (SubChunkKey, FaceConnectivity)>) -> ConnectivityGrid {
+    entries.into_iter().collect()
+}
+
+#[test]
+fn all_air_connectivity_walks_the_loaded_graph() {
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let second = SubChunkKey::new(0, 1, 0, 0);
+    let third = SubChunkKey::new(0, 2, 0, 0);
+    let graph = grid([
+        (first, FaceConnectivity::all()),
+        (second, FaceConnectivity::all()),
+        (third, FaceConnectivity::all()),
+    ]);
+
+    let visible = cave_visible_sub_chunks(first, &graph);
+    assert_eq!(visible, [first, second, third].into());
+}
+
+#[test]
+fn sealed_middle_subchunk_stops_bfs_beyond_the_conservative_shell() {
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let sealed = SubChunkKey::new(0, 1, 0, 0);
+    let shell = SubChunkKey::new(0, 2, 0, 0);
+    let hidden = SubChunkKey::new(0, 3, 0, 0);
+    let graph = grid([
+        (first, FaceConnectivity::all()),
+        (sealed, FaceConnectivity::none()),
+        (shell, FaceConnectivity::all()),
+        (hidden, FaceConnectivity::all()),
+    ]);
+
+    let visible = cave_visible_sub_chunks(first, &graph);
+    assert_eq!(visible, [first, sealed, shell].into());
+}
+
+#[test]
+fn visible_outdoor_node_keeps_its_loaded_support_shell_visible() {
+    let camera = SubChunkKey::new(0, 0, 4, 0);
+    let outdoor = SubChunkKey::new(0, 1, 4, 0);
+    let support = SubChunkKey::new(0, 1, 3, 0);
+    let deeper_interior = SubChunkKey::new(0, 1, 2, 0);
+    let graph = grid([
+        (camera, FaceConnectivity::all()),
+        // The whole outdoor sub-chunk is rendered after the camera-side
+        // portal reaches it, even when its downward region is disconnected.
+        (outdoor, FaceConnectivity::none()),
+        (support, FaceConnectivity::none()),
+        (deeper_interior, FaceConnectivity::none()),
+    ]);
+
+    let visible = cave_visible_sub_chunks(camera, &graph);
+    assert!(visible.contains(&outdoor));
+    assert!(
+        visible.contains(&support),
+        "a rendered outdoor/model sub-chunk must not float over a hidden loaded support shell"
+    );
+    assert!(
+        !visible.contains(&deeper_interior),
+        "the conservative shell must stay one sub-chunk deep"
+    );
+}
+
+#[test]
+fn conservative_shell_adds_at_most_the_six_loaded_face_neighbours() {
+    let camera = SubChunkKey::new(0, 0, 0, 0);
+    let neighbours = [
+        SubChunkKey::new(0, -1, 0, 0),
+        SubChunkKey::new(0, 1, 0, 0),
+        SubChunkKey::new(0, 0, -1, 0),
+        SubChunkKey::new(0, 0, 1, 0),
+        SubChunkKey::new(0, 0, 0, -1),
+        SubChunkKey::new(0, 0, 0, 1),
+    ];
+    let second_ring = SubChunkKey::new(0, 2, 0, 0);
+    let graph = grid(
+        neighbours
+            .into_iter()
+            .chain([camera, second_ring])
+            .map(|key| (key, FaceConnectivity::none())),
+    );
+
+    let visible = cave_visible_sub_chunks(camera, &graph);
+    assert_eq!(visible.len(), 7);
+    assert!(neighbours.into_iter().all(|key| visible.contains(&key)));
+    assert!(!visible.contains(&second_ring));
+}
+
+#[test]
+fn conservative_shell_stays_in_dimension_and_handles_coordinate_limits() {
+    let camera = SubChunkKey::new(7, i32::MAX, 0, 0);
+    let loaded_neighbour = SubChunkKey::new(7, i32::MAX - 1, 0, 0);
+    let other_dimension = SubChunkKey::new(8, i32::MAX, 0, 0);
+    let graph = grid([
+        (camera, FaceConnectivity::none()),
+        (loaded_neighbour, FaceConnectivity::none()),
+        (other_dimension, FaceConnectivity::none()),
+    ]);
+
+    let visible = cave_visible_sub_chunks(camera, &graph);
+    assert!(visible.contains(&loaded_neighbour));
+    assert!(!visible.contains(&other_dimension));
+}
+
+#[test]
+fn missing_camera_node_falls_back_to_conservative_visibility() {
+    let camera = SubChunkKey::new(0, 99, 0, 99);
+    let loaded = SubChunkKey::new(0, 0, 0, 0);
+    let graph = grid([(loaded, FaceConnectivity::none())]);
+
+    assert_eq!(cave_visible_sub_chunks(camera, &graph), [loaded].into());
+}
+
+#[test]
+fn outdoor_camera_boundary_keeps_the_loaded_graph_continuously_visible() {
+    let before_boundary = SubChunkKey::new(0, 0, 4, 0);
+    let after_boundary = SubChunkKey::new(0, 1, 4, 0);
+    let support_before = SubChunkKey::new(0, 0, 3, 0);
+    let support_after = SubChunkKey::new(0, 1, 3, 0);
+    let graph = grid([
+        (before_boundary, FaceConnectivity::all()),
+        (after_boundary, FaceConnectivity::all()),
+        (support_before, FaceConnectivity::none()),
+        (support_after, FaceConnectivity::none()),
+    ]);
+
+    let before = cave_visible_sub_chunks(before_boundary, &graph);
+    let after = cave_visible_sub_chunks(after_boundary, &graph);
+
+    assert_eq!(
+        before, after,
+        "crossing an outdoor sub-chunk boundary must not hide a loaded entity for one frame"
+    );
+    assert_eq!(before, graph.keys().collect());
+}
+
+/// The hash-map traversal the dense grid replaced, kept verbatim as the output oracle.
+#[derive(Default)]
+struct OracleScratch {
+    visited: HashMap<SubChunkKey, u8>,
+    queue: VecDeque<(SubChunkKey, Option<Face>)>,
+}
+
+fn oracle_fill(
+    camera: SubChunkKey,
+    connectivity: &HashMap<SubChunkKey, FaceConnectivity>,
+    scratch: &mut OracleScratch,
+    visible: &mut HashSet<SubChunkKey>,
+) {
+    visible.clear();
+    scratch.visited.clear();
+    scratch.queue.clear();
+    if !connectivity.contains_key(&camera) {
+        visible.extend(connectivity.keys().copied());
+        return;
+    }
+    let visited = &mut scratch.visited;
+    visited.insert(camera, 1 << 6);
+    let queue = &mut scratch.queue;
+    queue.push_back((camera, None));
+    while let Some((key, entered_from)) = queue.pop_front() {
+        let Some(connections) = connectivity.get(&key).copied() else {
+            continue;
+        };
+        for exit in Face::ALL {
+            let can_exit = entered_from.map_or_else(
+                || connections.is_connected(exit, exit),
+                |entry| connections.is_connected(entry, exit),
+            );
+            if !can_exit {
+                continue;
+            }
+            let Some(next) = adjacent(key, exit) else {
+                continue;
+            };
+            if !connectivity.contains_key(&next) {
+                continue;
+            }
+            let entered_bit = 1_u8 << (opposite(exit) as u8);
+            let visited_faces = visited.entry(next).or_default();
+            if *visited_faces & entered_bit == 0 {
+                *visited_faces |= entered_bit;
+                queue.push_back((next, Some(opposite(exit))));
+            }
+        }
+    }
+    visible.extend(visited.keys().copied());
+    for &key in visited.keys() {
+        for face in Face::ALL {
+            let Some(neighbour) = adjacent(key, face) else {
+                continue;
+            };
+            if connectivity.contains_key(&neighbour) {
+                visible.insert(neighbour);
+            }
+        }
+    }
+}
+
+fn oracle(
+    camera: SubChunkKey,
+    map: &HashMap<SubChunkKey, FaceConnectivity>,
+) -> HashSet<SubChunkKey> {
+    let mut visible = HashSet::new();
+    oracle_fill(camera, map, &mut OracleScratch::default(), &mut visible);
+    visible
+}
+
+/// Deterministic xorshift so failures reproduce without a rand dependency.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, bound: u64) -> i32 {
+        (self.next() % bound) as i32
+    }
+
+    fn connectivity(&mut self) -> FaceConnectivity {
+        match self.next() % 4 {
+            0 => FaceConnectivity::all(),
+            1 => FaceConnectivity::none(),
+            // Sparse matrices keep many portals closed so traversal order matters.
+            _ => FaceConnectivity::from_bits(self.next() & self.next() & self.next()),
+        }
+    }
+}
+
+/// Terrain-like columns: open sky above a surface, cave-riddled rock below.
+fn fixture_world(radius: i32, seed: u64) -> HashMap<SubChunkKey, FaceConnectivity> {
+    let mut rng = Rng(seed);
+    let mut map = HashMap::new();
+    for x in -radius..=radius {
+        for z in -radius..=radius {
+            if x * x + z * z > radius * radius {
+                continue;
+            }
+            let surface = 3 + (x + 2 * z).rem_euclid(3);
+            for y in -4..20 {
+                let value = if y > surface {
+                    FaceConnectivity::all()
+                } else if rng.next() % 3 == 0 {
+                    FaceConnectivity::none()
+                } else {
+                    rng.connectivity()
+                };
+                map.insert(SubChunkKey::new(0, x, y, z), value);
+            }
+        }
+    }
+    map
+}
+
+fn assert_matches_oracle(
+    camera: SubChunkKey,
+    map: &HashMap<SubChunkKey, FaceConnectivity>,
+    grid: &ConnectivityGrid,
+    scratch: &mut CaveVisibilityScratch,
+    visible: &mut CaveVisibleSet,
+) {
+    fill_visible(camera, grid, scratch, visible);
+    let expected = oracle(camera, map);
+    let actual = visible.iter().collect::<HashSet<_>>();
+    assert_eq!(
+        actual.len(),
+        visible.len(),
+        "duplicate members for {camera:?}"
+    );
+    assert_eq!(
+        actual, expected,
+        "visible set diverged for camera {camera:?}"
+    );
+    for key in map.keys() {
+        assert_eq!(visible.contains(key), expected.contains(key), "{key:?}");
+    }
+}
+
+/// Dense traversal reproduces the hash-map oracle on terrain fixtures at both gate radii.
+#[test]
+fn dense_traversal_matches_the_oracle_on_fixture_worlds() {
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    for (radius, seed) in [(8, 0x9e37_79b9), (12, 0x1234_5678_9abc)] {
+        let map = fixture_world(radius, seed);
+        let grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+        for camera in [
+            SubChunkKey::new(0, 0, 10, 0),
+            SubChunkKey::new(0, 0, 1, 0),
+            SubChunkKey::new(0, 3, -2, -4),
+            SubChunkKey::new(0, -radius, 0, 0),
+            SubChunkKey::new(0, 0, 40, 0),
+        ] {
+            assert_matches_oracle(camera, &map, &grid, &mut scratch, &mut visible);
+        }
+    }
+}
+
+/// Random graphs, including toroidal collisions, other dimensions and edits between calls.
+#[test]
+fn dense_traversal_matches_the_oracle_on_random_worlds() {
+    let mut rng = Rng(0xdead_beef_cafe);
+    for round in 0..40 {
+        // Spans past the initial 32-cell axes force overflow keys and grid growth.
+        let span = [6, 20, 40, 90][round % 4];
+        let mut map = HashMap::new();
+        for _ in 0..rng.below(3_000) + 1 {
+            let key = SubChunkKey::new(
+                i32::from(rng.next() % 8 == 0),
+                rng.below(span) - span as i32 / 2,
+                rng.below(40) - 8,
+                rng.below(span) - span as i32 / 2,
+            );
+            map.insert(key, rng.connectivity());
+        }
+        let mut grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+        let mut scratch = CaveVisibilityScratch::default();
+        let mut visible = CaveVisibleSet::default();
+        for _ in 0..12 {
+            let keys = map.keys().copied().collect::<Vec<_>>();
+            if keys.is_empty() {
+                break;
+            }
+            let camera = keys[rng.below(keys.len() as u64) as usize];
+            assert_matches_oracle(camera, &map, &grid, &mut scratch, &mut visible);
+            for _ in 0..50 {
+                let key = keys[rng.below(keys.len() as u64) as usize];
+                if rng.next() % 2 == 0 {
+                    assert_eq!(grid.remove(&key), map.remove(&key));
+                } else {
+                    let value = rng.connectivity();
+                    assert_eq!(grid.insert(key, value), map.insert(key, value));
+                }
+            }
+            assert_eq!(grid.len(), map.len());
+        }
+        map.retain(|key, _| key.x % 3 != 0);
+        grid.retain(|key| key.x % 3 != 0);
+        assert_eq!(
+            grid.keys().collect::<HashSet<_>>(),
+            map.keys().copied().collect()
+        );
+        let camera = map
+            .keys()
+            .next()
+            .copied()
+            .unwrap_or(SubChunkKey::new(0, 0, 0, 0));
+        assert_matches_oracle(camera, &map, &grid, &mut scratch, &mut visible);
+    }
+}
+
+/// Colliding keys keep exact lookups through removal, promotion and retain.
+#[test]
+fn toroidal_collisions_stay_exact() {
+    let home = SubChunkKey::new(0, 1, 2, 3);
+    let wrapped = SubChunkKey::new(0, 1 + 32, 2, 3 - 64);
+    let other_dimension = SubChunkKey::new(1, 1, 2, 3);
+    let mut grid = grid([
+        (home, FaceConnectivity::all()),
+        (wrapped, FaceConnectivity::none()),
+        (other_dimension, FaceConnectivity::all()),
+    ]);
+    assert_eq!(grid.get(&wrapped), Some(FaceConnectivity::none()));
+    assert_eq!(grid.remove(&home), Some(FaceConnectivity::all()));
+    assert_eq!(grid.get(&home), None);
+    assert_eq!(grid.get(&wrapped), Some(FaceConnectivity::none()));
+    assert_eq!(grid.get(&other_dimension), Some(FaceConnectivity::all()));
+    grid.retain(|key| key.dimension == 0);
+    assert_eq!(grid.keys().collect::<Vec<_>>(), [wrapped]);
+    assert_eq!(grid.len(), 1);
+}
+
+/// Set equality ignores the window position, and keys outside the window still count.
+#[test]
+fn visible_sets_compare_by_members() {
+    let near = SubChunkKey::new(0, 0, 0, 0);
+    let far = SubChunkKey::new(0, 500, 0, 0);
+    let mut left = CaveVisibleSet::default();
+    let mut right = CaveVisibleSet::default();
+    left.reset(near, (5, 5));
+    right.reset(SubChunkKey::new(0, 3, 0, 0), (5, 5));
+    for key in [near, far] {
+        assert!(left.insert(key));
+        assert!(right.insert(key));
+    }
+    assert!(!left.insert(near));
+    assert_eq!(left, right);
+    assert!(right.insert(SubChunkKey::new(0, 1, 0, 0)));
+    assert_ne!(left, right);
+    left.reset(near, (5, 5));
+    assert!(left.is_empty() && !left.contains(&near) && !left.contains(&far));
+}
+
+/// Release timing: `cargo test --release -p chunk-pipeline cave_visibility_bench -- --ignored --nocapture`.
+#[test]
+#[ignore = "offline cave traversal timing fixture"]
+fn cave_visibility_bench() {
+    use std::{hint::black_box, time::Instant};
+    fn median_p95(mut samples: Vec<u128>) -> (u128, u128) {
+        samples.sort_unstable();
+        (
+            samples[samples.len() / 2],
+            samples[samples.len() * 95 / 100],
+        )
+    }
+    for radius in [8, 12] {
+        let map = fixture_world(radius, 0x5eed);
+        let grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+        for (label, camera) in [
+            ("surface", SubChunkKey::new(0, 0, 10, 0)),
+            ("cave", SubChunkKey::new(0, 0, 1, 0)),
+        ] {
+            let mut oracle_scratch = OracleScratch::default();
+            let mut oracle_visible = HashSet::new();
+            let mut scratch = CaveVisibilityScratch::default();
+            let mut visible = CaveVisibleSet::default();
+            let (mut old, mut new) = (Vec::new(), Vec::new());
+            for _ in 0..201 {
+                let started = Instant::now();
+                oracle_fill(camera, &map, &mut oracle_scratch, &mut oracle_visible);
+                black_box(&oracle_visible);
+                old.push(started.elapsed().as_nanos());
+                let started = Instant::now();
+                fill_visible(camera, &grid, &mut scratch, &mut visible);
+                black_box(&visible);
+                new.push(started.elapsed().as_nanos());
+            }
+            assert_eq!(visible.iter().collect::<HashSet<_>>(), oracle_visible);
+            let (old, new) = (median_p95(old), median_p95(new));
+            println!(
+                "cave_visibility radius={radius} camera={label} nodes={} visible={} old_us={:.1}/{:.1} new_us={:.1}/{:.1} speedup={:.1}x",
+                map.len(),
+                visible.len(),
+                old.0 as f64 / 1e3,
+                old.1 as f64 / 1e3,
+                new.0 as f64 / 1e3,
+                new.1 as f64 / 1e3,
+                old.0 as f64 / new.0 as f64,
+            );
+        }
+    }
+}
