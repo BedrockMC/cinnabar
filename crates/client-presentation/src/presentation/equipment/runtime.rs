@@ -654,6 +654,7 @@ pub(super) fn layer_presentation(
     identity.layer = layer;
     EquipmentPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: body.culling_bounds,
             input: ActorRigRenderInput {
                 identity,
