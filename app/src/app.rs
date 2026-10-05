@@ -646,6 +646,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let present_mode_runtime =
         PresentModeRuntime::from_startup(args.force_vsync, args.no_vsync, diagnostics_enabled);
     let present_mode_policy = present_mode_runtime.policy();
+    let vsync_override = present_mode_runtime.vsync_override();
     let runtime_config = AcceptanceRuntimeConfig {
         build_profile: if cfg!(debug_assertions) {
             "debug"
@@ -754,7 +755,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .with_language_assets(
             loaded_assets.selected_path.clone(),
             args.language.as_deref(),
-        ),
+        )
+        .with_vsync_override(vsync_override),
     )
     .init_resource::<crate::menu::MenuClipboard>()
     .insert_resource(crate::session_audio::SessionAudioCatalog(audio_catalog))
