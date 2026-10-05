@@ -137,6 +137,7 @@ impl WorldStream {
             chunk_radius: None,
             last_retention_center: None,
             last_retention_radius: None,
+            local_player_chunk: None,
             stats: WorldStreamStats::default(),
         }
     }

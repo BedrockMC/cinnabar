@@ -96,6 +96,7 @@ mod block_cracks;
 mod commit_budget;
 mod dimension_transfer;
 mod light_scheduler;
+mod local_retention;
 mod neighbour_deadlines;
 
 mod mesh_dependency;

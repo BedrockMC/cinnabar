@@ -474,6 +474,7 @@ impl WorldStream {
                 self.block_entity_visuals.clear();
                 self.authority.reset_dimension(sequence, change.dimension);
                 let resolved = self.authority.resolve_position(change.position);
+                self.local_player_chunk = None;
                 self.publisher
                     .reset_for_dimension(resolved.position.map(floor_to_i32));
                 self.last_retention_center = None;
@@ -499,6 +500,7 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
                 let resolved = if respawn.ready_to_spawn() {
                     let resolved = self.authority.resolve_position(respawn.position);
+                    self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
                     self.reevaluate_chunk_retention();
                     resolved
@@ -524,6 +526,7 @@ impl WorldStream {
                     self.publisher.source_capture_sequence = None;
                 }
                 let resolved = self.authority.resolve_position(movement.position);
+                self.local_player_chunk = None;
                 if movement.mode.is_teleport() {
                     self.provisionally_rebase_for_local_teleport(resolved.position);
                 }
@@ -553,6 +556,7 @@ impl WorldStream {
                     return;
                 }
                 let resolved = self.authority.resolve_position(correction.position);
+                self.local_player_chunk = None;
                 self.reevaluate_chunk_retention();
                 self.authority.push_committed_control(
                     CommittedControlEvent::PlayerMovementCorrection {
