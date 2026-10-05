@@ -1139,11 +1139,35 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
 fn light_worker_cap_retains_dependency_progress_on_small_pools() {
     assert_eq!(super::super::light_job_cap_for_threads(1), 2);
     assert_eq!(super::super::light_job_cap_for_threads(4), 2);
-    assert_eq!(super::super::light_job_cap_for_threads(8), 2);
-    assert_eq!(super::super::light_job_cap_for_threads(12), 3);
+    assert_eq!(super::super::light_job_cap_for_threads(6), 3);
+    assert_eq!(super::super::light_job_cap_for_threads(12), 6);
     assert_eq!(
         super::super::light_job_cap_for_threads(usize::MAX),
         super::super::MAX_IN_FLIGHT_LIGHT_JOBS
+    );
+}
+
+/// Light caps read the world pool's light workers, not whichever rayon pool the caller runs in.
+#[test]
+fn light_caps_read_the_world_pool() {
+    let light_workers = super::super::workers::WORKERS.size().background;
+    let foreign = rayon::ThreadPoolBuilder::new()
+        .num_threads(37)
+        .build()
+        .unwrap();
+    let caps = foreign.install(|| {
+        (
+            super::super::effective_light_job_cap(),
+            super::super::initial_light_job_cap(),
+        )
+    });
+    assert_eq!(
+        caps.0,
+        super::super::light_job_cap_for_threads(light_workers)
+    );
+    assert_eq!(
+        caps.1,
+        light_workers.clamp(2, super::super::MAX_IN_FLIGHT_LIGHT_JOBS)
     );
 }
 

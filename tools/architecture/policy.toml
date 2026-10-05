@@ -296,7 +296,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "dist-local"
 path = "tools/dist"
-allowed_dependencies = []
+allowed_dependencies = ["assets"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]

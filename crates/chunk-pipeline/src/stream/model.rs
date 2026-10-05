@@ -391,6 +391,8 @@ pub struct WorldStreamStats {
     pub max_decode_queue_wait: Duration,
     pub max_light_queue_wait: Duration,
     pub max_mesh_queue_wait: Duration,
+    /// Worker-pool share of the mesh queue wait: dispatch to worker start.
+    pub max_mesh_dispatch_wait: Duration,
     pub max_decode_duration: Duration,
     pub max_mesh_duration: Duration,
     pub max_light_duration: Duration,
@@ -410,8 +412,13 @@ impl WorldStreamStats {
         self.max_light_queue_wait = self.max_light_queue_wait.max(queue_wait);
     }
 
-    pub(super) fn observe_mesh_queue_wait(&mut self, queue_wait: Duration) {
+    pub(super) fn observe_mesh_queue_wait(
+        &mut self,
+        queue_wait: Duration,
+        dispatch_wait: Duration,
+    ) {
         self.max_mesh_queue_wait = self.max_mesh_queue_wait.max(queue_wait);
+        self.max_mesh_dispatch_wait = self.max_mesh_dispatch_wait.max(dispatch_wait);
     }
 }
 
@@ -471,6 +478,7 @@ pub(super) struct MeshCompletion {
     pub(super) dependency_mask: MeshDependencyMask,
     pub(super) light_halo: MeshLightHalo,
     pub(super) queue_wait: Duration,
+    pub(super) dispatch_wait: Duration,
     pub(super) duration: Duration,
     pub(super) urgent: bool,
 }
