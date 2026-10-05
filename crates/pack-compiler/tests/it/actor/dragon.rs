@@ -14,9 +14,11 @@ fn dissolve_depth_artwork_retains_the_authored_fractional_alpha_mask() {
         "the dissolve mask must have an artwork route: {:?}",
         compiled.report.fallbacks
     );
-    let catalog =
-        RuntimeActorCatalog::decode(&compiled.bytes, &encode_entity_blob(&entities).unwrap())
-            .unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&encode_entity_blob(&entities).unwrap()).unwrap(),
+    )
+    .unwrap();
     let raster = image::open(pack.path().join("textures/entity/example.png"))
         .unwrap()
         .into_rgba8();
@@ -39,9 +41,11 @@ fn flat_wing_box_uvs_admit_the_visible_faces_without_unused_sides() {
         "{:?}",
         compiled.report.fallbacks
     );
-    let catalog =
-        RuntimeActorCatalog::decode(&compiled.bytes, &encode_entity_blob(&entities).unwrap())
-            .unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&encode_entity_blob(&entities).unwrap()).unwrap(),
+    )
+    .unwrap();
     let wing = &entities.geometries[catalog.bindings()[0].geometry as usize].bones[0].cubes[0];
     assert_eq!(wing.size.map(|value| value.get()), [56.0, 0.0, 56.0]);
     assert_eq!(
@@ -87,9 +91,11 @@ fn installed_dragon_art_admits_the_body_and_flat_wings() {
         "{:?}",
         compiled.report.fallbacks
     );
-    let catalog =
-        RuntimeActorCatalog::decode(&compiled.bytes, &encode_entity_blob(&entities).unwrap())
-            .unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&encode_entity_blob(&entities).unwrap()).unwrap(),
+    )
+    .unwrap();
     let binding = &catalog.bindings()[0];
     assert_eq!(
         entities.symbols[binding.entity_symbol as usize]
