@@ -14,9 +14,13 @@ struct Fake {
 }
 
 impl Prompter for Fake {
-    fn confirm(&self, _: &str, _: &str) -> bool {
+    fn confirm(&self, _: &str, _: &str) -> Consent {
         self.asked.set(self.asked.get() + 1);
-        self.accept
+        if self.accept {
+            Consent::Accepted
+        } else {
+            Consent::Declined
+        }
     }
     fn info(&self, _: &str, _: &str) {}
     fn alert(&self, _: &str, _: &str) {}
@@ -105,17 +109,38 @@ fn missing_kit_is_reported_after_consent_and_recorded() {
 
 #[derive(Default)]
 struct Recorder {
+    no_prompt: bool,
     alerts: RefCell<Vec<String>>,
 }
 
 impl Prompter for Recorder {
-    fn confirm(&self, _: &str, _: &str) -> bool {
-        true
+    fn confirm(&self, _: &str, _: &str) -> Consent {
+        if self.no_prompt {
+            Consent::Unavailable
+        } else {
+            Consent::Accepted
+        }
     }
     fn info(&self, _: &str, _: &str) {}
     fn alert(&self, _: &str, message: &str) {
         self.alerts.borrow_mut().push(message.to_owned());
     }
+}
+
+#[test]
+fn no_consent_surface_fails_visibly_instead_of_quitting() {
+    let data = Dir::new("no-prompt");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
+    let prompter = Recorder {
+        no_prompt: true,
+        ..Recorder::default()
+    };
+    let error = format!("{:#}", ensure_with(&layout, &prompter, false).unwrap_err());
+    assert!(error.contains(CONSENT_ENV), "{error}");
+    assert_eq!(prompter.alerts.borrow().as_slice(), [error.as_str()]);
+    let status = fs::read_to_string(layout.log_dir().join("first-run-status.json")).unwrap();
+    assert!(status.contains("\"failed\"") && status.contains(CONSENT_ENV));
+    assert!(!consent_marker(&layout).exists());
 }
 
 #[test]

@@ -87,6 +87,16 @@ impl Gpu {
         Some(Self { device, queue })
     }
 
+    /// Uploads raw storage words, such as packed quads, for a fixture.
+    pub fn words(&self, data: &[u32], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+        self.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(data),
+                usage,
+            })
+    }
+
     /// Uploads the packed production uniform or vertex words used by a fixture.
     pub fn buffer(&self, data: &[f32], usage: wgpu::BufferUsages) -> wgpu::Buffer {
         self.device
