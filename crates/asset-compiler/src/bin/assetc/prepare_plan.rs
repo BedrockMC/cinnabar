@@ -222,12 +222,16 @@ fn fingerprint(
     }
     for input in carrier.inputs {
         match input {
-            Input::Pack => {
+            // The pin identifies both packs; the extracted cache is transient and may be gone.
+            Input::Pack | Input::BehaviorPack => {
                 let manifest = read(&context.sources.resolve(VANILLA_MANIFEST))?;
-                field(b"pack");
+                field(if *input == Input::Pack {
+                    b"resource-pack"
+                } else {
+                    b"behavior-pack"
+                });
                 field(&assets::canonical_source_manifest_sha256(&manifest));
             }
-            Input::BehaviorPack => field(&[u8::from(context.behavior_pack().is_some())]),
             Input::Manifest(path) | Input::File(path) => {
                 field(path.as_bytes());
                 field(&Sha256::digest(read(&context.sources.resolve(path))?));
