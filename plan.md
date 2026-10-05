@@ -1,3 +1,11 @@
+## Solid terrain back-face culling
+
+- Single-sided opaque cube quads draw in per-face runs with back-face culling and no
+  fragment discard; only runs that can face the camera are submitted. Alpha-tested and
+  two-sided quads keep the cull-none discard pipeline.
+- An offscreen GPU test matches the culled path pixel-for-pixel against the discard path.
+- Incomplete live visual acceptance: a rendered-frame pass on the target platforms is pending.
+
 ## Held cube item consistency
 
 - Cube admission now ignores unrelated gameplay flags and terrain occlusion.
