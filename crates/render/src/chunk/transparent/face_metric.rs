@@ -43,6 +43,20 @@ pub(in crate::chunk) struct FaceOrderCamera {
     near_position_bits: Option<[u32; 3]>,
 }
 
+impl FaceOrderCamera {
+    /// The class of a sub-chunk among the keys this camera was built from.
+    pub(in crate::chunk) fn class(&self, key: SubChunkKey) -> FaceOrderClass {
+        let chunk = [key.x, key.y, key.z];
+        if (0..3).all(|axis| (self.near_min[axis]..=self.near_max[axis]).contains(&chunk[axis])) {
+            FaceOrderClass::Near(self.near_position_bits.unwrap_or_default())
+        } else {
+            FaceOrderClass::Far(std::array::from_fn(|axis| {
+                chunk[axis].cmp(&self.camera_chunk[axis]) as i8
+            }))
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::chunk) struct TransparentFaceMetric {
     camera: Vec3,
@@ -269,6 +283,9 @@ mod tests {
         assert_ne!(base.class(near), moved.class(near));
         assert_eq!(base.class(far), moved.class(far));
         assert_eq!(base.order_camera([far]), moved.order_camera([far]));
+        let keyed = moved.order_camera([near, far]);
+        assert_eq!(keyed.class(near), moved.class(near));
+        assert_eq!(keyed.class(far), moved.class(far));
         assert_ne!(
             base.order_camera([near, far]),
             moved.order_camera([near, far])
