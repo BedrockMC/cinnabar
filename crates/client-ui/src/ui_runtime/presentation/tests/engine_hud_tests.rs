@@ -11,6 +11,8 @@ use protocol::{
 use super::*;
 use crate::ui_runtime::presentation::{HudFrame, hud_layout};
 
+mod boss_removal_tests;
+
 pub use crate::test_support::{engine_presentation, engine_presentation_with};
 
 fn texts(nodes: &[DrawNode]) -> Vec<&str> {
@@ -114,7 +116,7 @@ fn build_at(
     now: u64,
     physical: [u32; 2],
     dpi: f32,
-) -> render::UiRenderInput {
+) -> render_model::UiRenderInput {
     presentation
         .build(
             player_runtime,
@@ -131,11 +133,11 @@ fn build(
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     now: u64,
-) -> render::UiRenderInput {
+) -> render_model::UiRenderInput {
     build_at(player_runtime, presentation, runtime, now, [1280, 720], 1.0)
 }
 
-fn quad_bounds(quad: &[render::UiRenderVertex]) -> [f32; 4] {
+fn quad_bounds(quad: &[render_model::UiRenderVertex]) -> [f32; 4] {
     quad.iter().fold(
         [
             f32::INFINITY,
@@ -155,7 +157,7 @@ fn quad_bounds(quad: &[render::UiRenderVertex]) -> [f32; 4] {
 }
 
 /// The crosshair: the one `side`-square quad in the frame, if any.
-fn crosshair(input: &render::UiRenderInput, side: f32) -> Option<[f32; 4]> {
+fn crosshair(input: &render_model::UiRenderInput, side: f32) -> Option<[f32; 4]> {
     input
         .vertices
         .chunks_exact(4)

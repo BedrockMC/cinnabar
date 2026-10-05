@@ -17,6 +17,7 @@ pub fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::ChangeDimension { resolved, .. }
         | CommittedControlEvent::Respawn { resolved, .. } => resolved,
         CommittedControlEvent::SetTime { .. }
+        | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::WorldClocks { .. }
         | CommittedControlEvent::DaylightCycle { .. }
         | CommittedControlEvent::WeatherCycle { .. }
@@ -25,7 +26,6 @@ pub fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
-        | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. } => return false,

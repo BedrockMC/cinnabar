@@ -249,16 +249,16 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
 
 fn long_form_source(data: &mut DataSource, form: &ActionForm) {
     data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
+    data.set_creation_value("#form_text", Scalar::Text(form.body.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#form_text", Scalar::Text(form.body.clone()));
     let length = Scalar::Num(form.elements.len() as f64);
-    data.set_global("#form_button_contents", length.clone());
     data.set_global("#form_button_length", length);
     data.set_global("#submit_button_visible", Scalar::Bool(true));
     let text_item = |role: &str, text: &str| {
         CollectionItem::new(role).with("#form_button_text", Scalar::Text(text.to_owned()))
     };
-    let items = form
+    let items: Vec<_> = form
         .elements
         .iter()
         .map(|element| match element {
@@ -281,6 +281,18 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
             ActionElement::Divider => CollectionItem::new("divider"),
         })
         .collect();
+    let contents = items
+        .iter()
+        .map(|item| {
+            item.role
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String)
+        })
+        .collect();
+    data.set_global(
+        "#form_button_contents",
+        Scalar::Json(serde_json::Value::Array(contents)),
+    );
     data.set_collection("form_buttons", items);
 }
 

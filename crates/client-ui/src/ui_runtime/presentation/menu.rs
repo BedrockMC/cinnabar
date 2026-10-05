@@ -630,6 +630,7 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
+        MenuDialog::Accounts => ("Accounts", "", MenuAction::DismissDialog),
         MenuDialog::SettingsResetGroup(group) => (
             "Reset to Default",
             "Do you really want to reset the settings?",

@@ -32,6 +32,8 @@ mod movement_attribute;
 mod particles;
 mod queues;
 mod sign_edit;
+#[cfg(test)]
+mod synchronized_audio_tests;
 mod terrain;
 #[cfg(test)]
 mod tests;

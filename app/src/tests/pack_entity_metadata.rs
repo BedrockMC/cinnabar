@@ -8,7 +8,8 @@ use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
-use render::{ActorArtworkPages, EntityRigId};
+use render::ActorArtworkPages;
+use render_model::EntityRigId;
 use std::sync::Arc;
 
 const COUNTER: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{

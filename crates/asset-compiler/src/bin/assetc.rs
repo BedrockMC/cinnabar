@@ -53,6 +53,8 @@ mod particle_command;
 mod registry_version;
 #[path = "assetc/ui_command.rs"]
 mod ui_command;
+#[path = "assetc/vanilla_pack_command.rs"]
+mod vanilla_pack_command;
 
 use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
@@ -217,11 +219,18 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::FontAssets {
             pack,
+            font,
             source_manifest,
             out,
             report,
         } => {
-            compile_font_assets_command(&pack, &source_manifest, &out, &report)?;
+            compile_font_assets_command(
+                pack.as_deref(),
+                font.as_deref(),
+                &source_manifest,
+                &out,
+                &report,
+            )?;
         }
         Command::HudAssets {
             pack,
@@ -421,6 +430,12 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 out.display()
             );
         }
+        Command::VanillaPack {
+            source_manifest,
+            accept_eula,
+        } => {
+            vanilla_pack_command::acquire(&source_manifest, &std::env::current_dir()?, accept_eula)?
+        }
         Command::AnimationInventory {
             pack,
             source_manifest,
@@ -480,7 +495,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn compile_font_assets_command(
-    pack: &Path,
+    pack: Option<&Path>,
+    font: Option<&Path>,
     source_manifest: &Path,
     out: &Path,
     report: &Path,
@@ -498,7 +514,11 @@ fn compile_font_assets_command(
             }
         })?;
     let source_manifest_sha256 = assets::canonical_source_manifest_sha256(&manifest_bytes);
-    let compiled = compile_fonts(pack)?;
+    let compiled = match (pack, font) {
+        (Some(pack), None) => compile_fonts(pack)?,
+        (None, Some(font)) => font_command::compile_pinned(font, &source, source_manifest_sha256)?,
+        _ => return Err("font-assets takes exactly one of --pack or --font".into()),
+    };
     if compiled.report.source_manifest_sha256 != source_manifest_sha256 {
         return Err(FontCompileError::SourceManifestMismatch.into());
     }

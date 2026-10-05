@@ -2,7 +2,6 @@
 use super::*;
 #[path = "world.rs"]
 mod world;
-use crate::ui::UI_BLEND_ALPHA;
 use bevy::{
     camera::{MainPassResolutionOverride, Viewport},
     core_pipeline::core_3d::graph::{Core3d, Node3d},
@@ -19,6 +18,7 @@ use bevy::{
         view::ViewDepthTexture,
     },
 };
+use render_model::UI_BLEND_ALPHA;
 use std::{collections::BTreeMap, ops::Range, sync::Mutex};
 use world::UiWorldNode;
 
@@ -130,7 +130,7 @@ impl<N: ViewNode, const POST: bool> ViewNode for GradeStage<N, POST> {
         (after_grade, view): QueryItem<'w, '_, Self::ViewQuery>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
-        if (crate::ENHANCED_RENDERING_ENABLED && after_grade) != POST {
+        if (render_model::ENHANCED_RENDERING_ENABLED && after_grade) != POST {
             return Ok(());
         }
         self.0.run(graph, render_context, view, world)
@@ -407,6 +407,14 @@ impl ViewNode for UiOverlayNode {
         (target, main, camera, resolution_override, layer): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
+        crate::screen_overlay_render::draw_before_hud(
+            graph.view_entity(),
+            target,
+            camera,
+            resolution_override,
+            context,
+            world,
+        );
         let (Some(gpu), Some(pipeline_cache), Some(composite)) = (
             world.get_resource::<UiGpu>(),
             world.get_resource::<PipelineCache>(),
@@ -593,7 +601,7 @@ fn model_depth_attachment<'a>(
 fn draw_ui_layer(
     context: &mut RenderContext,
     draw: &UiLayerDraw<'_>,
-    batches: &[(usize, &UiRenderBatch, crate::UiTextureLocation)],
+    batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
     lifetime: &mut super::model_depth::ModelDepthLifetime,
 ) -> bool {
     let mut encoded = false;
@@ -680,7 +688,7 @@ fn draw_batches<'w>(
     vertices: &'w Buffer,
     indices: &'w Buffer,
     viewport: Option<&Viewport>,
-    batches: &[(usize, &UiRenderBatch, crate::UiTextureLocation)],
+    batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
     skip: Option<&Range<u32>>,
 ) {
     if let Some(viewport) = viewport {
@@ -729,16 +737,20 @@ mod tests {
 
     #[test]
     fn retained_hand_split_keeps_mixed_bucket_layer_blend_and_shadow_fill_order() {
-        let plan =
-            crate::UiTexturePlan::new(&[[1024, 1024], [2048, 2048], [256, 256], [2048, 2048]])
-                .unwrap();
+        let plan = render_model::UiTexturePlan::new(&[
+            [1024, 1024],
+            [2048, 2048],
+            [256, 256],
+            [2048, 2048],
+        ])
+        .unwrap();
         let batches = [1, 0, 3, 2, 1]
             .into_iter()
             .enumerate()
             .map(|(index, page)| {
                 UiRenderBatch::new(
                     page,
-                    crate::ui::UiScissor::new(index as u32, 0, 20, 20),
+                    render_model::UiScissor::new(index as u32, 0, 20, 20),
                     index as u32 * 18,
                     18,
                     if index == 2 {

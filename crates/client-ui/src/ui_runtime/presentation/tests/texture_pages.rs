@@ -76,7 +76,7 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
         independent_icons(735, 16),
     )
     .unwrap();
-    assert!(presentation.textures.plan().bytes() <= render::MAX_UI_TEXTURE_BYTES);
+    assert!(presentation.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 735);
     // The largest icon carrier still fits beside the CJK font; the planner refuses whole
     // catalogs past the byte budget (see render's `planner_checks_entire_catalog_and_all_limits`).
@@ -84,7 +84,7 @@ fn full_icon_catalog_and_reserved_dynamic_pages_are_admitted_together() {
         UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
             .unwrap();
     assert_eq!(large.icon_refs.as_ref().unwrap().len(), 900);
-    assert!(large.textures.plan().bytes() <= render::MAX_UI_TEXTURE_BYTES);
+    assert!(large.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn ordinary_cube_thumbnail_pages_share_the_complete_static_budget() {
     .unwrap();
     assert_eq!(presentation.icon_refs.as_ref().unwrap().len(), 1024);
     assert!(presentation.textures.dynamic_start() < presentation.textures.pages().len());
-    assert!(presentation.textures.plan().bytes() <= render::MAX_UI_TEXTURE_BYTES);
+    assert!(presentation.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);
     assert!(
         UiPresentationRuntime::with_hud_and_icons(font, fixture_hud(), independent_icons(900, 64))
             .is_ok(),
@@ -151,9 +151,17 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
 fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let font = independent_font(&[1024, 2048, 2048, 2048]);
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
+    let font_bytes: usize = font.pages().iter().map(|page| page.rgba8.len()).sum();
+    let page_bytes = |side: u32| side as usize * side as usize * 4;
+    let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
+    let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),
-        60 * 1024 * 1024 + 35 * 256 * 256 * 4
+        font_bytes
+            + small_page_bytes
+            + dynamic_bytes
+            + render_model::MAX_UI_ART_PAGES * page_bytes(render_model::UI_ART_PAGE_SIDE)
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
@@ -166,7 +174,6 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
 fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity_joined() {
     let player_runtime = player_state::PlayerState::new(1);
 
-    use bevy::render::extract_resource::ExtractResource;
     let mut presentation = UiPresentationRuntime::new(independent_font(&[1024, 2048])).unwrap();
     let runtime = UiRuntime::new(1);
     let stats = UiRenderStats::default();
@@ -196,7 +203,8 @@ fn actual_producer_publish_and_extraction_keep_revision_and_publication_identity
             Arc::ptr_eq(scene.input.as_ref().unwrap(), &publication),
             "equivalent republish preserves accepted Arc"
         );
-        let extracted = UiRenderScene::extract_resource(&scene);
+        // Render-world extraction clones the scene.
+        let extracted = scene.clone();
         assert!(Arc::ptr_eq(extracted.input.as_ref().unwrap(), &publication));
     }
 }
@@ -379,7 +387,7 @@ fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_owners
     // Session pages clear; the art pages keep the launcher's title logo.
     let dynamic = reset.textures.dynamic_start();
     assert!(
-        reset.textures.pages()[dynamic..dynamic + render::MAX_UI_DYNAMIC_PAGES]
+        reset.textures.pages()[dynamic..dynamic + render_model::MAX_UI_DYNAMIC_PAGES]
             .iter()
             .all(|p| p.pixels().iter().all(|&v| v == 0))
     );
@@ -561,8 +569,63 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     assert_eq!(restored.atlas[0].rgba8, before.atlas[0].rgba8);
     assert_eq!(
         presentation.textures.pages().len(),
-        dynamic_start + render::MAX_UI_DYNAMIC_PAGES + render::MAX_UI_ART_PAGES
+        dynamic_start + render_model::MAX_UI_DYNAMIC_PAGES + render_model::MAX_UI_ART_PAGES
     );
+}
+
+#[test]
+fn startup_named_font_survives_session_alias_updates_without_changing_default_metrics() {
+    let base = independent_font(&[64]);
+    let private = independent_font(&[32]);
+    let startup = Arc::new(
+        base.with_named_font(ui::mod_panel::FONT_NAME, &private)
+            .unwrap(),
+    );
+    let mut presentation = UiPresentationRuntime::new(Arc::clone(&startup)).unwrap();
+    let original = *presentation.font.glyph('A').unwrap();
+    let alias = *presentation
+        .font
+        .font_named(ui::mod_panel::FONT_NAME)
+        .glyph('A')
+        .unwrap();
+    assert_eq!(alias.page, 1);
+    let textures = Arc::clone(&presentation.textures);
+    let cell = assets::CellGlyph {
+        codepoint: 'A',
+        size: [1, 1],
+        rgba8: vec![128; 4].into(),
+        bearing: [0, 0],
+        advance_64: 64,
+        draw_size_64: [64, 64],
+    };
+    let sheets = Arc::new(SessionGlyphSheets::with_named(
+        Vec::new(),
+        std::collections::BTreeMap::from([(ui::mod_panel::FONT_NAME.into(), vec![cell])]),
+    ));
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    assert_eq!(presentation.font.glyph('A'), Some(&original));
+    assert_eq!(
+        presentation
+            .font
+            .font_named(ui::mod_panel::FONT_NAME)
+            .glyph('A'),
+        Some(&alias)
+    );
+    assert_eq!(presentation.textures.pages()[1], textures.pages()[1]);
+    let count = presentation.textures.pages().len();
+    session_glyphs::observe(&mut presentation, Some(&sheets));
+    assert_eq!(presentation.textures.pages().len(), count);
+    session_glyphs::observe(&mut presentation, None);
+    assert_eq!(presentation.font.glyph('A'), Some(&original));
+    assert_eq!(
+        presentation
+            .font
+            .font_named(ui::mod_panel::FONT_NAME)
+            .glyph('A'),
+        Some(&alias)
+    );
+    assert!(Arc::ptr_eq(&presentation.font, &startup));
+    assert_eq!(presentation.textures.pages().len(), count);
 }
 
 /// Asserts `identifier` resolves to an icon whose UV rect is opaque on its uploaded page.

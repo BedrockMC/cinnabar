@@ -14,6 +14,7 @@ mod chest;
 mod conduit;
 mod crack;
 mod crystal_beam;
+mod dragon_death;
 mod frame;
 mod gpu;
 mod heads;
@@ -41,6 +42,7 @@ pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radian
 pub use conduit::ConduitModel;
 pub use crack::{CrackQuad, CrackShape, crack_shape_from_template, crack_texture_name};
 pub use crystal_beam::CrystalBeamModel;
+pub use dragon_death::{DRAGON_DEATH_BLEND, DragonDeathModel};
 pub use frame::{ItemFrameModel, item_frame_item_transform};
 pub use gpu::BlockEntityRenderPlugin;
 pub use items::{StaticItemPlacement, StaticItemPlacements, matrix_rows};
@@ -57,6 +59,6 @@ pub use scene::{
 pub use selection::{BlockSelectionFrame, BlockSelectionTarget};
 pub use shulker::{ShulkerModel, shulker_color_from_block_name};
 pub use sign::{SignFace, SignModel, SignMount};
-pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees};
+pub use skull::{SkullKind, SkullModel, SkullMount, floor_yaw_degrees, skull_geometry};
 pub use spawner::SpawnerModel;
 pub use statue::{Oxidation, StatueModel, StatuePose};

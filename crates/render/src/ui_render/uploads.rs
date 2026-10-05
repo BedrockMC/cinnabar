@@ -2,7 +2,7 @@
 
 use std::{ops::Range, sync::Arc};
 
-use crate::{UiRenderInput, UiRenderVertex};
+use render_model::{UiRenderInput, UiRenderVertex};
 
 #[derive(Default)]
 pub(super) struct BufferUploads {
@@ -105,9 +105,10 @@ mod tests {
             style_flags: 0,
             alpha_cutoff: -1.0,
             model_light: 1.0,
+            overlay_color: [0.0; 4],
         };
         let old = [vertex; 3];
-        for field in 0..8 {
+        for field in 0..9 {
             let mut new = old;
             match field {
                 0 => new[1].position[0] = -0.0,
@@ -117,7 +118,8 @@ mod tests {
                 4 => new[1].clip_z = 0.5,
                 5 => new[1].clip_w = 2.0,
                 6 => new[1].alpha_cutoff = 0.1,
-                _ => new[1].model_light = 0.718_629,
+                7 => new[1].model_light = 0.718_629,
+                _ => new[1].overlay_color[3] = 0.7,
             }
             assert_eq!(changed_range(&old, &new, false), 1..2);
         }
@@ -151,6 +153,7 @@ mod tests {
             style_flags: 0,
             alpha_cutoff: -1.0,
             model_light: 1.0,
+            overlay_color: [0.0; 4],
         };
         let old = vec![vertex; 12_000];
         let mut new = old.clone();

@@ -1,7 +1,7 @@
 //! The local player's own skin, loaded once at startup from `<assets>/skin/player.png`.
 //!
 //! Cosmetic and non-fatal: any load failure logs once and falls back to the vanilla default
-//! skin (see `render::default_actor_skin_rgba8`). The same bytes back both the ClientData login
+//! skin (see `render_model::default_actor_skin_rgba8`). The same bytes back both the ClientData login
 //! upload and the local body / HUD paperdoll render.
 
 use std::path::Path;
@@ -19,7 +19,7 @@ const DEFAULT_ARM_SIZE: &str = "wide";
 /// never echoes the local player onto the player list.
 #[derive(Debug, Clone, Resource)]
 pub(crate) struct LocalPlayerSkin {
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: protocol::SkinRgba8,
     pub width: u32,
     pub height: u32,
     pub arm_size: Arc<str>,
@@ -40,7 +40,7 @@ impl LocalPlayerSkin {
                     "local player skin unavailable; using the default skin"
                 );
                 (
-                    render::default_actor_skin_rgba8(),
+                    render_model::default_actor_skin_rgba8(),
                     protocol::CLASSIC_SKIN_SIDE,
                 )
             }
@@ -53,19 +53,20 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn generated_default(display_name: &str) -> Self {
         Self::from_rgba8(
-            render::default_actor_skin_rgba8(),
+            render_model::default_actor_skin_rgba8(),
             protocol::CLASSIC_SKIN_SIDE,
             display_name,
         )
     }
 
     /// Keeps classic upload dimensions independent of the renderer's larger shared array.
-    fn from_rgba8(packed: Arc<[u8]>, side: usize, display_name: &str) -> Self {
+    fn from_rgba8(packed: protocol::SkinRgba8, side: usize, display_name: &str) -> Self {
         let mut rgba8 = Vec::with_capacity(side * side * 4);
         for y in 0..side {
             for x in 0..side {
-                let source = (y * render::STANDARD_SKIN_SIDE / side * render::STANDARD_SKIN_SIDE
-                    + x * render::STANDARD_SKIN_SIDE / side)
+                let source = (y * render_model::STANDARD_SKIN_SIDE / side
+                    * render_model::STANDARD_SKIN_SIDE
+                    + x * render_model::STANDARD_SKIN_SIDE / side)
                     * 4;
                 rgba8.extend_from_slice(&packed[source..source + 4]);
             }
@@ -87,7 +88,7 @@ impl LocalPlayerSkin {
             cape: None,
             width: self.width,
             height: self.height,
-            rgba8: Arc::clone(&self.rgba8),
+            rgba8: self.rgba8.clone(),
         })
     }
 
@@ -104,16 +105,16 @@ impl LocalPlayerSkin {
 }
 
 /// Packs supported source pixels, retaining a legal classic size for the login upload.
-fn load_normalized_skin(path: &Path) -> Result<(Arc<[u8]>, usize), String> {
+fn load_normalized_skin(path: &Path) -> Result<(protocol::SkinRgba8, usize), String> {
     let image = image::open(path).map_err(|error| error.to_string())?;
     let rgba = image.to_rgba8();
     let (width, height) = (rgba.width(), rgba.height());
-    let pixels = render::ActorSkinPixels {
+    let pixels = render_model::ActorSkinPixels {
         width,
         height,
-        rgba8: Arc::from(rgba.into_raw()),
+        rgba8: rgba.into_raw().into(),
     };
-    render::normalize_actor_skin(&pixels)
+    render_model::normalize_actor_skin(&pixels)
         .map(|pixels| {
             (
                 pixels,
@@ -144,10 +145,10 @@ mod tests {
     fn packed_resolution_does_not_change_classic_login_dimensions() {
         let side = protocol::MAX_CLASSIC_SKIN_SIDE;
         let original: Arc<[u8]> = (0..side * side * 4).map(|value| value as u8).collect();
-        let packed = render::normalize_actor_skin(&render::ActorSkinPixels {
+        let packed = render_model::normalize_actor_skin(&render_model::ActorSkinPixels {
             width: side as u32,
             height: side as u32,
-            rgba8: Arc::clone(&original),
+            rgba8: Arc::clone(&original).into(),
         })
         .unwrap();
         let skin = LocalPlayerSkin::from_rgba8(packed, side, "fixture").to_client_skin();

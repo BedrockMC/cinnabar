@@ -70,10 +70,11 @@ pub(crate) fn binding_gamepad(
     let Some(index) = EXTRA_GAMEPAD.iter().position(|(label, _)| *label == name) else {
         return false;
     };
-    let control = menu.and_then(|menu| {
-        menu.settings_options
-            .key_control(GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + index)
-    });
+    let row = GAMEPAD_OFFSET + GAMEPAD_BINDINGS.len() + index;
+    let control = menu.map_or_else(
+        || super::SettingsOptions::default().key_control(row),
+        |menu| menu.settings_options.key_control(row),
+    );
     pads.iter().any(|pad| match control {
         Some(PhysicalControl::GamepadButton(code)) => {
             crate::semantic_controls::physical::TRANSLATED_GAMEPAD_BUTTONS

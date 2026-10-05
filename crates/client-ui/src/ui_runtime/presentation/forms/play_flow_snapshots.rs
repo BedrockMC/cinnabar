@@ -131,14 +131,14 @@ fn the_loading_bar_animates_over_its_cached_layout() {
     }
     let first = frame(&mut presentation, 1_000);
     let later = frame(&mut presentation, 1_350);
-    let positions = |input: &render::UiRenderInput| {
+    let positions = |input: &render_model::UiRenderInput| {
         input
             .vertices
             .iter()
             .map(|vertex| vertex.position)
             .collect::<Vec<_>>()
     };
-    let uvs = |input: &render::UiRenderInput| {
+    let uvs = |input: &render_model::UiRenderInput| {
         input
             .vertices
             .iter()

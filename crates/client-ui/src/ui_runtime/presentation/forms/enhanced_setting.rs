@@ -6,7 +6,7 @@ use crate::menu::{MenuAction, MenuScreen, MenuView};
 
 /// Add one control using the existing JSON-UI option template.
 pub(super) fn install(catalog: &mut Catalog) {
-    if !render::ENHANCED_RENDERING_ENABLED {
+    if !render_model::ENHANCED_RENDERING_ENABLED {
         return;
     }
     catalog.overlay_text("ui/cinnabar_enhanced.json", OVERLAY);
@@ -17,18 +17,19 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
     data.set_global(
         "#cinnabar_enhanced",
         Scalar::Bool(
-            render::ENHANCED_RENDERING_ENABLED && view.render_mode == ui::RenderMode::Enhanced,
+            render_model::ENHANCED_RENDERING_ENABLED
+                && view.render_mode == ui::RenderMode::Enhanced,
         ),
     );
     data.set_global(
         "#cinnabar_enhanced_enabled",
-        Scalar::Bool(render::ENHANCED_RENDERING_ENABLED),
+        Scalar::Bool(render_model::ENHANCED_RENDERING_ENABLED),
     );
 }
 
 /// Route only the extension control to its retained setting request.
 pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
-    (render::ENHANCED_RENDERING_ENABLED
+    (render_model::ENHANCED_RENDERING_ENABLED
         && view.screen == MenuScreen::Settings
         && region.control_name.as_deref() == Some("cinnabar_enhanced"))
     .then_some(MenuAction::ToggleRenderMode)

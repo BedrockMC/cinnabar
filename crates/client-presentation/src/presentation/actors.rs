@@ -2,12 +2,15 @@ use std::{collections::HashMap, sync::Arc};
 
 use assets::EntityRigFallback;
 use client_world::{ActorRigSnapshot, ActorSnapshot, PlayerProfile};
-use protocol::{ActorKind, PlayerSkin};
+use protocol::{ActorKind, PlayerSkin, SkinRgba8};
 use render::{
     ActorArtworkLocation, ActorArtworkPages, ActorCullView, ActorRenderFrame, ActorRenderIdentity,
-    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorSkinPixels,
-    EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, actor_bounds_are_visible,
-    actor_rig_submission_is_visible, default_actor_skin_rgba8, pack_overlay_rgba8,
+    ActorRenderScene, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_overlay_rgba8,
+};
+use render_model::{
+    ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    default_actor_skin_rgba8,
 };
 
 mod admission;
@@ -19,7 +22,7 @@ const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_A
 #[derive(Clone, Debug)]
 pub struct ActorRigPresentation {
     pub submission: ActorRigSubmission,
-    pub skin_rgba8: Option<Arc<[u8]>>,
+    pub skin_rgba8: Option<SkinRgba8>,
     pub artwork: Option<ActorArtworkLocation>,
     /// Authored model scale alone; the eye-anchored first-person hand ignores the metadata scale.
     pub authored_scale: f32,
@@ -33,7 +36,7 @@ pub struct ActorRigPresentation {
 pub struct ActorPresentationBatch {
     pub submissions: Vec<ActorRigSubmission>,
     /// One standard-size RGBA8 layer per texture layer index.
-    pub skin_layers: Vec<Arc<[u8]>>,
+    pub skin_layers: Vec<SkinRgba8>,
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
@@ -41,21 +44,20 @@ pub struct ActorPresentationBatch {
 /// unchanged frame neither copies nor compares the whole payload.
 #[derive(Debug, Default)]
 pub struct SkinLayerPack {
-    layers: Vec<Arc<[u8]>>,
+    layers: Vec<SkinRgba8>,
     packed: Arc<[u8]>,
     rebuilds: u64,
 }
 
 impl SkinLayerPack {
-    pub fn pack(&mut self, layers: Vec<Arc<[u8]>>) -> Arc<[u8]> {
-        // Arc equality on unsized byte slices scans the pixels even for the same allocation.
-        let unchanged = layers.len() == self.layers.len()
-            && layers
+    pub fn pack(&mut self, layers: Vec<SkinRgba8>) -> Arc<[u8]> {
+        if layers != self.layers {
+            self.packed = layers
                 .iter()
-                .zip(&self.layers)
-                .all(|(layer, previous)| Arc::ptr_eq(layer, previous) || layer == previous);
-        if !unchanged {
-            self.packed = layers.concat().into();
+                .map(|layer| &**layer)
+                .collect::<Vec<_>>()
+                .concat()
+                .into();
             self.rebuilds += 1;
         }
         self.layers = layers;
@@ -192,7 +194,7 @@ pub fn entity_rig_presentation_cached(
     Some(presentation)
 }
 
-#[cfg(any(test, feature = "test-support"))]
+/// Converts a transient render-time pose without retaining its allocation address.
 pub fn actor_rig_presentation(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -269,6 +271,7 @@ fn actor_rig_presentation_inner(
     let (route, skin_rgba8) = player_route_and_skin(actor, profile, rig.fallback);
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: rig.culling_bounds(),
             input: ActorRigRenderInput {
                 identity,
@@ -280,14 +283,14 @@ fn actor_rig_presentation_inner(
             },
             world_from_actor: death_tilted(
                 scaled_axes(rig_world_from_actor(position, yaw, scale), rig.axis_scale),
-                actor.status.death_progress(alpha),
+                actor.death_rotation_progress(alpha),
             ),
             texture_layer: u32::MAX,
             route,
             tint: 0,
             uv_anim: render::IDENTITY_UV_ANIM,
             light: 0,
-            overlay_rgba8: if actor.status.overlay_active() {
+            overlay_rgba8: if actor.hurt_overlay_active() {
                 pack_overlay_rgba8(HURT_OVERLAY_RGBA)
             } else {
                 0
@@ -333,11 +336,12 @@ pub fn local_diagnostic_presentation(
     let mut bones = pivots.map(|pivot| RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     });
     bones[0].rotation = head_rotation;
     Some(ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -466,7 +470,8 @@ pub fn select_actor_presentations_for_view(
     }
 
     let mut artwork = HashMap::with_capacity(selected.len());
-    let mut skin_families = Vec::<Arc<[u8]>>::new();
+    let mut skin_families = Vec::<SkinRgba8>::new();
+    let mut skin_layer_of = HashMap::<SkinRgba8, usize>::new();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
         if let Some(location) = presentation.artwork {
@@ -480,13 +485,10 @@ pub fn select_actor_presentations_for_view(
             submissions.push(presentation.submission);
             continue;
         };
-        let layer = skin_families
-            .iter()
-            .position(|existing| Arc::ptr_eq(existing, &skin) || *existing == skin)
-            .unwrap_or_else(|| {
-                skin_families.push(skin);
-                skin_families.len() - 1
-            });
+        let layer = *skin_layer_of.entry(skin).or_insert_with_key(|skin| {
+            skin_families.push(skin.clone());
+            skin_families.len() - 1
+        });
         presentation.submission.texture_layer =
             u32::try_from(layer).expect("actor skin family count is bounded");
         submissions.push(presentation.submission);
@@ -669,9 +671,7 @@ fn actor_world_yaw(actor: &ActorSnapshot, rig: &ActorRigSnapshot<'_>, alpha: f32
         | "minecraft:dragon_fireball" | "minecraft:fireball" | "minecraft:snowball"
         | "minecraft:small_fireball" | "minecraft:splash_potion" | "minecraft:egg"
         | "minecraft:eye_of_ender_signal" | "minecraft:lingering_potion"));
-    if billboard {
-        180.0
-    } else if actor.target_rotation_is_absolute() {
+    if billboard || actor.target_rotation_is_absolute() {
         0.0
     } else {
         lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha)
@@ -695,7 +695,7 @@ fn player_route_and_skin(
     actor: &ActorSnapshot,
     profile: Option<&PlayerProfile>,
     fallback: EntityRigFallback,
-) -> (ActorRigRoute, Option<Arc<[u8]>>) {
+) -> (ActorRigRoute, Option<SkinRgba8>) {
     let ActorKind::Player { .. } = &actor.kind else {
         return (ActorRigRoute::NoDraw, None);
     };
@@ -707,11 +707,13 @@ fn player_route_and_skin(
     let skin = profile
         .filter(|profile| profile.unique_id == actor.unique_id)
         .and_then(|profile| match &profile.skin {
-            PlayerSkin::Standard(skin) => render::normalize_actor_skin_cached(&ActorSkinPixels {
-                width: skin.width,
-                height: skin.height,
-                rgba8: Arc::clone(&skin.rgba8),
-            }),
+            PlayerSkin::Standard(skin) => {
+                render_model::normalize_actor_skin_cached(&ActorSkinPixels {
+                    width: skin.width,
+                    height: skin.height,
+                    rgba8: skin.rgba8.clone(),
+                })
+            }
             PlayerSkin::Unavailable(_) => None,
         })
         .unwrap_or_else(default_actor_skin_rgba8);
@@ -763,6 +765,44 @@ mod death_tests {
             .zip(expected.into_iter().flatten())
         {
             assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod skin_dedupe_tests {
+    use super::*;
+
+    fn remote(runtime_id: u64, skin: SkinRgba8) -> ActorRigPresentation {
+        let mut presentation =
+            local_diagnostic_presentation(7, 0, runtime_id, 5, [0.0, 64.0, 0.0], 0.0, 0.0)
+                .expect("finite carrier converts");
+        presentation.skin_rgba8 = Some(skin);
+        presentation
+    }
+
+    /// Equal texels in distinct allocations share one layer; different texels never do.
+    #[test]
+    fn skins_share_a_layer_only_when_their_texels_match() {
+        let texels = |value: u8| vec![value; 4096];
+        let batch = select_actor_presentations(
+            99,
+            false,
+            None,
+            [1, 2, 1, 2, 3]
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| remote(index as u64 + 1, texels(value).into())),
+        );
+        let layers = batch
+            .submissions
+            .iter()
+            .map(|submission| submission.texture_layer)
+            .collect::<Vec<_>>();
+        assert_eq!(layers, [0, 1, 0, 1, 2]);
+        assert_eq!(batch.skin_layers.len(), 3);
+        for (layer, value) in batch.skin_layers.iter().zip([1, 2, 3]) {
+            assert_eq!(&**layer, texels(value).as_slice());
         }
     }
 }

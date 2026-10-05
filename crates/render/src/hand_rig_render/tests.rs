@@ -1,5 +1,6 @@
 use super::*;
-use crate::{ActorGpuInstance, ActorRigGeometrySpan, ActorRigVertex};
+use crate::{ActorGpuInstance, ActorRigGeometrySpan};
+use render_model::ActorRigVertex;
 
 fn single_instance_frame() -> ActorRigRenderFrame {
     ActorRigRenderFrame {
@@ -21,8 +22,8 @@ fn single_instance_frame() -> ActorRigRenderFrame {
     }
 }
 
-fn skin() -> Arc<[u8]> {
-    Arc::from(vec![0u8; crate::STANDARD_SKIN_BYTES])
+fn skin() -> render_api::SkinRgba8 {
+    vec![0u8; render_model::STANDARD_SKIN_BYTES].into()
 }
 
 fn light() -> HandRigLight {
@@ -31,6 +32,32 @@ fn light() -> HandRigLight {
         sky_level: 0,
         daylight: 1.0,
         pad: 0,
+    }
+}
+
+#[test]
+fn first_person_target_blends_translucent_block_texels_over_the_scene() {
+    let pipeline = pipeline_descriptor(hand_rig_layout());
+    let target = pipeline.fragment.unwrap().targets.remove(0).unwrap();
+    assert_eq!(target.blend, Some(BlendState::ALPHA_BLENDING));
+}
+
+#[test]
+fn held_alpha_selectors_preserve_each_hands_artwork_layer() {
+    for alpha_mode in [
+        HandItemAlphaMode::Opaque,
+        HandItemAlphaMode::Cutout,
+        HandItemAlphaMode::Blend,
+    ] {
+        for hand in [0, HAND_OFFHAND_LAYER_FLAG] {
+            let layer = 17 | HAND_ITEM_LAYER_FLAG | hand | alpha_mode.texture_layer_flag();
+            assert_eq!(layer & HAND_TEXTURE_LAYER_MASK, 17);
+            assert_eq!(layer & HAND_OFFHAND_LAYER_FLAG, hand);
+            assert_eq!(
+                layer & (HAND_BLEND_LAYER_FLAG | HAND_CUTOUT_LAYER_FLAG),
+                alpha_mode.texture_layer_flag(),
+            );
+        }
     }
 }
 
@@ -44,7 +71,7 @@ fn publish_accepts_a_single_instance_lit_rig_and_activates() {
 #[test]
 fn publish_rejects_a_wrong_sized_skin_and_stays_inactive() {
     let mut scene = HandRigScene::default();
-    let bad_skin = Arc::from(vec![0u8; 10]);
+    let bad_skin = vec![0u8; 10].into();
     assert!(!scene.publish(single_instance_frame(), bad_skin, light(), 1.2, 7));
     assert!(!scene.is_active());
 }

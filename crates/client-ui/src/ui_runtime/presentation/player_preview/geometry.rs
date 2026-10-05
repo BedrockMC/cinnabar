@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use super::{
@@ -11,8 +11,10 @@ use super::{
     PreviewView, Rig, equipment,
 };
 
+mod fire;
 mod held;
 mod lighting;
+pub use fire::PreviewFire;
 
 /// The same native live-player/paper-doll projection as the retained frame,
 /// with the original skin and equipment texture regions. The frame's virtual
@@ -33,7 +35,9 @@ pub fn mesh(
     hands: [Option<&PreviewHeldModel>; 2],
     fancy: bool,
 ) -> Option<Arc<UiMesh>> {
-    mesh_with_body(None, pose, view, bob, skin, gear, armor, hands, fancy)
+    mesh_with_body(
+        None, pose, view, bob, skin, gear, armor, hands, fancy, None, [0.0; 4],
+    )
 }
 
 /// Uses already posed world geometry for the HUD, retaining the shared UI shading and depth path.
@@ -48,6 +52,8 @@ pub fn mesh_with_body(
     armor: [Option<IconRef>; 4],
     hands: [Option<&PreviewHeldModel>; 2],
     fancy: bool,
+    fire: Option<PreviewFire>,
+    overlay_color: [f32; 4],
 ) -> Option<Arc<UiMesh>> {
     let mut rig = Rig::new(pose, view, bob, hands.map(|model| model.is_some()));
     if let Some((_, parts)) = body {
@@ -81,10 +87,16 @@ pub fn mesh_with_body(
             fancy,
         )?;
     }
+    for vertex in &mut vertices {
+        vertex.overlay_color = overlay_color;
+    }
     for (hand, model) in hands.into_iter().enumerate() {
         if let Some(model) = model {
             held::append(&mut vertices, &mut batches, &rig, model, hand, fancy)?;
         }
+    }
+    if let Some(fire) = fire {
+        fire::append(&mut vertices, &mut batches, fire)?;
     }
     normalize_depth(&mut vertices)?;
     let indices: Vec<_> = (0..u32::try_from(vertices.len()).ok()?).collect();
@@ -141,6 +153,7 @@ fn append(
                 uv,
                 color: [red, green, blue, 255],
                 model_light,
+                overlay_color: [0.0; 4],
                 style_flags: if icon.glint { UI_STYLE_GLINT } else { 0 },
                 alpha_test: false,
             });

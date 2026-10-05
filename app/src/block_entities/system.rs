@@ -1,10 +1,6 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use assets::{BlockEntityRouteKind, RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::*;
@@ -15,7 +11,7 @@ use render::{
     crack_shape_from_template, item_frame_item_transform, matrix_rows,
 };
 use ui::TextLayoutCache;
-use world::{BlockEntityKey, BlockEntityNbt, ChunkKey};
+use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::{
     containers::{ContainerKind, ContainerLids, cue_is_open},
@@ -39,7 +35,10 @@ const TICKS_PER_SECOND: f64 = 20.0;
 const TEXT_CACHE_ENTRIES: usize = 256;
 const TEXT_CACHE_BYTES: usize = 2 * 1024 * 1024;
 
+mod bed;
 mod crystal_beams;
+mod dragon_death;
+mod portals;
 
 /// Reads the optional block-entity carrier next to the world carrier; on absence or
 /// corruption logs once and returns a scene that draws nothing.
@@ -90,6 +89,8 @@ struct Described {
     nbt: Arc<BlockEntityNbt>,
     runtime_id: u32,
     template: Option<Template>,
+    /// The frame that last scanned this entity; older entries are dropped after the scan.
+    seen_frame: u64,
 }
 
 #[derive(Resource)]
@@ -97,6 +98,7 @@ pub(crate) struct BlockEntityRuntime {
     cracks: CrackClock,
     lids: ContainerLids,
     described: HashMap<BlockEntityKey, Described>,
+    frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
     shapes: HashMap<u32, CrackShape>,
@@ -115,6 +117,7 @@ impl BlockEntityRuntime {
             cracks: CrackClock::default(),
             lids: ContainerLids::default(),
             described: HashMap::new(),
+            frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: HashMap::new(),
@@ -160,11 +163,9 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
         .add_systems(
             Update,
             (
-                render::begin_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
                 update_block_entity_scene
                     .after(crate::runtime::network::prepare_actor_render_frame),
                 request_missing_maps,
-                render::end_stage_span::<{ render::RuntimeStage::BlockEntities as usize }>,
             )
                 .chain(),
         );
@@ -269,10 +270,25 @@ pub(crate) fn update_block_entity_scene(
     mut scene: ResMut<BlockEntityScene>,
     mut frame: ResMut<BlockEntityFrame>,
     mut placements: ResMut<StaticItemPlacements>,
+    profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
     if !scene.has_assets() {
+        dragon_death::update_without_atlas(
+            client_world.stream.as_ref(),
+            actor_partial_tick.0,
+            camera
+                .single()
+                .ok()
+                .map(|(transform, _)| transform.translation),
+            &mut scene,
+            &mut frame,
+        );
         return;
     }
+    // Timed in the body: a span around the chain would also count waiting on actor publication.
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(render::RuntimeStage::BlockEntities));
     let now_seconds = time.elapsed_secs_f64();
     let clock = SceneClock {
         ticks: now_seconds * TICKS_PER_SECOND,
@@ -315,18 +331,35 @@ pub(crate) fn update_block_entity_scene(
         });
 
     let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
-    let mut seen: HashSet<BlockEntityKey> = HashSet::new();
+    runtime.frame = runtime.frame.wrapping_add(1);
+    let frame_stamp = runtime.frame;
+    // Moved out so `resolve` can borrow a template while mutating the rest of the runtime.
+    let mut described = std::mem::take(&mut runtime.described);
     let mut held: Vec<StaticItemPlacement> = Vec::new();
     runtime.lids.begin();
     let chunk_range = |center: f32| {
-        ((center - SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
-            ..=((center + SCAN_RADIUS_BLOCKS) / 16.0).floor() as i32
+        ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
+            ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
             let Some(chunk) = store.chunk(ChunkKey::new(dimension, chunk_x, chunk_z)) else {
                 continue;
             };
+            portals::submit(
+                &mut submissions,
+                ChunkKey::new(dimension, chunk_x, chunk_z),
+                chunk,
+                eye,
+                |id| {
+                    let info = block_info(runtime, &collisions, mode, id)?;
+                    match info.name.as_ref() {
+                        assets::END_PORTAL_IDENTIFIER => Some(BlockEntityKind::EndPortal),
+                        assets::END_GATEWAY_IDENTIFIER => Some(BlockEntityKind::EndGateway),
+                        _ => None,
+                    }
+                },
+            );
             for (key, nbt) in chunk.block_entities() {
                 if submissions.len() >= MAX_SUBMISSIONS {
                     break 'columns;
@@ -350,30 +383,36 @@ pub(crate) fn update_block_entity_scene(
                 }) else {
                     continue;
                 };
-                seen.insert(key);
-                let stale = runtime.described.get(&key).is_none_or(|entry| {
-                    !Arc::ptr_eq(&entry.nbt, &nbt) || entry.runtime_id != runtime_id
-                });
-                if stale {
-                    let template = block_info(runtime, &collisions, mode, runtime_id)
-                        .zip(nbt.parse())
-                        .and_then(|(info, root)| {
-                            describe(id, &info.name, &info.state, &root, [x, y, z])
-                        });
-                    runtime.described.insert(
-                        key,
-                        Described {
+                let entry = match described.entry(key) {
+                    std::collections::hash_map::Entry::Occupied(entry)
+                        if Arc::ptr_eq(&entry.get().nbt, &nbt)
+                            && entry.get().runtime_id == runtime_id =>
+                    {
+                        entry.into_mut()
+                    }
+                    entry => {
+                        let template = block_info(runtime, &collisions, mode, runtime_id)
+                            .zip(nbt.parse())
+                            .and_then(|(info, root)| {
+                                describe(id, &info.name, &info.state, &root, [x, y, z])
+                            });
+                        let fresh = Described {
                             nbt: Arc::clone(&nbt),
                             runtime_id,
                             template,
-                        },
-                    );
-                }
-                let Some(template) = runtime
-                    .described
-                    .get(&key)
-                    .and_then(|entry| entry.template.clone())
-                else {
+                            seen_frame: frame_stamp,
+                        };
+                        match entry {
+                            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                                entry.insert(fresh);
+                                entry.into_mut()
+                            }
+                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(fresh),
+                        }
+                    }
+                };
+                entry.seen_frame = frame_stamp;
+                let Some(template) = entry.template.as_ref() else {
                     continue;
                 };
                 let (block_light, sky_light) = stream.light_level_at(center.to_array());
@@ -404,7 +443,21 @@ pub(crate) fn update_block_entity_scene(
                     )
                 };
                 if let Some(kind) = kind {
-                    let light = model_light(&kind, block_light, sky_light, daylight);
+                    // Stateless portal surfaces are admitted from the primary palette above.
+                    // A missing or stale NBT record must never add or remove their geometry.
+                    if matches!(
+                        kind,
+                        BlockEntityKind::EndPortal | BlockEntityKind::EndGateway
+                    ) {
+                        continue;
+                    }
+                    let light = if let BlockEntityKind::Bed(model) = &kind {
+                        bed::light(*model, [x, y, z], |position| {
+                            stream.light_level_at(position)
+                        })
+                    } else {
+                        model_light(&kind, block_light, sky_light, daylight)
+                    };
                     submissions.push(BlockEntitySubmission {
                         block: [x, y, z],
                         light,
@@ -415,7 +468,8 @@ pub(crate) fn update_block_entity_scene(
         }
     }
     runtime.lids.finish();
-    runtime.described.retain(|key, _| seen.contains(key));
+    described.retain(|_, entry| entry.seen_frame == frame_stamp);
+    runtime.described = described;
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)
@@ -429,6 +483,22 @@ pub(crate) fn update_block_entity_scene(
             .single()
             .ok()
             .map(|(transform, _)| transform.translation),
+        |runtime_id, owner_position| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
+    );
+    dragon_death::submit(
+        &mut submissions,
+        stream.authority().dragon_death_rays(actor_partial_tick.0),
+        camera
+            .single()
+            .ok()
+            .map(|(transform, _)| transform.translation),
+        |runtime_id, owner_position| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
     );
     placements.0 = held;
     *frame = scene.update(clock, &cracks, &submissions).clone();
@@ -524,7 +594,7 @@ fn map_canvas(pixels: &[u32]) -> Vec<u8> {
 
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template.
 fn resolve(
-    template: Template,
+    template: &Template,
     position: [i32; 3],
     context: &FrameContext<'_>,
     runtime: &mut BlockEntityRuntime,
@@ -538,9 +608,9 @@ fn resolve(
             .is_some_and(|cue| cue_is_open(cue.event_type, cue.event_value))
     };
     match template {
-        Template::Static(kind) => Some(kind),
+        Template::Static(kind) => Some(kind.clone()),
         Template::Beacon => None,
-        Template::Chest(mut model) => {
+        &Template::Chest(mut model) => {
             let open = open_at(position)
                 || matches!(model.pair, render::ChestPair::Lead { partner } if open_at(partner));
             if !matches!(model.pair, render::ChestPair::Follower) {
@@ -553,7 +623,7 @@ fn resolve(
             }
             Some(BlockEntityKind::Chest(model))
         }
-        Template::Shulker(mut model) => {
+        &Template::Shulker(mut model) => {
             model.open = runtime.lids.advance(
                 position,
                 ContainerKind::Shulker,
@@ -565,12 +635,12 @@ fn resolve(
         Template::EnchantTable => Some(BlockEntityKind::EnchantTable {
             facing_yaw_degrees: yaw_toward(context.eye, position),
         }),
-        Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
+        &Template::Conduit { active, hunting } => Some(BlockEntityKind::Conduit(ConduitModel {
             active,
             hunting,
             viewer_yaw_degrees: yaw_toward(context.eye, position),
         })),
-        Template::Bell {
+        &Template::Bell {
             attachment,
             direction,
         } => {
@@ -591,11 +661,12 @@ fn resolve(
             }))
         }
         Template::ItemFrame {
-            mut model,
+            model,
             item,
             rotation_steps,
             map_id,
         } => {
+            let (mut model, rotation_steps, map_id) = (*model, *rotation_steps, *map_id);
             if let Some(id) = map_id
                 && stream.map_image(id).is_none()
             {
@@ -610,7 +681,7 @@ fn resolve(
             model.map = map;
             if let (Some(item), None) = (item, map) {
                 held.push(held_placement(
-                    &item,
+                    item,
                     item_frame_item_transform(position, model.outward, rotation_steps),
                     model.glow.then_some((15, 15)),
                 ));
@@ -624,12 +695,12 @@ fn resolve(
                 let pose = base
                     * Mat4::from_rotation_y(yaw.to_radians())
                     * Mat4::from_scale(Vec3::splat(FLOWER_SCALE * 16.0));
-                held.push(held_placement(&plant, matrix_rows(pose), None));
+                held.push(held_placement(plant, matrix_rows(pose), None));
             }
             None
         }
         Template::Campfire { yaw_degrees, items } => {
-            let base = render::block_matrix(position, [0.5, 0.0, 0.5], yaw_degrees);
+            let base = render::block_matrix(position, [0.5, 0.0, 0.5], *yaw_degrees);
             for (item, [x, z]) in items.iter().zip(CAMPFIRE_SLOTS) {
                 let Some(item) = item else {
                     continue;
@@ -644,10 +715,10 @@ fn resolve(
             None
         }
         Template::Sign { mount, front, back } => {
-            let mut face = |spec: Option<sign_text::SignTextSpec>| -> Option<SignFace> {
-                let spec = spec?;
+            let mut face = |spec: &Option<sign_text::SignTextSpec>| -> Option<SignFace> {
+                let spec = spec.as_ref()?;
                 let rect: AtlasRect = scene.text_rect(spec.cache_key(), || {
-                    sign_text::rasterize(&spec, context.font, &mut runtime.layouts)
+                    sign_text::rasterize(spec, context.font, &mut runtime.layouts)
                         .unwrap_or_default()
                 })?;
                 Some(SignFace {
@@ -658,7 +729,7 @@ fn resolve(
             let front = face(front);
             let back = face(back);
             (front.is_some() || back.is_some()).then_some(BlockEntityKind::Sign(SignModel {
-                mount,
+                mount: *mount,
                 front,
                 back,
             }))

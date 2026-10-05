@@ -31,7 +31,7 @@ pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
 pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
-pub const FONT_ASSETS_FILENAME: &str = "ui-monocraft-v1.mcbefont";
+pub const FONT_ASSETS_FILENAME: &str = "ui-cinnangles-sans-v1.mcbefont";
 pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
@@ -41,8 +41,7 @@ pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
 pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
 pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
-pub const FETCH_COMMAND: &str =
-    "powershell -NoProfile -File scripts/fetch-vanilla-assets.ps1 -AcceptEula";
+pub const FETCH_COMMAND: &str = "make vanilla-assets";
 pub static COMPILE_COMMAND: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!(
         "cargo run -p asset-compiler --bin assetc -- compile --pack {} \
@@ -56,7 +55,7 @@ pub static COMPILE_COMMAND: std::sync::LazyLock<String> = std::sync::LazyLock::n
 });
 
 const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
-const UI_FONT_SOURCE_JSON: &str = include_str!("../../assets/ui-font-source.json");
+const FONT_SOURCE_JSON: &str = include_str!("../../assets/cinnangles-sans-source.json");
 const ATMOSPHERE_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/atmosphere.wgsl");
 const CLOUD_SHADER_SOURCE: &[u8] = include_bytes!("../../crates/render/src/cloud.wgsl");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
@@ -166,7 +165,7 @@ impl LoadedFontAssets {
     pub fn startup_summary(&self) -> String {
         if self.diagnostic {
             return format!(
-                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Monocraft carrier with: {}",
+                "font asset carrier was not found at {}; using bounded diagnostic font fallback; build the reviewed Cinnangles Sans carrier with: {}",
                 self.selected_path.display(),
                 FONT_ASSETS_COMPILE_COMMAND
             );

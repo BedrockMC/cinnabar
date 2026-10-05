@@ -227,6 +227,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
         ..Default::default()
     };
     let dimension_control = CommittedControlEvent::ChangeDimension {
+        sequence: 9,
         change,
         resolved: client_world::ResolvedServerPosition {
             position: change.position,

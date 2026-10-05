@@ -201,9 +201,16 @@ pub(super) fn flags(control: &ResolvedControl) -> Flags {
         return flags;
     }
     let [width, height] = [Axis::X, Axis::Y].map(|axis| rule_flags(control, axis));
+    // An omitted panel height already has a parent-relative rule. It can
+    // satisfy width's own-Y bounds just like an explicit `100%` height.
+    // Natural label height and ratio-image height still need resolved width.
+    // Native `LayoutVariable::isSatisfiable` (26.30, 0x1027946f0) includes
+    // min/max dependencies before `satisfy` clamps the ordinary size rule.
+    let independent_height = height.terms
+        || (height.default && !crate::label::is_label(control) && !scales_to_ratio(control));
     let flags = Flags {
         height_first: ((width.cross || width.children)
-            && height.terms
+            && independent_height
             && !height.cross
             && !height.children)
             || (scales_to_ratio(control) && width.default && !height.default),

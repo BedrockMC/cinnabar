@@ -1,9 +1,9 @@
 //! Composition of an item's display placement with the hand bone's pose.
 
 use bevy::math::{Mat4, Quat, Vec3};
-use render::RenderBoneTransform;
-pub(super) use render::equipment::sprite_item_transform;
-pub use render::equipment::{
+use render_model::RenderBoneTransform;
+pub(super) use render_model::equipment::sprite_item_transform;
+pub use render_model::equipment::{
     ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped,
 };
 
@@ -114,7 +114,7 @@ pub fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
             display.translation.z,
             display.scale,
         ],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     bone.is_finite().then_some(bone)
 }

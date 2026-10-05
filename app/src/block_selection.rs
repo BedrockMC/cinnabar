@@ -92,6 +92,13 @@ fn target(
     let hit = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
         .ok()??;
+    if !context.collisions.selection_overlay_visible(
+        stream.network_id_mode(),
+        hit.runtime_id,
+        player_runtime.facts.player_game_mode(),
+    ) {
+        return None;
+    }
     let shapes = registry.selection_shapes(hit.runtime_id)?;
     let first = shapes.first()?;
     let mut min = first.min;

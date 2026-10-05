@@ -53,7 +53,7 @@ pub struct CommittedGameplayState<'a> {
     pub speed: &'a mut LocalMovementSpeedAuthority,
     pub session_generation: u64,
     pub dimension: i32,
-    pub now: std::time::Duration,
+    pub dimension_transfer_active: bool,
 }
 
 impl CommittedGameplayState<'_> {
@@ -72,11 +72,11 @@ impl CommittedGameplayState<'_> {
             observe(ControlObservation::Hurt { source_direction });
             return ControlDisposition::Handled;
         }
-        if matches!(control, CommittedControlEvent::PlayerListChanged { .. }) {
-            return ControlDisposition::Handled;
-        }
-        if matches!(control, CommittedControlEvent::DimensionChangeAck { .. }) {
-            self.movement.note_dimension_change_ack();
+        if matches!(
+            control,
+            CommittedControlEvent::PlayerListChanged { .. }
+                | CommittedControlEvent::DimensionChangeAck { .. }
+        ) {
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::LocalMovementEffect { sequence, event } = control {
@@ -199,7 +199,11 @@ impl CommittedGameplayState<'_> {
                 resolved,
                 ..
             } => {
-                let tick = correction.source_tick;
+                let tick = if self.dimension_transfer_active {
+                    self.movement.completed_tick()
+                } else {
+                    correction.source_tick
+                };
                 if self.movement.physics_is_authorized() {
                     let previous = self.physics.network_position().unwrap_or(resolved.position);
                     // A teleport rewinds when nearby and retained, else snaps. An
@@ -256,8 +260,8 @@ impl CommittedGameplayState<'_> {
                 }
                 SpatialReset::Correction
             }
-            CommittedControlEvent::ChangeDimension { change, resolved } => {
-                self.movement.begin_dimension_transfer(*change, self.now);
+            CommittedControlEvent::ChangeDimension { resolved, .. } => {
+                let tick = self.movement.completed_tick();
                 // Not a server teleport for HandledTeleport acknowledgement:
                 // drop any armed assertion instead of leaking it across the
                 // boundary.
@@ -271,7 +275,7 @@ impl CommittedGameplayState<'_> {
                         self.movement,
                         self.physics,
                         resolved.position,
-                        0,
+                        tick,
                         false,
                         PhysicsCorrectionMode::Snap,
                         world,
@@ -284,16 +288,22 @@ impl CommittedGameplayState<'_> {
                     }
                 } else {
                     self.movement
-                        .snap_non_authoritative_anchor(0, resolved.position);
+                        .snap_non_authoritative_anchor(tick, resolved.position);
                     self.physics.reanchor_network_position_before_advance(
                         resolved.position,
-                        0,
+                        tick,
                         false,
                     );
                 }
                 SpatialReset::Dimension
             }
-            CommittedControlEvent::Respawn { resolved, .. } => {
+            CommittedControlEvent::Respawn {
+                respawn, resolved, ..
+            } => {
+                if !respawn.ready_to_spawn() {
+                    return ControlDisposition::Handled;
+                }
+                let tick = self.movement.completed_tick();
                 if self.movement.physics_is_authorized() {
                     // Opt-in HandledTeleport acknowledgement: a committed
                     // respawn is a server-driven anchor, marked on admission
@@ -306,7 +316,7 @@ impl CommittedGameplayState<'_> {
                         self.movement,
                         self.physics,
                         resolved.position,
-                        0,
+                        tick,
                         false,
                         PhysicsCorrectionMode::Snap,
                         world,
@@ -319,10 +329,10 @@ impl CommittedGameplayState<'_> {
                     }
                 } else {
                     self.movement
-                        .snap_non_authoritative_anchor(0, resolved.position);
+                        .snap_non_authoritative_anchor(tick, resolved.position);
                     self.physics.reanchor_network_position_before_advance(
                         resolved.position,
-                        0,
+                        tick,
                         false,
                     );
                 }

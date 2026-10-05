@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId, RenderBoneTransform,
+    ActorRigSubmission,
 };
+use render_model::{EntityRigId, RenderBoneTransform};
 
 use crate::presentation::equipment::{ActorEquipmentInput, EquipmentRuntime, HeldKind, WornItem};
 
@@ -20,10 +21,11 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
     let rest = RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| rest).collect();
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {

@@ -99,9 +99,47 @@ fn extra_shape_flags(extra: &[u8]) -> i128 {
         | (i128::from(extra.get(6..10) == Some(&[0; 4])) << 5)
         | ((extra.len() as i128) << 8)
 }
+fn stack_block_visual_id(
+    stream: &chunk_pipeline::WorldStream,
+    assets: &assets::RuntimeAssets,
+    wire_id: i32,
+) -> Option<u32> {
+    let internal = stream.resolve_block_network_id(u32::from_ne_bytes(wire_id.to_ne_bytes()));
+    match stream.network_id_mode() {
+        assets::NetworkIdMode::Sequential => Some(internal),
+        assets::NetworkIdMode::Hashed => assets.sequential_id_for_hash(internal),
+    }
+}
 #[cfg(test)]
 mod local_owner_tests {
     use super::*;
+    #[test]
+    fn held_block_geometry_uses_the_current_session_palette_without_changing_the_descriptor() {
+        let assets = assets::RuntimeAssets::diagnostic();
+        let mut stack = protocol::NetworkItemStack::empty();
+        stack.block_runtime_id = 1;
+        for internal in [7, 6] {
+            let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            });
+            stream.set_sequential_id_remap(assets::SequentialIdRemap::from_palette(
+                vec![0, internal],
+                internal + 1,
+            ));
+            assert_eq!(
+                stack_block_visual_id(&stream, &assets, stack.block_runtime_id),
+                Some(internal)
+            );
+            assert_eq!(stack.block_runtime_id, 1);
+        }
+    }
+
     #[test]
     fn plain_frame_requires_complete_empty_compound_and_restriction_shape() {
         assert!(plain_cube_extra(&[]));
@@ -296,12 +334,8 @@ impl HandAdapter {
             return None;
         }
         if stack.block_runtime_id != 0 {
-            let sequential = match stream.network_id_mode() {
-                assets::NetworkIdMode::Sequential => Some(stack.block_runtime_id as u32),
-                assets::NetworkIdMode::Hashed => world
-                    .runtime_assets
-                    .sequential_id_for_hash(stack.block_runtime_id as u32),
-            };
+            let sequential =
+                stack_block_visual_id(stream, world.runtime_assets, stack.block_runtime_id);
             if diagnostic {
                 self.cube_observation[2] = sequential.map_or(-1, i128::from);
                 self.cube_reason = 4;
@@ -361,11 +395,11 @@ impl HandAdapter {
         if self
             .raw_skin
             .as_ref()
-            .is_none_or(|old| !Arc::ptr_eq(old, &raw.rgba8))
+            .is_none_or(|old| !Arc::ptr_eq(old, raw.rgba8.pixels()))
         {
-            self.raw_skin = Some(Arc::clone(&raw.rgba8));
+            self.raw_skin = Some(Arc::clone(raw.rgba8.pixels()));
             self.skin_identity = Sha256::digest(&raw.rgba8).into();
-            self.skin = ViewmodelSkin::new(Arc::clone(&raw.rgba8), self.skin_identity);
+            self.skin = ViewmodelSkin::new(Arc::clone(raw.rgba8.pixels()), self.skin_identity);
             self.stats.skin_validations = self.stats.skin_validations.saturating_add(1);
             if let Some(next) = self.revision.checked_add(1) {
                 self.revision = next;
@@ -403,7 +437,7 @@ pub struct ViewmodelPublish<'w, 's> {
 impl ViewmodelPublish<'_, '_> {
     pub fn bind_cpu_fallback(
         &mut self,
-        input: &render::UiRenderInput,
+        input: &render_model::UiRenderInput,
         empty: Option<client_ui::ui_runtime::presentation::IconRef>,
         held: Option<client_ui::ui_runtime::presentation::IconRef>,
     ) {

@@ -48,12 +48,10 @@ pub(crate) fn apply_committed_control(
         CommittedControlEvent::Respawn {
             respawn, resolved, ..
         } => {
-            info!(
-                state = respawn.state,
-                runtime_entity_id = respawn.runtime_entity_id,
-                position = ?respawn.position,
-                "applying committed Respawn"
-            );
+            log_respawn(respawn);
+            if !respawn.ready_to_spawn() {
+                return;
+            }
             resolved
         }
         CommittedControlEvent::SetTime { .. }
@@ -72,4 +70,13 @@ pub(crate) fn apply_committed_control(
     };
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
+}
+
+pub(super) fn log_respawn(respawn: protocol::RespawnEvent) {
+    info!(
+        state = respawn.state,
+        runtime_entity_id = respawn.runtime_entity_id,
+        position = ?respawn.position,
+        "applying committed Respawn"
+    );
 }

@@ -46,7 +46,7 @@ fn skin_stamp(skin: Option<&PlayerSkin>) -> u64 {
     match skin {
         Some(PlayerSkin::Standard(skin)) => {
             (skin.width, skin.height).hash(&mut hash);
-            skin.rgba8.hash(&mut hash);
+            (*skin.rgba8).hash(&mut hash);
             if let Some(geometry) = &skin.geometry {
                 geometry.resource_patch.hash(&mut hash);
                 geometry.geometry_data.hash(&mut hash);
@@ -108,8 +108,8 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
         let layer = instance.texture_layer as usize;
         let (width, height, pixels) = if *page == 0 {
             (
-                render::STANDARD_SKIN_SIDE,
-                render::STANDARD_SKIN_SIDE,
+                render_model::STANDARD_SKIN_SIDE,
+                render_model::STANDARD_SKIN_SIDE,
                 rendered.skins_rgba8.as_ref(),
             )
         } else {

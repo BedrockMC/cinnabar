@@ -242,7 +242,7 @@ impl UiPresentationRuntime {
                 images: Some(&self.menu_artwork.refs),
                 // The gamerpic, else the rendered persona head.
                 portrait: [
-                    &view.feeds.profile.picture_path,
+                    super::accounts::current_picture(view).unwrap_or_default(),
                     &view.feeds.home.persona_head,
                 ]
                 .into_iter()
@@ -349,13 +349,21 @@ impl UiPresentationRuntime {
         };
         let rollback = (nodes.len(), *next);
         let translate = |key: &str| runtime.translation(key);
+        let accounts = dialog == crate::menu::MenuDialog::Accounts;
         let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
-        let mut data = json_ui::form_data_source(&model);
-        let reference = if dialog
+        let mut data = if accounts {
+            super::accounts::data(view)
+        } else {
+            json_ui::form_data_source(&model)
+        };
+        let reference = if accounts {
+            super::accounts::SCREEN
+        } else if dialog
             == crate::menu::MenuDialog::SettingsSupport(
                 crate::menu::settings_support::SupportDialog::Help,
-            ) {
+            )
+        {
             super::settings_support::help_data(&mut data, &translate);
             "rating_prompt.rating_prompt_screen"
         } else {
@@ -383,6 +391,7 @@ impl UiPresentationRuntime {
             state,
             engine::ScreenArt {
                 now: self.menu_seconds,
+                images: Some(&self.menu_artwork.refs),
                 ..engine::ScreenArt::default()
             },
             inputs,
@@ -403,15 +412,22 @@ impl UiPresentationRuntime {
         let mut keys = Vec::new();
         let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
-            let action = match region.pressed.as_deref() {
-                Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
-                Some(
-                    "popup_dialog.rightcancel_button"
-                    | "popup_dialog.escape"
-                    | "button.menu_exit"
-                    | "button.rating_no_button",
-                ) => MenuAction::DismissDialog,
-                _ => continue,
+            let action = if accounts {
+                let Some(action) = super::accounts::action(view, region) else {
+                    continue;
+                };
+                action
+            } else {
+                match region.pressed.as_deref() {
+                    Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
+                    Some(
+                        "popup_dialog.rightcancel_button"
+                        | "popup_dialog.escape"
+                        | "button.menu_exit"
+                        | "button.rating_no_button",
+                    ) => MenuAction::DismissDialog,
+                    _ => continue,
+                }
             };
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));

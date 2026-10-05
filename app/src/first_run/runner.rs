@@ -1,14 +1,15 @@
-//! Executes the preparation plan as child processes and publishes the finished carriers.
+//! Executes the preparation plan and publishes the finished carriers.
 
 use std::{
     fs::{self, File},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow};
 
 use super::plan::{Action, Step};
 
@@ -49,13 +50,9 @@ pub(super) fn execute_steps(
 }
 
 /// Kit directories and the repo-relative workspace paths they stage to.
-const KIT_LAYOUT: [(&str, &str); 3] = [
-    ("scripts", "scripts"),
-    ("assets", "assets"),
-    ("data", "crates/assets/data"),
-];
+const KIT_LAYOUT: [(&str, &str); 2] = [("assets", "assets"), ("data", "crates/assets/data")];
 
-/// Copies the bundled scripts, manifests and registries into the workspace at repo-relative paths.
+/// Copies the bundled manifests and registries into the workspace at repo-relative paths.
 pub(super) fn stage_kit(kit: &Path, workspace: &Path) -> Result<()> {
     for (from, to) in KIT_LAYOUT {
         copy_tree(&kit.join(from), &workspace.join(to))?;
@@ -152,20 +149,29 @@ pub(super) fn clear_output(staged: &Path, name: &str) {
     };
 }
 
-pub(super) struct ProcessExec<'a> {
+pub(super) struct StepExec<'a> {
     pub workspace: PathBuf,
     pub kit: PathBuf,
     pub log: File,
-    /// Set to kill the running step and stop.
+    /// Set to stop the running step and the run.
     pub cancel: &'a AtomicBool,
 }
 
-impl ProcessExec<'_> {
+impl StepExec<'_> {
     pub(super) fn run(&self, step: &Step) -> Result<()> {
         if self.cancel.load(Ordering::Relaxed) {
             return Err(Cancelled.into());
         }
-        let mut command = self.command(&step.action)?;
+        match &step.action {
+            Action::UnpackPack => super::download::unpack(&self.workspace, self.cancel),
+            Action::Assetc(args) => self.compile(args),
+        }
+    }
+
+    /// Runs the bundled compiler; a failure carries its last stderr line, which the log also keeps.
+    fn compile(&self, args: &[String]) -> Result<()> {
+        let mut command = Command::new(self.kit.join("bin").join(assetc_name()));
+        command.args(args);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -175,10 +181,14 @@ impl ProcessExec<'_> {
             .current_dir(&self.workspace)
             .stdin(Stdio::null())
             .stdout(self.log.try_clone()?)
-            .stderr(self.log.try_clone()?);
-        let mut child = command
-            .spawn()
-            .with_context(|| format!("start {}", step.label))?;
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().context("start the asset compiler")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("capture asset compiler output")?;
+        let log = self.log.try_clone()?;
+        let tail = std::thread::spawn(move || copy_and_keep_last_line(stderr, log));
         let status = loop {
             if let Some(status) = child.try_wait()? {
                 break status;
@@ -189,25 +199,35 @@ impl ProcessExec<'_> {
             }
             std::thread::sleep(CANCEL_POLL);
         };
+        let last_line = tail.join().ok().flatten();
         if self.cancel.load(Ordering::Relaxed) {
             return Err(Cancelled.into());
         }
-        if !status.success() {
-            bail!("{} exited with {status}; see the first-run log", step.label);
+        if status.success() {
+            return Ok(());
         }
-        Ok(())
+        Err(match last_line {
+            Some(line) => anyhow!("{line} ({status})"),
+            None => anyhow!("the asset compiler exited with {status}"),
+        })
     }
+}
 
-    fn command(&self, action: &Action) -> Result<Command> {
-        match action {
-            Action::Assetc(args) => {
-                let mut command = Command::new(self.kit.join("bin").join(assetc_name()));
-                command.args(args);
-                Ok(command)
-            }
-            Action::Script(name) => Ok(script_command(&self.kit, name)),
+/// Copies `output` into `log` and returns its last non-blank line.
+fn copy_and_keep_last_line(output: impl Read, mut log: impl Write) -> Option<String> {
+    let mut last = None;
+    for line in BufReader::new(output).split(b'\n') {
+        let Ok(line) = line else {
+            break;
+        };
+        let _ = log.write_all(&line);
+        let _ = log.write_all(b"\n");
+        let text = String::from_utf8_lossy(&line).trim().to_owned();
+        if !text.is_empty() {
+            last = Some(text);
         }
     }
+    last
 }
 
 /// The bundled compiler executable name for this platform.
@@ -239,40 +259,40 @@ fn cancel_child(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
-fn script_command(kit: &Path, name: &str) -> Command {
-    if cfg!(windows) {
-        let mut command = Command::new("powershell");
-        command
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(format!("scripts\\{name}.ps1"));
-        if name == "fetch-vanilla-assets" {
-            command.arg("-AcceptEula");
-        }
-        command
-    } else {
-        let mut command = Command::new("bash");
-        command.arg(format!("scripts/{name}.sh"));
-        if name == "fetch-vanilla-assets" {
-            command.arg("--accept-eula");
-            let helper = kit.join("bin/rename-directory-no-replace");
-            if helper.is_file() {
-                command.env("CINNABAR_PUBLISHER_BINARY", helper);
-            }
-        }
-        command
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use anyhow::bail;
+
     use super::*;
     use crate::first_run::test_support::Dir;
 
     fn step(label: &'static str, required: bool) -> Step {
         Step {
             label,
-            action: Action::Script("x"),
+            action: Action::UnpackPack,
             required,
+        }
+    }
+
+    /// A compiler step that runs `script` through `/bin/sh` standing in for the bundled compiler.
+    #[cfg(unix)]
+    fn shell_compiler(kit: &Path, script: &str) -> Step {
+        fs::create_dir_all(kit.join("bin")).unwrap();
+        std::os::unix::fs::symlink("/bin/sh", kit.join("bin").join(assetc_name())).unwrap();
+        Step {
+            label: "Compiling test assets",
+            action: Action::Assetc(vec!["-c".into(), script.into()]),
+            required: true,
+        }
+    }
+
+    #[cfg(unix)]
+    fn exec_in<'a>(dir: &Path, cancel: &'a AtomicBool) -> StepExec<'a> {
+        StepExec {
+            workspace: dir.into(),
+            kit: dir.into(),
+            log: File::create(dir.join("log")).unwrap(),
+            cancel,
         }
     }
 
@@ -293,28 +313,11 @@ mod tests {
     #[test]
     fn review_cancellation_stops_step_descendants() {
         let dir = Dir::new("cancel-descendants");
-        fs::create_dir(dir.path().join("scripts")).unwrap();
-        fs::write(
-            dir.path().join("scripts/cancel-test.sh"),
-            b"sleep 30 & echo $! > descendant; wait
-",
-        )
-        .unwrap();
+        let step = shell_compiler(dir.path(), "sleep 30 & echo $! > descendant; wait");
         let cancel = AtomicBool::new(false);
-        let exec = ProcessExec {
-            workspace: dir.path().into(),
-            kit: dir.path().into(),
-            log: File::create(dir.path().join("log")).unwrap(),
-            cancel: &cancel,
-        };
+        let exec = exec_in(dir.path(), &cancel);
         let pid = std::thread::scope(|scope| {
-            let running = scope.spawn(|| {
-                exec.run(&Step {
-                    label: "cancel",
-                    required: true,
-                    action: Action::Script("cancel-test"),
-                })
-            });
+            let running = scope.spawn(|| exec.run(&step));
             let path = dir.path().join("descendant");
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
             while !path.exists() && std::time::Instant::now() < deadline {
@@ -336,6 +339,30 @@ mod tests {
             let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
         }
         assert!(!alive, "setup left its descendant running");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_compiler_reports_its_last_stderr_line() {
+        let dir = Dir::new("compiler-stderr");
+        let step = shell_compiler(
+            dir.path(),
+            "echo progress; echo 'warning: slow' >&2; echo 'missing texture atlas' >&2; echo >&2; exit 3",
+        );
+        let cancel = AtomicBool::new(false);
+        let exec = exec_in(dir.path(), &cancel);
+        let error =
+            execute_steps(std::slice::from_ref(&step), |s| exec.run(s), |_, _| {}).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.starts_with("Compiling test assets: missing texture atlas ("),
+            "{message}"
+        );
+        let log = fs::read_to_string(dir.path().join("log")).unwrap();
+        assert!(
+            log.contains("progress") && log.contains("warning: slow"),
+            "{log}"
+        );
     }
 
     #[test]
@@ -396,7 +423,7 @@ mod tests {
     fn stage_kit_maps_data_under_the_registry_path() {
         let dir = Dir::new("kit");
         let kit = dir.path().join("kit");
-        for sub in ["scripts", "assets", "data"] {
+        for sub in ["assets", "data"] {
             fs::create_dir_all(kit.join(sub)).unwrap();
             fs::write(kit.join(sub).join("f"), sub).unwrap();
         }
@@ -406,7 +433,6 @@ mod tests {
             fs::read(workspace.join("crates/assets/data/f")).unwrap(),
             b"data"
         );
-        assert!(workspace.join("scripts/f").is_file());
         assert!(workspace.join("assets/f").is_file());
     }
 

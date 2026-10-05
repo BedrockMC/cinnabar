@@ -34,8 +34,8 @@ fn assert_same_catalog(actual: &GeometryCatalog, expected: &GeometryCatalog) {
 /// Combining updates retains sequential acceptance, including either capacity failure.
 #[test]
 fn combined_publication_matches_sequential_capacity_and_payloads() {
-    let entity = crate::pack_rig_id(0);
-    let equipment = crate::pack_equipment_rig_id(0);
+    let entity = render_model::pack_rig_id(0);
+    let equipment = render_model::pack_equipment_rig_id(0);
     let quarter = (MAX_ACTOR_RIG_VERTICES / 4) / 3 * 3;
     let large = (MAX_ACTOR_RIG_VERTICES * 3 / 4) / 3 * 3;
     for case in 0..4 {

@@ -30,6 +30,16 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
+        self.mod_panel_open() || self.base_absorbs_gameplay_input(player_runtime, runtime, menu)
+    }
+
+    /// The ordinary scene policy before an optional personal panel takes focus.
+    pub fn base_absorbs_gameplay_input(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        runtime: &UiRuntime,
+        menu: &dyn MenuScene,
+    ) -> bool {
         runtime.ui_focused(player_runtime)
             || (menu.is_visible() && self.menu_settings(runtime, &menu.view()).absorbs_input)
     }
@@ -54,6 +64,11 @@ impl UiPresentationRuntime {
             return false;
         }
         if runtime.chat_focused() && !settings(super::chat_screen::CHAT_SCREEN).render_game_behind {
+            return false;
+        }
+        if runtime.emotes().is_open()
+            && !settings(super::emote_screen::EMOTE_SCREEN).render_game_behind
+        {
             return false;
         }
         if runtime.inventory_open()
@@ -88,7 +103,12 @@ impl UiPresentationRuntime {
             policy.render_only_when_topmost = next.render_only_when_topmost;
         }
         if view.dialog.is_some() {
-            let popup = engine.scene_settings("popup_dialog.modal_dialog_popup", &screen.context);
+            let reference = if view.dialog == Some(crate::menu::MenuDialog::Accounts) {
+                super::accounts::SCREEN
+            } else {
+                "popup_dialog.modal_dialog_popup"
+            };
+            let popup = engine.scene_settings(reference, &screen.context);
             policy.absorbs_input |= popup.absorbs_input;
             policy.render_game_behind &= popup.render_game_behind;
         }

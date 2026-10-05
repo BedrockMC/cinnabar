@@ -24,12 +24,14 @@ pub enum Scene {
     Bed,
     Container,
     Chat,
+    Emote,
     Loading,
     SignEditor,
     ServerForm,
     Menu(MenuScreen),
     /// The server settings form, which opens over the settings menu.
     ServerSettingsForm,
+    Credits,
 }
 
 impl Scene {
@@ -194,6 +196,12 @@ impl UiRuntime {
                 json(Some(super::presentation::forms::CHAT_SCREEN)),
             );
         }
+        if self.emotes().is_open() {
+            stack.push(
+                Scene::Emote,
+                json(Some(super::presentation::forms::EMOTE_SCREEN)),
+            );
+        }
         if host.loading && host.menu.is_none() {
             let reference = super::presentation::forms::LOADING_SCREEN;
             stack.push(Scene::Loading, json(Some(reference)));
@@ -217,6 +225,9 @@ impl UiRuntime {
         }
         if let Some(entry) = form.filter(|_| settings_form) {
             stack.push(Scene::ServerSettingsForm, json(Some(form_screen(entry))));
+        }
+        if self.credits().owns_input() {
+            stack.push(Scene::Credits, json(Some(super::credits::CREDITS_SCREEN)));
         }
         stack
     }

@@ -15,9 +15,10 @@ use protocol::{
 };
 use render::{
     ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderPlugin, ChunkRenderQueue, ChunkUploadPriority,
-    GraphicsAdapterMetadata, OpaqueDrawMode, PresentedFrameAck, RenderViewCohort,
-    TargetRenderExpectation, VisibilityDiagnosticSnapshot, VisibilityDiagnosticsInput,
-    VisibilityKeyDigest,
+    PresentedFrameAck, RenderViewCohort, TargetRenderExpectation, VisibilityDiagnosticsInput,
+};
+use render_model::{
+    GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityKeyDigest,
 };
 use std::{
     path::Path,
@@ -25,6 +26,34 @@ use std::{
     time::{Duration, Instant},
 };
 use world::{ChunkKey, LightSolveError, SubChunkKey};
+
+fn actor_snapshot(spawn: protocol::ActorSpawnEvent) -> client_world::ActorSnapshot {
+    let runtime = spawn.runtime_id;
+    let position = spawn.position;
+    let mut stream = chunk_pipeline::WorldStream::new_with_assets(
+        WorldBootstrap {
+            dimension: spawn.dimension,
+            local_player_runtime_id: 0,
+            local_player_unique_id: 0,
+            player_position: spawn.position,
+            world_spawn_position: [0; 3],
+            air_network_id: protocol::air_network_id(false),
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        spawn.position,
+        None,
+    );
+    stream
+        .submit(1, WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)))
+        .unwrap();
+    stream.poll(position, 0);
+    stream
+        .authority()
+        .actor(runtime)
+        .expect("spawn committed")
+        .clone()
+}
 
 use crate::acceptance::markers::{
     ACCEPTANCE_RUNTIME_METADATA, CAMERA_COMMITTED, GALLERY_ANCHOR_READY, MOVE_PLAYER_INGRESS,
@@ -282,6 +311,7 @@ mod core;
 mod core_process;
 mod crafting_authority_schedule;
 mod finish;
+#[cfg(feature = "reports")]
 mod frame_cost_bench;
 mod gameplay_click;
 mod input_publication;
@@ -290,7 +320,6 @@ mod inventory_reopen;
 mod inventory_schedule;
 mod inventory_secondary_input;
 mod menu_scene;
-mod molang_conformance;
 mod pack_entity_metadata;
 mod phase2_evidence;
 mod phase4_presentation;

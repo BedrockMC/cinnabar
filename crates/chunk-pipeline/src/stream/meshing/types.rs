@@ -78,7 +78,10 @@ pub(in crate::stream) fn pack_biome_record(
 
 impl MeshSnapshot {
     pub(in crate::stream) fn neighbourhood(&self) -> MeshNeighbourhood<'_> {
-        let mut neighbourhood = MeshNeighbourhood::new(&self.center);
+        let origin = self.light_halo.center.map_or([0; 3], |key| {
+            [key.x, key.y, key.z].map(|value| value.wrapping_mul(world::SUB_CHUNK_SIDE as i32))
+        });
+        let mut neighbourhood = MeshNeighbourhood::new(&self.center).with_block_origin(origin);
         for offset in MeshNeighbourhood::adjacent_offsets() {
             if let Some(sub_chunk) = self.adjacent[mesh_offset_index(offset)].as_deref() {
                 let inserted = neighbourhood.insert(offset, sub_chunk);

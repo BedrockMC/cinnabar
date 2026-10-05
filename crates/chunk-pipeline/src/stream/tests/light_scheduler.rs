@@ -46,7 +46,7 @@ fn lit_stream(dimension: i32) -> WorldStream {
     )
 }
 
-fn light_test_assets() -> RuntimeAssets {
+pub(super) fn light_test_assets() -> RuntimeAssets {
     let visuals = [
         (BlockFlags::AIR, VisualKind::Invisible, ContributorRole::Air),
         (
@@ -257,6 +257,7 @@ mod mesh_admission;
 
 mod backlog;
 mod mutation_summary;
+mod transfer_priority;
 
 /// Retired workers without tracked completions must release their slots before convergence retries.
 #[test]

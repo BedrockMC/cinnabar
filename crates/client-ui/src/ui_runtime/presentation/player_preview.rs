@@ -17,7 +17,7 @@ mod skin;
 pub use equipment::{
     PreviewEquipment, PreviewHandItem, PreviewHeldModel, PreviewHeldPlacement, PreviewTexture,
 };
-use render::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
 pub use skin::local_preview_skin;
 
 impl UiPresentationRuntime {
@@ -164,6 +164,8 @@ pub const PLAYER_EYE_HEIGHT: f32 = 1.62;
 const LEATHER_RGB: u32 = 0x00a0_6540;
 /// The player entity's render scale.
 pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
+/// The HUD translates its shared outer actor frame while swimming.
+pub(super) const HUD_SWIM_OFFSET: f32 = 0.8;
 /// UI rendering retains the native ModelPart origin rather than the world feet origin.
 pub const PLAYER_UI_ORIGIN: f32 = client_world::MODEL_PART_ORIGIN_Y / 16.0 * PLAYER_MODEL_SCALE;
 

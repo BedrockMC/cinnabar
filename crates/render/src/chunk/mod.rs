@@ -69,11 +69,14 @@ use crate::{
     PackedModelRef, PackedQuad, PackedQuadLighting, RuntimeStage, RuntimeStageProfiler,
     atmosphere_render::{AtmosphereGpu, install_atmosphere},
     visibility_diagnostics::{
-        ActiveVisibilityFrameProbe, ExtractedCameraIdentity, ExtractedCameraIdentityTracker,
-        GraphicsAdapterMetadata, MAX_VISIBILITY_DIAGNOSTIC_KEYS, OpaqueDrawMode,
+        ActiveVisibilityFrameProbe, ExtractedCameraIdentityTracker, MAX_VISIBILITY_DIAGNOSTIC_KEYS,
         VisibilityCompletionFence, VisibilityDiagnostics, VisibilityDiagnosticsInput,
         VisibilityFrameProbe, hash_f32_words,
     },
+};
+use render_model::{
+    ExtractedCameraIdentity, GraphicsAdapterMetadata, ModelWorkloadCount,
+    ModelWorkloadMetricsSnapshot, OpaqueDrawMode, TransparentSortMetricsSnapshot,
 };
 
 mod api;
@@ -208,12 +211,10 @@ pub use plugin::{ChunkRenderApplySet, ChunkRenderPlugin};
 #[allow(unused_imports)]
 use presentation::frame_probe::{
     ActiveFrameProbe, ActiveFrameProbeState, ChunkStreamMask, FrameAllocationIdentity,
-    FrameInstanceIdentity, FrameProbe, build_presented_frame_ack, submit_presented_frame_probe,
+    FrameInstanceIdentity, FrameProbe, FrameProbeScope, build_presented_frame_ack,
+    submit_presented_frame_probe,
 };
-pub use presentation::metrics::{
-    ModelWorkloadCount, ModelWorkloadMetrics, ModelWorkloadMetricsSnapshot, TransparentSortMetrics,
-    TransparentSortMetricsSnapshot,
-};
+pub use presentation::metrics::{ModelWorkloadMetrics, TransparentSortMetrics};
 #[allow(unused_imports)]
 use presentation::model_witness::ModelWitnessEvidenceState;
 pub use presentation::model_witness::{
@@ -257,19 +258,19 @@ use transparent::model::{
     TransparentModelCandidateCache, TransparentModelSortBatch, TransparentModelSortCandidate,
     TransparentModelSortKey, TransparentModelSortRuntime, TransparentModelSortWork,
     TransparentModelStagedSort, TransparentModelWorkerResult, TransparentUploadBudget,
-    canonical_transparent_rotation_bits, clear_active_transparent_metrics,
-    fail_closed_transparent_sort_key_error, prepare_transparent_model_sorts,
-    sort_transparent_model_candidates, spawn_transparent_model_sort, spawn_transparent_sort,
-    take_transparent_model_upload_batches, transparent_model_draw_candidate,
-    transparent_model_phase_distance, transparent_model_subchunk_center,
-    transparent_request_to_commit_latency,
+    clear_active_transparent_metrics, fail_closed_transparent_sort_key_error,
+    prepare_transparent_model_sorts, sort_transparent_model_candidates,
+    spawn_transparent_model_sort, spawn_transparent_sort, take_transparent_model_upload_batches,
+    transparent_model_draw_candidate, transparent_model_phase_distance,
+    transparent_model_subchunk_center, transparent_request_to_commit_latency,
 };
 #[allow(unused_imports)]
 use transparent::retirement::{
     TransparentPresentationFence, TransparentRetirementBudget, TransparentRetirementFence,
     TransparentRetirementFenceState, record_encoded_transparent_generation,
-    record_gpu_completed_transparent_generation, transparent_resident_allocation_contains,
-    transparent_retirement_can_arm, transparent_snapshot_references_allocation,
+    record_gpu_completed_transparent_generation, transparent_allocation_is_exact,
+    transparent_resident_allocation_contains, transparent_retirement_can_arm,
+    transparent_snapshot_references_allocation,
     transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
 

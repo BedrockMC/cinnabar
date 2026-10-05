@@ -68,7 +68,7 @@ fn selected_chat_text_draws_the_native_inversion_over_only_the_selected_glyphs()
             input
                 .batches
                 .iter()
-                .any(|batch| batch.blend_mode == render::UI_BLEND_INVERT)
+                .any(|batch| batch.blend_mode == render_model::UI_BLEND_INVERT)
         );
         super::super::forms::snapshot::write(
             &input,

@@ -206,3 +206,47 @@ fn new_dimension_definition_is_available_to_later_decode_while_commits_wait() {
         0
     );
 }
+
+#[test]
+fn synced_block_admission_freezes_height_before_later_definitions() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: RAW_IDS.air,
+        block_network_ids_are_hashes: false,
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::SyncedBlockUpdates(vec![protocol::SyncedBlockUpdateEvent {
+                update: BlockUpdateEvent {
+                    dimension: 0,
+                    position: [0, -64, 0],
+                    layer: 0,
+                    network_id: RAW_IDS.air,
+                },
+                flags: 0,
+                sync: protocol::ActorBlockSyncMessage {
+                    actor_unique_id: -1,
+                    message: 0,
+                },
+            }]),
+        )
+        .unwrap();
+    stream
+        .submit(
+            2,
+            WorldEvent::DimensionHeights(vec![protocol::DimensionHeightDiagnostic {
+                name: Arc::from("minecraft:overworld"),
+                dimension: 3,
+                minimum_y: 0,
+                height_range: 256,
+                generator: 1,
+            }]),
+        )
+        .unwrap();
+    assert_eq!(stream.dimension_range(0), vanilla_dimension_range(0));
+}

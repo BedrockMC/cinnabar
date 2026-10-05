@@ -3,7 +3,6 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::VisibilityKeyDigest;
 use assets::{
     BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, NO_ANIMATION,
     NO_MODEL_TEMPLATE, NetworkIdMode, TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
@@ -12,6 +11,7 @@ use bevy::{
     prelude::*,
     render::render_resource::{DownlevelFlags, DrawIndexedIndirectArgs, WgpuFeatures},
 };
+use render_model::VisibilityKeyDigest;
 use world::{RawBlockIds, SubChunk};
 
 use super::*;
@@ -183,6 +183,8 @@ mod presentation_model_witness;
 mod presentation_required_columns;
 #[path = "transparent/tests.rs"]
 mod transparent;
+#[path = "transparent/residency_tests.rs"]
+mod transparent_residency;
 
 #[path = "resource_geometry_queue_tests.rs"]
 mod resource_geometry_review;

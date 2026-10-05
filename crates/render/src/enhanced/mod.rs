@@ -26,6 +26,9 @@ mod snapshot;
 #[cfg(all(test, feature = "enhanced"))]
 mod validation;
 
+#[cfg(feature = "enhanced")]
+use render_model::ENHANCED_RENDERING_ENABLED;
+
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
     prelude::*,
@@ -81,10 +84,6 @@ pub struct EnhancedRendering {
 }
 
 pub const MAX_SHADOW_CASCADES: u32 = 3;
-
-/// Enhanced is disabled until the GPU faults and system freezes are resolved.
-/// Settings, launch flags and camera components cannot override this switch.
-pub const ENHANCED_RENDERING_ENABLED: bool = false;
 
 impl Default for EnhancedRendering {
     fn default() -> Self {

@@ -14,20 +14,19 @@ pub(super) const REQUIRED_CARRIERS: &[&str] = &[
     "vanilla-v1.mcbeico",
     "vanilla-v1.mcbelang",
     "vanilla-v1.mcbeui",
-    "ui-monocraft-v1.mcbefont",
-    "ui-font-notices.txt",
+    "ui-cinnangles-sans-v1.mcbefont",
 ];
 
 pub(super) const COMPILED: &str = ".local/assets/compiled";
 pub(super) const VANILLA_MANIFEST: &str = "assets/vanilla-source.json";
 const HUD_MANIFEST: &str = "assets/hud-source-v2193.json";
-const FONT_MANIFEST: &str = "assets/ui-font-source.json";
+const FONT_MANIFEST: &str = "assets/cinnangles-sans-source.json";
 const REGISTRY_DIR: &str = "crates/assets/data";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum Action {
-    /// Bundled fetch script under the workspace `scripts/` directory.
-    Script(&'static str),
+    /// Native bounded unpack of the downloaded sample pack into its cache directory.
+    UnpackPack,
     /// `assetc` subcommand plus arguments, relative to the workspace.
     Assetc(Vec<String>),
 }
@@ -47,13 +46,10 @@ struct VanillaSource {
 
 #[derive(Deserialize)]
 struct FontSource {
-    commit: String,
     font_file: String,
-    fallback_commit: String,
-    fallback_font_file: String,
 }
 
-/// Where the fetch script extracts the pinned pack, relative to the workspace.
+/// Where the pinned pack is unpacked, relative to the workspace.
 pub(super) fn cache_dir(root: &Path) -> Result<String> {
     let vanilla: VanillaSource = read_json(&root.join(VANILLA_MANIFEST))?;
     Ok(vanilla.cache_dir)
@@ -96,8 +92,7 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
             ],
         )
     };
-    let font_dir = format!(".local/assets/ui-font/{}", font.commit);
-    let fallback_dir = format!(".local/assets/ui-font/{}", font.fallback_commit);
+    let font_source = format!("assets/fonts/{}", font.font_file);
     let step = |label, action, required| Step {
         label,
         action,
@@ -106,12 +101,7 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
     Ok(vec![
         step(
             "Unpacking the Minecraft sample resource pack",
-            Action::Script("fetch-vanilla-assets"),
-            true,
-        ),
-        step(
-            "Downloading the open UI font",
-            Action::Script("fetch-ui-font"),
+            Action::UnpackPack,
             true,
         ),
         step(
@@ -162,18 +152,14 @@ pub(super) fn steps(workspace: &Path) -> Result<Vec<Step>> {
             true,
         ),
         step(
-            "Compiling the UI font",
+            "Compiling Cinnangles Sans",
             assetc(
-                "outline-font-assets",
+                "font-assets",
                 vec![
-                    ("font", format!("{font_dir}/{}", font.font_file)),
-                    (
-                        "fallback-font",
-                        format!("{fallback_dir}/{}", font.fallback_font_file),
-                    ),
+                    ("font", font_source),
                     ("source-manifest", FONT_MANIFEST.to_owned()),
-                    ("out", out("ui-monocraft-v1.mcbefont")),
-                    ("report", out("ui-monocraft-font-assets.json")),
+                    ("out", out("ui-cinnangles-sans-v1.mcbefont")),
+                    ("report", out("ui-cinnangles-sans-font-assets.json")),
                 ],
             ),
             true,
@@ -342,23 +328,19 @@ mod tests {
         .unwrap();
         std::fs::write(
             dir.path().join(FONT_MANIFEST),
-            r#"{"commit":"aa","font_file":"F.ttf","fallback_commit":"bb","fallback_font_file":"N.otf"}"#,
+            r#"{"font_file":"CinnanglesSans.ttf"}"#,
         )
         .unwrap();
         dir
     }
 
     #[test]
-    fn plan_fetches_before_compiling_and_reads_pack_from_manifest() {
+    fn plan_unpacks_before_compiling_and_reads_pack_from_manifest() {
         let dir = workspace();
         let plan = steps(dir.path()).unwrap();
-        assert!(matches!(
-            plan[0].action,
-            Action::Script("fetch-vanilla-assets")
-        ));
-        assert!(matches!(plan[1].action, Action::Script("fetch-ui-font")));
-        let Action::Assetc(args) = &plan[2].action else {
-            panic!("world compile must follow the fetches");
+        assert_eq!(plan[0].action, Action::UnpackPack);
+        let Action::Assetc(args) = &plan[1].action else {
+            panic!("world compile must follow the unpack");
         };
         assert!(args.contains(&".local/assets/bedrock-samples/v1/full/resource_pack".to_owned()));
     }

@@ -180,7 +180,7 @@ impl InstallLayout {
         self.user_data_root.join("prepare")
     }
 
-    /// Bundled scripts, manifests, registries and `assetc` used by first-run preparation.
+    /// Bundled manifests, registries and `assetc` used by first-run preparation.
     #[must_use]
     pub fn prep_kit(&self) -> PathBuf {
         self.resource_root.join("prep-kit")
@@ -273,6 +273,13 @@ impl InstallLayout {
     pub fn direct_socket_dir(&self, process_id: u32) -> PathBuf {
         self.transient_runtime_root
             .join(format!("direct-{process_id}"))
+    }
+
+    /// Account-core incarnations have separate endpoints from each other and game sessions.
+    #[must_use]
+    pub fn account_socket_dir(&self, pid: u32, incarnation: u64) -> PathBuf {
+        self.transient_runtime_root
+            .join(format!("account-{pid}-{incarnation}"))
     }
 
     #[must_use]

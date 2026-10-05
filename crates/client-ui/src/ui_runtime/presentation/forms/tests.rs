@@ -292,7 +292,7 @@ fn fallback_buttons_show_every_label_line() {
 fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use render::{UiRenderScene, UiRenderStats};
+    use render_model::{UiRenderScene, UiRenderStats};
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(16, 8, image::Rgba([9, 8, 7, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -429,14 +429,14 @@ fn path_and_url_button_images_resolve_like_vanilla() {
 }
 
 /// Six virtual px per character, nine per line.
-struct FixedText;
+pub(super) struct FixedText;
 impl json_ui::TextMeasure for FixedText {
     fn extent(&self, text: &str) -> [f64; 2] {
         [text.chars().count() as f64 * 6.0, 9.0]
     }
 }
 
-struct NoTextures;
+pub(super) struct NoTextures;
 impl json_ui::TextureSource for NoTextures {
     fn texture(&self, _: &str) -> Option<json_ui::TextureMeta> {
         Some(json_ui::TextureMeta {

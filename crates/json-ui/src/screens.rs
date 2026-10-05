@@ -11,6 +11,9 @@ use crate::{Context, ResolvedControl, resolve};
 /// A rendered engine screen: bound tree, draw nodes, hit regions, scroll report.
 pub type ScreenRender = FormRender;
 
+/// The account picker extension rendered over the vanilla start menu.
+pub const ACCOUNTS_SCREEN: &str = "cinnabar_accounts.screen";
+
 /// Every `namespace.name` screen the engine renders.
 pub const ENGINE_SCREENS: &[&str] = &[
     crate::hud::HUD_SCREEN,
@@ -19,6 +22,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     "server_form.long_form",
     "server_form.custom_form",
     "popup_dialog.modal_dialog_popup",
+    ACCOUNTS_SCREEN,
     "rating_prompt.rating_prompt_screen",
     "crafting.inventory_screen",
     "crafting.crafting_screen",

@@ -50,7 +50,7 @@ pub(super) struct SetupApp {
     updating: bool,
     text: Text,
     /// Uploaded once the GPU exists.
-    faces: Option<render::PanoramaFaces>,
+    faces: Option<render_model::PanoramaFaces>,
     logo: Option<Image>,
     window: Option<Arc<Window>>,
     gpu: Option<gpu::Gpu>,
@@ -73,7 +73,7 @@ impl SetupApp {
     pub(super) fn new(
         layout: InstallLayout,
         text: Text,
-        faces: render::PanoramaFaces,
+        faces: render_model::PanoramaFaces,
         logo: Option<Image>,
         consented: bool,
         updating: bool,
@@ -203,6 +203,7 @@ impl ApplicationHandler for SetupApp {
         }
         let attributes = Window::default_attributes()
             .with_title(launcher::PRODUCT_NAME)
+            .with_window_icon(Some(crate::window_icon::icon()))
             .with_inner_size(LogicalSize::new(1024.0, 640.0))
             .with_min_inner_size(LogicalSize::new(560.0, 420.0));
         let Ok(window) = event_loop.create_window(attributes) else {
