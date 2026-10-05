@@ -88,6 +88,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
             label_inputs: Vec::new(),
             label_rebuilds: 0,
             render_sources: Vec::new(),
+            render_merge: Default::default(),
             last_reload: std::time::Instant::now(),
             controls: mod_host::empty_controls(),
             reload_on_main: false,
