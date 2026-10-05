@@ -232,3 +232,14 @@ fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
         SettingsOptions::decode(br#"{"values":{"keyboard_mouse_sensitivity":75}}"#).unwrap();
     assert!(!legacy.user_settings().gameplay.always_sprint);
 }
+
+#[test]
+fn vsync_defaults_on_and_persists_into_runtime_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(settings.user_settings().video.vsync);
+    settings.set(index("vsync"), 0);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(!loaded.user_settings().video.vsync);
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(legacy.user_settings().video.vsync);
+}

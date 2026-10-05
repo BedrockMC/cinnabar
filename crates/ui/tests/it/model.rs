@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 pub use ui::{
     PointerPhase, SafeArea, TextLayout, TextLayoutCache, TextLayoutRequest, TextShadow, TextStyle,
@@ -414,7 +414,7 @@ fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
             pixels_sha256: Sha256::digest(&rgba8[..4]).into(),
             width: 1,
             height: 1,
-            rgba8: rgba8[..4].to_vec().into_boxed_slice(),
+            pixels: FontPixels::Rgba8(rgba8[..4].to_vec().into_boxed_slice()),
         },
         FontTexturePage {
             source_path: "font/page1.png".into(),
@@ -423,7 +423,7 @@ fn text_layout_sampling(linear: bool) -> Arc<TextLayout> {
             pixels_sha256: Sha256::digest(&rgba8[4..]).into(),
             width: 1,
             height: 1,
-            rgba8: rgba8[4..].to_vec().into_boxed_slice(),
+            pixels: FontPixels::Rgba8(rgba8[4..].to_vec().into_boxed_slice()),
         },
     ];
     let glyphs = [

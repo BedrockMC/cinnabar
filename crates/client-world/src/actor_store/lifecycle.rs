@@ -498,7 +498,7 @@ impl ActorStore {
         dimension: i32,
         movement: MovePlayerEvent,
     ) -> ActorApplyResult {
-        // `Player::handleMovePlayerPacket`: Reset sets the position directly and
+        // As in vanilla, Reset sets the position directly and
         // Rotation turns the player without any position request.
         let rotation_only = movement.mode == protocol::MovePlayerMode::Rotation;
         self.apply(

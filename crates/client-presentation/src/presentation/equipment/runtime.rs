@@ -402,7 +402,7 @@ impl EquipmentRuntime {
 
     /// The main-hand item as a first-person layer, when it is drawable. An attachable rides the
     /// posed `rightItem` bone; any other item carries a camera-space bone (`view_space`), placed
-    /// by `renderFirstPerson`'s own transforms for the arm's `hand` state.
+    /// by vanilla's first-person transforms for the arm's `hand` state.
     pub fn first_person_item(
         &mut self,
         body: &ActorRigSubmission,

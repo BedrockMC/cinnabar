@@ -86,9 +86,9 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         flags |= PlayerInputFlags::VERTICAL_COLLISION;
     }
 
-    // Raw jump-button carriers track the physical button exactly. Native
-    // 0x07108cc0 also sets processed up; 0x070fcfd0 sends it as WantUp,
-    // which the server's 0x0998fe80 reads independently of JumpDown.
+    // Raw jump-button carriers track the physical button exactly. Vanilla also
+    // sets processed up and sends it as WantUp, which the server reads
+    // independently of JumpDown.
     if sample.jumping {
         flags |= PlayerInputFlags::JUMP_DOWN
             | PlayerInputFlags::JUMP_CURRENT_RAW

@@ -246,9 +246,8 @@ fn flight_start_ascend_and_stop_edges_follow_the_simulated_mode() {
 
 #[test]
 fn keyboard_vertical_intents_reach_server_flight_controls() {
-    // Current SendPlayerInputPacket 0x070fcfd0 emits processed up/down as
-    // WantUp/WantDown. ServerMoveInputHandler 0x0998fe80 reconstructs them
-    // directly; raw JumpDown/Ascend alone do not populate these control lanes.
+    // Vanilla sends processed up/down as WantUp/WantDown and the server reads
+    // them directly; raw JumpDown/Ascend alone do not populate these control lanes.
     for (jumping, sneaking, expected) in [
         (false, false, 0),
         (true, false, 4),
@@ -609,7 +608,7 @@ fn leaving_water_defers_held_ground_jump_until_native_swim_blend_finishes() {
     }
     assert_eq!(physics.state().unwrap().swim_amount, 1.0);
     world.0.set(false);
-    // CurrentSwimAmount precedes SwimTrigger. The first dry tick still advances
+    // The swim-amount blend runs before the swim trigger. The first dry tick still advances
     // the previous swimming flag; decay starts on the following tick.
     let stopped = step(
         &mut physics,
