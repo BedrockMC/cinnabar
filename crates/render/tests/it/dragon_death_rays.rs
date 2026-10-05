@@ -78,7 +78,11 @@ fn raster(gpu: &Gpu, colors: &[[f32; 4]]) -> Vec<u8> {
 
 #[test]
 fn fading_rays_keep_sub_cutoff_alpha_and_add_without_writing_depth() {
-    let gpu = Gpu::new().expect("death ray regression requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("fading_rays_keep_sub_cutoff_alpha_and_add_without_writing_depth")
+    else {
+        return;
+    };
     let sample =
         (SNAPSHOT_SIDE as usize / 2 * SNAPSHOT_SIDE as usize + SNAPSHOT_SIDE as usize / 2) * 4;
     let transparent = raster(&gpu, &[[1.0, 0.0, 1.0, 0.0]]);

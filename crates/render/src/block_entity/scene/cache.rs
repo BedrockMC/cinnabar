@@ -117,11 +117,12 @@ impl CachedSubmission {
                     .all(|(count, length)| count + length <= MAX_BLOCK_ENTITY_VERTICES))
     }
 
-    fn lengths(&self) -> [usize; 4] {
+    fn lengths(&self) -> [usize; 5] {
         [
             self.solid.len(),
             self.overlay.len(),
             self.crack.len(),
+            self.portal.len(),
             self.additive.len(),
         ]
     }

@@ -200,7 +200,10 @@ fn center(frame: &[u8]) -> &[u8] {
 
 #[test]
 fn dragon_and_dissolve_materials_reject_volume_backfaces() {
-    let gpu = Gpu::new().expect("actor sidedness requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("dragon_and_dissolve_materials_reject_volume_backfaces")
+    else {
+        return;
+    };
     let cube = cube([16; 3], true, false);
     assert_eq!(cube.len(), 6);
     let clear = center(&raster(
@@ -225,7 +228,11 @@ fn dragon_and_dissolve_materials_reject_volume_backfaces() {
 
 #[test]
 fn collapsed_membrane_keeps_both_authored_uv_faces_in_one_sided_materials() {
-    let gpu = Gpu::new().expect("actor sidedness requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("collapsed_membrane_keeps_both_authored_uv_faces_in_one_sided_materials")
+    else {
+        return;
+    };
     let plane = cube([16, 0, 16], true, true);
     assert_eq!(plane.len(), 12);
     for material in [
@@ -259,7 +266,11 @@ fn collapsed_membrane_keeps_both_authored_uv_faces_in_one_sided_materials() {
 
 #[test]
 fn collapsed_membrane_back_uses_the_authored_opposing_face_normal() {
-    let gpu = Gpu::new().expect("actor sidedness requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("collapsed_membrane_back_uses_the_authored_opposing_face_normal")
+    else {
+        return;
+    };
     let plane = cube([16, 0, 16], true, true);
     let opposing = cube([16, 0, 16], false, true);
     for material in [
@@ -278,7 +289,11 @@ fn collapsed_membrane_back_uses_the_authored_opposing_face_normal() {
 
 #[test]
 fn nocull_planes_keep_the_visible_authored_face_from_either_side() {
-    let gpu = Gpu::new().expect("actor sidedness requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("nocull_planes_keep_the_visible_authored_face_from_either_side")
+    else {
+        return;
+    };
     let plane = cube([16, 0, 16], true, true);
     for texels in [[[255; 4], [0; 4]], [[0; 4], [255; 4]]] {
         let clear = raster(
