@@ -31,6 +31,7 @@ pub(crate) use direct::TerrainPassLabel;
 use direct::{DirectOcclusion, direct_occlusion_supported, reset_direct_occlusion_frame};
 pub(in crate::chunk) use direct::{DirectOcclusionFrame, SkipOccludedTerrain};
 use model::STREAM_COUNT;
+pub(crate) use node::GpuCullLateLabel;
 pub(in crate::chunk) use node::{draw_function_ids, install_commands};
 use prepare::{ChunkHiddenEntities, GpuCull, extract_hidden_chunks, prepare_gpu_cull};
 
@@ -224,8 +225,8 @@ pub(in crate::chunk) fn install(app: &mut App) {
         .add_systems(Last, admit_depth_sampling);
 }
 
-/// The late pass seeds its pyramid from the main depth target.
-fn admit_depth_sampling(mut cameras: Query<&mut Camera3d>) {
+/// The late pass and entity shadows read the main depth target.
+pub(crate) fn admit_depth_sampling(mut cameras: Query<&mut Camera3d>) {
     for mut camera in &mut cameras {
         let usage = TextureUsages::from(camera.depth_texture_usages);
         if !usage.contains(TextureUsages::TEXTURE_BINDING) {

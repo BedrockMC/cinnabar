@@ -88,7 +88,7 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod gpu_cull;
-pub(crate) use gpu_cull::TerrainPassLabel;
+pub(crate) use gpu_cull::{GpuCullLateLabel, TerrainPassLabel, admit_depth_sampling};
 mod instance;
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;

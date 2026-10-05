@@ -71,6 +71,8 @@ pub struct ActorStatus {
     pub pickup: Option<ActorPickup>,
     /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
+    /// Breathing point below a liquid surface; `None` before the first world sample.
+    pub breathing_submerged: Option<bool>,
     /// Bed orientation in degrees under a sleeping actor, sampled from the world.
     pub sleep_rotation: Option<f32>,
 }

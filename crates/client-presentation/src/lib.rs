@@ -3,6 +3,7 @@ pub mod actor_clock;
 pub mod actor_publication;
 pub mod actor_sampling;
 pub mod dropped_items;
+pub mod entity_shadows;
 pub mod prepared_actor_artwork;
 pub mod presentation;
 pub mod seat_defaults;

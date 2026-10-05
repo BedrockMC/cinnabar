@@ -5,6 +5,7 @@
 pub mod actor;
 mod chunk_metrics;
 mod dropped_item;
+mod entity_shadow;
 pub mod equipment;
 mod item_geometry;
 mod nametag;
@@ -32,6 +33,12 @@ pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,
 };
 pub use dropped_item::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite, OPAQUE_WHITE};
+pub use entity_shadow::{
+    EntityShadow, EntityShadowFrame, EntityShadowParams, MAX_ENTITY_SHADOWS,
+    SHADOW_VOLUME_BOTTOM_RADIUS, SHADOW_VOLUME_BOTTOM_Y, SHADOW_VOLUME_SIDES,
+    SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
+    shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
+};
 pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_ATLAS_SIDE,

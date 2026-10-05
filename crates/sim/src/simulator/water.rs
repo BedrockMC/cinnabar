@@ -26,10 +26,32 @@ pub fn sample_water_head(
         f64::from(feet.y as f32 + height as f32),
         f64::from(feet.z as f32),
     );
+    submerged(world, point, &[BlockPhysicsFlags::WATER])
+}
+
+/// Whether `point` lies below the surface of the water or lava filling its block, as vanilla
+/// tests an actor's breathing point.
+pub fn sample_liquid_submersion(
+    world: &(impl CollisionWorld + ?Sized),
+    point: Vec3,
+) -> Result<CollisionQuery<bool>, WorldQueryError> {
+    submerged(
+        world,
+        point,
+        &[BlockPhysicsFlags::WATER, BlockPhysicsFlags::LAVA],
+    )
+}
+
+/// Compares the point with the primary layer's liquid level / 9, offset one level down.
+fn submerged(
+    world: &(impl CollisionWorld + ?Sized),
+    point: Vec3,
+    liquids: &[BlockPhysicsFlags],
+) -> Result<CollisionQuery<bool>, WorldQueryError> {
     let block = super::environment::block_at(point)?;
     let sample = world.block_physics(block)?;
     let facts = sample.primary();
-    let in_water = if facts.flags.contains(BlockPhysicsFlags::WATER) {
+    let in_liquid = if liquids.iter().any(|liquid| facts.flags.contains(*liquid)) {
         let level = if facts.fluid_height_blocks >= 1.0 {
             1.0
         } else {
@@ -44,7 +66,7 @@ pub fn sample_water_head(
         false
     };
     Ok(CollisionQuery {
-        value: in_water,
+        value: in_liquid,
         identity: sample.identity,
     })
 }

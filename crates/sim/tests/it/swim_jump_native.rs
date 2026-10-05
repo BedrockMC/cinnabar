@@ -3,7 +3,7 @@
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
     MovementInput, MovementMode, PlayerState, PredictionHistory, SimulationError, Simulator,
-    SurfaceResponse, Vec3, WorldQueryError, sample_water_head,
+    SurfaceResponse, Vec3, WorldQueryError, sample_liquid_submersion, sample_water_head,
 };
 
 struct JumpWorld {
@@ -248,6 +248,32 @@ fn head_water_uses_source_level_surface_and_rejects_lava() {
         ..source
     };
     assert!(!sample_water_head(&lava, feet, 0.5).unwrap().value);
+}
+
+/// Breathing-point submersion accepts either liquid against the same surface.
+#[test]
+fn breathing_submersion_admits_water_and_lava_below_the_surface() {
+    let source = JumpWorld {
+        water_top: 6,
+        fluid_height: 8.0 / 9.0,
+        ..JumpWorld::submerged()
+    };
+    let lava = JumpWorld {
+        flags: BlockPhysicsFlags::LAVA,
+        ..source
+    };
+    for world in [&source, &lava] {
+        assert!(
+            sample_liquid_submersion(world, Vec3::new(0.5, 5.95, 0.5))
+                .unwrap()
+                .value
+        );
+        assert!(
+            !sample_liquid_submersion(world, Vec3::new(0.5, 6.0, 0.5))
+                .unwrap()
+                .value
+        );
+    }
 }
 
 #[test]
