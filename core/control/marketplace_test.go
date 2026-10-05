@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/store"
+	"github.com/sandertv/gophertunnel/minecraft/service/marketplace"
 )
 
 type stubMarket struct {
@@ -75,7 +76,7 @@ func TestStoreHomeDefaultsPageAndEncodesEmptyRows(t *testing.T) {
 	m := &stubMarket{page: store.Page{ID: "store"}}
 	dir := startMarket(t, m)
 	raw := string(call(t, dir, methodStoreHome, ""))
-	if m.homeArg != "home" || !strings.Contains(raw, `"rows":[]`) {
+	if m.homeArg != marketplace.PageStoreRoot || !strings.Contains(raw, `"rows":[]`) {
 		t.Fatalf("page=%q response=%s", m.homeArg, raw)
 	}
 	if reply := rpc(t, dir, methodStoreHome, `{"page":"marketplacepass"}`); reply.Error != nil || m.homeArg != "marketplacepass" {
@@ -117,7 +118,7 @@ func TestStoreErrorsAreSanitized(t *testing.T) {
 		{store.ErrInvalidRequest, -32602},
 		{store.ErrPurchaseBusy, codePurchaseBusy},
 		{store.ErrPurchaseReused, codePurchaseReused},
-		{store.ErrUnknownPage, codeStoreNotFound},
+		{marketplace.ErrUnknownPage, codeStoreNotFound},
 		{errors.New(`Post https://x/y?token=SECRET: dial tcp`), codeServiceFailed},
 	} {
 		dir := startMarket(t, &stubMarket{err: test.err})
@@ -166,11 +167,11 @@ func TestStoreFailuresAreLoggedRedacted(t *testing.T) {
 		t.Fatalf("token leaked into the log: %q", out)
 	}
 	logged.Reset()
-	m.err = fmt.Errorf("%w: session config has no \"home\" page (known pages: StoreRoot)", store.ErrUnknownPage)
+	m.err = fmt.Errorf("%w \"home\" (known pages: storeRoot)", marketplace.ErrUnknownPage)
 	if reply := rpc(t, dir, methodStoreHome, ""); reply.Error == nil || reply.Error.Code != codeStoreNotFound {
 		t.Fatalf("error = %+v", reply.Error)
 	}
-	if !strings.Contains(logged.String(), "known pages: StoreRoot") {
+	if !strings.Contains(logged.String(), "known pages: storeRoot") {
 		t.Fatalf("unknown page not logged with its known keys: %q", logged.String())
 	}
 	logged.Reset()

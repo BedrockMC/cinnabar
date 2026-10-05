@@ -8,8 +8,6 @@ import (
 var (
 	// ErrInvalidRequest is returned for parameters that fail validation before any network call.
 	ErrInvalidRequest = errors.New("store: invalid request")
-	// ErrUnknownPage is returned when the session config has no such known page.
-	ErrUnknownPage = errors.New("store: unknown page")
 	// ErrPurchaseBusy is returned while a purchase of the same offer is in flight or unresolved.
 	ErrPurchaseBusy = errors.New("store: purchase in progress")
 	// ErrPurchaseReused is returned when a purchase_id is replayed with different parameters.
