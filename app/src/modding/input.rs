@@ -277,7 +277,8 @@ pub(super) fn prepare_mod_input(
         |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
     );
     let was_open = physical.panel_owned;
-    let mut open = extension.host.panel_open() && presentation.mod_panel_open();
+    let owner = extension.panel_owner();
+    let mut open = extension.host(owner).panel_open() && presentation.mod_panel_open();
     let editing = open && presentation.mod_panel_editing();
     let interrupt = editing
         && panel_keys.iter().any(|(key, _, repeat)| {
@@ -309,19 +310,19 @@ pub(super) fn prepare_mod_input(
     let close_requested = pressed.iter().any(|key| key == "Escape")
         && open
         && !extension
-            .host
+            .host(owner)
             .panel()
             .is_some_and(|panel| panel.capture_key);
-    if !window.focused || absorbed || !extension.host.is_active() || close_requested {
+    if !window.focused || absorbed || !extension.host(owner).is_active() || close_requested {
         open = false;
     } else if extension
-        .host
+        .host(owner)
         .panel()
         .is_some_and(|panel| pressed.contains(&panel.toggle_key))
     {
         open = !open;
     }
-    extension.host.set_panel_open(open);
+    extension.host_mut(owner).set_panel_open(open);
     presentation.set_mod_panel_open(open);
     let was_held = mouse
         .as_ref()
@@ -344,7 +345,7 @@ pub(super) fn prepare_mod_input(
         })
         .collect();
     open = presentation.mod_panel_open();
-    extension.host.set_panel_open(open);
+    extension.host_mut(owner).set_panel_open(open);
     let restore = physical.finish_panel(
         open,
         window.focused,
@@ -402,12 +403,12 @@ pub(super) fn prepare_mod_input(
             // A close edge belongs to the panel, not the underlying pause menu.
             keys.reset(KeyCode::Escape);
         }
-        let reserved = extension.host.reserved_keys();
+        let reserved = extension.reserved_keys();
         let toggle = extension
-            .host
+            .host(owner)
             .panel()
             .map(|panel| panel.toggle_key.as_str());
-        consume_reserved(&mut keys, reserved, toggle);
+        consume_reserved(&mut keys, &reserved, toggle);
     }
 }
 

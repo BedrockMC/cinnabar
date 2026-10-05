@@ -102,6 +102,10 @@ impl ModHost {
         self.grants.settings.then(|| self.instance.settings())
     }
 
+    pub fn grants(&self) -> &ModGrants {
+        &self.grants
+    }
+
     pub fn settings_seed(&self) -> Option<&str> {
         self.settings_seed.as_deref()
     }

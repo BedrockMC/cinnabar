@@ -48,7 +48,7 @@ struct Registration {
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-struct Grants {
+pub(super) struct Grants {
     environment: bool,
     players: bool,
     camera: bool,
@@ -96,7 +96,6 @@ impl Registration {
 
 struct Candidate {
     host: ModHost,
-    grants: ModGrants,
     font: Option<Arc<RuntimeFontCatalog>>,
     identity: [u8; 32],
     registration: Registration,
@@ -130,13 +129,12 @@ fn build_candidate_with_settings(
     let host = ModHost::prepare_snapshot_with_grants(
         &registration.component,
         &component,
-        grants.clone(),
+        grants,
         settings.map(|settings| (settings.path.as_path(), settings.json.as_str())),
     )
     .map_err(|error| format!("{error:#}"))?;
     Ok(Candidate {
         host,
-        grants,
         font,
         identity,
         registration,
@@ -517,8 +515,8 @@ fn install(world: &mut World, update: Update) {
                     world.insert_resource(ModInteraction::default());
                     world.insert_resource(ModRuntime {
                         host: candidate.host,
+                        companions: Vec::new(),
                         last_reload: Instant::now(),
-                        grants: candidate.grants,
                         controls: mod_host::empty_controls(),
                         reload_on_main: false,
                         registration_identity: Some(candidate.identity),
