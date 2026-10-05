@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -74,7 +75,7 @@ func TestStoreHomeDefaultsPageAndEncodesEmptyRows(t *testing.T) {
 	m := &stubMarket{page: store.Page{ID: "store"}}
 	dir := startMarket(t, m)
 	raw := string(call(t, dir, methodStoreHome, ""))
-	if m.homeArg != "store" || !strings.Contains(raw, `"rows":[]`) {
+	if m.homeArg != "home" || !strings.Contains(raw, `"rows":[]`) {
 		t.Fatalf("page=%q response=%s", m.homeArg, raw)
 	}
 	if reply := rpc(t, dir, methodStoreHome, `{"page":"marketplacepass"}`); reply.Error != nil || m.homeArg != "marketplacepass" {
@@ -163,6 +164,14 @@ func TestStoreFailuresAreLoggedRedacted(t *testing.T) {
 	}
 	if strings.Contains(out, "eyJ") {
 		t.Fatalf("token leaked into the log: %q", out)
+	}
+	logged.Reset()
+	m.err = fmt.Errorf("%w: session config has no \"home\" page (known pages: StoreRoot)", store.ErrUnknownPage)
+	if reply := rpc(t, dir, methodStoreHome, ""); reply.Error == nil || reply.Error.Code != codeStoreNotFound {
+		t.Fatalf("error = %+v", reply.Error)
+	}
+	if !strings.Contains(logged.String(), "known pages: StoreRoot") {
+		t.Fatalf("unknown page not logged with its known keys: %q", logged.String())
 	}
 	logged.Reset()
 	m.err = ErrSignedOut
