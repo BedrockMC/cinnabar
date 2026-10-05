@@ -5,9 +5,17 @@
   instanced draw after opaque geometry; casters and parameters upload only when they change.
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
-- Incomplete parity: standing-sign shadows are not drawn; the breathing point, first-person local
-  caster, volume culling and camera-inside behaviour are provisional. Native side-by-side
+- Remote casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
+  drawn; the breathing point, first-person local caster, item and local volume culling and
+  camera-inside behaviour are provisional. Native side-by-side
   comparison is pending.
+
+## Configured inventory hotbar swaps
+
+- User-requested inventory shortcut: the configured hotbar key swaps the hovered cell directly with that hotbar slot.
+- Keyboard and mouse remaps share gameplay's saved bindings; replaced number keys no longer perform swaps.
+- Local prediction updates both cells immediately without an inventory transition animation or a server round trip.
+- Focused text fields retain input ownership. Installed Windows input acceptance is pending.
 
 ## Read-back terrain occlusion on direct-draw devices
 
@@ -932,6 +940,15 @@ appends the sheared base head's cubes. Vanilla geometry parsing appends cubes un
 merge fix and adult face/snout live acceptance remain in progress. Native sheep
 dye palette, complete gamma/lighting/overlay order and arbitrary RGBA zero-sentinel
 handling remain incomplete.
+The creeper drew blue: one alpha-8 texel outside every face of `creeper.png` failed
+the binary-alpha actor-art filter, and the body route then fell through to the
+`query.is_powered` armor overlay's `creeper_armor.png`. Fractional alpha is now
+rejected only on texels a drawing geometry can point-sample (scrolling `uv_anim`
+layers count every texel), unsampled ones are cleared, and the body route takes
+only the first unconditional controller's art. The pinned pack now binds the
+creeper and admits two NPC skins; blaze, spider, cave spider, enderman and drowned
+still fall back because sampled texels carry unverified fractional-alpha material
+semantics. Live visual acceptance of the creeper is pending.
 
 Ordinary terrain-blend model/water faces now share the current native perspective
 metric; ordinary Ice and water use

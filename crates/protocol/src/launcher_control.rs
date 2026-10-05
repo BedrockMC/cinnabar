@@ -10,4 +10,4 @@ pub use bridge::{
     list_gatherings, list_realms, ping_servers, poll_events, profile, report_message_event,
     sign_out,
 };
-pub use bridge::{PacketDelayLease, set_packet_delay};
+pub use bridge::{PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay};

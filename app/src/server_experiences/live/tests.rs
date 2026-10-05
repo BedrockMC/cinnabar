@@ -123,6 +123,9 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         .collect();
     let mut live = Live {
         media: super::super::media::Media::new(grant.clone(), 1, PathBuf::new()),
+        screens: Vec::new(),
+        screens_built: None,
+        scene_revision: 0,
         grant,
         instances,
         executable: PathBuf::new(),
@@ -354,7 +357,10 @@ fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_scre
             .scene
             .insert(1, media_quad(if id == "bundle0" { 5.0 } else { 9.0 }));
     }
-    assert!(live.screens().is_empty(), "no player means no screen");
+    assert!(
+        live.changed_screens().unwrap().is_empty(),
+        "no player means no screen"
+    );
     let frame = render::MediaFrame {
         serial: 3,
         width: 2,
@@ -362,10 +368,33 @@ fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_scre
         rgba: std::sync::Arc::from(vec![255u8; 16]),
     };
     live.media_mut().set_frame("bundle0", INTRO, Some(frame));
-    let screens = live.screens();
+    let screens = live.changed_screens().unwrap();
     assert_eq!(screens.len(), 1);
     assert_eq!(screens[0].center, [5.0, 64.0, 0.0]);
     assert_eq!(screens[0].half_right, [8.0, 0.0, 0.0]);
     assert_eq!(screens[0].half_up, [0.0, 4.5, 0.0]);
     assert_eq!(screens[0].frame.as_ref().map(|frame| frame.serial), Some(3));
+}
+
+#[test]
+fn an_unchanged_media_scene_is_presented_without_rebuilding() {
+    let mut live = fixture(1);
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .contributions
+        .scene
+        .insert(1, media_quad(5.0));
+    let frame = render::MediaFrame {
+        serial: 3,
+        width: 2,
+        height: 2,
+        rgba: std::sync::Arc::from(vec![255u8; 16]),
+    };
+    live.media_mut().set_frame("bundle0", INTRO, Some(frame));
+    assert_eq!(live.changed_screens().map(<[_]>::len), Some(1));
+    let before = crate::tests::alloc_count::thread_allocations();
+    let unchanged = live.changed_screens().is_none();
+    assert_eq!(crate::tests::alloc_count::thread_allocations() - before, 0);
+    assert!(unchanged);
 }

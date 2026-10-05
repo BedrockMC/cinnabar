@@ -520,11 +520,12 @@ impl WorldStream {
                     self.publisher.source_capture_sequence = None;
                 }
                 let resolved = self.authority.resolve_position(movement.position);
-                self.local_player_chunk = None;
+                // Unmarked moves reconcile like corrections against a past tick; only teleports recenter.
                 if movement.mode.is_teleport() {
+                    self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
+                    self.reevaluate_chunk_retention();
                 }
-                self.reevaluate_chunk_retention();
                 self.authority
                     .push_committed_control(CommittedControlEvent::MovePlayer {
                         sequence,

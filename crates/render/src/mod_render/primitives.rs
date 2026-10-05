@@ -65,6 +65,7 @@ pub(crate) struct PrimitiveGpu {
     vertices: Buffer,
     capacity: u64,
     uploaded: Arc<[ModVertex]>,
+    uploaded_marker: Arc<[ModVertex]>,
     pub(crate) vertex_count: u32,
     frame: Buffer,
     bind_group: Option<BindGroup>,
@@ -85,6 +86,7 @@ pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         vertices: vertex_buffer(&device, 6),
         capacity: 6,
         uploaded: Arc::from([]),
+        uploaded_marker: Arc::from([]),
         vertex_count: 0,
         frame: device.create_buffer(&BufferDescriptor {
             label: Some("mod primitive frame"),
@@ -105,30 +107,85 @@ fn prepare(
     mut gpu: ResMut<PrimitiveGpu>,
 ) {
     let Some(scene) = scene else { return };
-    if !Arc::ptr_eq(&gpu.uploaded, &scene.vertices) {
-        let needed = scene.vertices.len() as u64;
-        if needed > gpu.capacity {
-            let capacity = needed
-                .next_power_of_two()
-                .min(mod_render::geometry::MAX_VERTICES as u64);
-            gpu.vertices = vertex_buffer(&device, capacity);
-            gpu.capacity = capacity;
-            gpu.bind_group = None;
-        }
-        let count = needed.min(gpu.capacity) as usize;
-        if count > 0 {
-            queue.write_buffer(
-                &gpu.vertices,
-                0,
-                bytemuck::cast_slice(&scene.vertices[..count]),
-            );
-        }
-        gpu.vertex_count = count as u32;
+    let needed = scene.vertex_count() as u64;
+    let grew = needed > gpu.capacity;
+    if grew {
+        let capacity = needed
+            .next_power_of_two()
+            .min((mod_render::geometry::MAX_VERTICES + super::position_box::VERTICES) as u64);
+        gpu.vertices = vertex_buffer(&device, capacity);
+        gpu.capacity = capacity;
+        gpu.bind_group = None;
+    }
+    let [guest_changed, marker_changed] = upload_changes(
+        &gpu.uploaded,
+        &gpu.uploaded_marker,
+        &scene.vertices,
+        &scene.marker_vertices,
+        grew,
+    );
+    if guest_changed && !scene.vertices.is_empty() {
+        queue.write_buffer(&gpu.vertices, 0, bytemuck::cast_slice(&scene.vertices));
+    }
+    if marker_changed && !scene.marker_vertices.is_empty() {
+        queue.write_buffer(
+            &gpu.vertices,
+            scene.vertices.len() as u64 * VERTEX_BYTES,
+            bytemuck::cast_slice(&scene.marker_vertices),
+        );
+    }
+    if guest_changed {
         gpu.uploaded = Arc::clone(&scene.vertices);
     }
+    if marker_changed {
+        gpu.uploaded_marker = Arc::clone(&scene.marker_vertices);
+    }
+    gpu.vertex_count = needed.min(gpu.capacity) as u32;
     if gpu.vertex_count > 0 {
         let frame = [time.elapsed_secs_wrapped(), time.delta_secs(), 0.0, 0.0];
         queue.write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
+    }
+}
+
+fn upload_changes(
+    previous_guest: &Arc<[ModVertex]>,
+    previous_marker: &Arc<[ModVertex]>,
+    guest: &Arc<[ModVertex]>,
+    marker: &Arc<[ModVertex]>,
+    grew: bool,
+) -> [bool; 2] {
+    [
+        grew || !Arc::ptr_eq(previous_guest, guest),
+        grew || previous_guest.len() != guest.len() || !Arc::ptr_eq(previous_marker, marker),
+    ]
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    #[test]
+    fn marker_motion_uploads_only_its_suffix_and_guest_resize_moves_that_suffix() {
+        let guest: Arc<[ModVertex]> = vec![ModVertex::default(); 6].into();
+        let marker: Arc<[ModVertex]> = vec![ModVertex::default(); 108].into();
+        let moved: Arc<[ModVertex]> = vec![ModVertex::default(); 108].into();
+        assert_eq!(
+            upload_changes(&guest, &marker, &guest, &marker, false),
+            [false, false]
+        );
+        assert_eq!(
+            upload_changes(&guest, &marker, &guest, &moved, false),
+            [false, true]
+        );
+        let resized: Arc<[ModVertex]> = vec![ModVertex::default(); 12].into();
+        assert_eq!(
+            upload_changes(&guest, &marker, &resized, &marker, false),
+            [true, true]
+        );
+        assert_eq!(
+            upload_changes(&guest, &marker, &guest, &marker, true),
+            [true, true]
+        );
     }
 }
 
@@ -297,7 +354,7 @@ pub(crate) fn queue(
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
     // Queue precedes the upload, so this frame's scene decides; the draw reads the upload.
-    if scene.is_none_or(|scene| scene.vertices.is_empty()) {
+    if scene.is_none_or(|scene| scene.vertex_count() == 0) {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawPrimitiveCommands>();

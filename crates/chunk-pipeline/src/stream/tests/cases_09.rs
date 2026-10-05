@@ -66,16 +66,7 @@ fn chunk_grid_retention_follows_player_and_ignores_publisher() {
 
     // Moving the local player recenters the grid on its chunk (20, 0). `near`
     // leaves the grid; `slack_edge` survives at exactly Chebyshev radius + 2.
-    stream
-        .submit(
-            3,
-            WorldEvent::MovePlayer(MovePlayerEvent {
-                runtime_id: 1,
-                position: [325.0, 70.0, 0.5],
-                ..Default::default()
-            }),
-        )
-        .unwrap();
+    assert!(stream.retain_local([325.0, 70.0, 0.5]));
     assert!(!stream.tracked_columns().contains(&near));
     assert!(stream.tracked_columns().contains(&slack_edge));
 }
