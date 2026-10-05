@@ -66,6 +66,10 @@ type Setup interface {
 	Status() SetupStatus
 	AcceptEULA() error
 	Redetect(ctx context.Context) RuntimeInfo
+	// AwaitRuntime returns once no runtime detection is in flight, or with ctx's error.
+	AwaitRuntime(ctx context.Context) error
+	// OnDetected registers fn to run for each detection result that becomes current.
+	OnDetected(fn func(RuntimeInfo))
 }
 
 // manifest records where an installed build came from.
@@ -101,7 +105,12 @@ type Provisioner struct {
 	reason      string
 	unavailable string
 	detect      func(context.Context) RuntimeInfo // used by Redetect
-	probing     int                               // background detections in flight
+	onDetected  func(RuntimeInfo)
+	probing     int           // detections in flight
+	settled     chan struct{} // closed when the last in-flight detection lands; nil while none runs
+	started     uint64        // generation of the newest detection or SetRuntime
+	applied     uint64        // generation of the runtime in effect; older results are dropped
+	detectMu    sync.Mutex    // keeps results and their onDetected calls in generation order
 
 	ensureMu sync.Mutex
 	mu       sync.Mutex
@@ -141,8 +150,11 @@ const (
 )
 
 // SetRuntime records how BDS will run and why, as detected by DetectRuntime.
+// It supersedes detections still in flight.
 func (p *Provisioner) SetRuntime(info RuntimeInfo) {
 	p.mu.Lock()
+	p.started++
+	p.applied = p.started
 	p.runtime, p.reason, p.unavailable = info.Kind, info.Reason, info.Unavailable
 	p.mu.Unlock()
 }
@@ -154,41 +166,90 @@ func (p *Provisioner) SetDetector(detect func(context.Context) RuntimeInfo) {
 	p.mu.Unlock()
 }
 
-// Redetect re-probes the runtime (for example after the user starts Docker) and returns the result.
-func (p *Provisioner) Redetect(ctx context.Context) RuntimeInfo {
+// OnDetected registers fn to run, in order, for each detection result that becomes current.
+func (p *Provisioner) OnDetected(fn func(RuntimeInfo)) {
 	p.mu.Lock()
-	detect := p.detect
+	p.onDetected = fn
 	p.mu.Unlock()
-	if detect == nil {
-		kind, reason, unavailable := p.runtimeInfo()
-		return RuntimeInfo{kind, reason, unavailable}
-	}
-	info := detect(ctx)
-	p.SetRuntime(info)
-	return info
 }
 
-// DetectInBackground assumes the given runtime until the detector's result lands, then passes it to done.
-// Status reports checking_runtime meanwhile.
-func (p *Provisioner) DetectInBackground(assume RuntimeInfo, done func(RuntimeInfo)) {
-	p.mu.Lock()
-	p.runtime, p.reason, p.unavailable = assume.Kind, assume.Reason, assume.Unavailable
-	p.probing++
-	detect := p.detect
-	p.mu.Unlock()
+// Redetect re-probes the runtime (for example after the user starts Docker) and returns the runtime in effect,
+// which is a newer probe's result when one overtook this one.
+func (p *Provisioner) Redetect(ctx context.Context) RuntimeInfo {
+	gen, detect := p.beginDetect()
+	if detect == nil {
+		p.finishDetect(gen, nil)
+	} else {
+		info := detect(ctx)
+		p.finishDetect(gen, &info)
+	}
+	kind, reason, unavailable := p.runtimeInfo()
+	return RuntimeInfo{kind, reason, unavailable}
+}
+
+// DetectInBackground assumes the given runtime until the detector's result lands; Status reports
+// checking_runtime meanwhile.
+func (p *Provisioner) DetectInBackground(assume RuntimeInfo) {
+	p.SetRuntime(assume)
+	gen, detect := p.beginDetect()
 	go func() {
-		info := assume
-		if detect != nil {
-			info = detect(context.Background())
+		if detect == nil {
+			p.finishDetect(gen, nil)
+			return
 		}
-		p.mu.Lock()
-		p.probing--
-		p.runtime, p.reason, p.unavailable = info.Kind, info.Reason, info.Unavailable
-		p.mu.Unlock()
-		if done != nil {
-			done(info)
-		}
+		info := detect(context.Background())
+		p.finishDetect(gen, &info)
 	}()
+}
+
+// AwaitRuntime returns once no detection is in flight, or with ctx's error.
+func (p *Provisioner) AwaitRuntime(ctx context.Context) error {
+	p.mu.Lock()
+	settled := p.settled
+	p.mu.Unlock()
+	if settled == nil {
+		return nil
+	}
+	select {
+	case <-settled:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *Provisioner) beginDetect() (uint64, func(context.Context) RuntimeInfo) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.started++
+	if p.probing == 0 {
+		p.settled = make(chan struct{})
+	}
+	p.probing++
+	return p.started, p.detect
+}
+
+// finishDetect applies info (nil for no result) unless a newer generation already took effect.
+func (p *Provisioner) finishDetect(gen uint64, info *RuntimeInfo) {
+	p.detectMu.Lock()
+	p.mu.Lock()
+	fresh := info != nil && gen > p.applied
+	if fresh {
+		p.applied = gen
+		p.runtime, p.reason, p.unavailable = info.Kind, info.Reason, info.Unavailable
+	}
+	hook := p.onDetected
+	p.mu.Unlock()
+	if fresh && hook != nil {
+		hook(*info)
+	}
+	p.detectMu.Unlock()
+	p.mu.Lock()
+	if p.probing--; p.probing == 0 {
+		close(p.settled)
+		p.settled = nil
+	}
+	p.mu.Unlock()
 }
 
 func (p *Provisioner) runtimeInfo() (kind, reason, unavailable string) {
