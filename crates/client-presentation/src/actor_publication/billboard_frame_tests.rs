@@ -65,7 +65,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
         return;
     };
     let entities = Arc::new(RuntimeEntityAssets::decode(&entity_bytes).unwrap());
-    let artwork = RuntimeActorCatalog::decode(&actor_bytes, &entity_bytes).unwrap();
+    let artwork = RuntimeActorCatalog::decode(&actor_bytes, &entities).unwrap();
     let pages = ActorArtworkPages::new(&artwork);
     for identifier in [
         "minecraft:xp_orb",

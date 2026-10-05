@@ -66,7 +66,12 @@ pub(super) fn prepare(options: Options) -> Result<(), Box<dyn Error>> {
     }
     let started = Instant::now();
     report.plan(&plan);
+    let refreshed = stamp.inputs != plan.inputs;
+    stamp.inputs.clone_from(&plan.inputs);
     if plan.stale.is_empty() {
+        if refreshed && context.out.is_dir() {
+            write_stamp(&context.out, &stamp)?;
+        }
         report.summary(&plan, started.elapsed());
         return Ok(());
     }

@@ -76,6 +76,7 @@ fn build_all(root: &Path) {
     let out = root.join("out");
     fs::create_dir_all(&out).unwrap();
     let mut stamp = Stamp::default();
+    stamp.inputs.clone_from(&plan.inputs);
     for carrier in &plan.selected {
         for path in carrier.outputs(&out) {
             fs::write(path, b"carrier").unwrap();
@@ -275,4 +276,27 @@ fn deleting_the_extracted_pack_rebuilds_nothing() {
     build_all(dir.path());
     fs::remove_dir_all(&pack).unwrap();
     assert!(stale(dir.path(), COMPILER).is_empty());
+}
+
+#[test]
+fn an_input_with_unchanged_size_and_mtime_is_not_rehashed() {
+    let dir = checkout();
+    let font = dir.path().join("assets/fonts/Font.ttf");
+    let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1 << 30);
+    let set = |bytes: &[u8]| {
+        fs::write(&font, bytes).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&font)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    };
+    set(b"font-1");
+    build_all(dir.path());
+    // Same size and mtime: the stamped digest stands even though the bytes differ.
+    set(b"font-2");
+    assert!(stale(dir.path(), COMPILER).is_empty());
+    set(b"font-22");
+    assert_eq!(stale(dir.path(), COMPILER), [FONT.name]);
 }

@@ -19,12 +19,12 @@ type countedFlushSink struct {
 	writeErr error
 }
 
-// WritePacketRaw can fail independently of the destination's flush.
-func (s *countedFlushSink) WritePacketRaw(data []byte) error {
+// WritePacket can fail independently of the destination's flush.
+func (s *countedFlushSink) WritePacket(value packet.Packet) error {
 	if s.writeErr != nil {
 		return s.writeErr
 	}
-	return s.fakeUpstream.WritePacketRaw(data)
+	return s.fakeUpstream.WritePacket(value)
 }
 
 // Flush counts even empty attempts and signals after transport submission.
@@ -41,7 +41,7 @@ func (s *countedFlushSink) Flush() error {
 func controlledReader(t *testing.T, source *fakeDownstream, sink packetSession, upstream bool) (*packetReader, chan time.Time) {
 	t.Helper()
 	source.useBatchReads = true
-	reader := newPacketReader(source, sink, upstream, time.Hour, nil)
+	reader := newPacketReader(source, sink, upstream, time.Hour)
 	reader.idle.Stop()
 	ticks := make(chan time.Time, 1)
 	reader.idle.C = ticks

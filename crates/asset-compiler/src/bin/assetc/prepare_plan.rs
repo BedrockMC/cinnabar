@@ -3,10 +3,12 @@
 //! stamp beside the carriers records what each was built from.
 
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     error::Error,
     fs,
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 use assets::{
@@ -103,6 +105,16 @@ pub(super) struct Scope<'a> {
 pub(super) struct Stamp {
     schema: u32,
     pub carriers: BTreeMap<String, Entry>,
+    /// Input digests keyed by path, reused while a file's size and mtime are unchanged.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inputs: BTreeMap<String, FileDigest>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub(super) struct FileDigest {
+    size: u64,
+    modified_ns: u64,
+    sha256: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -126,6 +138,7 @@ pub(super) fn write_stamp(dir: &Path, stamp: &Stamp) -> Result<(), Box<dyn Error
     let stamp = Stamp {
         schema: SCHEMA,
         carriers: stamp.carriers.clone(),
+        inputs: stamp.inputs.clone(),
     };
     assets::write_blob_atomic(&dir.join(STAMP_FILE), &serde_json::to_vec_pretty(&stamp)?)?;
     Ok(())
@@ -136,6 +149,8 @@ pub(super) struct Plan {
     pub selected: Vec<&'static Carrier>,
     pub stale: Vec<&'static Carrier>,
     pub fingerprints: HashMap<Recipe, String>,
+    /// Digests of every input this plan read, for the next run's stamp.
+    pub inputs: BTreeMap<String, FileDigest>,
 }
 
 impl Plan {
@@ -154,8 +169,12 @@ pub(super) fn plan(
 ) -> Result<Plan, Box<dyn Error>> {
     let selected = select(scope)?;
     let mut fingerprints = HashMap::new();
+    let digests = Digests {
+        previous: &stamp.inputs,
+        current: RefCell::default(),
+    };
     for carrier in &selected {
-        let print = fingerprint(carrier, context, compiler, &fingerprints)?;
+        let print = fingerprint(carrier, context, compiler, &digests, &fingerprints)?;
         fingerprints.insert(carrier.recipe, print);
     }
     let stale = selected
@@ -172,6 +191,7 @@ pub(super) fn plan(
         selected,
         stale,
         fingerprints,
+        inputs: digests.current.into_inner(),
     })
 }
 
@@ -208,6 +228,7 @@ fn fingerprint(
     carrier: &Carrier,
     context: &Context,
     compiler: &str,
+    digests: &Digests,
     earlier: &HashMap<Recipe, String>,
 ) -> Result<String, Box<dyn Error>> {
     let mut hasher = Sha256::new();
@@ -234,10 +255,10 @@ fn fingerprint(
             }
             Input::Manifest(path) | Input::File(path) => {
                 field(path.as_bytes());
-                field(&Sha256::digest(read(&context.sources.resolve(path))?));
+                field(digests.sha256(&context.sources.resolve(path))?.as_bytes());
             }
             Input::FontFile(manifest) => {
-                field(&Sha256::digest(read(&context.font_file(manifest)?)?));
+                field(digests.sha256(&context.font_file(manifest)?)?.as_bytes());
             }
         }
     }
@@ -245,7 +266,7 @@ fn fingerprint(
         && let Some(clouds) = &context.clouds_override
     {
         field(b"clouds-override");
-        field(&Sha256::digest(read(clouds)?));
+        field(digests.sha256(clouds)?.as_bytes());
     }
     for read in carrier.reads {
         let dependency = earlier
@@ -254,6 +275,44 @@ fn fingerprint(
         field(dependency.as_bytes());
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// File digests that skip rehashing a file whose size and mtime match the stamp.
+struct Digests<'a> {
+    previous: &'a BTreeMap<String, FileDigest>,
+    current: RefCell<BTreeMap<String, FileDigest>>,
+}
+
+impl Digests<'_> {
+    fn sha256(&self, path: &Path) -> Result<String, Box<dyn Error>> {
+        let key = path.to_string_lossy().into_owned();
+        if let Some(known) = self.current.borrow().get(&key) {
+            return Ok(known.sha256.clone());
+        }
+        let metadata =
+            fs::metadata(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+        let modified_ns = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(0));
+        let sha256 = match self.previous.get(&key).filter(|previous| {
+            modified_ns != 0
+                && (previous.size, previous.modified_ns) == (metadata.len(), modified_ns)
+        }) {
+            Some(previous) => previous.sha256.clone(),
+            None => format!("{:x}", Sha256::digest(read(path)?)),
+        };
+        self.current.borrow_mut().insert(
+            key,
+            FileDigest {
+                size: metadata.len(),
+                modified_ns,
+                sha256: sha256.clone(),
+            },
+        );
+        Ok(sha256)
+    }
 }
 
 fn read(path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {

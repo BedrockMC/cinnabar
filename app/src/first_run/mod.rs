@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     install_layout::InstallLayout,
-    native_dialog::{NativePrompter, Prompter},
+    native_dialog::{Consent, NativePrompter, Prompter},
 };
 use prepare::prepare;
 use status::{Phase, Status};
@@ -123,9 +123,24 @@ fn ensure_with(
         0,
         "Waiting for consent",
     ));
-    if !env_consent && !consent_recorded(layout) && !prompter.confirm(TITLE, CONSENT_BODY) {
-        report(Status::failed("Declined", "setup declined"));
-        return Ok(Outcome::Quit);
+    if !env_consent && !consent_recorded(layout) {
+        match prompter.confirm(TITLE, CONSENT_BODY) {
+            Consent::Accepted => {}
+            Consent::Declined => {
+                report(Status::failed("Declined", "setup declined"));
+                return Ok(Outcome::Quit);
+            }
+            Consent::Unavailable => {
+                let message = format!(
+                    "Setup needs your consent, but no setup window, dialog or terminal could \
+                     ask for it. Install zenity or kdialog, or start Cinnabar with \
+                     {CONSENT_ENV}=1 to accept the Minecraft EULA ({EULA_URL})."
+                );
+                report(Status::failed("No consent prompt", &message));
+                prompter.alert(TITLE, &message);
+                bail!("{message}");
+            }
+        }
     }
     let is_update = updating(layout);
     record_consent(layout)?;
