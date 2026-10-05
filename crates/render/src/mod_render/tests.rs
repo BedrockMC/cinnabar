@@ -35,7 +35,7 @@ fn decal() -> Primitives {
 }
 
 #[test]
-fn applying_output_keeps_compiled_shaders_and_rebuilds_geometry_only_on_change() {
+fn applying_output_rebuilds_geometry_only_on_change() {
     let mut scene = ModRenderScene::default();
     let primitives = Arc::new(decal());
     let output = RenderOutput {
@@ -44,16 +44,11 @@ fn applying_output_keeps_compiled_shaders_and_rebuilds_geometry_only_on_change()
     };
     scene.apply(&output, 1);
     assert_eq!(scene.vertex_count(), 6);
-    scene.passes[0].shader = Some(Handle::default());
     let vertices = Arc::clone(&scene.vertices);
     let mut next = output.clone();
     next.passes.push(pass("b", 8));
     scene.apply(&next, 2);
-    assert!(
-        scene.passes[0].shader.is_some(),
-        "unchanged revision keeps its shader"
-    );
-    assert!(scene.passes[1].shader.is_none());
+    assert_eq!(scene.pass_count(), 2);
     assert!(Arc::ptr_eq(&vertices, &scene.vertices));
     next.primitives = Arc::new(Primitives::default());
     scene.apply(&next, 2);
@@ -62,41 +57,6 @@ fn applying_output_keeps_compiled_shaders_and_rebuilds_geometry_only_on_change()
     assert_eq!(scene.vertex_count(), 0);
     scene.clear();
     assert_eq!(scene.pass_count(), 0);
-}
-
-#[test]
-fn shader_creation_runs_once_per_new_pass() {
-    let mut app = App::new();
-    app.init_resource::<Assets<Shader>>()
-        .init_resource::<ModRenderScene>()
-        .add_systems(Update, create_pass_shaders);
-    app.world_mut().resource_mut::<ModRenderScene>().apply(
-        &RenderOutput {
-            passes: vec![pass("a", 3)],
-            primitives: Default::default(),
-        },
-        1,
-    );
-    app.update();
-    let handle = app.world().resource::<ModRenderScene>().passes[0]
-        .shader
-        .clone()
-        .unwrap();
-    app.update();
-    assert_eq!(
-        app.world().resource::<ModRenderScene>().passes[0].shader,
-        Some(handle.clone())
-    );
-    assert_eq!(app.world().resource::<Assets<Shader>>().len(), 1);
-    let shader = app
-        .world()
-        .resource::<Assets<Shader>>()
-        .get(&handle)
-        .unwrap();
-    assert!(matches!(
-        shader.validate_shader,
-        bevy::shader::ValidateShader::Enabled
-    ));
 }
 
 #[test]
@@ -151,29 +111,36 @@ fn frame_uniform_packs_view_and_params() {
 }
 
 #[test]
-fn pass_pipelines_target_the_view_format_without_blending() {
+fn pass_pipelines_compile_for_each_view_format_without_blending() {
     let (mut app, _) = fixture::app();
-    let id = app
-        .world()
-        .resource::<bevy::render::render_resource::PipelineCache>()
-        .queue_render_pipeline(passes::descriptor(
-            passes::layout(false),
-            Handle::default(),
-            bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR,
-        ));
-    let mut cache = app
-        .world_mut()
-        .resource_mut::<bevy::render::render_resource::PipelineCache>();
-    let descriptor = fixture::queued_descriptor(&mut cache, id);
-    let target = descriptor.fragment.as_ref().unwrap().targets[0]
-        .as_ref()
-        .unwrap();
-    assert_eq!(
-        target.format,
-        bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR
-    );
-    assert!(target.blend.is_none());
-    assert!(descriptor.depth_stencil.is_none());
+    app.world_mut().run_system_once(passes::init_gpu).unwrap();
+    bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let formats = [
+        bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR,
+        bevy::render::render_resource::TextureFormat::bevy_default(),
+    ];
+    let pass = pass("a", 1);
+    app.world_mut()
+        .resource_scope(|world, mut gpu: Mut<passes::PassGpu>| {
+            let device = world
+                .resource::<bevy::render::renderer::RenderDevice>()
+                .clone();
+            let cache = world.resource::<bevy::render::render_resource::PipelineCache>();
+            for format in formats {
+                for _ in 0..1000 {
+                    gpu.ensure_pipeline(&device, cache, &pass, format);
+                    if !matches!(
+                        gpu.pipelines.get(&(1, format)),
+                        Some(passes::PipelineState::Creating(_))
+                    ) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                assert!(gpu.pipeline(1, format).is_some(), "{format:?}");
+                assert!(passes::color_target(format).blend.is_none());
+            }
+        });
 }
 
 #[test]
@@ -220,4 +187,41 @@ fn sandbox_shaders_survive_bevy_shader_composition() {
     let composed = crate::shader_source::composed(&shader, &[]);
     assert!(composed.contains(mod_render::shader::FRAGMENT_ENTRY));
     assert!(composed.contains(mod_render::shader::VERTEX_ENTRY));
+}
+
+#[test]
+fn replaced_passes_release_their_pipelines() {
+    let (mut app, _) = fixture::app();
+    app.world_mut().run_system_once(passes::init_gpu).unwrap();
+    let format = bevy::render::view::ViewTarget::TEXTURE_FORMAT_HDR;
+    let mut scene = ModRenderScene::default();
+    for revision in 1..=20 {
+        scene.apply(
+            &RenderOutput {
+                passes: vec![pass("a", revision)],
+                primitives: Default::default(),
+            },
+            revision,
+        );
+        let world = app.world_mut();
+        world.resource_scope(|world, mut gpu: Mut<passes::PassGpu>| {
+            bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+            let device = world
+                .resource::<bevy::render::renderer::RenderDevice>()
+                .clone();
+            let mut cache = world.resource_mut::<bevy::render::render_resource::PipelineCache>();
+            gpu.retain_pipelines(&scene);
+            gpu.ensure_pipeline(&device, &cache, &scene.passes[0], format);
+            cache.process_queue();
+        });
+    }
+    let cache = app
+        .world()
+        .resource::<bevy::render::render_resource::PipelineCache>();
+    assert!(
+        cache.pipelines().count() <= 1,
+        "replacing a pass must not leave its pipeline behind ({} retained)",
+        cache.pipelines().count()
+    );
+    assert_eq!(app.world().resource::<passes::PassGpu>().pipelines.len(), 1);
 }
