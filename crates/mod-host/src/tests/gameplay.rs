@@ -124,7 +124,7 @@ fn capabilities_are_independent_and_denied_by_default() {
             read(!permissions.players, true),
             rotate(0.1, 0.0, !permissions.camera)
         );
-        let (_dir, mut host) = load("", &frame, permissions);
+        let (_dir, mut host) = load("", &frame, permissions.clone());
         host.frame_with_gameplay(false, Some(snapshot())).unwrap();
         assert_eq!(host.take_camera_delta().is_some(), permissions.camera);
         assert!(host.is_active());

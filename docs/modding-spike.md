@@ -200,6 +200,20 @@ bounded local outline font for the personal panel. It is rasterized once per
 selected font into an isolated atlas alias with filtered sampling. Panel sizing follows display DPI
 independently of the game GUI scale; vanilla and server glyph ownership are preserved.
 
+## Mobs, camera rig, commands and cues
+
+`CINNABAR_MOD_ENTITIES=1` grants `gameplay.read-mobs`: up to
+`mod_api::MAX_GAMEPLAY_MOBS` non-player actors within `MAX_MOB_RANGE_BLOCKS` of the
+eye, nearest first, with type ID and replicated health. `gameplay.set-camera-rig`
+(camera grant) retains a third-person boom in camera-local blocks plus roll and FOV
+change, swept against blocks like the vanilla boom; it presents third-person-back
+until `none`, a trap or a reload. `CINNABAR_MOD_COMMANDS=ability` (comma-separated)
+lets `gameplay.request-command` send `/ability ...` as a vanilla player command
+request; any other command is refused, and at most `MAX_COMMANDS_PER_FRAME` go per
+callback. `events.emit` publishes bounded presentation cues in the app's
+`ModCueFeed`. `input.read-controls` also reports held keys. All of these commit only
+after a successful callback; `examples/mods/showcase-camera` uses every one.
+
 ## Attach a local component to a running client
 
 A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
@@ -218,7 +232,9 @@ A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root
     "camera": true,
     "controls": true,
     "interaction": true,
-    "settings": true
+    "settings": true,
+    "entities": false,
+    "commands": []
   }
 }
 ```
