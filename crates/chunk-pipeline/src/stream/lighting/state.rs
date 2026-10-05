@@ -240,9 +240,11 @@ impl WorldStream {
             }
         }
         let dependents = sources
-            .into_iter()
+            .iter()
+            .copied()
             .flat_map(SubChunkKey::mesh_dependents)
             .filter(|key| self.resident.contains(key))
+            .filter(|key| !self.air_fixed_point_survives_sources(*key, &sources))
             .collect::<BTreeSet<_>>();
         for dependent in dependents {
             self.mark_light_dirty_exact_with_priority(dependent, urgent);
@@ -271,6 +273,24 @@ impl WorldStream {
             return None;
         }
         self.lighting.failures.remove(&key);
+        // Pending jobs capture their inputs at dispatch, so later changes share one successor.
+        if let Some(pending) = self.lighting.jobs.pending.get(&key).copied()
+            && self.lighting.revisions.is_current(key, pending.revision)
+        {
+            let urgent = urgent
+                || self
+                    .lighting
+                    .jobs
+                    .in_flight
+                    .get(&key)
+                    .is_some_and(|identity| identity.urgent);
+            if urgent && !pending.urgent {
+                self.lighting.jobs.pending.get_mut(&key).unwrap().urgent = true;
+                self.lighting.jobs.rescan(key, pending.revision, true);
+                self.lighting.priority_wakeups.insert(key, pending.revision);
+            }
+            return Some(pending.revision);
+        }
         self.lighting.priority_wakeups.remove(&key);
         self.lighting.remove_waiter_target(key);
         let urgent = urgent
@@ -288,13 +308,15 @@ impl WorldStream {
                 .is_some_and(|identity| identity.urgent);
         let queued_at = Instant::now();
         let revision = self.lighting.revisions.mark_dirty(key, queued_at);
-        self.lighting.jobs.enqueue(
+        let startup = self.is_startup_dependency(key);
+        self.lighting.jobs.enqueue_prioritized(
             key,
             PendingLight {
                 revision,
                 queued_at,
                 urgent,
             },
+            startup,
         );
         Some(revision)
     }
@@ -489,18 +511,12 @@ impl WorldStream {
             .max_by_key(|(candidate, _)| candidate.y)
     }
 
-    /// Iterates loaded sources in one column without scanning unrelated X coordinates.
+    /// Iterates loaded sources in one column without visiting unrelated sections.
     pub(in crate::stream) fn light_column_sources(
         &self,
         key: SubChunkKey,
     ) -> impl Iterator<Item = SubChunkKey> + '_ {
-        self.resident
-            .range(
-                SubChunkKey::new(key.dimension, key.x, i32::MIN, i32::MIN)
-                    ..=SubChunkKey::new(key.dimension, key.x, i32::MAX, i32::MAX),
-            )
-            .copied()
-            .filter(move |candidate| candidate.z == key.z)
+        self.resident.column(key.chunk()).copied()
     }
 
     /// Extends the admitted sky ceiling to include taller loaded columns.

@@ -9,6 +9,7 @@ use super::{
 
 pub(super) fn same_shape(a: &Panel, b: &Panel) -> bool {
     a.title == b.title
+        && a.style == b.style
         && a.dark == b.dark
         && a.sections == b.sections
         && a.controls.len() == b.controls.len()
@@ -17,6 +18,7 @@ pub(super) fn same_shape(a: &Panel, b: &Panel) -> bool {
                 && a.label() == b.label()
                 && match (a, b) {
                     (Control::Toggle { .. }, Control::Toggle { .. })
+                    | (Control::Keybind { .. }, Control::Keybind { .. })
                     | (Control::Button { .. }, Control::Button { .. }) => true,
                     (
                         Control::Slider {
@@ -46,7 +48,11 @@ pub(super) fn catalog(
     category: usize,
     page: usize,
     rows: usize,
+    editor: Option<&super::edit::Editor>,
 ) -> Result<(Catalog, usize), String> {
+    if panel.style == ui::mod_panel::Style::Compact {
+        return super::compact::catalog(panel, viewport, category, page, rows, editor);
+    }
     let top = super::layout::top_offset(viewport);
     let layout = Layout::new(
         panel,
@@ -106,10 +112,11 @@ pub(super) fn catalog(
     if layout.pages.len() > 1 {
         controls.extend(pagination(width, height, page, layout.pages.len(), palette));
     }
-    let document = json!({"namespace":"cinnabar_personal","panel":{
+    let mut document = json!({"namespace":"cinnabar_personal","panel":{
         "type":"screen","size":["100%","100%"],"render_game_behind":true,"absorbs_input":true,"should_steal_mouse":false,
         "controls":[{"dialog":{"type":"panel","size":[width,height],"anchor_from":"top_left","anchor_to":"top_left","offset":[((viewport[0]-width)*0.5).round(),top],"controls":controls}}]
     }});
+    super::edit::append_overlay(&mut document, panel, viewport, editor);
     let bytes = serde_json::to_vec(&document).map_err(|error| error.to_string())?;
     let catalog = Catalog::from_files([
         ("ui/_global_variables.json", &b"{}"[..]),
@@ -188,7 +195,13 @@ fn navigation(panel: &Panel, layout: &Layout<'_>, category: usize, palette: Pale
     super::widgets::panel([width, NAV_HEIGHT], [0.0; 2], contents)
 }
 
-fn pagination(width: f64, height: f64, page: usize, count: usize, palette: Palette) -> Vec<Value> {
+pub(super) fn pagination(
+    width: f64,
+    height: f64,
+    page: usize,
+    count: usize,
+    palette: Palette,
+) -> Vec<Value> {
     let y = height - 19.0;
     vec![
         named(

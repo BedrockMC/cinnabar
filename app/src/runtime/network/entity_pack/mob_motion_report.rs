@@ -327,13 +327,7 @@ fn publish(
     let mut batch = actors::select_actor_presentations(1, false, None, bodies);
     entity_layers::apply_render_layers(&mut batch, |id| world.authority().actor_rig(id), artwork);
     let frame: ActorRenderFrame = scene
-        .update_rigs_with_artwork(
-            1.0,
-            None,
-            batch.submissions.clone(),
-            Arc::from([]),
-            &batch.artwork,
-        )
+        .update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork)
         .clone();
     for (index, id) in MOB_IDS.into_iter().enumerate() {
         let entry = frame

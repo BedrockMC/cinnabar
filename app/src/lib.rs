@@ -6,6 +6,8 @@ mod block_selection;
 mod block_use;
 pub mod camera;
 mod desktop;
+#[cfg(feature = "developer-control")]
+mod developer_control;
 mod environment;
 mod first_run;
 mod fullscreen;

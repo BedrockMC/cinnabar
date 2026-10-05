@@ -6,10 +6,6 @@ pub mod echo;
 pub mod engine;
 pub mod inventory;
 pub mod local;
-#[allow(
-    dead_code,
-    reason = "media device-clock and surface integration is incomplete"
-)]
 pub mod media;
 mod music;
 pub mod predicted;
@@ -29,6 +25,7 @@ pub use server::{ServerSoundPack, publish_server_sounds};
 pub use settings::{AudioCategory, AudioSettings};
 #[allow(unused_imports)]
 pub use systems::{UiSoundCue, ui_click, ui_control_sound, ui_sound};
+pub use voice::OUTPUT_RATE;
 
 pub use echo::{EchoLedger, EchoOrigin, EchoSubject};
 pub use systems::BLOCK_ECHO_SECONDS;

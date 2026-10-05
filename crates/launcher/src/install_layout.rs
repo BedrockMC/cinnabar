@@ -236,7 +236,7 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/v1/objects")
     }
 
-    /// Join-time pack compilations reused across launches; safe to delete at any time.
+    /// Join-time server-pack archives and compilations reused across launches; safe to delete.
     #[must_use]
     pub fn compiled_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/compiled")

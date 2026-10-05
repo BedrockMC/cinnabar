@@ -166,11 +166,38 @@ func TestHomeFillsRowsFromTheirQueries(t *testing.T) {
 			_, _ = io.WriteString(w, pageFixture)
 			return
 		}
-		_, _ = io.WriteString(w, `{"result":{"knownPages":{}}}`)
+		_, _ = io.WriteString(w, `{"result":{"knownPages":{"home":"page-1"}}}`)
 	}, &fakeCatalog{err: errors.New("catalog down")})
 	failing.inventory = &inventoryCache{set: map[string]struct{}{}, at: time.Now()}
 	if _, err := failing.Home(context.Background(), "home"); err == nil {
 		t.Fatal("a page whose every row search failed was served")
+	}
+}
+
+// A page name the session config does not map fails locally, naming the known keys, instead of a 400 round trip.
+func TestHomeRefusesAPageTheSessionConfigDoesNotKnow(t *testing.T) {
+	var layoutRequests int
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1.0/session/config":
+			_, _ = io.WriteString(w, `{"result":{"knownPages":{"MultiItemPage_Inventory":"inv-1","MultiItemPage_CoinScreen":"coin-1"}}}`)
+		case strings.HasPrefix(r.URL.Path, "/api/v2.0/layout/pages/"):
+			layoutRequests++
+			w.WriteHeader(http.StatusBadRequest)
+		default:
+			_, _ = io.WriteString(w, inventoryFixture)
+		}
+	}, nil)
+	_, err := client.Home(context.Background(), "home")
+	if !errors.Is(err, ErrUnknownPage) {
+		t.Fatalf("err = %v, want ErrUnknownPage", err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, `"home"`) ||
+		!strings.Contains(msg, "MultiItemPage_CoinScreen, MultiItemPage_Inventory") || strings.Contains(msg, "inv-1") {
+		t.Fatalf("error must name the missing key and the known keys only: %q", msg)
+	}
+	if layoutRequests != 0 {
+		t.Fatalf("sent %d layout requests for an unknown page", layoutRequests)
 	}
 }
 

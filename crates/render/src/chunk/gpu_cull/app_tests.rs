@@ -17,30 +17,39 @@ use bevy::{
 use super::model::CullRecord;
 use super::*;
 
-fn noop_render_plugin() -> RenderPlugin {
+/// A render plugin on the first adapter of `backends`; `None` when none is present.
+pub(super) fn render_plugin(
+    backends: wgpu::Backends,
+    required_features: WgpuFeatures,
+) -> Option<RenderPlugin> {
+    let noop = backends == wgpu::Backends::NOOP;
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::NOOP,
+        backends,
         backend_options: wgpu::BackendOptions {
-            noop: wgpu::NoopBackendOptions { enable: true },
+            noop: wgpu::NoopBackendOptions { enable: noop },
             ..Default::default()
         },
         ..Default::default()
     });
     let adapter =
         bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let descriptor = wgpu::DeviceDescriptor {
-        required_features: WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT
-            | WgpuFeatures::INDIRECT_FIRST_INSTANCE,
-        required_limits: wgpu::Limits {
+            .ok()?;
+    let required_limits = if noop {
+        wgpu::Limits {
             max_storage_buffers_per_shader_stage: required_vertex_storage_buffers(),
             ..Default::default()
-        },
+        }
+    } else {
+        adapter.limits()
+    };
+    let descriptor = wgpu::DeviceDescriptor {
+        required_features,
+        required_limits,
         ..Default::default()
     };
     let adapter_info = adapter.get_info();
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&descriptor)).unwrap();
-    RenderPlugin {
+    Some(RenderPlugin {
         render_creation: RenderCreation::manual(
             RenderDevice::from(device),
             RenderQueue(Arc::new(WgpuWrapper::new(queue))),
@@ -50,10 +59,15 @@ fn noop_render_plugin() -> RenderPlugin {
         ),
         synchronous_pipeline_compilation: true,
         ..Default::default()
-    }
+    })
 }
 
-fn mesh() -> meshing::ChunkMesh {
+pub(super) fn noop_render_plugin(required_features: WgpuFeatures) -> RenderPlugin {
+    render_plugin(wgpu::Backends::NOOP, required_features).expect("the NOOP adapter is built in")
+}
+
+/// A sub-chunk filled with one solid block.
+pub(super) fn mesh() -> meshing::ChunkMesh {
     let source = world::SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 });
     meshing::mesh_sub_chunk(
         &meshing::BlockClassifier::new(0),
@@ -64,7 +78,7 @@ fn mesh() -> meshing::ChunkMesh {
     )
 }
 
-fn frame(app: &mut App) {
+pub(super) fn frame(app: &mut App) {
     app.update();
     app.sub_app(RenderApp)
         .world()
@@ -73,17 +87,16 @@ fn frame(app: &mut App) {
         .unwrap();
 }
 
-/// Every frame queues, prepares, culls and draws the GPU path without a validation error.
-#[test]
-fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
+/// The chunk renderer on `render`'s device, with a camera at `transform` drawing to an image.
+pub(super) fn chunk_app(render: RenderPlugin, msaa: Msaa, transform: Transform) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
             primary_window: None,
             ..Default::default()
         })
-        .add_plugins(AssetPlugin::default())
-        .add_plugins(noop_render_plugin())
+        .add_plugins((AssetPlugin::default(), TransformPlugin))
+        .add_plugins(render)
         .add_plugins((
             ImagePlugin::default(),
             MeshPlugin,
@@ -100,22 +113,49 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
             TextureFormat::Rgba8Unorm,
             None,
         ));
-    app.world_mut().spawn((
-        Camera3d::default(),
-        Camera::default(),
-        RenderTarget::Image(image.into()),
-        Msaa::Sample4,
-        Transform::from_xyz(-6.0, 20.0, -6.0).looking_at(Vec3::new(8.0, 8.0, 8.0), Vec3::Y),
-    ));
+    let camera = app
+        .world_mut()
+        .spawn((
+            Camera3d::default(),
+            Camera::default(),
+            RenderTarget::Image(image.into()),
+            msaa,
+            transform,
+        ))
+        .id();
     app.finish();
     app.cleanup();
-    let keys = [SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 1, 0, 0)];
-    for key in keys {
+    (app, camera)
+}
+
+pub(super) const KEYS: [SubChunkKey; 2] =
+    [SubChunkKey::new(0, 0, 0, 0), SubChunkKey::new(0, 1, 0, 0)];
+
+pub(super) fn insert_meshes(app: &mut App, keys: &[SubChunkKey]) {
+    for &key in keys {
         app.world_mut()
             .resource_mut::<ChunkRenderQueue>()
             .try_insert(key, mesh(), ChunkUploadPriority::new(0.0))
             .unwrap();
     }
+}
+
+pub(super) fn camera_transform() -> Transform {
+    Transform::from_xyz(-6.0, 20.0, -6.0).looking_at(Vec3::new(8.0, 8.0, 8.0), Vec3::Y)
+}
+
+/// Every frame queues, prepares, culls and draws the GPU path without a validation error.
+#[test]
+fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(
+            WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+        ),
+        Msaa::Sample4,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    let keys = KEYS;
     for _ in 0..4 {
         frame(&mut app);
     }

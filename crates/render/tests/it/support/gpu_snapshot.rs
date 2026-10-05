@@ -79,7 +79,7 @@ impl Gpu {
 
     /// As [`Self::for_fixture`], enabling whichever of `features` the adapter offers.
     pub fn for_fixture_with(name: &str, features: wgpu::Features) -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
         let adapter = fixture_adapter(
             name,
             finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default())),

@@ -1,6 +1,7 @@
 use super::{AssetError, EntityAssetKind, MAX_ENTITY_ASSET_PATH_BYTES, invalid};
 
 pub const BED_GEOMETRY_IDENTIFIER: &str = "geometry.bed";
+pub const CAPE_GEOMETRY_IDENTIFIER: &str = "geometry.cape";
 pub const LEGACY_ENTITY_GEOMETRY_PATH: &str = "models/mobs.json";
 
 pub(super) fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {

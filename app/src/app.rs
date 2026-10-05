@@ -61,7 +61,8 @@ use crate::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
             NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, receive_network_events, spawn_network,
+            publish_actor_render_frame, publish_entity_shadows, receive_network_events,
+            spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
@@ -241,7 +242,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
         )
         .add_systems(
             Update,
@@ -656,16 +659,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let primary_window = Window {
+        title: launcher::PRODUCT_NAME.to_owned(),
+        present_mode,
+        ..default()
+    };
+    #[cfg(feature = "developer-control")]
+    let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: launcher::PRODUCT_NAME.to_owned(),
-                    present_mode,
-                    ..default()
-                }),
+                primary_window: Some(primary_window),
                 ..default()
             })
             .set(render_plugin())
@@ -860,6 +866,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ScreenOverlayRenderPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
+        render::EntityShadowRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
@@ -887,6 +894,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     crate::modding::configure_from_environment(&mut app);
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 

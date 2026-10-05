@@ -1,9 +1,63 @@
+## Entity shadows
+
+- Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
+  by the encoded-colour multiplier (0.7 grey with a sky tint), once however many overlap. One
+  instanced draw after opaque geometry; casters and parameters upload only when they change.
+- Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
+  riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
+- Remote casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
+  drawn; the breathing point, first-person local caster, item and local volume culling and
+  camera-inside behaviour are provisional. Native side-by-side
+  comparison is pending.
+
+## Configured inventory hotbar swaps
+
+- User-requested inventory shortcut: the configured hotbar key swaps the hovered cell directly with that hotbar slot.
+- Keyboard and mouse remaps share gameplay's saved bindings; replaced number keys no longer perform swaps.
+- Local prediction updates both cells immediately without an inventory transition animation or a server round trip.
+- Focused text fields retain input ownership. Installed Windows input acceptance is pending.
+
+## Read-back terrain occlusion on direct-draw devices
+
+- Metal (any direct-draw device with compute) never draws indirectly. While the view holds
+  still and a verdict could change, solid terrain draws in its own pass ahead of other opaque
+  draws; a Hi-Z of that depth tests every resident slot and the occluded bits come back
+  through a small readback ring that drops frames rather than wait. Opaque streams of a slot
+  are skipped once two consecutive verdicts agree under the same eye, orientation,
+  projection, viewport, depth size and geometry; any translation or turn (the near plane swings and can
+  clip a near occluder), sub-chunk removal or replacement, cave or tint change voids them.
+  `RUST_MCBE_CPU_CULLING=1` turns it off.
+- Offscreen tests: kernel bits match a CPU Hi-Z reference; replayed paths (flick, strafe past
+  a pillar, wall edit, a turn that clips a wall just beyond the near plane) never skip a
+  sub-chunk that shows pixels while a stale-verdict policy does; the walled scene stops
+  submitting what it hides.
+- Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
+  hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
+
+## Headless chunk cost baselines
+
+- Criterion exercises production palette/column decode, light solves, cube/biome
+  meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
+- Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
+  Benchmark smoke passes all 21 cases on the pinned toolchain without local carriers.
+- The largest fixture stores 871 sections in 218 target columns, with preloaded
+  implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
+- Initial Windows/i9-14900HX baseline: pinned Rust, optimized bench profile, 100 samples
+  per case. Burst point estimates for 4/16/64/871 stored sections are
+  14.53/19.24/35.82/257.54 ms; the 871 estimate interval is 253.87–261.76 ms.
+  Radius-16 metadata scan is 1.33 ms; mixed cube mesh is 0.50 ms; full light solves
+  are 0.40–0.48 ms. Local Criterion data is saved as `chunks` under `target/criterion/`.
+- Incomplete native performance acceptance: socket framing, GPU preparation/uploads,
+  draws and complete Bevy frames are outside these CPU measurements. No client
+  optimisation or parity gate is claimed. Commands and boundaries are in the README.
+
 ## GPU terrain culling with Hi-Z occlusion
 
 - On Vulkan/DX12 with native multi-draw-indirect-count, opaque terrain (solid runs, cutout,
   models, depth-writing liquid) is culled by a compute pass over persistent per-slot records:
   frustum, cave visibility, facing runs and a two-phase depth-pyramid test, drawn from
-  compacted slot-ordered args. Metal, GL and probe frames keep the CPU path.
+  compacted slot-ordered args. Metal reads occlusion back instead (above); GL and probe
+  frames keep the CPU path.
 - Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
   against rendered ids, and the CPU path's pixels from a stale history.
 - Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
@@ -886,6 +940,15 @@ appends the sheared base head's cubes. Vanilla geometry parsing appends cubes un
 merge fix and adult face/snout live acceptance remain in progress. Native sheep
 dye palette, complete gamma/lighting/overlay order and arbitrary RGBA zero-sentinel
 handling remain incomplete.
+The creeper drew blue: one alpha-8 texel outside every face of `creeper.png` failed
+the binary-alpha actor-art filter, and the body route then fell through to the
+`query.is_powered` armor overlay's `creeper_armor.png`. Fractional alpha is now
+rejected only on texels a drawing geometry can point-sample (scrolling `uv_anim`
+layers count every texel), unsampled ones are cleared, and the body route takes
+only the first unconditional controller's art. The pinned pack now binds the
+creeper and admits two NPC skins; blaze, spider, cave spider, enderman and drowned
+still fall back because sampled texels carry unverified fractional-alpha material
+semantics. Live visual acceptance of the creeper is pending.
 
 Ordinary terrain-blend model/water faces now share the current native perspective
 metric; ordinary Ice and water use
@@ -5613,3 +5676,13 @@ all task background processes, skipping the remaining verification and pushing
 directly to remote dev; the affected gate and new unit regressions were not run.
 Native hat geometry, other block-entity materials and full version-matched
 rendering parity remain open gates.
+
+## Freelook extension
+
+Freelook is a requested Cinnabar extension, not vanilla behavior. Hold its configurable
+Keyboard & Mouse binding (default F) to orbit a collision-resolved third-person camera
+while retaining gameplay facing, movement and interaction direction. Release, UI focus
+or window focus loss returns to the prior perspective. Windows/DX12 1280x720 hidden
+capture verifies the Freelook/F settings row. Routed tests cover independent rotation,
+release/focus restoration, persistence and existing-F migration. A manual in-world
+orbit acceptance pass remains incomplete.

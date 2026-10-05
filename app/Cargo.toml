@@ -21,12 +21,15 @@ acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["mod-host/execution"]
+# Loopback control endpoint for scripted driving and recording; never in release builds.
+developer-control = ["dep:developer-control"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 
 [dependencies]
 acceptance = { path = "../crates/acceptance", optional = true }
 diagnostics = { path = "../crates/diagnostics" }
+developer-control = { path = "../crates/developer-control", optional = true }
 client-presentation = { path = "../crates/client-presentation" }
 gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }

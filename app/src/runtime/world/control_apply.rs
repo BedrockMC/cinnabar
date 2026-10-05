@@ -43,6 +43,7 @@ pub(crate) fn apply_committed_control(
         }
         CommittedControlEvent::ChangeDimension { resolved, .. } => {
             camera_settings.reset_perspective();
+            view.set_freelook(false);
             resolved
         }
         CommittedControlEvent::Respawn {

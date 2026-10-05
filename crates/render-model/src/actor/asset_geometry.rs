@@ -192,7 +192,8 @@ pub(super) fn bone_bind_pivot(bone: &EntityGeometryBone) -> [f32; 3] {
     })
 }
 
-pub(super) fn resolve_geometry_bones(
+/// Resolves named bone metadata in the same inherited order used by mesh generation.
+pub fn resolve_geometry_bones(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
 ) -> Result<Vec<EntityGeometryBone>, ActorRigGeometryError> {

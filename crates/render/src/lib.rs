@@ -9,6 +9,8 @@ pub use render_api::fancy_actor_shade;
 
 mod actor;
 mod actor_render;
+#[cfg(test)]
+mod alloc_count;
 mod atmosphere;
 mod atmosphere_render;
 mod block_entity;
@@ -19,7 +21,9 @@ mod cloud_render;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
+mod entity_shadow_render;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};
 mod gpu_timing;
 pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
@@ -29,7 +33,13 @@ mod lightning;
 mod lightning_render;
 mod media;
 pub use media::MediaTexture;
+mod media_screen;
+pub use media_screen::{
+    MAX_MEDIA_SCREENS, MediaFrame, MediaScreen, MediaScreenScene, media_screen_axes,
+};
 mod material_shader;
+mod mod_render;
+pub use mod_render::{ModPassLabel, ModRenderPlugin, ModRenderScene};
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;
@@ -84,11 +94,12 @@ pub use actor::{
     ActorPipelineReadiness, ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame,
     ActorRenderIdentity, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
     ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRuntimeWitness, ActorTexturePage,
-    EquipmentRaster, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES,
-    MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS, MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
-    MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES, actor_bounds_are_visible,
-    actor_rig_submission_is_visible, pack_actor_light, pack_overlay_rgba8,
+    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRuntimeWitness,
+    ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
+    MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
+    ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
+    pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

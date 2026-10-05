@@ -352,7 +352,7 @@ pub fn prepare_actor_render_frame(
         if let Some(ticks) = input.swing_started {
             stream.start_local_player_swing(ticks);
         }
-        stream.set_actor_camera_rotation(actor_camera_rotation(view.rotation()));
+        stream.set_actor_camera_rotation(actor_camera_rotation(view.camera_rotation()));
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
@@ -700,21 +700,15 @@ pub fn prepare_actor_render_frame(
         (equipment.as_deref_mut(), client_world.stream.as_ref())
     {
         // Equipment rides each selected body's pose, so culled bodies never build layers.
-        let bodies = batch.submissions.clone();
-        for body in &bodies {
+        crate::presentation::actors::attach_layers(&mut batch, |body| {
             let runtime_id = body.input.identity.runtime_id;
             let input = if runtime_id == local_runtime_id {
                 local_equipment(stream, runtime_id, &input.local_equipment)
             } else {
                 remote_input(stream, runtime_id)
             };
-            for layer in equipment.layers_for(body, &input) {
-                batch
-                    .artwork
-                    .insert(layer.submission.input.identity, layer.location);
-                batch.submissions.push(layer.submission);
-            }
-        }
+            equipment.layers_for(body, &input)
+        });
     }
     // After equipment, which rides the rig's own model even when a controller draws another.
     if let Some(stream) = client_world.stream.as_ref() {

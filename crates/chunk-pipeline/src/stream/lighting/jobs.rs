@@ -33,6 +33,7 @@ impl WorldStream {
             }
         }
         candidate.distance_squared = priority.distance_squared;
+        candidate.startup_class = priority.startup_class;
         candidate.urgent = priority.urgent;
         Some(candidate)
     }
@@ -61,10 +62,7 @@ impl WorldStream {
             return 0;
         }
 
-        let view = SchedulerView {
-            position: camera_position,
-            forward: self.view_forward,
-        };
+        let view = self.scheduler_view(camera_position);
         let wakeups = &self.lighting.priority_wakeups;
         let probe_near =
             self.lighting
@@ -101,7 +99,7 @@ impl WorldStream {
             };
             let mut queued = queued;
             if queued {
-                candidate.distance_squared = view.rank(candidate.key);
+                candidate.refresh_rank(view);
             }
             if queued && near.peek().is_some_and(|local| *local > candidate) {
                 self.lighting.jobs.lanes[0].ready.push(candidate);
@@ -125,6 +123,7 @@ impl WorldStream {
                     highest_pending.urgent || priority.urgent,
                 );
                 candidate.distance_squared = priority.distance_squared;
+                candidate.startup_class = priority.startup_class;
                 candidate.transfer = priority.transfer;
             }
             let key = candidate.key;
@@ -599,7 +598,17 @@ impl WorldStream {
                 if neighbour_in_same_batch {
                     continue;
                 }
-                if completed_uniform_direct_sky && self.known_air_has_vertical_direct_sky(neighbour)
+                if completed_uniform_direct_sky
+                    && self.known_air.contains(&neighbour)
+                    && self.light_is_current(neighbour)
+                    && self.lighting.store.light(neighbour).is_some_and(|light| {
+                        self.lighting
+                            .direct_sky
+                            .get(&neighbour)
+                            .is_some_and(|direct| {
+                                is_uniform_direct_sky(light, direct.mask.as_ref())
+                            })
+                    })
                 {
                     continue;
                 }

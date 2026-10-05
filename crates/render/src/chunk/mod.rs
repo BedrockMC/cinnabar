@@ -88,6 +88,7 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod gpu_cull;
+pub(crate) use gpu_cull::{GpuCullLateLabel, TerrainPassLabel, admit_depth_sampling};
 mod instance;
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
@@ -229,8 +230,6 @@ pub use presentation::transparent_witness::{
     TransparentWitnessRequest, TransparentWitnessRequestError, TransparentWitnessStageEvent,
     TransparentWitnessStageRecord,
 };
-#[allow(unused_imports)]
-use presentation::transparent_witness::{TransparentWitnessEvidenceState, TransparentWitnessToken};
 #[cfg(feature = "publication-test-support")]
 pub use publication_test_support::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
@@ -243,8 +242,6 @@ use queue::{
     biome_record_byte_len, biome_record_is_fallback, chunk_origin, pending_upload_byte_len,
     update_chunk_animation_clock,
 };
-#[allow(unused_imports)]
-use textures::{ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND};
 pub use textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
     TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,
@@ -274,7 +271,6 @@ use transparent::retirement::{
     transparent_snapshot_references_allocation,
     transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
-
 pub use transparent::sort::{
     DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME, MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_DRAW_REFS,
     MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS, PackedTransparentDrawRef,

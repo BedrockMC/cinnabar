@@ -137,7 +137,8 @@ are `gpu_shadows`, `gpu_opaque`, `gpu_transparent`, `gpu_ui`, `gpu_hand`,
 `gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. With
 `RUST_MCBE_STAGE_PROFILE=1` on adapters with in-pass timestamps (not Apple GPUs),
 draws add `gpu_terrain_opaque`, `gpu_terrain_transparent`, `gpu_actors`,
-`gpu_particles`, `gpu_sky` and `gpu_panorama`. F3 shows the latest GPU frame. Fast frames use fixed-size counters without formatting or
+`gpu_particles`, `gpu_sky`, `gpu_panorama` and `gpu_mod_primitives`. Personal-mod post passes
+add `gpu_mod_pass_0`–`gpu_mod_pass_7` by execution slot. F3 shows the latest GPU frame. Fast frames use fixed-size counters without formatting or
 file I/O; aggregate snapshots and full traces remain opt-in.
 
 After the startup visibility probe stops, ordinary world-publication logs keep

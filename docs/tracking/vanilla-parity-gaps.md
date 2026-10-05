@@ -367,5 +367,6 @@ the samples). Legacy 64x32 images are expanded as vanilla does.
 
 Player cape: drawn from the skin's cape raster with the `geometry.cape` mesh posed from the
 player's bones by name; the cape's rest turn, layer resampling and `cape_flap_amount` scale need
-native verification. With the real carriers no cape draws yet: vanilla defines `geometry.cape` in
-`models/mobs.json`, which the entity compiler does not read.
+native parity verification. The entity compiler retains vanilla's `geometry.cape` from
+`models/mobs.json` in the geometry carrier and reference sidecar. Server-assigned local appearances
+survive unchanged client pose feeds and roster removal while the player actor remains alive.

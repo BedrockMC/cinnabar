@@ -62,7 +62,7 @@ fn lobby_join_setup_bench() {
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("captured pack required");
     let capture = read_capture(Path::new(&capture));
     for trial in 0..3 {
-        let (mut world, _, _) = build_world(&capture, Path::new(&pack), false);
+        let (mut world, _, _) = build_world(&capture, Some(Path::new(&pack)), false);
         world
             .resource_mut::<Time<Real>>()
             .update_with_instant(Instant::now());

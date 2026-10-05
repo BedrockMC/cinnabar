@@ -157,13 +157,16 @@ fn blended_biome_tint(
     let base = (coordinate - vec3(BIOME_CACHE_ORIGIN)) / BIOME_LATTICE_STEP * BIOME_LATTICE_STEP + vec3(BIOME_CACHE_ORIGIN);
     let residue = vec3<u32>(coordinate - base + vec3(BIOME_RESIDUE_RADIUS));
     if (any(residue >= vec3(BIOME_RESIDUE_SIDE))) { return fallback; }
-    let query = ((residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z) * BIOME_QUERY_POINTS;
+    let stencil = BIOME_QUERY_STENCILS[(residue.x * BIOME_RESIDUE_SIDE + residue.y) * BIOME_RESIDUE_SIDE + residue.z];
+    let magnitude = vec3<u32>(abs(vec3<i32>(residue) - vec3(BIOME_RESIDUE_RADIUS)));
+    let magnitude_side = u32(BIOME_RESIDUE_RADIUS) + 1u;
+    let weights = ((magnitude.x * magnitude_side + magnitude.y) * magnitude_side + magnitude.z) * 2u;
     var sum = vec4(0.0);
     var denominator = 0.0;
-    for (var point = 0; point < i32(BIOME_QUERY_POINTS); point += 1) {
-        let sample = BIOME_POINTS[query + u32(point)];
-        let weight = sample.w;
-        let position = base + vec3<i32>(sample.xyz);
+    for (var point = 0u; point < BIOME_QUERY_POINTS; point += 1u) {
+        let cell = (stencil[point / 4u] >> (point % 4u * 8u)) & 0xffu;
+        let weight = BIOME_QUERY_WEIGHTS[weights + point / 4u][point % 4u];
+        let position = base + (vec3<i32>(vec3(cell / 9u, cell / 3u % 3u, cell % 3u)) - vec3(1)) * BIOME_LATTICE_STEP;
         if (lattice_point_index(position) >= BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE) { return fallback; }
         let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * BIOME_POINT_WORDS;
         var colour = vec4(0.0);

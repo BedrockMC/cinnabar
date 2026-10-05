@@ -60,7 +60,7 @@ func NewAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 type derivedDeps struct {
 	discover func(context.Context) (*service.AuthorizationEnvironment, error)
 	login    func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*playfab.Client, error)
-	services func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token) service.TokenSource
+	services func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID string) service.TokenSource
 	mint     func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error)
 }
 
@@ -80,8 +80,10 @@ func defaultDerivedDeps() derivedDeps {
 		login: func(ctx context.Context, env *service.AuthorizationEnvironment, signer xsapi.TokenAndSignaturer) (*playfab.Client, error) {
 			return playfab.LoginWithXbox(ctx, env.PlayFabTitleID, signer, playfab.ClientConfig{CreateAccount: true})
 		},
-		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token) service.TokenSource {
-			return env.ResumeTokenSource(tickets, clientplatform.TokenConfig(), token)
+		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID string) service.TokenSource {
+			config := clientplatform.TokenConfig()
+			config.Device.ID = deviceID
+			return env.ResumeTokenSource(tickets, config, token)
 		},
 		mint: func(ctx context.Context, env *service.AuthorizationEnvironment, source service.TokenSource, key *ecdsa.PublicKey) (string, error) {
 			return minecraft.NewMultiplayerTokenSource(env, source).MultiplayerToken(ctx, key)
@@ -125,6 +127,8 @@ type Account struct {
 	services    service.TokenSource // native source seeded with service; rebuilt after every restore
 	playfab     *playfab.Client     // logged in on first need; closed only by Close
 	closed      atomic.Bool
+	refreshing  atomic.Bool // one KeepFresh per account
+	exchanging  atomic.Bool // one early service exchange per account
 	persisted   string
 	rejected    map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
 	deps        derivedDeps
@@ -361,20 +365,32 @@ func (s *Account) ServiceToken(ctx context.Context) (*service.Token, error) {
 		defer lease.Close()
 		s.reloadLocked()
 	}
+	return s.serviceTokenLocked(ctx, lease != nil, false)
+}
+
+// serviceTokenLocked returns the shared service token, refreshing it when invalid, or exchanging a
+// replacement when replace is set; a failure keeps the current token. publish persists a change.
+func (s *Account) serviceTokenLocked(ctx context.Context, publish, replace bool) (*service.Token, error) {
 	if err := s.ensureEnvironmentLocked(ctx); err != nil {
 		return nil, err
 	}
-	if s.services == nil {
-		s.services = s.deps.services(s.environment, sessionTickets{s}, s.service)
+	source := s.services
+	if source == nil || replace {
+		seed := s.service
+		if replace {
+			seed = nil
+		}
+		source = s.deps.services(s.environment, sessionTickets{s}, seed, s.serviceDeviceIDLocked())
 	}
 	before, session := s.service, sessionFingerprint(s.session.Snapshot())
-	token, err := s.services.ServiceToken(ctx)
+	token, err := source.ServiceToken(ctx)
 	if err != nil || token == nil || !token.Valid() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		return nil, errors.New("authentication: refresh service credential")
 	}
+	s.services = source
 	if token == before {
 		s.diagnostic("reuse", "service", "valid")
 		return token, nil
@@ -384,7 +400,7 @@ func (s *Account) ServiceToken(ctx context.Context) (*service.Token, error) {
 	if session != sessionFingerprint(s.session.Snapshot()) {
 		s.updateOAuthBindingLocked(ctx)
 	}
-	s.persistLocked(ctx, lease != nil)
+	s.persistLocked(ctx, publish)
 	return token, nil
 }
 
@@ -775,7 +791,11 @@ func (s *Account) restore(state *derivedState) error {
 		s.environment = nil // a restored environment is checked against discovery once more
 	}
 	s.cachedEnv = cachedEnv
-	s.service = serviceToken
+	// The in-memory copy of an unchanged token keeps the service clock its validity is judged by.
+	if s.service == nil || cachedEnv == nil || state.ServiceToken == nil ||
+		s.service.AuthorizationHeader != state.ServiceToken.AuthorizationHeader {
+		s.service = serviceToken
+	}
 	s.services = nil
 	return nil
 }

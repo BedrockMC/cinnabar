@@ -11,6 +11,7 @@ use crate::runtime::visibility::AppMetrics;
 mod committed_ui;
 mod control_apply;
 mod dimension;
+mod local_retention;
 mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
 use committed_ui::refresh_player_list_cache_for_controls;
@@ -539,6 +540,9 @@ pub(crate) fn drive_world_stream(
     mut frame_poll: ResMut<WorldStreamFramePoll>,
     mut rendered_session: Local<Option<u64>>,
     mut visibility: ResMut<CaveVisibilityCache>,
+    camera_publication: Option<
+        Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
+    >,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let _timer = profiler
@@ -549,6 +553,7 @@ pub(crate) fn drive_world_stream(
         mut local_physics,
         mut movement,
         mut ui_runtime,
+        clock,
         ..
     } = state;
     let active_session = client_world
@@ -566,6 +571,12 @@ pub(crate) fn drive_world_stream(
         ui_runtime.clear_disconnected_block_cracks();
         return;
     };
+    local_retention::retain_completed_player_terrain(
+        stream,
+        &local_physics,
+        camera_publication.as_deref(),
+        clock.session_generation(),
+    );
     synchronize_biome_tints(stream, &mut biome_tints);
     #[cfg(feature = "acceptance")]
     let mutation_cohort = frame_poll.cohort;

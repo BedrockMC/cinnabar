@@ -202,13 +202,8 @@ fn draw(
     let mut scene = ActorRenderScene::default();
     scene.replace_pack_entities(Some(entities)).unwrap();
     scene.configure_artwork(artwork.clone());
-    let frame = scene.update_rigs_with_artwork(
-        1.0,
-        None,
-        batch.submissions.clone(),
-        Arc::from([]),
-        &batch.artwork,
-    );
+    let frame =
+        scene.update_rigs_with_artwork(1.0, None, batch.submissions.clone(), &[], &batch.artwork);
     let rig = &frame.rig;
     eprintln!(
         "render: submissions={} instances={} rejects={:?} layers={}",

@@ -5,6 +5,7 @@
 pub mod actor;
 mod chunk_metrics;
 mod dropped_item;
+mod entity_shadow;
 pub mod equipment;
 mod item_geometry;
 mod nametag;
@@ -25,13 +26,19 @@ pub use actor::{
     geometry_from_runtime_assets, install_default_player_skin, is_equipment_rig_id,
     is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id, item_mesh_rig_id,
     layer_geometries, layer_geometry_rig_id, normalize_actor_skin, normalize_actor_skin_cached,
-    pack_equipment_rig_id, pack_geometries, pack_rig_id, skin_geometry, skin_rig_id,
-    standard_biped_overlay_vertices, standard_biped_vertices,
+    pack_equipment_rig_id, pack_geometries, pack_rig_id, resolve_geometry_bones, skin_geometry,
+    skin_rig_id, standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,
 };
 pub use dropped_item::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite, OPAQUE_WHITE};
+pub use entity_shadow::{
+    EntityShadow, EntityShadowFrame, EntityShadowParams, MAX_ENTITY_SHADOWS,
+    SHADOW_VOLUME_BOTTOM_RADIUS, SHADOW_VOLUME_BOTTOM_Y, SHADOW_VOLUME_SIDES,
+    SHADOW_VOLUME_TOP_RADIUS, SHADOW_VOLUME_TOP_Y, SHADOW_VOLUME_VERTICES, entity_shadow_colour,
+    shadow_screen_rect, shadow_volume_mesh, unit_volume_contains,
+};
 pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ACOS_CUBIC, NAMETAG_ACOS_LINEAR, NAMETAG_ATLAS_SIDE,

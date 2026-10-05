@@ -410,7 +410,8 @@ pub(in crate::compiler) fn cutout_model_tint_flags(name: &str) -> u32 {
         "minecraft:short_grass"
         | "minecraft:tall_grass"
         | "minecraft:fern"
-        | "minecraft:large_fern" => MATERIAL_FLAG_GRASS_TINT,
+        | "minecraft:large_fern"
+        | "minecraft:bush" => MATERIAL_FLAG_GRASS_TINT,
         "minecraft:vine" => MATERIAL_FLAG_FOLIAGE_TINT,
         _ => 0,
     }

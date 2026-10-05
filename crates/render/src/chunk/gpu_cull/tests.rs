@@ -180,26 +180,43 @@ fn only_count_capable_indirect_devices_cull_on_the_gpu() {
     let count = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE;
     let compute = DownlevelFlags::COMPUTE_SHADERS;
     let mdi = ChunkDrawMode::MultiDrawIndirect;
-    assert!(gpu_cull_supported(mdi, count, compute, false));
+    let backend = wgpu::Backend::Vulkan;
+    assert!(gpu_cull_supported(mdi, count, compute, backend, false));
+    assert!(!gpu_cull_supported(
+        mdi,
+        count,
+        compute,
+        wgpu::Backend::Dx12,
+        false
+    ));
     let no_first_instance = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT;
-    assert!(!gpu_cull_supported(mdi, no_first_instance, compute, false));
-    assert!(!gpu_cull_supported(mdi, count, compute, true));
+    assert!(!gpu_cull_supported(
+        mdi,
+        no_first_instance,
+        compute,
+        backend,
+        false
+    ));
+    assert!(!gpu_cull_supported(mdi, count, compute, backend, true));
     assert!(!gpu_cull_supported(
         mdi,
         WgpuFeatures::empty(),
         compute,
+        backend,
         false
     ));
     assert!(!gpu_cull_supported(
         ChunkDrawMode::Direct,
         count,
         compute,
+        backend,
         false
     ));
     assert!(!gpu_cull_supported(
         mdi,
         count,
         DownlevelFlags::empty(),
+        backend,
         false
     ));
 }
