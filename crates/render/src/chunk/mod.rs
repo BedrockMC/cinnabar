@@ -229,8 +229,6 @@ pub use presentation::transparent_witness::{
     TransparentWitnessRequest, TransparentWitnessRequestError, TransparentWitnessStageEvent,
     TransparentWitnessStageRecord,
 };
-#[allow(unused_imports)]
-use presentation::transparent_witness::{TransparentWitnessEvidenceState, TransparentWitnessToken};
 #[cfg(feature = "publication-test-support")]
 pub use publication_test_support::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
@@ -243,8 +241,6 @@ use queue::{
     biome_record_byte_len, biome_record_is_fallback, chunk_origin, pending_upload_byte_len,
     update_chunk_animation_clock,
 };
-#[allow(unused_imports)]
-use textures::{ANIMATION_TICK_MODULUS, ANIMATION_TICKS_PER_SECOND};
 pub use textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
     TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,
