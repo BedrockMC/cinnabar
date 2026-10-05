@@ -115,6 +115,8 @@ pub(in crate::chunk) struct DirectOcclusionStats {
     pub(in crate::chunk) verdicts_applied: u64,
     /// Frames whose verdict was dropped because every readback slot was in flight.
     pub(in crate::chunk) verdicts_dropped: u64,
+    /// Times every verdict was voided because resident geometry changed.
+    pub(in crate::chunk) world_invalidations: u64,
 }
 
 /// Readback slot bookkeeping; a full ring drops that frame's verdict rather than wait.
@@ -247,16 +249,16 @@ impl DirectOcclusion {
         hidden: &mut ChunkHiddenEntities,
     ) {
         let none = HashSet::new();
+        // One void per batch: clearing every run per removal is quadratic on a session reset.
+        let mut uncovered = false;
         for entity in removed {
             if self.table.contains(entity) {
                 self.table.remove(entity);
                 self.generations.remove(&entity);
-                self.history.invalidate_world();
+                uncovered = true;
             }
         }
-        if self.tint.replace(tint).is_some_and(|old| old != tint) {
-            self.history.invalidate_world();
-        }
+        uncovered |= self.tint.replace(tint).is_some_and(|old| old != tint);
         for (entity, allocation, instance) in changed {
             let record = cull_record(allocation, instance);
             let slot = allocation.metadata_index;
@@ -265,9 +267,7 @@ impl DirectOcclusion {
                 == Some(allocation.generation)
                 && self.table.records().get(slot as usize) == Some(&record);
             if fresh || !same {
-                if !fresh {
-                    self.history.invalidate_world();
-                }
+                uncovered |= !fresh;
                 self.history.assign(slot, self.frame);
             }
             self.table
@@ -276,7 +276,11 @@ impl DirectOcclusion {
         // Cave culling hid or revealed something; what it hid may have occluded others.
         if !hidden.changed.is_empty() {
             hidden.changed.clear();
+            uncovered = true;
+        }
+        if uncovered {
             self.history.invalidate_world();
+            self.stats.world_invalidations += 1;
         }
         self.table.trim();
     }
@@ -494,11 +498,12 @@ pub(super) fn submit_direct_occlusion(mut occlusion: ResMut<DirectOcclusion>) {
 }
 
 /// The view's pose half of a verdict basis; depth size and world come from prepare.
-fn view_basis(view: &ExtractedView) -> OcclusionBasis {
+pub(super) fn view_basis(view: &ExtractedView) -> OcclusionBasis {
     OcclusionBasis {
         eye: view.world_from_view.translation().to_array(),
         view_rotation: view.world_from_view.affine().matrix3.to_cols_array(),
         clip_from_view: view.clip_from_view.to_cols_array(),
+        viewport: view.viewport.to_array(),
         depth_size: [0; 2],
         world: 0,
     }

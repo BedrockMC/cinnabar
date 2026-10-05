@@ -5,7 +5,7 @@
   draws; a Hi-Z of that depth tests every resident slot and the occluded bits come back
   through a small readback ring that drops frames rather than wait. Opaque streams of a slot
   are skipped once two consecutive verdicts agree under the same eye, orientation,
-  projection, depth size and geometry; any translation or turn (the near plane swings and can
+  projection, viewport, depth size and geometry; any translation or turn (the near plane swings and can
   clip a near occluder), sub-chunk removal or replacement, cave or tint change voids them.
   `RUST_MCBE_CPU_CULLING=1` turns it off.
 - Offscreen tests: kernel bits match a CPU Hi-Z reference; replayed paths (flick, strafe past
