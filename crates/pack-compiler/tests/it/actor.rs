@@ -7,7 +7,11 @@ use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json");
+/// Byte offset of the alpha of [`pack`]'s probe texel, which its plane samples.
+const PROBE_ALPHA: usize = (7 * 16) * 4 + 3;
 
+#[path = "actor/charged_overlay.rs"]
+mod charged_overlay;
 #[path = "actor/color_mask.rs"]
 mod color_mask;
 #[path = "actor/crystal.rs"]
@@ -47,7 +51,7 @@ fn pack(alpha: u8, material: &str, conditional: bool) -> TempDir {
     };
     write(root, "render_controllers/example.json", format!(r#"{{"format_version":"1.8.0","render_controllers":{{"controller.render.example":{{"geometry":"{geometry}","materials":[{{"*":"Material.default"}}],"textures":["Texture.default"]}}}}}}"#).as_bytes());
     let mut image = RgbaImage::from_pixel(16, 16, Rgba([17, 31, 47, 255]));
-    image.put_pixel(0, 0, Rgba([0, 0, 0, alpha]));
+    image.put_pixel(0, 7, Rgba([0, 0, 0, alpha]));
     fs::create_dir_all(root.join("textures/entity")).unwrap();
     image
         .save(root.join("textures/entity/example.png"))
@@ -74,7 +78,7 @@ fn generic_actor_carrier_resolves_unconditional_route_and_exact_entity_identity(
         (runtime.textures()[0].width, runtime.textures()[0].height),
         (16, 16)
     );
-    assert_eq!(runtime.textures()[0].rgba8[3], 0);
+    assert_eq!(runtime.textures()[0].rgba8[PROBE_ALPHA], 0);
     let mut stale = entities.to_vec();
     stale[24] ^= 1;
     assert!(

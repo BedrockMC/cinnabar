@@ -148,7 +148,9 @@ fn push_section(bytes: &mut Vec<u8>, y_index: i32, id: impl Fn(i32, i32, i32) ->
         let packed = word
             .iter()
             .enumerate()
-            .fold(0_u32, |packed, (slot, &index)| packed | (index << (slot as u32 * bits)));
+            .fold(0_u32, |packed, (slot, &index)| {
+                packed | (index << (slot as u32 * bits))
+            });
         bytes.extend_from_slice(&packed.to_le_bytes());
     }
     push_var_i32(bytes, palette.len() as i32);
@@ -423,7 +425,11 @@ fn flight_benches(c: &mut Criterion) {
         let mut flight = Flight::new(&assets, radius);
         flight.blocks_per_second = blocks_per_second;
         let resident_before = flight.stream.loaded_column_count();
-        let acknowledged_before = flight.stream.stats().phase2_stages.mesh_uploads_acknowledged;
+        let acknowledged_before = flight
+            .stream
+            .stats()
+            .phase2_stages
+            .mesh_uploads_acknowledged;
         // Two seconds of flight: per-frame distribution and work witnesses.
         let mut frames: Vec<_> = (0..480).map(|_| flight.frame()).collect();
         frames.sort_unstable();
@@ -431,7 +437,10 @@ fn flight_benches(c: &mut Criterion) {
         assert_eq!(stats.decode_errors, 0);
         assert_eq!(stats.light_solve_failures, 0);
         let grid = (2 * (radius + world::CHUNK_VIEW_SLACK) + 1) as usize;
-        assert!(flight.stream.loaded_column_count() <= grid * grid, "retention bounds residency");
+        assert!(
+            flight.stream.loaded_column_count() <= grid * grid,
+            "retention bounds residency"
+        );
         let published = stats.phase2_stages.mesh_uploads_acknowledged - acknowledged_before;
         if blocks_per_second > 0.0 {
             assert!(published > 0, "flight published no meshes");

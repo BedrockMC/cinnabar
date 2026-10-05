@@ -377,6 +377,7 @@ mod tests {
         assert_eq!(
             offline_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -413,6 +414,7 @@ mod tests {
         assert_eq!(
             authenticated_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -444,6 +446,7 @@ mod tests {
         assert_eq!(
             enabled_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),

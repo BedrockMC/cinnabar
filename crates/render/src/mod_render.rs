@@ -3,6 +3,7 @@
 //! owned per pass revision, so replaced or reloaded passes release them.
 
 mod passes;
+mod position_box;
 mod primitives;
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,8 @@ pub struct ModRenderScene {
     pub(crate) passes: Vec<mod_render::Pass>,
     pub(crate) vertices: Arc<[ModVertex]>,
     primitives: Arc<mod_render::Primitives>,
+    pub(crate) marker_vertices: Arc<[ModVertex]>,
+    position_box: Option<[[f32; 3]; 2]>,
 }
 
 impl ExtractResource for ModRenderScene {
@@ -49,9 +52,26 @@ impl ModRenderScene {
         }
     }
 
+    /// Publishes a host-owned own-position box independently of guest render output.
+    pub fn set_position_box(&mut self, bounds: Option<[[f32; 3]; 2]>) {
+        let bounds = bounds.filter(position_box::valid);
+        if self.position_box == bounds {
+            return;
+        }
+        self.position_box = bounds;
+        self.marker_vertices = match bounds {
+            Some(bounds) => {
+                let mut vertices = Vec::with_capacity(position_box::VERTICES);
+                position_box::append(&mut vertices, bounds);
+                vertices.into()
+            }
+            None => Arc::from([]),
+        };
+    }
+
     /// Drops every pass and primitive, as when a mod traps, reloads or is revoked.
     pub fn clear(&mut self) {
-        if self.generation != 0 || !self.passes.is_empty() || !self.vertices.is_empty() {
+        if self.generation != 0 || !self.passes.is_empty() || self.vertex_count() != 0 {
             *self = Self::default();
         }
     }
@@ -65,7 +85,7 @@ impl ModRenderScene {
     }
 
     pub fn vertex_count(&self) -> usize {
-        self.vertices.len()
+        self.vertices.len() + self.marker_vertices.len()
     }
 }
 

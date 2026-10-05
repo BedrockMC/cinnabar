@@ -184,6 +184,7 @@ impl Media {
                 bevy::log::warn!(%error, media = %key.1, "server media control rejected");
                 self.players.remove(&key);
                 self.frames.remove(&key);
+                self.serial += 1;
                 self.event(&key, EventKind::Stopped, 0);
             }
         }
@@ -226,6 +227,7 @@ impl Media {
         for (key, position) in failed {
             self.players.remove(&key);
             self.frames.remove(&key);
+            self.serial += 1;
             self.event(&key, EventKind::Stopped, position);
         }
     }
@@ -234,6 +236,7 @@ impl Media {
         let key = (control.bundle.clone(), control.id.clone());
         if !self.players.contains_key(&key) {
             admit(&mut self.players, &mut self.frames)?;
+            self.serial += 1;
             let bundle = self
                 .bundles
                 .get(&control.bundle)
@@ -255,6 +258,7 @@ impl Media {
                 },
             );
             self.frames.insert(key.clone(), None);
+            self.serial += 1;
         }
         let slot = self.players.get_mut(&key).expect("slot inserted");
         let position_us = control.position_ms.saturating_mul(1000);
@@ -326,10 +330,18 @@ impl Media {
     }
 
     /// The latest frame bound to the bundle's quad textured by `texture`, if one plays.
+    /// The latest frame for the bundle's quad textured by `texture`; a linear scan over at
+    /// most MAX_PLAYERS entries, so lookups never allocate.
     pub(super) fn frame(&self, bundle: &str, texture: &str) -> Option<Option<render::MediaFrame>> {
         self.frames
-            .get(&(bundle.to_owned(), texture.to_owned()))
-            .cloned()
+            .iter()
+            .find(|((owner, path), _)| owner == bundle && path == texture)
+            .map(|(_, frame)| frame.clone())
+    }
+
+    /// Changes whenever a frame is published or a player's frame entry comes or goes.
+    pub(super) fn frames_revision(&self) -> u64 {
+        self.serial
     }
 
     #[cfg(test)]
@@ -341,6 +353,7 @@ impl Media {
     ) {
         self.frames
             .insert((bundle.to_owned(), texture.to_owned()), frame);
+        self.serial += 1;
     }
 
     /// Transitions for guest dispatch, oldest first.
@@ -376,7 +389,7 @@ impl Media {
 }
 
 /// Places a quad from a scene object the way the renderer draws a media screen.
-pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(String, render::MediaScreen)> {
+pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(&str, render::MediaScreen)> {
     let SceneObject::Quad {
         texture,
         transform,
@@ -392,7 +405,7 @@ pub(super) fn screen(id: u64, object: &SceneObject) -> Option<(String, render::M
         *size,
     );
     Some((
-        texture.clone(),
+        texture.as_str(),
         render::MediaScreen {
             id,
             center,

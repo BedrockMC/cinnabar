@@ -12,7 +12,9 @@ pub use color_mask::{
     native_actor_uses_multitexture,
 };
 pub use dissolve::actor_dissolve_mask_sources;
-pub use eligibility::neutral_actor_geometry_uvs_are_supported;
+pub use eligibility::{
+    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
+};
 
 pub const ACTOR_CARRIER_MAGIC: [u8; 8] = *b"MCBEACT3";
 pub const ACTOR_CARRIER_VERSION: u32 = 3;

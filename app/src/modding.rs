@@ -39,6 +39,8 @@ const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
 #[cfg(feature = "local-mods")]
 const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
 #[cfg(feature = "local-mods")]
+const PACKET_DELAY_VISUAL_ENV: &str = "CINNABAR_MOD_PACKET_DELAY_VISUAL";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
@@ -125,7 +127,8 @@ fn configure(app: &mut App, path: Option<&Path>) {
                     .collect()
             })
             .unwrap_or_default(),
-        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1"),
+        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1")
+            || std::env::var(PACKET_DELAY_VISUAL_ENV).is_ok_and(|value| value == "1"),
     };
     configure_with_grants(app, path, grants);
 }
@@ -188,6 +191,7 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 
 #[cfg(feature = "local-mods")]
 fn configure_systems(app: &mut App, watching: bool) {
+    ghost::configure(app);
     app.init_resource::<ModCueFeed>()
         .add_plugins(::render::ModRenderPlugin)
         .add_systems(Update, render::grant_depth_sampling);
@@ -216,7 +220,8 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );
-    app.add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
+    app.init_resource::<packet_delay::RealPositionSnapshot>()
+        .add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
@@ -458,10 +463,12 @@ mod time_changer_tests;
 #[cfg(feature = "local-mods")]
 mod gameplay;
 #[cfg(feature = "local-mods")]
+pub(crate) mod ghost;
+#[cfg(feature = "local-mods")]
 mod input;
 #[cfg(feature = "local-mods")]
 pub(crate) mod interaction;
 #[cfg(feature = "local-mods")]
-mod packet_delay;
+pub(crate) mod packet_delay;
 #[cfg(feature = "local-mods")]
 mod render;

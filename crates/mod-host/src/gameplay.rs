@@ -183,6 +183,18 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    fn set_show_real_position(&mut self, enabled: bool) -> Result<Result<(), String>> {
+        self.packet_delay_writes += 1;
+        if self.packet_delay_writes > MAX_IMPORT_WRITES {
+            bail!("packet delay import budget exhausted");
+        }
+        if !self.grants.packet_delay {
+            return Ok(Err("packet delay capability denied".into()));
+        }
+        self.pending_show_real_position = Some(enabled);
+        Ok(Ok(()))
+    }
+
     fn set_packet_delay(&mut self, delay_ms: u32) -> Result<Result<(), String>> {
         self.packet_delay_writes += 1;
         if self.packet_delay_writes > MAX_IMPORT_WRITES {

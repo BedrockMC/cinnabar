@@ -254,6 +254,10 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
 mod snow_tests;
 
 #[cfg(test)]
+#[path = "fallback/leaf_litter_tests.rs"]
+mod leaf_litter_tests;
+
+#[cfg(test)]
 #[path = "fallback/translucent_tests.rs"]
 mod translucent_tests;
 

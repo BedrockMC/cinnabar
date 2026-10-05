@@ -1,12 +1,9 @@
 //! Bounded component admission and deferred settings activation.
 
-use crate::{
-    MAX_COMPONENT_BYTES, ModGrants, ModHost, read_component, read_settings, runtime::Instance,
-    settings,
-};
+use crate::{MAX_COMPONENT_BYTES, ModGrants, ModHost, runtime::Instance, settings};
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::{fs::File, io::Read, path::Path};
 use wasmtime::{Config, Engine};
 
 impl ModHost {
@@ -128,4 +125,40 @@ impl ModGrants {
         );
         Ok(())
     }
+}
+
+pub(crate) fn read_settings(path: &Path, grants: &ModGrants) -> Result<String> {
+    if !grants.settings {
+        return Ok(String::new());
+    }
+    let path = path.with_extension("settings.json");
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read mod settings {}", path.display()));
+        }
+    };
+    let mut bytes = Vec::new();
+    file.take((mod_api::MAX_SETTINGS_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= mod_api::MAX_SETTINGS_BYTES,
+        "mod settings exceed byte limit"
+    );
+    Ok(String::from_utf8(bytes)?)
+}
+
+/// Bounds file reads even if a writer grows the file between metadata and read.
+pub(crate) fn read_component(path: &Path) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    File::open(path)
+        .with_context(|| format!("open mod {}", path.display()))?
+        .take((MAX_COMPONENT_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= MAX_COMPONENT_BYTES,
+        "component exceeds byte limit"
+    );
+    Ok(bytes)
 }

@@ -29,6 +29,10 @@ struct Instance<H> {
 pub(super) struct Live<H = Helper> {
     grant: Grant,
     media: super::media::Media,
+    screens: Vec<render::MediaScreen>,
+    /// Scene and frame revisions `screens` was built from.
+    screens_built: Option<(u64, u64)>,
+    scene_revision: u64,
     instances: BTreeMap<String, Instance<H>>,
     executable: PathBuf,
     pending_sends: VecDeque<Vec<u8>>,
@@ -107,6 +111,9 @@ impl<H: Worker> Live<H> {
         let mut live = Self {
             grant,
             media,
+            screens: Vec::new(),
+            screens_built: None,
+            scene_revision: 0,
             instances,
             executable: executable.to_owned(),
             pending_sends: VecDeque::new(),
@@ -148,9 +155,11 @@ impl<H: Worker> Live<H> {
                 Err(error) => {
                     self.budget.quarantine(&instance.owner);
                     instance.contributions = Contributions::default();
+                    self.scene_revision += 1;
                     return Err(error);
                 }
             };
+            self.scene_revision += 1;
             instance.contributions.apply(
                 &transaction,
                 &instance.owner,
@@ -305,24 +314,32 @@ impl<H: Worker> Live<H> {
         &mut self.media
     }
 
-    /// Media screens: each bundle's own scene quads whose texture names a playing descriptor.
-    pub(super) fn screens(&self) -> Vec<render::MediaScreen> {
-        let mut screens = Vec::new();
-        for (index, instance) in self.instances.values().enumerate() {
+    /// Media screens (each bundle's own scene quads whose texture names a playing descriptor),
+    /// rebuilt only when the scene or a frame changed; None when unchanged since the last call.
+    pub(super) fn changed_screens(&mut self) -> Option<&[render::MediaScreen]> {
+        let built = (self.scene_revision, self.media.frames_revision());
+        if self.screens_built == Some(built) {
+            return None;
+        }
+        self.screens_built = Some(built);
+        self.screens.clear();
+        'instances: for (index, instance) in self.instances.values().enumerate() {
             for (id, object) in &instance.contributions.scene {
+                if self.screens.len() == render::MAX_MEDIA_SCREENS {
+                    break 'instances;
+                }
                 let Some((texture, mut screen)) =
                     super::media::screen((index as u64) << 32 | u64::from(*id), object)
                 else {
                     continue;
                 };
-                if let Some(frame) = self.media.frame(&instance.owner.bundle, &texture) {
+                if let Some(frame) = self.media.frame(&instance.owner.bundle, texture) {
                     screen.frame = frame;
-                    screens.push(screen);
+                    self.screens.push(screen);
                 }
             }
         }
-        screens.truncate(render::MAX_MEDIA_SCREENS);
-        screens
+        Some(&self.screens)
     }
 
     /// Texture bytes the signed scope lets media screens allocate.

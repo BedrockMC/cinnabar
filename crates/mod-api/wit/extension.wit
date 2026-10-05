@@ -74,6 +74,8 @@ interface gameplay {
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.
     set-packet-delay: func(delay-ms: u32) -> result<_, string>;
+    /// Requires packet-delay authority; opts into the host's last-relayed position witness.
+    set-show-real-position: func(enabled: bool) -> result<_, string>;
 
     /// A nearby non-player actor; health comes from its replicated health attribute.
     record mob {

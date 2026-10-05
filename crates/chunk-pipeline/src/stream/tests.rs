@@ -36,6 +36,16 @@ impl WorldStream {
     fn dispatch_mesh_jobs(&mut self, camera: [f32; 3], budget: usize) -> usize {
         self.dispatch_mesh_jobs_with_limits(camera, budget, budget)
     }
+
+    /// Publishes a local physics position with the stream's current ownership identity.
+    fn retain_local(&mut self, position: [f32; 3]) -> bool {
+        self.retain_for_local_player(
+            self.authority.actor_session_id(),
+            self.current_dimension(),
+            self.form_dimension_epoch(),
+            position,
+        )
+    }
 }
 
 /// Decode registries that keep every id, for fixtures committed straight to the store.
