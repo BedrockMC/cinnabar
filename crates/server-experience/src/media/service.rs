@@ -37,7 +37,7 @@ pub struct Player {
     decoder_generation: u64,
     decoder_ended: bool,
     presented_us: Option<u64>,
-    last_position_us: Option<u64>,
+    loop_cycle: u64,
     announce_playing: bool,
     ended: bool,
     events: Vec<Event>,
@@ -127,7 +127,7 @@ impl Player {
             decoder_generation: 0,
             decoder_ended: false,
             presented_us: None,
-            last_position_us: None,
+            loop_cycle: 0,
             announce_playing: false,
             ended: false,
             events: Vec::new(),
@@ -210,12 +210,12 @@ impl Player {
             self.stop_decoder();
             return Ok(());
         }
-        // Only a loop wrap moves a playing timeline backward without a new decode generation.
-        let wrapped = self.playback.loop_us.is_some()
-            && self.playback.playing
+        // A wrap crosses the loop end; a rebuffering hold rebases without completing a cycle.
+        let cycle = self.playback.loop_cycle(server_us);
+        let wrapped = self.playback.playing
             && self.playback.decode_generation == was_generation
-            && self.last_position_us.is_some_and(|last| position < last);
-        self.last_position_us = Some(position);
+            && cycle > self.loop_cycle;
+        self.loop_cycle = cycle;
         if wrapped {
             self.playback.restart_decode()?;
         }
@@ -398,7 +398,7 @@ mod tests {
             decoder_generation: 0,
             decoder_ended: false,
             presented_us: None,
-            last_position_us: None,
+            loop_cycle: 0,
             announce_playing: false,
             ended: false,
             events: Vec::new(),
@@ -436,6 +436,37 @@ mod tests {
             player.position_us(400_000),
             Some(0),
             "the clip ran without output"
+        );
+        drop(lease);
+    }
+
+    #[test]
+    fn a_rebuffering_hold_with_uneven_ticks_is_not_a_loop_wrap() {
+        let _slot = super::super::worker::tests::DECODER_SLOT.lock();
+        let lease = super::super::worker::DecoderLease::acquire().unwrap();
+        let mut player = player();
+        control(
+            &mut player,
+            1,
+            0,
+            Operation::SetLoop {
+                bounds_us: Some([0, 500_000]),
+            },
+        );
+        play(&mut player, 2, 0);
+        player.descriptor.duration_us = 10_000_000;
+        player.playback.advance(0, 10_000_000).unwrap();
+        player.playback.loop_us = Some([0, 10_000_000]);
+        player.decoder_generation = player.playback.decode_generation;
+        player.presented_us = Some(1_000_000);
+        let generation = player.playback.decode_generation;
+        // Starved: each tick holds, so the next one sees only its own interval of progress.
+        for now in [3_000_000, 3_100_000, 3_150_000, 3_300_000, 3_310_000] {
+            player.tick(0, now, true).unwrap();
+        }
+        assert_eq!(
+            player.playback.decode_generation, generation,
+            "hold restarted decoding"
         );
         drop(lease);
     }
