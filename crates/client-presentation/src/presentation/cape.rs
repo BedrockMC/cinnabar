@@ -2,7 +2,7 @@
 //! in the skin layer payload.
 use std::sync::{Arc, Mutex};
 
-use assets::RuntimeEntityAssets;
+use assets::{CAPE_GEOMETRY_IDENTIFIER, RuntimeEntityAssets};
 use client_world::{ActorRigSnapshot, PlayerProfile};
 use protocol::{PlayerSkin, SkinRgba8};
 use render::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
@@ -17,7 +17,6 @@ use super::actors::ActorPresentationBatch;
 /// Render layer of a player's cape, below the extra texture layers.
 pub const ACTOR_LAYER_CAPE: u8 = 24;
 
-const CAPE_GEOMETRY: &str = "geometry.cape";
 /// Half turn about the vertical axis: the cape geometry's authored rest rotation.
 const REST_TURN: [f32; 4] = [0.0, 1.0, 0.0, 0.0];
 
@@ -31,7 +30,7 @@ pub struct CapeRig {
 
 impl CapeRig {
     pub fn resolve(assets: &RuntimeEntityAssets) -> Option<Self> {
-        let index = find_geometry_index(assets, CAPE_GEOMETRY)?;
+        let index = find_geometry_index(assets, CAPE_GEOMETRY_IDENTIFIER)?;
         let id = equipment_rig_id(index);
         Some(Self {
             id,
