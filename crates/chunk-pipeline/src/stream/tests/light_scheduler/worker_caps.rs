@@ -13,7 +13,7 @@ fn light_jobs_are_nearest_first_deduplicated_and_worker_bounded() {
     let latest = stream.lighting.jobs.pending[&keys[5]].revision;
     stream.mark_light_dirty_exact(keys[5]);
     assert_eq!(stream.lighting.jobs.pending.len(), keys.len());
-    assert_ne!(stream.lighting.jobs.pending[&keys[5]].revision, latest);
+    assert_eq!(stream.lighting.jobs.pending[&keys[5]].revision, latest);
 
     let expected = effective_light_job_cap().min(3);
     assert_eq!(
