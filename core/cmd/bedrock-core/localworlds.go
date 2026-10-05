@@ -88,14 +88,7 @@ func openLocalWorlds(opts options, logger *slog.Logger) (*localworld.Manager, er
 	manager.SetAutoBackend(opts.localBackend == "auto" || opts.localBackend == "")
 	logger.Info("local worlds enabled", "dir", opts.localWorldsDir, "default_backend", backend, "bds_runtime", runtimeInfo.Kind, "reason", runtimeInfo.Reason)
 	if pending {
-		_, hasDragonfly := runners[localworld.BackendDragonfly]
-		provisioner.DetectInBackground(runtimeInfo, func(info localworld.RuntimeInfo) {
-			manager.RuntimeDetected(info)
-			logger.Info("local world runtime detected", "bds_runtime", info.Kind, "reason", info.Reason)
-			if !hasDragonfly && localworld.DefaultBackend(info) == localworld.BackendDragonfly {
-				logger.Error("local world server binary not found; flat worlds are unavailable", "path", binary)
-			}
-		})
+		provisioner.DetectInBackground(runtimeInfo)
 	}
 	return manager, nil
 }

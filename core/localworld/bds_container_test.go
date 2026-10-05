@@ -313,37 +313,139 @@ func TestDockerCommandRunsAbsolutePathWithItsFolderOnPATH(t *testing.T) {
 	}
 }
 
-// Core startup must not wait on `docker info`; the setup reports checking_runtime until it lands.
-func TestDetectInBackgroundReportsCheckingThenResult(t *testing.T) {
+// probeGate holds each runtime detection until the test answers it.
+type probeGate struct{ calls chan chan RuntimeInfo }
+
+func newProbeGate() *probeGate { return &probeGate{calls: make(chan chan RuntimeInfo, 4)} }
+
+func (g *probeGate) detect(context.Context) RuntimeInfo {
+	reply := make(chan RuntimeInfo)
+	g.calls <- reply
+	return <-reply
+}
+
+func (g *probeGate) next(t *testing.T) chan<- RuntimeInfo {
+	t.Helper()
+	select {
+	case reply := <-g.calls:
+		return reply
+	case <-time.After(5 * time.Second):
+		t.Fatal("no detection started")
+		return nil
+	}
+}
+
+var (
+	dockerUp   = RuntimeInfo{Kind: RuntimeContainer, Reason: "docker up"}
+	dockerDown = RuntimeInfo{Kind: RuntimeNone, Reason: "down", Unavailable: "docker_not_running"}
+)
+
+// pendingManager is a macOS manager whose startup detection is held by the returned gate.
+func pendingManager(t *testing.T) (*Manager, *Provisioner, *probeGate) {
+	t.Helper()
+	gate := newProbeGate()
 	store := newTestStore(t)
-	release := make(chan struct{})
+	store.SetDefaultBackend(BackendBDS) // core's optimistic default while the probe runs
 	p := &Provisioner{Root: t.TempDir(), goos: "darwin", goarch: "arm64"}
-	p.SetDetector(func(context.Context) RuntimeInfo {
-		<-release
-		return RuntimeInfo{Kind: RuntimeNone, Reason: "down", Unavailable: "docker_not_running"}
-	})
+	p.SetDetector(gate.detect)
 	m := NewManager(store, Runners{}, nil)
 	m.SetSetup(p)
 	m.SetAutoBackend(true)
-	store.SetDefaultBackend(BackendBDS)
-	landed := make(chan RuntimeInfo, 1)
-	p.DetectInBackground(RuntimeInfo{Kind: RuntimeContainer, Reason: "checking"}, func(info RuntimeInfo) {
-		m.RuntimeDetected(info)
-		landed <- info
-	})
+	p.DetectInBackground(RuntimeInfo{Kind: RuntimeContainer, Reason: "checking"})
+	return m, p, gate
+}
+
+func awaitSettled(t *testing.T, p *Provisioner) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.AwaitRuntime(ctx); err != nil {
+		t.Fatal("detection never settled")
+	}
+}
+
+// Core startup must not wait on `docker info`: prefs report checking_runtime until it lands, then the
+// unavailable reason the launcher polls for.
+func TestDetectInBackgroundReportsCheckingThenResult(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	if _, err := m.Prefs(context.Background(), PrefsUpdate{}); err != nil {
+		t.Fatal(err)
+	}
 	if st := m.Status(); st.Setup.State != SetupCheckingRuntime || st.Setup.Runtime != RuntimeContainer || st.BackendUnavailableReason != "" {
 		t.Fatalf("while probing = %+v", st.Setup)
 	}
-	close(release)
-	select {
-	case <-landed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("background probe never finished")
-	}
+	gate.next(t) <- dockerDown
+	awaitSettled(t, p)
 	if st := m.Status(); st.Setup.State != SetupUnsupported || st.BackendUnavailableReason != "docker_not_running" {
 		t.Fatalf("after probe = %+v", st.Setup)
 	}
-	if world, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat}); err != nil || world.Backend != BackendDragonfly {
+}
+
+// A world created while the probe runs takes the backend the probe settles on, never the optimistic guess.
+func TestCreateDuringPendingDetectionWaitsForTheResult(t *testing.T) {
+	m, _, gate := pendingManager(t)
+	reply := gate.next(t)
+	created := make(chan World, 1)
+	go func() {
+		world, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat})
+		if err != nil {
+			t.Error(err)
+		}
+		created <- world
+	}()
+	select {
+	case <-created:
+		t.Fatal("Create returned before detection settled")
+	case <-time.After(50 * time.Millisecond):
+	}
+	reply <- dockerDown
+	select {
+	case world := <-created:
+		if world.Backend != BackendDragonfly {
+			t.Fatalf("flat world saved for %q", world.Backend)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Create never returned")
+	}
+	if _, err := m.Create(Spec{Name: "normal"}); !errors.Is(err, ErrVanillaNeedsBDS) {
+		t.Fatalf("normal world without Docker: %v", err)
+	}
+}
+
+// A probe that outlasts the wait refuses the create instead of saving a guess.
+func TestCreateRefusesWhileDetectionOutlastsTheWait(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	m.runtimeWait = 20 * time.Millisecond
+	reply := gate.next(t)
+	if _, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat}); !errors.Is(err, ErrRuntimePending) {
+		t.Fatalf("err = %v", err)
+	}
+	if worlds, _ := m.List(); len(worlds) != 0 {
+		t.Fatalf("saved %v while detection was pending", worlds)
+	}
+	reply <- dockerUp
+	awaitSettled(t, p)
+}
+
+// A slow startup probe that lands after a newer Retry must not replace the Retry's result.
+func TestOverlappingRedetectKeepsTheNewestResult(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	startup := gate.next(t)
+	retried := make(chan struct{})
+	go func() {
+		if _, err := m.Prefs(context.Background(), PrefsUpdate{Redetect: true}); err != nil {
+			t.Error(err)
+		}
+		close(retried)
+	}()
+	gate.next(t) <- dockerUp
+	<-retried
+	startup <- dockerDown
+	awaitSettled(t, p)
+	if st := m.Status(); st.Setup.Runtime != RuntimeContainer || st.BackendUnavailableReason != "" {
+		t.Fatalf("stale startup result won: %+v", st.Setup)
+	}
+	if world, err := m.Create(Spec{Name: "normal"}); err != nil || world.Backend != BackendBDS {
 		t.Fatalf("world = %+v, %v", world, err)
 	}
 }
