@@ -1,15 +1,16 @@
 //! Worker preparation of the initial server UI catalog against its exact carrier.
 
 use client_ui::ui_runtime::presentation::ServerUiPack;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 #[derive(bevy::prelude::Resource, Clone)]
 pub(crate) struct PackUiCatalog(pub Arc<json_ui::Catalog>);
 
+/// Weak, so leaving a server releases its archive stack instead of the cache pinning it.
 struct Cached {
-    source: Arc<ServerUiPack>,
-    base: Arc<json_ui::Catalog>,
-    prepared: Arc<ServerUiPack>,
+    source: Weak<ServerUiPack>,
+    base: Weak<json_ui::Catalog>,
+    prepared: Weak<ServerUiPack>,
 }
 
 #[derive(Default)]
@@ -27,10 +28,17 @@ impl CatalogCache {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(cached) = cached.as_ref()
-                && Arc::ptr_eq(&cached.source, source)
-                && Arc::ptr_eq(&cached.base, base)
+                && cached
+                    .source
+                    .upgrade()
+                    .is_some_and(|cached| Arc::ptr_eq(&cached, source))
+                && cached
+                    .base
+                    .upgrade()
+                    .is_some_and(|cached| Arc::ptr_eq(&cached, base))
+                && let Some(prepared) = cached.prepared.upgrade()
             {
-                return cached.prepared.clone();
+                return prepared;
             }
         }
         let prepared = source.prepare_catalog(base);
@@ -38,9 +46,9 @@ impl CatalogCache {
             .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Cached {
-            source: source.clone(),
-            base: base.clone(),
-            prepared: prepared.clone(),
+            source: Arc::downgrade(source),
+            base: Arc::downgrade(base),
+            prepared: Arc::downgrade(&prepared),
         });
         prepared
     }
@@ -121,5 +129,25 @@ mod tests {
         let catalog = changed.catalog.as_ref().unwrap();
         assert!(catalog.lookup("server", "new").is_some());
         assert!(catalog.lookup("server", "old").is_none());
+    }
+
+    #[test]
+    fn leaving_a_server_releases_its_pack_and_prepared_catalog() {
+        let cache = CatalogCache::default();
+        let base = base("carrier");
+        let source = pack("label");
+        let prepared = Arc::downgrade(&cache.prepare(&source, &base));
+        assert_eq!(
+            Arc::strong_count(&source),
+            1,
+            "the cache pins the admitted pack"
+        );
+        assert!(
+            prepared.upgrade().is_none(),
+            "the cache pins the prepared catalog"
+        );
+        let released = Arc::downgrade(&source);
+        drop(source);
+        assert!(released.upgrade().is_none());
     }
 }
