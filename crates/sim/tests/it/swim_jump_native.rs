@@ -1,4 +1,4 @@
-//! Native SwimAmountComponent/ActorHeadInWater guards in MobJumpSystem.
+//! Vanilla swim-amount and head-in-water guards on jumping.
 
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
@@ -81,8 +81,8 @@ fn jump(mode: MovementMode) -> MovementInput {
 
 #[test]
 fn native_swim_blend_advances_before_jump_and_zeroes_partial_wet_ascent() {
-    // CurrentSwimAmountSystem 0x099e64c0 is registered before MobJumpSystem
-    // 0x0a5dc2e0 and the current swim trigger. The first entry tick retains
+    // The swim-amount blend advances before the jump step and the swim
+    // trigger. The first entry tick retains
     // zero; subsequent additions follow the prior swimming/crawling flag.
     let blend_bits = [
         0,

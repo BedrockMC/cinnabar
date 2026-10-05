@@ -21,7 +21,7 @@ impl WorldStream {
         }
 
         // Vanilla keeps chunk data across a teleport and drops only what the moved view no
-        // longer covers (`NetworkChunkSubscriber::moveRegion`), so overlap stays presented.
+        // longer covers, so overlap stays presented.
         self.arrival_cohort = None;
         self.requests.transport_pending = 0;
         self.publisher.center = Some(center);

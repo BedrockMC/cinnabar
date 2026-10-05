@@ -57,8 +57,8 @@ func applyRetailLightCorrections(records []Record, properties []byte, retail map
 				// targets the current registry-foundation game version.
 				filter = 1
 			case isFlowingWater:
-				// DynamicLiquidBlock final registration has
-				// no version gate: still and flowing types differ.
+				// Vanilla flowing liquid has no version gate here:
+				// still and flowing types differ.
 				filter = 2
 			}
 			next := current&0x0f | filter<<4

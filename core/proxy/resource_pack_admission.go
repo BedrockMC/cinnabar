@@ -45,9 +45,9 @@ var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers
 type ConnectStage string
 
 const (
-	ConnectStageRealm      ConnectStage = "realm"      // RealmsConnectProgressHandler: the Realm lookup
-	ConnectStageConnecting ConnectStage = "connecting" // GameServerConnectProgressHandler
-	ConnectStagePacks      ConnectStage = "packs"      // ResourcePackProgressHandler
+	ConnectStageRealm      ConnectStage = "realm"      // vanilla progress stage: the Realm lookup
+	ConnectStageConnecting ConnectStage = "connecting" // vanilla progress stage: connecting to the server
+	ConnectStagePacks      ConnectStage = "packs"      // vanilla progress stage: resource packs
 )
 
 // ConnectProgress is the join's live stage; a zero Stage means no join is being prepared.

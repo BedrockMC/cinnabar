@@ -1,5 +1,5 @@
 //! Fixed-tick ambient block animation triggers.
-//! Other block animateTick callbacks and unclassified native materials remain unsupported.
+//! Other blocks' ambient animation and unclassified native materials remain unsupported.
 
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,7 @@ impl AmbientParticles {
         self.diagnostics = diagnostics::Diagnostics::default();
     }
 
-    /// Vanilla LevelRenderer::tick calls animateTick once per
+    /// Vanilla runs ambient block particles once per
     /// world tick, not once per rendered frame. This clock must not depend on
     /// movement packet admission. Reuse the world tick duration and app catch-up bound.
     pub(super) fn drive(

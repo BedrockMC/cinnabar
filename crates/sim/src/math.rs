@@ -82,7 +82,7 @@ pub(crate) fn minecraft_cos(value: f64) -> f64 {
     sine_table((value as f32 * TRIG_INDEX_SCALE + 16_384.0) as i32)
 }
 
-/// Native look vector used by the swimming trigger (current RVA 0x09fd25a0).
+/// Vanilla look vector used by the swimming trigger.
 #[must_use]
 pub fn view_direction(pitch_degrees: f32, yaw_degrees: f32) -> Vec3 {
     let pitch = -pitch_degrees.to_radians();

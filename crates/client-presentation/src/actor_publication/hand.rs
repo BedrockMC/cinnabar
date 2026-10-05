@@ -20,7 +20,7 @@ pub(super) fn hand_camera_from_rig(scale: f32, motion: Mat4) -> [[f32; 4]; 3] {
         [rows[0][2], rows[1][2], rows[2][2], 0.0],
         [rows[0][3], rows[1][3], rows[2][3], 1.0],
     ]);
-    // The native first-person ActorRenderer root retains its 1/128-model-unit lift
+    // The vanilla first-person actor root retains its 1/128-model-unit lift
     // after the player model scale.
     camera_space_rows(motion * placement * Mat4::from_translation(bevy::math::Vec3::Y / 128.0))
 }
@@ -85,8 +85,8 @@ pub(super) fn publish_hand_rig(
     }
 }
 
-/// The arm's state at `partial_tick` between the rig's last two ticks, as `renderFirstPerson`
-/// interpolates it: the swing wraps forward past its end, and an eat or drink use of
+/// The arm's state at `partial_tick` between the rig's last two ticks, as vanilla's first-person
+/// pass interpolates it: the swing wraps forward past its end, and an eat or drink use of
 /// `consume_ticks` counts from its first using tick.
 pub(super) fn hand_progress(
     hand: [client_world::HandPhase; 2],
