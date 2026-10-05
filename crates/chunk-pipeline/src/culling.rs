@@ -1,4 +1,5 @@
 mod grid;
+mod incremental;
 mod visible_set;
 
 use std::collections::HashSet;
@@ -9,6 +10,7 @@ use meshing::Face;
 use world::SubChunkKey;
 
 pub(crate) use grid::ConnectivityGrid;
+pub(crate) use incremental::update_visible;
 pub use visible_set::CaveVisibleSet;
 
 use grid::Slot;
@@ -33,7 +35,7 @@ pub(crate) fn cave_visible_sub_chunks(
     visible.iter().collect()
 }
 
-/// Reusable traversal storage; `visited` is all-zero between calls.
+/// Reusable traversal state, retained while graph additions preserve existing paths.
 #[derive(Default)]
 pub struct CaveVisibilityScratch {
     visited: Vec<u8>,
@@ -42,6 +44,12 @@ pub struct CaveVisibilityScratch {
     overflow_ids: HashMap<SubChunkKey, u32>,
     overflow_nodes: Vec<(SubChunkKey, u64)>,
     overflow_visited: Vec<u8>,
+    camera: Option<SubChunkKey>,
+    checkpoint: (u64, u64, usize),
+    camera_present: bool,
+    added_visible: Vec<SubChunkKey>,
+    #[cfg(test)]
+    explored_exits: usize,
 }
 
 impl CaveVisibilityScratch {
@@ -88,6 +96,11 @@ impl CaveVisibilityScratch {
             self.stack.push((node, fresh));
         }
     }
+
+    /// Newly visible keys from the latest incremental update, without scanning resident keys.
+    pub fn added_visible(&self) -> &[SubChunkKey] {
+        &self.added_visible
+    }
 }
 
 /// Reuses traversal and output storage without changing portal or support-shell rules.
@@ -97,6 +110,20 @@ pub(crate) fn fill_visible(
     scratch: &mut CaveVisibilityScratch,
     visible: &mut CaveVisibleSet,
 ) {
+    for &node in &scratch.touched {
+        if (node as usize) < scratch.visited.len() {
+            scratch.visited[node as usize] = 0;
+        }
+    }
+    scratch.touched.clear();
+    scratch.added_visible.clear();
+    scratch.camera = Some(camera);
+    scratch.checkpoint = grid.checkpoint();
+    scratch.camera_present = grid.contains_key(&camera);
+    #[cfg(test)]
+    {
+        scratch.explored_exits = 0;
+    }
     visible.reset(camera, grid.dims());
     if scratch.visited.len() != grid.cell_count() {
         scratch.visited.clear();
@@ -114,12 +141,35 @@ pub(crate) fn fill_visible(
     };
     let cells = grid.cell_count() as u32;
     scratch.reach(cells, camera_node, touched_faces(camera_bits));
+    propagate(grid, scratch);
+    // Visibility is per entity: retain exactly one loaded neighbour shell around reached nodes.
+    for index in 0..scratch.touched.len() {
+        let node = scratch.touched[index];
+        let (key, _) = scratch.describe(grid, node);
+        visible.insert(key);
+        for face in Face::ALL {
+            if let Some(neighbour) = adjacent(key, face)
+                && grid.contains_key(&neighbour)
+            {
+                visible.insert(neighbour);
+            }
+        }
+    }
+}
+
+/// Explores each newly reachable exit once; retained exits need no repeated traversal.
+fn propagate(grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
+    let cells = grid.cell_count() as u32;
     // Leaving through an exit enters the neighbour by the opposite face whatever the entry
     // was, so each (node, exit) needs exploring once; the reached set is order-independent.
     while let Some((node, exits)) = scratch.stack.pop() {
         let (key, _) = scratch.describe(grid, node);
         let mut exits = u64::from(exits);
         while exits != 0 {
+            #[cfg(test)]
+            {
+                scratch.explored_exits += 1;
+            }
             let exit = Face::ALL[exits.trailing_zeros() as usize];
             exits &= exits - 1;
             let Some(next) = adjacent(key, exit) else {
@@ -132,27 +182,6 @@ pub(crate) fn fill_visible(
             scratch.reach(cells, next_node, (next_bits >> (entered * 6)) & FACE_MASK);
         }
     }
-    // Visibility is per sub-chunk entity, not per connected air region. Once
-    // any portal exposes an entity, models in another region of that entity
-    // are drawn too. Keep exactly one loaded neighbour shell visible so those
-    // models cannot float over support geometry hidden in an adjacent entity.
-    // Snapshot first: newly added shell nodes must not recursively expand.
-    for index in 0..scratch.touched.len() {
-        let node = scratch.touched[index];
-        let (key, _) = scratch.describe(grid, node);
-        visible.insert(key);
-        for face in Face::ALL {
-            if let Some(neighbour) = adjacent(key, face)
-                && grid.contains_key(&neighbour)
-            {
-                visible.insert(neighbour);
-            }
-        }
-        if node < cells {
-            scratch.visited[node as usize] = 0;
-        }
-    }
-    scratch.touched.clear();
 }
 
 /// The camera node may leave through any face its own air touches: the matrix diagonal.
