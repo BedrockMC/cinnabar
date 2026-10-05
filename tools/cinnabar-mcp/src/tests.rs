@@ -163,3 +163,49 @@ fn attached_servers_relay_commands_and_replies() {
     assert_eq!(result_json(&reply)["sent"], "/showcase souls");
     game_loop.join().unwrap();
 }
+
+#[test]
+fn a_timed_out_reply_does_not_desynchronise_later_calls() {
+    let endpoint_path = scratch("timeout").join("endpoint.json");
+    let control = ControlServer::start(&endpoint_path).unwrap();
+    let game_loop = std::thread::spawn(move || {
+        let mut answered = 0;
+        for _ in 0..2_000 {
+            let pending = control.drain().next();
+            if let Some(pending) = pending {
+                if matches!(pending.command, Command::State) {
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+                pending
+                    .reply
+                    .send(Ok(json!({ "for": format!("{:?}", pending.command) })));
+                answered += 1;
+                if answered == 2 {
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("commands did not arrive");
+    });
+    let mut server = Server::new(scratch("timeout-repo"));
+    server
+        .attach(&Endpoint::read(&endpoint_path).unwrap())
+        .unwrap();
+    assert!(
+        server
+            .send(&Command::State, Duration::from_millis(50))
+            .is_err()
+    );
+    std::thread::sleep(Duration::from_millis(400));
+    let reply = server
+        .send(
+            &Command::Chat {
+                text: "after".into(),
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+    assert!(reply["for"].as_str().unwrap().contains("after"), "{reply}");
+    game_loop.join().unwrap();
+}

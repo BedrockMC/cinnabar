@@ -19,6 +19,8 @@ pub struct Controller {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
     next_id: u64,
+    /// A transport or framing failure left the stream out of step with its replies.
+    broken: bool,
 }
 
 impl Controller {
@@ -35,11 +37,42 @@ impl Controller {
             reader: BufReader::new(stream.try_clone()?),
             writer: stream,
             next_id: 1,
+            broken: false,
         })
+    }
+
+    /// Whether this connection must be replaced; command errors from the client never break it.
+    pub fn is_broken(&self) -> bool {
+        self.broken
     }
 
     /// Sends `command` and waits up to `timeout` for its reply.
     pub fn call(&mut self, command: &Command, timeout: Duration) -> Result<Value, String> {
+        if self.broken {
+            return Err("the control connection is out of step; reconnect".into());
+        }
+        let (id, reply) = match self.exchange(command, timeout) {
+            Ok(exchanged) => exchanged,
+            Err(error) => {
+                self.broken = true;
+                return Err(error);
+            }
+        };
+        let (reply_id, outcome) = match parse_reply(&reply) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                self.broken = true;
+                return Err(error);
+            }
+        };
+        if reply_id != Value::from(id) {
+            self.broken = true;
+            return Err(format!("reply id {reply_id} does not match request {id}"));
+        }
+        outcome
+    }
+
+    fn exchange(&mut self, command: &Command, timeout: Duration) -> Result<(u64, String), String> {
         let id = self.next_id;
         self.next_id += 1;
         let line = request_line(id, &self.token, command);
@@ -60,17 +93,10 @@ impl Controller {
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                 ) =>
             {
-                return Err(format!(
-                    "no reply within {} ms; the connection is now out of step, reconnect",
-                    timeout.as_millis()
-                ));
+                return Err(format!("no reply within {} ms", timeout.as_millis()));
             }
             Err(error) => return Err(format!("read from client: {error}")),
         }
-        let (reply_id, outcome) = parse_reply(&reply)?;
-        if reply_id != Value::from(id) {
-            return Err(format!("reply id {reply_id} does not match request {id}"));
-        }
-        outcome
+        Ok((id, reply))
     }
 }

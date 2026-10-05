@@ -11,12 +11,7 @@ use std::{
 };
 
 use bevy::{
-    prelude::*,
-    render::{
-        render_resource::TextureFormat,
-        view::screenshot::{Screenshot, ScreenshotCaptured},
-    },
-    time::TimeUpdateStrategy,
+    prelude::*, render::render_resource::TextureFormat, time::TimeUpdateStrategy,
     winit::WinitSettings,
 };
 use developer_control::{
@@ -30,10 +25,10 @@ use serde_json::{Value, json};
 
 use client_presentation::named_audio::{AudioDevice, CAPTURE_CHANNELS, CaptureMixer};
 
+use crate::hud_tools::{FrameCapture, FrameCaptureSet};
+
 /// How long a stopping recording waits for in-flight GPU readbacks.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
-
-type SharedSink = Arc<Mutex<Option<FrameSink>>>;
 
 struct AudioCapture {
     mixer: Mutex<CaptureMixer>,
@@ -44,7 +39,7 @@ struct AudioCapture {
 #[derive(Resource)]
 pub(super) struct Recording {
     recorder: Option<Recorder>,
-    sink: SharedSink,
+    sink: FrameSink,
     fps: u32,
     fixed_clock: bool,
     pacer: RealTimePacer,
@@ -75,7 +70,12 @@ impl Recording {
 struct FixedClock(FixedStepClock);
 
 pub(super) fn configure(app: &mut App) {
-    app.add_systems(Last, (record_frame, step_fixed_clock).chain());
+    app.add_systems(
+        Last,
+        (record_frame, step_fixed_clock)
+            .chain()
+            .before(FrameCaptureSet),
+    );
 }
 
 fn step_fixed_clock(clock: Option<ResMut<FixedClock>>, mut strategy: ResMut<TimeUpdateStrategy>) {
@@ -86,18 +86,14 @@ fn step_fixed_clock(clock: Option<ResMut<FixedClock>>, mut strategy: ResMut<Time
 
 /// Saves the next rendered frame as a PNG, replying once it is on disk.
 pub(super) fn screenshot(world: &mut World, path: PathBuf, reply: Reply) {
-    let mut reply = Some(reply);
-    world
-        .spawn(Screenshot::primary_window())
-        .observe(move |captured: On<ScreenshotCaptured>| {
-            let Some(reply) = reply.take() else { return };
-            let (image, path) = (captured.image.clone(), path.clone());
-            std::thread::spawn(move || {
-                let outcome =
-                    crate::hud_tools::write_png(image, &path).map(|_| json!({ "path": path }));
-                reply.send(outcome);
-            });
+    world.resource_mut::<FrameCapture>().request(move |image| {
+        let image = image.clone();
+        std::thread::spawn(move || {
+            let outcome =
+                crate::hud_tools::write_png(image, &path).map(|_| json!({ "path": path }));
+            reply.send(outcome);
         });
+    });
 }
 
 pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Value, String> {
@@ -147,7 +143,7 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
         world.insert_resource(FixedClock(clock));
     }
     world.insert_resource(Recording {
-        sink: Arc::new(Mutex::new(recorder.sink())),
+        sink: recorder.sink(),
         recorder: Some(recorder),
         fps: settings.fps,
         fixed_clock,
@@ -203,35 +199,34 @@ fn record_frame(world: &mut World) {
 fn capture_frame(world: &mut World, recording: &mut Recording, copies: u64) {
     let first = recording.next_index;
     recording.next_index += copies;
-    recording.outstanding.fetch_add(1, Ordering::AcqRel);
-    let (sink, outstanding, failure) = (
-        Arc::clone(&recording.sink),
-        Arc::clone(&recording.outstanding),
-        Arc::clone(&recording.failure),
-    );
-    let mut pending = true;
-    world
-        .spawn(Screenshot::primary_window())
-        .observe(move |captured: On<ScreenshotCaptured>| {
-            if !std::mem::take(&mut pending) {
-                return;
-            }
-            let pushed = frames(&captured.image, first, copies).and_then(|frames| {
-                let sink = sink
-                    .lock()
-                    .map_err(|_| "recording sink poisoned".to_owned())?;
-                let Some(sink) = sink.as_ref() else {
-                    return Ok(());
-                };
-                frames.into_iter().try_for_each(|frame| sink.push(frame))
-            });
-            if let Err(error) = pushed
-                && let Ok(mut failure) = failure.lock()
-            {
-                failure.get_or_insert(error);
-            }
-            outstanding.fetch_sub(1, Ordering::AcqRel);
-        });
+    let pending = InFlight::new(&recording.outstanding);
+    let (sink, failure) = (recording.sink.clone(), Arc::clone(&recording.failure));
+    world.resource_mut::<FrameCapture>().request(move |image| {
+        let pushed = frames(image, first, copies)
+            .and_then(|frames| frames.into_iter().try_for_each(|frame| sink.push(frame)));
+        if let Err(error) = pushed
+            && let Ok(mut failure) = failure.lock()
+        {
+            failure.get_or_insert(error);
+        }
+        drop(pending);
+    });
+}
+
+/// Counts a requested readback until it is served or dropped unserved.
+struct InFlight(Arc<AtomicU64>);
+
+impl InFlight {
+    fn new(outstanding: &Arc<AtomicU64>) -> Self {
+        outstanding.fetch_add(1, Ordering::AcqRel);
+        Self(Arc::clone(outstanding))
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// `copies` consecutive frames from one capture; real-time pacing repeats a slow frame.
@@ -280,46 +275,104 @@ fn finish(world: &mut World, mut recording: Recording) {
     {
         device.stop_capture();
     }
-    if let Ok(mut sink) = recording.sink.lock() {
-        sink.take();
-    }
     let Some((reply, _)) = recording.stopping.take() else {
         return;
     };
-    let failure = recording.failure.lock().ok().and_then(|mut f| f.take());
-    let audio = recording.audio.take();
-    let recorder = recording.recorder.take();
-    let fixed_clock = recording.fixed_clock;
     std::thread::spawn(move || {
-        let audio_path = audio.map(|audio| audio.wav.finish());
-        let outcome = match (recorder, failure) {
-            (_, Some(failure)) => Err(failure),
-            (None, None) => Err("the recording had no encoder".into()),
-            (Some(recorder), None) => {
-                let wav = audio_path.as_ref().and_then(|path| path.as_ref().ok());
-                recorder.finish(wav.map(PathBuf::as_path)).map(|summary| {
-                    json!({
-                        "path": summary.path,
-                        "frames": summary.frames,
-                        "size": summary.size,
-                        "fixed_clock": fixed_clock,
-                        "audio": wav,
-                    })
-                })
-            }
-        };
-        reply.send(outcome);
+        let mut recording = recording;
+        reply.send(recording.finalize());
     });
+}
+
+impl Recording {
+    /// Closes the stream, finishes the WAV and the MP4, and muxes them.
+    fn finalize(&mut self) -> Result<Value, String> {
+        let failure = self.failure.lock().ok().and_then(|mut f| f.take());
+        let audio_path = self.audio.take().map(|audio| audio.wav.finish());
+        let recorder = self.recorder.take().ok_or("the recording had no encoder")?;
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
+        let wav = audio_path.as_ref().and_then(|path| path.as_ref().ok());
+        let summary = recorder.finish(wav.map(PathBuf::as_path))?;
+        Ok(json!({
+            "path": summary.path,
+            "frames": summary.frames,
+            "size": summary.size,
+            "fixed_clock": self.fixed_clock,
+            "audio": wav,
+        }))
+    }
+}
+
+/// Quitting mid-recording still leaves a playable file instead of wedging shutdown.
+impl Drop for Recording {
+    fn drop(&mut self) {
+        if self.recorder.is_some()
+            && let Err(error) = self.finalize()
+        {
+            eprintln!("developer recording: finishing on shutdown failed: {error}");
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use bevy::{prelude::*, time::TimePlugin};
+    use bevy::{
+        prelude::*,
+        render::{
+            render_resource::TextureFormat,
+            view::screenshot::{Screenshot, ScreenshotCaptured},
+        },
+        time::TimePlugin,
+    };
     use developer_control::clock::FixedStepClock;
 
     use super::{FixedClock, step_fixed_clock};
+
+    #[test]
+    fn concurrent_captures_share_one_readback() {
+        let mut app = App::new();
+        app.add_plugins(TimePlugin);
+        super::configure(&mut app);
+        crate::hud_tools::configure_frame_capture(&mut app);
+        let dir = std::env::temp_dir().join(format!("cinnabar-capture-{}", std::process::id()));
+        let mut replies = Vec::new();
+        for name in ["a.png", "b.png"] {
+            let (reply, outcome) = developer_control::server::Reply::channel();
+            super::screenshot(app.world_mut(), dir.join(name), reply);
+            replies.push(outcome);
+        }
+        app.update();
+        let mut shots = app.world_mut().query::<(Entity, &Screenshot)>();
+        let entities: Vec<Entity> = shots.iter(app.world()).map(|(entity, _)| entity).collect();
+        assert_eq!(entities.len(), 1, "one frame, one readback");
+        let image = Image::new_fill(
+            bevy::render::render_resource::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            bevy::render::render_resource::TextureDimension::D2,
+            &[255, 0, 0, 255],
+            TextureFormat::Rgba8UnormSrgb,
+            default(),
+        );
+        app.world_mut().trigger(ScreenshotCaptured {
+            entity: entities[0],
+            image,
+        });
+        for outcome in replies {
+            let saved = outcome
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            assert!(std::path::Path::new(saved["path"].as_str().unwrap()).is_file());
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn fixed_clock_advances_game_time_one_interval_per_update() {

@@ -7,7 +7,7 @@ use bevy::{
     ecs::message::MessageCursor,
     input::{
         ButtonState, InputSystems,
-        keyboard::{Key, KeyboardInput, NativeKey},
+        keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey},
         mouse::MouseButtonInput,
     },
     prelude::*,
@@ -185,6 +185,7 @@ fn inject(
     mut window: Query<(Entity, &mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: MessageWriter<KeyboardInput>,
     mut buttons: MessageWriter<MouseButtonInput>,
+    mut focus_lost: ResMut<Messages<KeyboardFocusLost>>,
     mut was_driven: Local<bool>,
 ) {
     let Ok((entity, mut window, mut cursor)) = window.single_mut() else {
@@ -197,6 +198,8 @@ fn inject(
     driver.focus_cursor = focus_cursor;
     let driving = driven.is_some();
     if driving {
+        // OS focus loss would release every cached key, including the ones the controller holds.
+        focus_lost.clear();
         let window = window.bypass_change_detection();
         driver.real_focus.get_or_insert(window.focused);
         window.focused = true;
@@ -291,5 +294,46 @@ fn apply_look(mut driver: ResMut<Driver>, mut view: ResMut<LocalViewPose>) {
     view.set_rotation(bedrock_camera_rotation(yaw, pitch));
     if t >= 1.0 {
         driver.tween = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::{
+        input::{InputPlugin, keyboard::KeyboardFocusLost},
+        prelude::*,
+        window::{CursorOptions, PrimaryWindow, WindowFocused},
+    };
+
+    use super::{Driver, Physical, inject};
+    use crate::camera::DrivenInput;
+
+    #[test]
+    fn real_focus_loss_keeps_driven_keys_held() {
+        let mut app = App::new();
+        app.add_plugins(InputPlugin)
+            .add_message::<WindowFocused>()
+            .init_resource::<Driver>()
+            .init_resource::<DrivenInput>()
+            .add_systems(PreUpdate, inject.before(bevy::input::InputSystems));
+        app.world_mut()
+            .spawn((Window::default(), CursorOptions::default(), PrimaryWindow));
+        app.world_mut()
+            .resource_mut::<Driver>()
+            .press(Physical::Key(KeyCode::KeyW), None);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ButtonInput<KeyCode>>()
+                .pressed(KeyCode::KeyW)
+        );
+        app.world_mut().write_message(KeyboardFocusLost);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ButtonInput<KeyCode>>()
+                .pressed(KeyCode::KeyW),
+            "OS focus loss released a key the controller still holds"
+        );
     }
 }
