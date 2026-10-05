@@ -1,5 +1,6 @@
-//! Seeded fuzz: decoding restarts exactly once per real loop crossing, whatever the ticks,
-//! rebuffering holds, scheduled controls and seeks around it.
+//! Seeded fuzz: decoding restarts exactly once per real loop crossing, and the shown position
+//! follows the authored timeline, whatever the ticks, rebuffering holds, scheduled or late
+//! controls and seeks around it, for looping and non-looping clips.
 
 use super::*;
 use crate::policy::INITIAL_BUNDLE_GENERATION;
@@ -27,6 +28,7 @@ impl Rng {
 /// The specification: a playhead in unwrapped media time that advances with time while
 /// playing and not held; controls set or keep it; the shown position wraps into the loop.
 struct Reference {
+    looping: bool,
     playhead: u64,
     playing: bool,
     held: bool,
@@ -39,10 +41,18 @@ struct Reference {
 
 impl Reference {
     fn iteration(&self, playhead: u64) -> u64 {
-        playhead.saturating_sub(self.start) / self.len
+        if self.looping {
+            playhead.saturating_sub(self.start) / self.len
+        } else {
+            0
+        }
     }
 
+    /// A late control's authored time may precede time already played; that adds nothing.
     fn run_to(&mut self, at: u64) {
+        if at < self.at {
+            return;
+        }
         if self.playing && !self.held {
             let next = self.playhead + (at - self.at);
             self.crossings += self.iteration(next) - self.iteration(self.playhead);
@@ -51,9 +61,16 @@ impl Reference {
         self.at = at;
     }
 
-    /// Applies one control; reports whether it restarts decoding by itself.
-    fn apply(&mut self, operation: &Operation) -> bool {
+    /// Applies one control authored at `at`; reports whether it restarts decoding by itself.
+    /// A position control lands where it would have had it arrived on time.
+    fn apply(&mut self, at: u64, operation: &Operation) -> bool {
         self.held = false;
+        if matches!(
+            operation,
+            Operation::Play { .. } | Operation::Pause { .. } | Operation::Seek { .. }
+        ) {
+            self.at = at;
+        }
         match *operation {
             Operation::Play { position_us } => {
                 self.playhead = position_us.min(self.duration);
@@ -74,7 +91,7 @@ impl Reference {
     }
 
     fn shown(&self) -> u64 {
-        if self.playhead >= self.start + self.len {
+        if self.looping && self.playhead >= self.start + self.len {
             self.start + (self.playhead - self.start) % self.len
         } else {
             self.playhead.min(self.duration)
@@ -105,6 +122,7 @@ fn run_case(seed: u64) {
     } else {
         1_000_000 + rng.below(9_000_000)
     };
+    let looping = rng.below(4) != 0;
     let start = rng.below(1_000_000);
     let duration = start + len + rng.below(2_000_000);
     let owner = Principal {
@@ -128,18 +146,21 @@ fn run_case(seed: u64) {
         };
         playback.enqueue(message, &owner, 1, "cinema", now).unwrap();
     };
-    send(
-        &mut playback,
-        0,
-        0,
-        Operation::SetLoop {
-            bounds_us: Some([start, start + len]),
-        },
-    );
+    if looping {
+        send(
+            &mut playback,
+            0,
+            0,
+            Operation::SetLoop {
+                bounds_us: Some([start, start + len]),
+            },
+        );
+    }
     let first = rng.below(duration);
     send(&mut playback, 0, 0, Operation::Play { position_us: first });
     playback.advance(0, duration).unwrap();
     let mut reference = Reference {
+        looping,
         playhead: first.min(duration),
         playing: true,
         held: false,
@@ -159,8 +180,12 @@ fn run_case(seed: u64) {
             if rng.below(3) != 0 {
                 continue;
             }
-            // Past-due, due now, or a start scheduled for a later tick.
-            let at = (previous + rng.below(2 * step)).max(last_effective);
+            // Late (authored before time already played), due now, or scheduled ahead.
+            let at = if last_effective < previous && rng.below(3) == 0 {
+                last_effective + rng.below(previous - last_effective)
+            } else {
+                (previous + rng.below(2 * step)).max(last_effective)
+            };
             last_effective = at;
             let operation = control(&mut rng, duration, start + len);
             send(&mut playback, at, now, operation.clone());
@@ -175,7 +200,7 @@ fn run_case(seed: u64) {
         while scheduled.front().is_some_and(|(at, _)| *at <= now) {
             let (at, operation) = scheduled.pop_front().unwrap();
             reference.run_to(at);
-            resets += u64::from(reference.apply(&operation));
+            resets += u64::from(reference.apply(at, &operation));
         }
         reference.run_to(now);
         let expected = resets + u64::from(resets == 0 && reference.crossings > 0);

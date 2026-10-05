@@ -160,7 +160,8 @@ impl Playback {
             .is_some_and(|message| message.effective_server_us <= server_us)
         {
             let message = self.pending.pop_front().expect("front checked");
-            self.run_to(message.effective_server_us, duration_us);
+            let authored = message.effective_server_us;
+            self.run_to(authored, duration_us);
             self.held = false;
             match message.operation {
                 Operation::Prepare { media_id } => {
@@ -170,17 +171,17 @@ impl Playback {
                     self.reset_decode()?;
                 }
                 Operation::Play { position_us } => {
-                    self.position_us = position_us.min(duration_us);
+                    self.place(position_us.min(duration_us), authored);
                     self.playing = true;
                     self.stopped = false;
                     self.reset_decode()?;
                 }
                 Operation::Pause { position_us } => {
-                    self.position_us = position_us.min(duration_us);
+                    self.place(position_us.min(duration_us), authored);
                     self.playing = false;
                 }
                 Operation::Seek { position_us } => {
-                    self.position_us = position_us.min(duration_us);
+                    self.place(position_us.min(duration_us), authored);
                     self.reset_decode()?;
                 }
                 Operation::SetLoop { bounds_us } => {
@@ -236,6 +237,13 @@ impl Playback {
     pub fn finish(&mut self, server_us: u64, duration_us: u64) {
         self.hold(server_us, duration_us);
         self.playing = false;
+    }
+
+    /// Puts the playhead at `position` as of the control's authored time, so a control that
+    /// arrives late lands where it would have on time.
+    fn place(&mut self, position: u64, authored_us: u64) {
+        self.position_us = position;
+        self.anchor_us = authored_us;
     }
 
     fn unwrapped(&self, server_us: u64) -> u64 {

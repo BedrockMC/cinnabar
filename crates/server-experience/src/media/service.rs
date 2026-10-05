@@ -15,6 +15,8 @@ use std::{
     sync::{Arc, atomic::AtomicU64},
 };
 
+#[cfg(test)]
+mod eof_fuzz;
 pub(crate) mod output;
 
 const MAX_EVENTS: usize = 16;
@@ -250,6 +252,9 @@ impl Player {
                     self.playback.finish(server_us, duration);
                     self.ended = true;
                     self.event(EventKind::Ended, position);
+                } else {
+                    // Nothing more will arrive; the last frame and audio need time to play out.
+                    self.playback.release();
                 }
             } else if !self.decoder_ended
                 && self
@@ -364,7 +369,7 @@ mod tests {
     };
 
     /// A player for the 500 ms, 10 fps fixture descriptor, without a bundle or helper.
-    fn player() -> Player {
+    pub(super) fn player() -> Player {
         let owner = Principal {
             session: "session".into(),
             bundle: "cinema".into(),
@@ -399,7 +404,7 @@ mod tests {
         control(player, revision, at_us, Operation::Play { position_us: 0 });
     }
 
-    fn control(player: &mut Player, revision: u64, at_us: u64, operation: Operation) {
+    pub(super) fn control(player: &mut Player, revision: u64, at_us: u64, operation: Operation) {
         let message = Message {
             owner: player.owner.clone(),
             instance: INITIAL_MEDIA_INSTANCE,
