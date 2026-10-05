@@ -13,7 +13,7 @@ Parity covers what the player sees and how the game behaves, never how we comput
 
 ## Parity sources
 
-Vanilla behaviour, constants, geometry, formulas, layouts and vanilla packs may be used directly, as long as we write our own code. Never paste decompiled source. Committed files (code, comments, docs, commit messages, PR text) never name where behaviour was reverse-engineered from: no decompilation repos or paths, reconstruction line references, function addresses, RVAs or executable hashes. Describe the vanilla behaviour itself, for example as a "Vanilla rules" table. Vanilla pack file paths are fine.
+Vanilla behaviour, constants, geometry, formulas, layouts and vanilla packs may be used directly, as long as we write our own code. Never paste decompiled source. Committed files (code, comments, docs, commit messages, PR text) never name where behaviour was reverse-engineered from: no decompilation repos or paths, reconstruction line references, function addresses, RVAs or executable hashes. Describe the vanilla behaviour itself, for example as a "Vanilla rules" table. Vanilla pack file paths are fine. The one exception is `docs/agents/vanilla-refs-map.md`, the agent index mapping files to the vanilla code they match; add references there, never in code or other docs.
 
 ## UI
 
