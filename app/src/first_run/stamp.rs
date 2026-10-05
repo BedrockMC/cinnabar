@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 use anyhow::{Context, Result};
@@ -22,6 +23,45 @@ pub(super) struct Stamp {
     schema: u32,
     /// Carrier (or output directory) name to the identity it was built from.
     carriers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    compiler: Option<CompilerStamp>,
+}
+
+/// The compiler binary's digest and the file state it was computed for; while the size, mtime
+/// and client version match, launches reuse the digest instead of rehashing the binary.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub(super) struct CompilerStamp {
+    size: u64,
+    modified_ns: u64,
+    version: String,
+    sha256: String,
+}
+
+fn compiler_stamp(path: &Path, previous: Option<&CompilerStamp>) -> Result<CompilerStamp> {
+    let metadata = fs::metadata(path).with_context(|| format!("read {}", path.display()))?;
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(0));
+    let version = env!("CARGO_PKG_VERSION");
+    let sha256 = match previous.filter(|previous| {
+        modified_ns != 0
+            && (
+                previous.size,
+                previous.modified_ns,
+                previous.version.as_str(),
+            ) == (metadata.len(), modified_ns, version)
+    }) {
+        Some(previous) => previous.sha256.clone(),
+        None => file_sha256(path)?,
+    };
+    Ok(CompilerStamp {
+        size: metadata.len(),
+        modified_ns,
+        version: version.to_owned(),
+        sha256,
+    })
 }
 
 /// The stamp beside `prepared`; empty when absent, unreadable or from another schema.
@@ -33,10 +73,15 @@ pub(super) fn read(prepared: &Path) -> Stamp {
         .unwrap_or_default()
 }
 
-pub(super) fn write(dir: &Path, carriers: &BTreeMap<String, String>) -> Result<()> {
+pub(super) fn write(
+    dir: &Path,
+    carriers: &BTreeMap<String, String>,
+    compiler: &CompilerStamp,
+) -> Result<()> {
     let stamp = Stamp {
         schema: SCHEMA,
         carriers: carriers.clone(),
+        compiler: Some(compiler.clone()),
     };
     let path = dir.join(STAMP_FILE);
     fs::write(&path, serde_json::to_vec_pretty(&stamp)?)
@@ -54,6 +99,7 @@ pub(super) struct Selection {
     pub needs_pack: bool,
     /// The output name of each running `assetc` step, cleared before it runs.
     pub outputs: Vec<String>,
+    pub compiler: CompilerStamp,
 }
 
 impl Selection {
@@ -74,13 +120,17 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
     let manifest = super::runner::kit_file(kit, VANILLA_MANIFEST)
         .with_context(|| format!("the preparation kit lacks {VANILLA_MANIFEST}"))?;
     let pack = file_sha256(&manifest)?;
-    let compiler = file_sha256(&kit.join("bin").join(super::runner::assetc_name()))?;
+    let compiler = compiler_stamp(
+        &kit.join("bin").join(super::runner::assetc_name()),
+        stamp.compiler.as_ref(),
+    )?;
     let resolve = |arg: &str| super::runner::kit_file(kit, arg);
     let mut selection = Selection {
         run: vec![false; steps.len()],
         identities: BTreeMap::new(),
         needs_pack: false,
         outputs: Vec::new(),
+        compiler,
     };
     for (index, step) in steps.iter().enumerate() {
         let Action::Assetc(args) = &step.action else {
@@ -90,7 +140,7 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
             args,
             &pack_dir,
             &pack,
-            &compiler,
+            &selection.compiler.sha256,
             &resolve,
             &selection.identities,
         )?;
@@ -267,7 +317,19 @@ mod tests {
             fs::write(prepared.join(name), b"x").unwrap();
         }
         let steps = plan::steps(kit).unwrap();
-        write(prepared, &select(&steps, kit, prepared).unwrap().identities).unwrap();
+        let selection = select(&steps, kit, prepared).unwrap();
+        write(prepared, &selection.identities, &selection.compiler).unwrap();
+    }
+
+    fn set_compiler(kit: &Path, bytes: &[u8], modified: std::time::SystemTime) {
+        let path = kit.join("bin").join(super::super::runner::assetc_name());
+        fs::write(&path, bytes).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
     }
 
     fn running(kit: &Path, prepared: &Path) -> (Vec<&'static str>, bool) {
@@ -287,14 +349,23 @@ mod tests {
         let dir = Dir::new("compiler-change");
         let (kit, prepared) = (kit(&dir), dir.path().join("compiled"));
         prepare(&kit, &prepared);
-        fs::write(
-            kit.join("bin").join(super::super::runner::assetc_name()),
-            b"compiler-v2",
-        )
-        .unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        set_compiler(&kit, b"compiler-v2", later);
         let (labels, _) = running(&kit, &prepared);
         assert!(labels.contains(&"Compiling world assets"));
         assert!(labels.contains(&"Compiling Cinnangles Sans"));
+    }
+
+    #[test]
+    fn an_unchanged_compiler_file_is_not_rehashed() {
+        let dir = Dir::new("compiler-unchanged");
+        let (kit, prepared) = (kit(&dir), dir.path().join("compiled"));
+        let modified = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1 << 30);
+        set_compiler(&kit, b"compiler-v1", modified);
+        prepare(&kit, &prepared);
+        // Same size and mtime: the stamped digest stands even though the bytes differ.
+        set_compiler(&kit, b"compiler-v2", modified);
+        assert_eq!(running(&kit, &prepared), (vec![], false));
     }
 
     #[test]
