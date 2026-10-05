@@ -28,7 +28,7 @@ fn crystal_alpha_test_keeps_the_actor_and_bakes_native_half_alpha_coverage() {
             &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
         )
         .unwrap();
-        assert_eq!(catalog.textures()[0].rgba8[3], coverage);
+        assert_eq!(catalog.textures()[0].rgba8[PROBE_ALPHA], coverage);
     }
 }
 

@@ -9,6 +9,10 @@ use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
 mod actor_raster;
 use actor_raster::{cube, raster, raster_material};
 
+pub(super) fn source() -> String {
+    actor_raster::source(false)
+}
+
 #[test]
 fn actor_material_states_keep_authored_one_sided_border_hidden_from_behind() {
     let Some(gpu) =

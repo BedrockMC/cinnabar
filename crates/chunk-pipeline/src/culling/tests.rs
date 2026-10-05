@@ -404,6 +404,185 @@ fn visible_sets_compare_by_members() {
     assert!(left.is_empty() && !left.contains(&near) && !left.contains(&far));
 }
 
+/// Applies either publication path while keeping the same retained traversal state.
+fn update_incrementally(
+    camera: SubChunkKey,
+    grid: &ConnectivityGrid,
+    scratch: &mut CaveVisibilityScratch,
+    visible: &mut CaveVisibleSet,
+    replacement: &mut CaveVisibleSet,
+) -> bool {
+    let rebuilt = update_visible(camera, grid, scratch, visible, replacement);
+    if rebuilt {
+        std::mem::swap(visible, replacement);
+    }
+    rebuilt
+}
+
+#[test]
+fn incremental_addition_does_not_revisit_the_resident_graph() {
+    let mut map = fixture_world(12, 0x5eed);
+    let mut grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+    let camera = SubChunkKey::new(0, 0, 10, 0);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    assert!(update_incrementally(
+        camera,
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert!(scratch.explored_exits > 10_000);
+
+    let fresh = SubChunkKey::new(0, 13, 10, 0);
+    map.insert(fresh, FaceConnectivity::all());
+    grid.insert(fresh, FaceConnectivity::all());
+    assert!(!update_incrementally(
+        camera,
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert_eq!(scratch.explored_exits, 6);
+    assert_eq!(scratch.added_visible(), &[fresh]);
+    assert_eq!(visible.iter().collect::<HashSet<_>>(), oracle(camera, &map));
+
+    grid.insert(fresh, FaceConnectivity::all());
+    assert!(!update_incrementally(
+        camera,
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert_eq!(scratch.explored_exits, 0);
+    assert!(scratch.added_visible().is_empty());
+}
+
+#[test]
+fn incremental_additions_keep_exactly_one_support_shell() {
+    let key = |x| SubChunkKey::new(0, x, 0, 0);
+    let mut grid = grid([(key(0), FaceConnectivity::all())]);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    update_incrementally(key(0), &grid, &mut scratch, &mut visible, &mut replacement);
+    // Reverse insertion order ensures traversal, not journal order, exposes the support shell.
+    grid.insert(key(3), FaceConnectivity::all());
+    grid.insert(key(2), FaceConnectivity::all());
+    grid.insert(key(1), FaceConnectivity::none());
+    assert!(!update_incrementally(
+        key(0),
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert_eq!(
+        visible.iter().collect::<HashSet<_>>(),
+        [key(0), key(1), key(2)].into()
+    );
+    grid.insert(key(4), FaceConnectivity::all());
+    assert!(!update_incrementally(
+        key(0),
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert!(!visible.contains(&key(3)) && !visible.contains(&key(4)));
+    assert_eq!(scratch.explored_exits, 0);
+}
+
+#[test]
+fn incremental_updates_match_full_traversal_through_mutations() {
+    let mut rng = Rng(0x51ea_cafe);
+    let mut map = fixture_world(3, 0x5eed);
+    let mut grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+    let mut camera = SubChunkKey::new(0, 0, 10, 0);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    for step in 0..300 {
+        for _ in 0..8 {
+            let key = SubChunkKey::new(
+                i32::from(rng.next() % 11 == 0),
+                rng.below(12) - 6,
+                rng.below(80) - 20,
+                rng.below(12) - 6,
+            );
+            let value = rng.connectivity();
+            map.insert(key, value);
+            grid.insert(key, value);
+        }
+        if step % 13 == 0 {
+            let key = SubChunkKey::new(0, 0, 9, 0);
+            let value = rng.connectivity();
+            map.insert(key, value);
+            grid.insert(key, value);
+        }
+        if step % 17 == 0 {
+            grid.remove(&camera);
+            map.remove(&camera);
+        }
+        if step % 19 == 0 {
+            map.insert(camera, FaceConnectivity::all());
+            grid.insert(camera, FaceConnectivity::all());
+        }
+        if step % 23 == 0 {
+            grid.retain(|key| key.x != -5);
+            map.retain(|key, _| key.x != -5);
+        }
+        if step % 31 == 0 {
+            camera = SubChunkKey::new(0, rng.below(6) - 3, rng.below(20), 0);
+        }
+        update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
+        assert_eq!(
+            visible.iter().collect::<HashSet<_>>(),
+            oracle(camera, &map),
+            "step {step}"
+        );
+        assert_eq!(visible.len(), visible.iter().collect::<HashSet<_>>().len());
+    }
+}
+
+#[test]
+fn incremental_history_rollover_and_grid_replacement_rebuild_exactly() {
+    let camera = SubChunkKey::new(0, 0, 0, 0);
+    let mut grid = grid([(camera, FaceConnectivity::all())]);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
+    for x in 0..32 {
+        for y in 0..8 {
+            for z in 0..32 {
+                grid.insert(SubChunkKey::new(0, x, y, z), FaceConnectivity::all());
+            }
+        }
+    }
+    assert!(update_incrementally(
+        camera,
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert_eq!(visible.len(), grid.len());
+    grid = [(camera, FaceConnectivity::none())].into_iter().collect();
+    assert!(update_incrementally(
+        camera,
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
+    assert_eq!(visible.iter().collect::<Vec<_>>(), [camera]);
+}
+
 /// Release timing: `cargo test --release -p chunk-pipeline cave_visibility_bench -- --ignored --nocapture`.
 #[test]
 #[ignore = "offline cave traversal timing fixture"]

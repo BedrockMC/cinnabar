@@ -14,6 +14,7 @@ fn stationary_light_view(stream: &mut WorldStream, position: [f32; 3]) {
     let view = SchedulerView {
         position,
         forward: stream.view_forward,
+        startup_center: None,
     };
     stream
         .lighting
@@ -63,6 +64,7 @@ fn late_destination_light_dependencies_precede_stationary_view_backlog() {
             SchedulerView {
                 position,
                 forward: stream.view_forward,
+                startup_center: None,
             },
             true,
         ));
@@ -111,6 +113,7 @@ fn transfer_meshes_precede_backlog_and_release_priority_after_completion() {
     let view = SchedulerView {
         position,
         forward: stream.view_forward,
+        startup_center: None,
     };
     stream
         .mesh_jobs

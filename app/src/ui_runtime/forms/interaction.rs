@@ -107,6 +107,25 @@ pub(crate) fn drive_server_form_input(
         return;
     }
     *owned_last_frame = true;
+    if !window.focused {
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        client_ui::ui_runtime::interaction::suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
+        return;
+    }
     let engine_frame = runtime
         .server_forms()
         .active()
@@ -223,4 +242,72 @@ pub(crate) fn drive_server_form_input(
         &mut mouse,
         &mut motion,
     );
+}
+
+#[cfg(test)]
+mod focus_tests {
+    use super::*;
+    use crate::ui_runtime::presentation::forms::{pack_harness, tests::mini_engine_presentation};
+    use bevy::prelude::{App, Update};
+    use client_ui::ui_runtime::forms::values::FormDrag;
+
+    #[test]
+    fn unfocused_form_discards_pointer_edges_without_closing_or_replaying_them() {
+        let mut player = crate::player_runtime::PlayerRuntime::new(1);
+        let mut runtime = pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
+        let identity = runtime.server_forms().active().unwrap().identity;
+        let engine = runtime.server_forms_mut().engine_mut();
+        engine.view.focused = Some("retained focus".into());
+        engine.view.pressed = Some("button".into());
+        engine.drag = Some(FormDrag::Control {
+            key: "button".into(),
+            last: [2.0, 3.0],
+        });
+        let mut app = App::new();
+        app.add_message::<KeyboardInput>()
+            .add_message::<MouseWheel>()
+            .add_message::<MouseButtonInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .insert_resource(player)
+            .insert_resource(runtime)
+            .insert_resource(mini_engine_presentation())
+            .add_systems(Update, drive_server_form_input);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: false,
+                    ..Default::default()
+                },
+                CursorOptions::default(),
+                PrimaryWindow,
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state: ButtonState::Pressed,
+            window: entity,
+        });
+        app.update();
+        app.world_mut().get_mut::<Window>(entity).unwrap().focused = true;
+        app.update();
+        let runtime = app.world().resource::<UiRuntime>();
+        assert_eq!(runtime.server_forms().active().unwrap().identity, identity);
+        let engine = runtime.server_forms().engine();
+        assert!(engine.drag.is_none() && engine.view.pressed.is_none());
+        assert_eq!(engine.view.focused.as_deref(), Some("retained focus"));
+        assert!(
+            !app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .pressed(MouseButton::Left)
+        );
+    }
 }

@@ -6,6 +6,7 @@ Cinnabar is a Rust Bedrock client plus a Go core. Every system (UI, rendering, c
 | --- | --- |
 | `docs/agents/multi-agent-workflow.md` | Worktrees, build limits, checks |
 | `docs/agents/live-testing.md` | Running the client or BDS, capturing frames, closing a visual/performance gate |
+| `docs/agents/client-mcp.md` | Scripting the client or recording video through the MCP server |
 
 ## Performance: as fast as we can make it
 

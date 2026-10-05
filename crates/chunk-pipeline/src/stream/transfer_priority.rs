@@ -53,6 +53,7 @@ impl WorldStream {
         let view = SchedulerView {
             position: priority.position,
             forward: None,
+            startup_center: None,
         };
         let columns = priority
             .meshes
@@ -89,6 +90,7 @@ impl WorldStream {
         let view = SchedulerView {
             position: priority.position,
             forward: None,
+            startup_center: None,
         };
         for key in priority.meshes {
             let Some(pending) = self.mesh_jobs.pending.get(&key).copied() else {

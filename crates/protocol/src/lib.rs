@@ -153,7 +153,10 @@ pub use item::{
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
-pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
+pub use jolyne::stream::{
+    ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
+    ResourcePackStore,
+};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
@@ -203,9 +206,9 @@ pub use ui::{
     NpcDialogueForm, NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction,
     ScoreEntry, ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory,
     TextEvent, TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError,
-    UnsupportedForm, chat_input_packet, chat_text_packet, custom_form_submit_response,
-    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
-    npc_request_packet, server_settings_request_packet,
+    UnsupportedForm, chat_input_packet, chat_text_packet, command_request_packet,
+    custom_form_submit_response, modal_form_busy_response, modal_form_cancel_response,
+    modal_form_submit_response, npc_request_packet, server_settings_request_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use world::{

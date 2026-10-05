@@ -297,8 +297,8 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     // Test-only resource remapping lets the shared single-group readback helper run
     // production actor_fragment unchanged, including its actual imported helpers.
     let actor = shader_source::standalone(&actor, &[])
-        .replace("@group(1) @binding(0)", "@group(0) @binding(10)")
-        .replace("@group(1) @binding(1)", "@group(0) @binding(11)");
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
+        .replace("@group(1) @binding(1)", "@group(0) @binding(21)");
     let source = format!("{actor}\n{VERTEX}");
     let view = gpu.buffer(
         &gpu_snapshot::view(bevy::math::Mat4::IDENTITY, bevy::math::Vec3::ZERO),
@@ -350,15 +350,27 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
                 resource: material.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
+                binding: 9,
+                resource: wgpu::BindingResource::TextureView(&skin),
+            },
+            wgpu::BindGroupEntry {
                 binding: 10,
-                resource: lightmap.as_entire_binding(),
+                resource: wgpu::BindingResource::TextureView(&skin),
             },
             wgpu::BindGroupEntry {
                 binding: 11,
+                resource: wgpu::BindingResource::TextureView(&skin),
+            },
+            wgpu::BindGroupEntry {
+                binding: 20,
+                resource: lightmap.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 21,
                 resource: atmosphere.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
-                binding: 12,
+                binding: 22,
                 resource: fixture.as_entire_binding(),
             },
         ];
@@ -402,7 +414,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
 
 const VERTEX: &str = r#"
 struct ActorWitnessCase { normal: vec4<f32>, words: vec4<u32>, distance_multi: vec4<f32> }
-@group(0) @binding(12) var<uniform> actor_witness: ActorWitnessCase;
+@group(0) @binding(22) var<uniform> actor_witness: ActorWitnessCase;
 @vertex fn actor_witness_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
     var out: VertexOutput;

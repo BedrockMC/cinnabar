@@ -271,7 +271,6 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         .unwrap();
 
     assert!(stream.publisher.source_columns.contains(&source));
-    assert!(!stream.tracked_columns().contains(&source));
     assert!(matches!(
         stream.take_committed_controls().as_slice(),
         [super::CommittedControlEvent::MovePlayer {
@@ -280,6 +279,9 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
             ..
         }] if *cohort == source_cohort
     ));
+    assert!(stream.retain_local([1_040.5, 70.0, 1_040.5]));
+    assert!(!stream.tracked_columns().contains(&source));
+    assert!(stream.publisher.source_columns.contains(&source));
 }
 
 #[test]

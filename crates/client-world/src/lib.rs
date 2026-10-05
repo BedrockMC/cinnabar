@@ -26,12 +26,13 @@ pub use actor_animation::{
     MODEL_PART_ORIGIN_Y, RenderTextureLayer, SkinRenderLayer,
 };
 pub use actor_store::{
-    ActorFluidProbe, ActorPickup, ActorPose, ActorSnapshot, ActorStatus, ActorStatusNotice,
-    BlockEntityCandidate, BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS,
-    DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,
-    LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES,
-    MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault, RideSeat, RopeKind,
-    RopeView, SeatDefaults, SeatRequirement, dropped_item_copy_count, tnt_presentation,
+    ActorFluidProbe, ActorPickup, ActorPose, ActorShadowCaster, ActorSnapshot, ActorStatus,
+    ActorStatusNotice, BlockEntityCandidate, BlockEntityKind, BlockEntityView, CrystalBeamView,
+    DEATH_DURATION_TICKS, DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, HURT_DURATION_TICKS,
+    HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
+    MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault,
+    RideSeat, RopeKind, RopeView, SeatDefaults, SeatRequirement, dropped_item_copy_count,
+    tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,

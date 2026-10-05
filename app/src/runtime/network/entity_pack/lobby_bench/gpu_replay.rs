@@ -133,7 +133,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE").expect("offline capture path");
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("offline pack path");
     let capture = read_capture(Path::new(&capture));
-    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), false);
+    let (mut world, rest, mut replay) = build_world(&capture, Some(Path::new(&pack)), false);
     let camera = *world
         .query_filtered::<&Transform, With<crate::camera::FlyCamera>>()
         .single(&world)

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use json_ui::{
     BindState, BossBar, CROSSHAIR_SCREEN, CachedLibrary, Catalog, CatalogLibrary, Context,
     DataSource, FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, ResolveCache, ResolvedControl,
-    Sidebar, Timed, ViewState, bind_stateful, hud_clocks, hud_context, hud_data_source,
+    Sidebar, Timed, ViewState, bind_incremental, hud_clocks, hud_context, hud_data_source, rebind,
     render_bound_cached, resolve,
 };
 use ui::{TimedText, UiNode};
@@ -201,18 +201,31 @@ impl CachedScreen {
                 library: CatalogLibrary { catalog, context },
                 cache: &self.library,
             };
-            let mut bound = bind_stateful(tree, &data, &library, &mut self.binding).0;
-            if current
-                && self.laid.as_ref().is_some_and(|laid| {
-                    laid.root == root && laid.px == px && laid.language == language
-                })
-            {
-                let mut previous = self.laid.take()?.render.bound;
-                self.measures.update_tree(&mut previous, bound);
-                bound = previous;
-            } else {
-                self.measures = json_ui::MeasureCache::default();
-            }
+            let previous = self.laid.take().filter(|_| current);
+            let same_frame = previous.as_ref().is_some_and(|laid| {
+                laid.root == root && laid.px == px && laid.language == language
+            });
+            let bound = match previous {
+                Some(laid) => {
+                    let mut bound = laid.render.bound;
+                    if !same_frame {
+                        self.measures = json_ui::MeasureCache::default();
+                    }
+                    rebind(
+                        tree,
+                        &data,
+                        &library,
+                        &mut self.binding,
+                        &mut bound,
+                        &mut self.measures,
+                    );
+                    bound
+                }
+                None => {
+                    self.measures = json_ui::MeasureCache::default();
+                    bind_incremental(tree, &data, &library, &mut self.binding)
+                }
+            };
             self.passes += 1;
             self.laid = Some(Laid {
                 reference: reference.to_owned(),

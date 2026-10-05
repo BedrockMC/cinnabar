@@ -121,12 +121,17 @@ pub fn chat_input_packet(
         return chat_text_packet(source_name, xuid, message);
     }
 
+    Ok(command_request_packet(message))
+}
+
+/// A vanilla player-origin command request for already validated text.
+pub fn command_request_packet(command: &str) -> crate::Packet {
     // The origin discriminant is a lowercase name string on this wire, not an
     // integer: gophertunnel's `commandOriginToString` maps
     // `CommandOriginPlayer` to exactly "player"
     // (`minecraft/protocol/command.go`).
-    Ok(CommandRequestPacket {
-        command: message.to_owned(),
+    CommandRequestPacket {
+        command: command.to_owned(),
         origin: CommandOriginDatajson {
             type_: "player".to_owned(),
             uuid: uuid::Uuid::new_v4(),
@@ -136,7 +141,7 @@ pub fn chat_input_packet(
         is_internal: false,
         version: "latest".to_owned(),
     }
-    .into())
+    .into()
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -31,6 +34,10 @@ func (c *Client) Home(ctx context.Context, name string) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
+	id, err := knownPage(cfg, name)
+	if err != nil {
+		return Page{}, err
+	}
 	inv, err := c.loadInventory(ctx, false)
 	if err != nil {
 		return Page{}, err
@@ -41,7 +48,7 @@ func (c *Client) Home(ctx context.Context, name string) (Page, error) {
 	if state.Entitlements == nil {
 		state.Entitlements = []string{}
 	}
-	layout, err := c.cfg.Market.Page(ctx, marketplace.PageByID, cfg.PageID(name), state)
+	layout, err := c.cfg.Market.Page(ctx, marketplace.PageByID, id, state)
 	if err != nil {
 		return Page{}, err
 	}
@@ -78,6 +85,16 @@ func (c *Client) Home(ctx context.Context, name string) (Page, error) {
 		}
 	}
 	return page, nil
+}
+
+// knownPage returns the page id the session config maps name to. Unlike [marketplace.SessionConfig.PageID]
+// it never sends the name itself, which the service rejects; the error lists the configured names.
+func knownPage(cfg *marketplace.SessionConfig, name string) (string, error) {
+	if id := cfg.KnownPages[name]; id != "" {
+		return id, nil
+	}
+	names := slices.Sorted(maps.Keys(cfg.KnownPages))
+	return "", fmt.Errorf("%w: session config has no %q page (known pages: %s)", ErrUnknownPage, name, strings.Join(names, ", "))
 }
 
 type pendingRow struct {

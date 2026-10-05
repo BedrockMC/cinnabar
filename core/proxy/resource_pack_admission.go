@@ -396,6 +396,7 @@ func (stack *selectedResourcePackStack) release() {
 // downstream connection. close is idempotent so cancellation and listener
 // shutdown cannot double-close an upstream session or target.
 type preparedConnection struct {
+	packetDelay   *PacketDelay
 	downstream    packetSession // attached when Accept transfers the prepared session
 	upstream      upstreamSession
 	releaseTarget func() error
@@ -490,7 +491,13 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
-			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dialer.DialContextNetwork)
+			dial := dialer.DialContextNetwork
+			if dialer.TokenSource != nil {
+				dial = func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
+					return dialWithPreparedTransport(ctx, network, address, dialer.DialContextNetwork)
+				}
+			}
+			return dialMinecraftUpstream(ctx, networkForAddress(target, address), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
@@ -773,7 +780,7 @@ func (connections *preparedConnections) shutdown() error {
 func servePreparedConnection(ctx context.Context, downstream downstreamSession, prepared *preparedConnection) (err error) {
 	prepared.downstream = downstream
 	defer func() { err = errors.Join(err, prepared.close()) }()
-	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() })
+	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() }, prepared.packetDelay)
 }
 
 // finish stops progress once the dial has returned.

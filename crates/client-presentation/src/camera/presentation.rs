@@ -277,6 +277,14 @@ pub fn apply_camera_presentation(
     let mut pose = override_pose.unwrap_or(base);
     let mut changed = override_pose.is_some();
 
+    if override_pose.is_none()
+        && let Some(rig) = settings.rig()
+        && rig.roll_radians != 0.0
+    {
+        pose.rotation = (pose.rotation * Quat::from_rotation_z(rig.roll_radians)).normalize();
+        changed = true;
+    }
+
     if override_pose.is_none() && settings.perspective() == PerspectiveMode::FirstPerson {
         let effect = hand.hurt * hand.bob.matrix();
         if effect != Mat4::IDENTITY && effect.is_finite() {
@@ -422,6 +430,27 @@ mod tests {
         assert_eq!(
             camera_transform(&mut app).translation,
             Vec3::new(10.0, 20.0, 30.0)
+        );
+    }
+
+    #[test]
+    fn rig_roll_tilts_the_presented_camera_only() {
+        let mut app = camera_app();
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .set_rig(Some(crate::camera::CameraRig {
+                offset: Vec3::ZERO,
+                roll_radians: 0.3,
+                fov_delta_degrees: 0.0,
+            }));
+        app.update();
+        let transform = camera_transform(&mut app);
+        assert_eq!(transform.translation, Vec3::new(1.0, 2.0, 3.0));
+        let (_, _, roll) = transform.rotation.to_euler(EulerRot::YXZ);
+        assert!((roll - 0.3).abs() < 1e-5);
+        assert_eq!(
+            *app.world().resource::<LocalViewPose>(),
+            LocalViewPose::default()
         );
     }
 

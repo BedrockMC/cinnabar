@@ -36,6 +36,8 @@ pub struct NetworkConfig {
     pub client_blob_cache: ClientBlobCache,
     /// The client's own skin, uploaded in the ClientData login payload.
     pub player_skin: protocol::ClientSkin,
+    /// Server-pack archives kept across joins; `None` downloads every offered pack.
+    pub resource_pack_store: Option<Arc<dyn protocol::ResourcePackStore>>,
 }
 
 /// Which transport leg or lifecycle stage produced a session failure.

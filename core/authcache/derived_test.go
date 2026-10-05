@@ -745,8 +745,8 @@ func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource
 
 // fakeServices stands in for the native service-token source: a valid token is reused, otherwise
 // exchange issues the next one.
-func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token) service.TokenSource {
-	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token) service.TokenSource {
+func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token, string) service.TokenSource {
+	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token, _ string) service.TokenSource {
 		return &fakeServiceSource{env: env, token: token, exchange: exchange}
 	}
 }
@@ -811,7 +811,7 @@ func TestAccountSharesOnePlayFabSessionUntilClosed(t *testing.T) {
 				HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
 			})
 		},
-		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token) service.TokenSource {
+		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token, _ string) service.TokenSource {
 			return fakeServiceSourceFunc(func(ctx context.Context) (*service.Token, error) {
 				ticket, err := source.SessionTicket(ctx)
 				tickets = append(tickets, ticket)

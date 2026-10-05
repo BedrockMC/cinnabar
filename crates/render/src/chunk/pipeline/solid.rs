@@ -63,6 +63,7 @@ pub(in crate::chunk) fn prepare_solid_indirect_batch_draws<'a>(
 }
 
 pub(in crate::chunk) type DrawSolidChunkCommands = (
+    crate::chunk::gpu_cull::SkipOccludedTerrain,
     SetItemPipeline,
     crate::lighting::SetWorldLightmap,
     crate::enhanced::SetEnhancedViewBindGroup<2>,

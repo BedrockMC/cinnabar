@@ -152,6 +152,7 @@ client: assets physics-assets
 play: assets physics-assets
 ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
+	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
 	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .

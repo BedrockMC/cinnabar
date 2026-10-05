@@ -24,6 +24,7 @@ const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
 const SCALE_METADATA_KEY: u32 = 38;
 const NAMETAG_METADATA_KEY: u32 = 4;
 const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
+pub(crate) const VARIANT_METADATA_KEY: u32 = 2;
 const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 /// `minecraft:collision_box` in the vanilla `player.json` definition.
 const PLAYER_COLLISION_WIDTH: f32 = 0.6;
@@ -624,6 +625,10 @@ pub(crate) struct ActorStore {
     /// Key of the synthetic local-player profile, present only while the player list carries no
     /// self entry; cleared when a real echo takes over or the actor set is reset.
     synthetic_local_uuid: Option<[u8; 16]>,
+    /// Last client-fed appearance, separate from server replacements of its profile.
+    synthetic_local_skin: Option<[u8; 32]>,
+    /// A client skin that could not fit the profile budget is retried on later feeds.
+    synthetic_local_skin_pending: bool,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.
@@ -669,6 +674,7 @@ mod placement;
 mod projectile;
 pub(crate) mod properties;
 mod query;
+mod shadow;
 mod synchronized_audio;
 mod terrain_interlock;
 
@@ -682,8 +688,10 @@ pub use hurt::{
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
+pub(crate) use placement::FLAG_BABY;
 pub use placement::{ActorFluidProbe, RideSeat, SeatDefaults, SeatRequirement};
 pub use properties::PropertyDefault;
+pub use shadow::ActorShadowCaster;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {

@@ -22,6 +22,17 @@ impl WorldAuthority {
         }
     }
 
+    /// True while a committed teleport, correction, dimension change or spawn awaits local physics.
+    pub fn has_pending_spatial_control(&self) -> bool {
+        self.committed_controls.iter().any(|control| match control {
+            CommittedControlEvent::MovePlayer { .. }
+            | CommittedControlEvent::PlayerMovementCorrection { .. }
+            | CommittedControlEvent::ChangeDimension { .. } => true,
+            CommittedControlEvent::Respawn { respawn, .. } => respawn.ready_to_spawn(),
+            _ => false,
+        })
+    }
+
     /// Drains committed control events in their original order.
     pub fn take_committed_controls(&mut self) -> Vec<CommittedControlEvent> {
         self.committed_controls.drain(..).collect()
