@@ -2,11 +2,24 @@ use super::*;
 
 pub(super) const NEAR_CAMERA_RADIUS: i32 = 4;
 
+/// Longest wait, in startup ingress polls, before a still-blocked promoted job is rechecked.
+const MAX_RECHECK_BACKOFF_POLLS: u64 = 32;
+
 /// Ready work leads during ordinary streaming; startup also rechecks higher-priority deferred work.
 #[derive(Default)]
 pub(super) struct Lane {
     pub(super) ready: BinaryHeap<PendingSchedulerCandidate>,
     pub(super) deferred: BinaryHeap<PendingSchedulerCandidate>,
+    /// Promoted startup revisions: attempts and the poll before which a blocked one stays deferred.
+    rechecks: HashMap<SubChunkKey, Recheck>,
+    polls: u64,
+}
+
+#[derive(Clone, Copy)]
+struct Recheck {
+    revision: u64,
+    attempts: u32,
+    not_before: u64,
 }
 
 impl Lane {
@@ -23,14 +36,18 @@ impl Lane {
     }
 
     /// Moves current deferred work that outranks the best ready job back to ready, within budget.
+    /// A revision that keeps returning blocked backs off exponentially, so it cannot claim every
+    /// deadline-limited dispatch ahead of ready work.
     fn prioritize_deferred(
         &mut self,
         budget: &mut usize,
         deadline: Option<Instant>,
         is_current: impl Fn(SubChunkKey, u64) -> bool,
     ) {
+        self.polls += 1;
         let ready_best = self.ready.peek().copied();
         let mut examined = false;
+        let mut held = Vec::new();
         while *budget != 0
             && (!examined || deadline.is_none_or(|deadline| Instant::now() < deadline))
         {
@@ -43,10 +60,31 @@ impl Lane {
             self.deferred.pop();
             *budget -= 1;
             examined = true;
-            if is_current(candidate.key, candidate.revision) {
-                self.ready.push(candidate);
+            if !is_current(candidate.key, candidate.revision) {
+                continue;
             }
+            let recheck = self
+                .rechecks
+                .get(&candidate.key)
+                .filter(|recheck| recheck.revision == candidate.revision)
+                .copied();
+            if recheck.is_some_and(|recheck| self.polls < recheck.not_before) {
+                held.push(candidate);
+                continue;
+            }
+            let attempts = recheck.map_or(0, |recheck| recheck.attempts);
+            self.rechecks.insert(
+                candidate.key,
+                Recheck {
+                    revision: candidate.revision,
+                    attempts: attempts + 1,
+                    not_before: self.polls
+                        + (1_u64 << attempts.min(5)).min(MAX_RECHECK_BACKOFF_POLLS),
+                },
+            );
+            self.ready.push(candidate);
         }
+        self.deferred.extend(held);
     }
 }
 
@@ -240,6 +278,8 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             }
             if view.startup_center.is_some() {
                 lane.prioritize_deferred(&mut deferred_budget, deadline, is_current);
+            } else if !lane.rechecks.is_empty() {
+                lane.rechecks = HashMap::new();
             }
         }
         probe_near
@@ -346,6 +386,7 @@ mod tests {
                 })
                 .collect(),
             deferred: BinaryHeap::new(),
+            ..Lane::default()
         }];
         let mut refresh = SchedulerRefresh::<1>::default();
         refresh.refresh(view, &mut lanes, None, |_, _| true);

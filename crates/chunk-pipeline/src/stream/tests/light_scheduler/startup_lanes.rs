@@ -203,3 +203,54 @@ fn startup_priority_holds_until_local_terrain_is_ready() {
     assert!(stream.scheduler_view([0.0; 3]).startup_center.is_none());
     assert!(!stream.is_startup_dependency(SubChunkKey::new(dimension, x, 0, z)));
 }
+
+/// A spawn mesh blocked on its light halo cannot claim every expired slice ahead of ready terrain.
+#[test]
+fn blocked_spawn_mesh_cannot_starve_ready_geometry_in_expired_polls() {
+    let mut stream = lit_stream(1);
+    stream.set_startup_priority(true);
+    let view = stream.scheduler_view([8.0, 80.0, 8.0]);
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(view, &mut stream.mesh_jobs.lanes, None, |_, _| true);
+    let spawn = SubChunkKey::new(1, 0, 0, 0);
+    let distant = SubChunkKey::new(1, 8, 5, 0);
+    for key in [spawn, distant] {
+        stream
+            .authority
+            .commit_sub_chunk(key, super::uniform_sub_chunk(2))
+            .unwrap();
+    }
+    install_current_light(&mut stream, distant, 0, 0, false);
+    install_current_light(&mut stream, spawn, 0, 0, false);
+    stream.mark_light_dirty_exact(spawn).unwrap();
+    for (key, ready) in [(spawn, false), (distant, true)] {
+        stream.mark_dirty_exact(key, Instant::now());
+        let candidate = PendingSchedulerCandidate::new(
+            key,
+            stream.mesh_jobs.pending[&key].revision,
+            view,
+            false,
+        );
+        let lane = &mut stream.mesh_jobs.lanes[RESIDENT_MESH_LANE];
+        if ready {
+            lane.ready.push(candidate);
+        } else {
+            lane.deferred.push(candidate);
+        }
+    }
+    stream.mesh_jobs.scan.clear();
+    let mut dispatched = false;
+    for _ in 0..4 {
+        stream.poll_deadline = Some(Instant::now());
+        if stream.dispatch_mesh_jobs(view.position, 1) == 1 {
+            dispatched = true;
+            break;
+        }
+    }
+    assert!(dispatched && stream.mesh_jobs.in_flight.contains_key(&distant));
+    assert!(stream.mesh_jobs.pending.contains_key(&spawn));
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    stream.accept_mesh_completion(completion);
+}
