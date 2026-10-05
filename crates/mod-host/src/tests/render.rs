@@ -330,6 +330,9 @@ fn identical_primitives_keep_their_identity_and_generation() {
     let first = std::sync::Arc::clone(&output.primitives);
     host.frame(false).unwrap();
     let (output, next) = host.render();
-    assert_eq!(next, generation, "an unchanged frame publishes no new generation");
+    assert_eq!(
+        next, generation,
+        "an unchanged frame publishes no new generation"
+    );
     assert!(std::sync::Arc::ptr_eq(&first, &output.primitives));
 }

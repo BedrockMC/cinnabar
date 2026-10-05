@@ -71,9 +71,9 @@ fn bloom(uv: vec2<f32>, radius_px: f32, threshold: f32) -> vec3<f32> {
 const DEPTH_PRELUDE: &str = r#"
 @group(0) @binding(3) var depth_texture: texture_depth_2d;
 fn depth(uv: vec2<f32>) -> f32 {
-    let size = vec2<f32>(textureDimensions(depth_texture));
-    let texel = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * max(size - vec2<f32>(1.0), vec2<f32>(0.0));
-    return textureLoad(depth_texture, vec2<i32>(texel), 0);
+    let size = textureDimensions(depth_texture);
+    let texel = vec2<u32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * vec2<f32>(size));
+    return textureLoad(depth_texture, min(texel, max(size, vec2<u32>(1u)) - vec2<u32>(1u)), 0);
 }
 fn world_position(uv: vec2<f32>) -> vec3<f32> {
     let world = frame.world_from_clip * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth(uv), 1.0);
