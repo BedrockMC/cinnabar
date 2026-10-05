@@ -82,7 +82,7 @@ impl MenuRuntime {
     }
 
     /// Bridges legacy named menu actions into the persisted option registry.
-    pub(in crate::menu) fn set_named_option(&mut self, name: &str, value: i32) {
+    pub(crate) fn set_named_option(&mut self, name: &str, value: i32) {
         if let Some(index) = SETTINGS_OPTIONS
             .iter()
             .position(|option| option.name == name)
