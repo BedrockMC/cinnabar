@@ -20,6 +20,8 @@ pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+mod gpu_timing;
+pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
@@ -131,14 +133,13 @@ pub use chunk::{
     PresentedFrameGate, RenderViewCohort, TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES,
     TargetRenderExpectation, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
     TexturePageBinding, TextureUploadPlanError, TransparentAllocationIdentity, TransparentDrawArgs,
-    TransparentOrderedSnapshot, TransparentSortCandidate, TransparentSortError,
-    TransparentSortJobGate, TransparentSortMetrics, TransparentSortResult, TransparentSortState,
-    TransparentUploadBatch, TransparentWitnessEvent, TransparentWitnessEvidence,
-    TransparentWitnessIncompleteEvent, TransparentWitnessRequest, TransparentWitnessRequestError,
-    TransparentWitnessStageEvent, TransparentWitnessStageRecord, ViewSortGeneration, ViewSortKey,
-    diagnostic_texture_page, greedy_texture_uv, plan_texture_mip_uploads,
-    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
-    validate_transparent_sort_ref_count,
+    TransparentOrderedSnapshot, TransparentSortError, TransparentSortJobGate,
+    TransparentSortMetrics, TransparentSortResult, TransparentSortState, TransparentUploadBatch,
+    TransparentWitnessEvent, TransparentWitnessEvidence, TransparentWitnessIncompleteEvent,
+    TransparentWitnessRequest, TransparentWitnessRequestError, TransparentWitnessStageEvent,
+    TransparentWitnessStageRecord, ViewSortGeneration, ViewSortKey, diagnostic_texture_page,
+    greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
+    select_animation_frames, texture_asset_needs_rebuild, validate_transparent_sort_ref_count,
 };
 #[cfg(feature = "publication-test-support")]
 pub use chunk::{
@@ -173,6 +174,7 @@ pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
 };
+pub use runtime_profile_slow::{FrameBudgets, SlowFrameCounts};
 pub use screen_fire::ScreenFireTexture;
 pub use screen_overlay::{
     MAX_SCREEN_OVERLAY_LAYERS, SCREEN_OVERLAY_TEXTURE_SIDE, ScreenOverlayKind, ScreenOverlayLayer,

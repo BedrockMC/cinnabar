@@ -16,8 +16,7 @@ pub(in crate::chunk) fn queue_chunks(
     mut pipeline: ResMut<ChunkPipeline>,
     mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     draw_functions: Res<DrawFunctions<Opaque3d>>,
-    render_adapter: Res<RenderAdapter>,
-    render_device: Res<RenderDevice>,
+    (render_adapter, render_device): (Res<RenderAdapter>, Res<RenderDevice>),
     views: Query<ChunkViewQuery>,
     instances: Query<(Entity, &ChunkRenderInstance)>,
     allocations: Query<&GpuChunkAllocation>,
@@ -35,6 +34,7 @@ pub(in crate::chunk) fn queue_chunks(
         ResMut<ChunkDepthLiquidIndirectBatches>,
         ResMut<pipeline::solid::ChunkSolidIndirectBatches>,
     )>,
+    mut gpu_culling: gpu_cull::GpuCullQueue,
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
 ) {
@@ -149,6 +149,13 @@ pub(in crate::chunk) fn queue_chunks(
     } else {
         frame_probe.clear();
     }
+    let gpu_cull_view = gpu_culling.select(
+        draw_mode,
+        frame_probe.is_active() || probes.input.enabled(),
+        views
+            .iter()
+            .map(|(entity, main, view, _, _, enhanced)| (entity, main, view, enhanced.is_some())),
+    );
     let frame_probe = &frame_probe.scope();
     for (view_entity, view_main_entity, view, visible_entities, msaa, enhanced) in &views {
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
@@ -208,6 +215,44 @@ pub(in crate::chunk) fn queue_chunks(
                     }),
             ));
         drop(diagnostic_timer);
+
+        if gpu_cull_view == Some(view_entity) {
+            let pipelines = [
+                solid_pipeline_id,
+                pipeline_id,
+                model_pipeline_id,
+                depth_liquid_pipeline_id,
+            ];
+            let early = gpu_cull::draw_function_ids(&draw_functions, false);
+            for (draw_function, pipeline) in early.into_iter().zip(pipelines) {
+                let this_tick = next_tick.get() + 1;
+                next_tick.set(this_tick);
+                phase.add(
+                    Opaque3dBatchSetKey {
+                        draw_function,
+                        pipeline,
+                        material_bind_group_index: None,
+                        lightmap_slab: None,
+                        vertex_slab: default(),
+                        index_slab: None,
+                    },
+                    Opaque3dBinKey {
+                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    },
+                    (view_entity, *view_main_entity),
+                    InputUniformIndex::default(),
+                    BinnedRenderPhaseType::NonMesh,
+                    *next_tick,
+                );
+            }
+            gpu_culling.set_view(gpu_cull::GpuCullView {
+                entity: view_entity,
+                main: *view_main_entity,
+                pipelines,
+                late_draws: gpu_cull::draw_function_ids(&draw_functions, true),
+            });
+            continue;
+        }
 
         if draw_mode == ChunkDrawMode::MultiDrawIndirect {
             let _batch_timer = probes
@@ -534,9 +579,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         if let Some(snapshot) = runtime.state.committed()
             && let Ok(water_pipeline_id) = pipeline.liquid_variants.specialize(&pipeline_cache, key)
         {
-            if let Some(groups) = transparent_liquid_phase_groups(snapshot) {
-                let (_, _, camera) = view.world_from_view.to_scale_rotation_translation();
-                for group in groups {
+            if let Some(groups) = snapshot.phase_groups() {
+                let camera = view.world_from_view.translation();
+                for group in groups.iter() {
                     // Native deferred water uses layer 2, not ordinary blend layer 3.
                     if enhanced.is_none()
                         && let Some(model_pipeline_id) = model_pipeline_id
@@ -552,7 +597,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                             &model_runtime,
                             &texture_assets,
                             snapshot,
-                            &group,
+                            group,
                             water_pipeline_id,
                             model_pipeline_id,
                         )
@@ -579,7 +624,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                         distance: transparent_liquid_phase_distance(&rangefinder, group.key),
                         batch_range: 0..1,
                         extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                            range: group.ref_range,
+                            range: group.ref_range.clone(),
                             batch_set_index: None,
                         },
                         indexed: true,

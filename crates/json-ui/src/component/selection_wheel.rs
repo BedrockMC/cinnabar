@@ -1,3 +1,5 @@
+//! Selection wheel: pointer sectors and component-managed state children, matching
+//! vanilla 26.30 and the pinned UI definitions.
 
 use std::collections::VecDeque;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};

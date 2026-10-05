@@ -11,4 +11,5 @@ pub(in crate::chunk) fn install_chunk_commands(render_app: &mut SubApp) {
     opaque::install_opaque_commands(render_app);
     model::install_model_commands(render_app);
     liquid::install_liquid_commands(render_app);
+    crate::chunk::gpu_cull::install_commands(render_app);
 }

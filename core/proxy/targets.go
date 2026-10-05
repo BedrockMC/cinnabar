@@ -277,7 +277,7 @@ func isRawNetherNetAddress(address string) bool {
 }
 
 // scopedNetherNetNetwork dials through gophertunnel's NetherNet so authenticated dials present
-// the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
+// the Login's multiplayer token and key as the SDP identity, as vanilla does.
 type scopedNetherNetNetwork struct {
 	signal minecraft.DialSignalingFunc // fresh signaling per dial; the transport owns and closes it
 	logger *slog.Logger
@@ -294,7 +294,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType
 	return scopedNetherNetNetwork{signal: signal, logger: logger}
 }
 
-// transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
+// transport accepts identityless answers as vanilla does, while
 // go-nethernet still verifies a server identity that is present.
 func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
 	return minecraft.NetherNet{

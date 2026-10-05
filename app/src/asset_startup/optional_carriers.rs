@@ -191,7 +191,7 @@ pub(super) fn load_font_assets(
             }
         })?;
     Ok(LoadedFontAssets {
-        runtime: Arc::new(runtime),
+        runtime: Arc::new(runtime.with_coverage_pages()),
         selected_path: path,
         diagnostic: false,
     })

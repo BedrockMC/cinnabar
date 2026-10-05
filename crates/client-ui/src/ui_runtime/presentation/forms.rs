@@ -39,6 +39,8 @@ pub mod pack_harness;
 pub mod pages;
 pub mod panorama;
 #[cfg(test)]
+mod publication_tests;
+#[cfg(test)]
 pub mod regression_snapshots;
 pub use panorama::{built_in_faces, launcher_view};
 mod accounts;
@@ -75,6 +77,7 @@ pub mod start_feed;
 pub mod tests;
 pub mod textures;
 pub mod toast_screen;
+pub mod vsync_setting;
 
 pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
@@ -214,7 +217,15 @@ impl UiPresentationRuntime {
         // A texture-only pack may retain the catalog while changing sprite
         // dimensions, UV metadata, or nine-slice borders used during layout.
         self.form_presentation.hud.invalidate_textures();
-        self.refresh_screen_settings();
+        if let Some(settings) = pack
+            .screen_settings
+            .as_ref()
+            .and_then(|settings| settings.for_inputs(engine.catalog(), engine.context()))
+        {
+            self.form_presentation.screen_settings = settings;
+        } else {
+            self.refresh_screen_settings();
+        }
         self.sync_server_ui_pages();
     }
 

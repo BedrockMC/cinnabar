@@ -252,6 +252,7 @@ mod cases_01;
 mod cases_02;
 mod filter_dominance;
 mod sky_boundary;
+mod worker_caps;
 
 mod mesh_admission;
 

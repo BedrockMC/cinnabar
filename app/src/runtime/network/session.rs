@@ -20,6 +20,8 @@ pub struct NetworkConfig {
     pub player_skin: crate::player_skin::LocalPlayerSkin,
     /// Rechecked against live artwork before presentation publication.
     pub actor_artwork: Option<render::ActorArtworkPages>,
+    /// The carrier catalog initial server UI resolves against on the worker.
+    pub ui_catalog: Option<std::sync::Arc<json_ui::Catalog>>,
 }
 
 /// A Bevy resource retaining the domain's exact command and event queues.
@@ -70,6 +72,7 @@ impl NetworkHandle {
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
 pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Error> {
     let actor_artwork = config.actor_artwork;
+    let ui_catalog = config.ui_catalog;
     client_session::spawn_network(
         client_session::NetworkConfig {
             session_generation: config.session_generation,
@@ -86,6 +89,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             )?;
             Some(packs.map(|mut packs| {
                 packs.prepare_actor_artwork(actor_artwork.as_ref());
+                packs.prepare_ui_catalog(ui_catalog.as_ref());
                 packs
             }))
         },
