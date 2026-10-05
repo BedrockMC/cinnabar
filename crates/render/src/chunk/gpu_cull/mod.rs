@@ -4,6 +4,8 @@
 //! Backends whose multi-draw is a CPU loop (Metal, GL) lack `MULTI_DRAW_INDIRECT_COUNT` and
 //! keep CPU culling; so do frames with an active presentation or visibility probe.
 
+#[cfg(test)]
+mod app_tests;
 pub(in crate::chunk) mod kernels;
 pub(in crate::chunk) mod model;
 mod node;
@@ -481,6 +483,7 @@ fn prepare_gpu_cull(
         Changed<GpuChunkAllocation>,
     >,
     mut removed: RemovedComponents<GpuChunkAllocation>,
+    mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     biome_tints: Res<ChunkBiomeTints>,
     views: Query<CullViewComponents>,
     device: Res<RenderDevice>,
@@ -494,6 +497,9 @@ fn prepare_gpu_cull(
     let hidden = &mut *hidden;
     for entity in removed.read() {
         cull.table.remove(entity);
+    }
+    for entity in removed_instances.read() {
+        hidden.hidden.remove(&entity);
     }
     cull.table
         .set_tint(biome_tints.table_identity(), &hidden.hidden);
