@@ -6,10 +6,6 @@ pub mod echo;
 pub mod engine;
 pub mod inventory;
 pub mod local;
-#[allow(
-    dead_code,
-    reason = "media device-clock and surface integration is incomplete"
-)]
 pub mod media;
 mod music;
 pub mod predicted;
