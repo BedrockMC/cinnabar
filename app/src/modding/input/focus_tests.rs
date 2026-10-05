@@ -45,8 +45,7 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
         ..Default::default()
     };
     let mut host =
-        mod_host::ModHost::load_snapshot_with_grants(&path, fixture().as_bytes(), grants.clone())
-            .unwrap();
+        mod_host::ModHost::load_snapshot_with_grants(&path, fixture().as_bytes(), grants).unwrap();
     host.set_panel_open(true);
     let player = crate::player_runtime::PlayerRuntime::new(1);
     let ui = UiRuntime::new(1);
@@ -84,8 +83,11 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
         .insert_resource(presentation)
         .insert_resource(ModRuntime {
             host,
+            companions: Vec::new(),
+            label: None,
+            label_inputs: Vec::new(),
+            label_rebuilds: 0,
             last_reload: std::time::Instant::now(),
-            grants,
             controls: mod_host::empty_controls(),
             reload_on_main: false,
             registration_identity: None,

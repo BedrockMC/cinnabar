@@ -13,7 +13,7 @@ mod settings;
 #[cfg(feature = "execution")]
 pub use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
-    MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{

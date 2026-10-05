@@ -101,12 +101,17 @@ impl Worker {
     }
 }
 
+/// The earliest active, granted mod with a non-zero delay wins, as for other single-valued output.
 fn requested(extension: Option<&ModRuntime>) -> u32 {
-    extension
-        .filter(|runtime| {
-            !runtime.suspended && runtime.host.is_active() && runtime.grants.packet_delay
-        })
-        .map_or(0, |runtime| runtime.host.packet_delay_ms())
+    let Some(runtime) = extension.filter(|runtime| !runtime.suspended) else {
+        return 0;
+    };
+    (0..runtime.host_count())
+        .map(|index| runtime.host(index))
+        .filter(|host| host.is_active() && host.grants().packet_delay)
+        .map(mod_host::ModHost::packet_delay_ms)
+        .find(|&delay| delay != 0)
+        .unwrap_or(0)
 }
 
 pub(super) fn publish_packet_delay(
