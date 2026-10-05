@@ -403,7 +403,7 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
 
         // 4. Resource Packs
         let start = packs
-            .handle_packs_with_store(config.resource_pack_store.as_deref())
+            .handle_packs_with_store(config.resource_pack_store.clone())
             .await?;
 
         // 5. Start Game - returns (stream, game_data)
@@ -1683,7 +1683,7 @@ mod tests {
     async fn negotiate_with_store(
         offer: &[(Uuid, &[u8], &str)],
         served: &[(Uuid, &[u8])],
-        store: &MemoryPackStore,
+        store: &Arc<MemoryPackStore>,
     ) -> (Vec<ResourcePackArchive>, Vec<McpePacket>) {
         let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
             resource_packs: offer
@@ -1720,7 +1720,7 @@ mod tests {
             _role: PhantomData,
         };
         let start = stream
-            .handle_packs_with_store(Some(store))
+            .handle_packs_with_store(Some(Arc::clone(store) as Arc<dyn ResourcePackStore>))
             .await
             .expect("negotiation completes");
         let session = valentine::bedrock::context::BedrockSession { shield_item_id: 0 };
@@ -1768,7 +1768,7 @@ mod tests {
     async fn a_rejoin_of_a_held_stack_requests_no_packs_and_keeps_this_joins_key() {
         let id = Uuid::new_v4();
         let data: &[u8] = b"encrypted archive bytes";
-        let store = MemoryPackStore::default();
+        let store = Arc::new(MemoryPackStore::default());
         let (first, sent) =
             negotiate_with_store(&[(id, data, "first-key")], &[(id, data)], &store).await;
         assert_eq!(first[0].archive, data);
@@ -1785,7 +1785,7 @@ mod tests {
     async fn only_packs_missing_from_the_store_are_requested() {
         let held = Uuid::new_v4();
         let missing = Uuid::new_v4();
-        let store = MemoryPackStore::default();
+        let store = Arc::new(MemoryPackStore::default());
         negotiate_with_store(
             &[(held, b"held archive", "")],
             &[(held, b"held archive")],
@@ -1811,7 +1811,7 @@ mod tests {
     #[tokio::test]
     async fn a_changed_pack_or_a_wrong_sized_entry_is_downloaded_again() {
         let id = Uuid::new_v4();
-        let store = MemoryPackStore::default();
+        let store = Arc::new(MemoryPackStore::default());
         negotiate_with_store(&[(id, b"version one", "")], &[(id, b"version one")], &store).await;
         let (archives, sent) = negotiate_with_store(
             &[(id, b"changed content", "")],
@@ -1836,6 +1836,53 @@ mod tests {
         .await;
         assert!(requested_packs(&sent).is_some());
         assert_eq!(archives[0].archive, b"changed content");
+    }
+
+    /// Blocks every load until released, recording whether any load has returned.
+    #[derive(Debug)]
+    struct GatedPackStore {
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        returned: std::sync::atomic::AtomicBool,
+    }
+
+    impl ResourcePackStore for GatedPackStore {
+        fn load(&self, _: ResourcePackIdentity<'_>) -> Option<Vec<u8>> {
+            let _ = self
+                .release
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(30));
+            self.returned
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            None
+        }
+
+        fn store(&self, _: ResourcePackIdentity<'_>, _: &[u8]) {}
+    }
+
+    #[tokio::test]
+    async fn a_blocked_store_load_does_not_hold_off_the_login_deadline() {
+        let (release, gate) = std::sync::mpsc::channel();
+        let store = Arc::new(GatedPackStore {
+            release: Mutex::new(gate),
+            returned: Default::default(),
+        });
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: vec![test_pack_info(Uuid::new_v4(), b"archive", "", "")],
+            ..Default::default()
+        });
+        let negotiation = resource_pack_stream(vec![uncompressed_frame(&[info])])
+            .handle_packs_with_store(Some(Arc::clone(&store) as Arc<dyn ResourcePackStore>));
+        let outcome = tokio::time::timeout(std::time::Duration::from_millis(50), negotiation).await;
+        assert!(
+            outcome.is_err(),
+            "the deadline must fire while the load is blocked"
+        );
+        assert!(
+            !store.returned.load(std::sync::atomic::Ordering::SeqCst),
+            "the deadline fired only after the blocked load returned"
+        );
+        release.send(()).unwrap();
     }
 
     #[tokio::test]
@@ -2195,7 +2242,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
     /// Negotiates packs, requesting only those `store` cannot supply, as vanilla does for its cache.
     pub async fn handle_packs_with_store(
         mut self,
-        store: Option<&dyn ResourcePackStore>,
+        store: Option<std::sync::Arc<dyn ResourcePackStore>>,
     ) -> Result<BedrockStream<StartGame, Client, T>, JolyneError> {
         // Check if we already received ResourcePacksInfo during handshake (LBSG sends it early)
         let info_pkt = if let Some(early) = self.state.early_packet.take() {
@@ -2254,7 +2301,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 .download_optional_resource_packs(
                     &mut info.resource_packs,
                     &mut content_keys,
-                    store,
+                    store.as_ref(),
                 )
                 .await?;
         }
@@ -2346,7 +2393,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         &mut self,
         offered: &mut [crate::valentine::PackInfoData],
         content_keys: &mut [Option<ResourcePackContentKey>],
-        store: Option<&dyn ResourcePackStore>,
+        store: Option<&std::sync::Arc<dyn ResourcePackStore>>,
     ) -> Result<ResourcePackHandoff, JolyneError> {
         if offered.len() > MAX_RESOURCE_PACKS {
             return Err(pack_handoff_error("pack count exceeds limit"));
@@ -2372,7 +2419,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             names.push(name);
         }
 
-        let held = load_held_archives(store, offered);
+        let held = load_held_archives(store, offered).await;
         let mut archives = Vec::with_capacity(offered.len());
         let mut requested = Vec::with_capacity(offered.len());
         let mut requested_indices = HashMap::with_capacity(offered.len());
@@ -2478,47 +2525,72 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             if archive.len() != capacity || Sha256::digest(&archive).as_slice() != data.file_hash {
                 return Err(pack_handoff_error("pack length or digest mismatch"));
             }
-            if let Some(store) = store {
-                store.store(offered_identity(pack), &archive);
-            }
+            let archive = match store {
+                Some(store) => store_archive(store, pack, archive).await?,
+                None => archive,
+            };
             archives.push(offered_archive(pack, archive, &mut content_keys[index]));
         }
         Ok(ResourcePackHandoff::new(archives))
     }
 }
 
-/// Loads every offered pack's stored archive in parallel; each load is a disk read and a digest.
-fn load_held_archives(
-    store: Option<&dyn ResourcePackStore>,
+/// Loads every offered pack's stored archive in parallel on the blocking pool, so cancellation
+/// and the login deadline stay responsive while disk reads and digests run.
+async fn load_held_archives(
+    store: Option<&std::sync::Arc<dyn ResourcePackStore>>,
     offered: &[crate::valentine::PackInfoData],
 ) -> Vec<Option<Vec<u8>>> {
     let Some(store) = store else {
         return vec![None; offered.len()];
     };
-    std::thread::scope(|scope| {
-        let loads: Vec<_> = offered
-            .iter()
-            .map(|pack| {
-                scope.spawn(move || {
-                    store
-                        .load(offered_identity(pack))
-                        .filter(|archive| archive.len() as u64 == pack.pack_size)
-                })
+    let loads: Vec<_> = offered
+        .iter()
+        .map(|pack| {
+            let store = std::sync::Arc::clone(store);
+            let (pack_id, size) = (pack.pack_id_version.pack_uuid, pack.pack_size);
+            let version = pack.pack_id_version.pack_version.version.clone();
+            tokio::task::spawn_blocking(move || {
+                let identity = ResourcePackIdentity {
+                    pack_id,
+                    version: &version,
+                    size,
+                };
+                store
+                    .load(identity)
+                    .filter(|archive| archive.len() as u64 == size)
             })
-            .collect();
-        loads
-            .into_iter()
-            .map(|load| load.join().ok().flatten())
-            .collect()
-    })
+        })
+        .collect();
+    let mut held = Vec::with_capacity(loads.len());
+    for load in loads {
+        held.push(load.await.ok().flatten());
+    }
+    held
 }
 
-fn offered_identity(pack: &crate::valentine::PackInfoData) -> ResourcePackIdentity<'_> {
-    ResourcePackIdentity {
-        pack_id: pack.pack_id_version.pack_uuid,
-        version: &pack.pack_id_version.pack_version.version,
-        size: pack.pack_size,
-    }
+/// Persists a verified archive on the blocking pool and hands it back for the handoff.
+async fn store_archive(
+    store: &std::sync::Arc<dyn ResourcePackStore>,
+    pack: &crate::valentine::PackInfoData,
+    archive: Vec<u8>,
+) -> Result<Vec<u8>, JolyneError> {
+    let store = std::sync::Arc::clone(store);
+    let (pack_id, size) = (pack.pack_id_version.pack_uuid, pack.pack_size);
+    let version = pack.pack_id_version.pack_version.version.clone();
+    tokio::task::spawn_blocking(move || {
+        store.store(
+            ResourcePackIdentity {
+                pack_id,
+                version: &version,
+                size,
+            },
+            &archive,
+        );
+        archive
+    })
+    .await
+    .map_err(|_| pack_handoff_error("pack store failed"))
 }
 
 /// Pairs an archive with this join's offered content key, which is never read from a store.
