@@ -25,7 +25,7 @@ use crate::raw::RawPacket;
 use crate::stream::transport::RakNetTransport;
 use crate::stream::{
     BedrockStream, Client, Handshake, Login, Play, ResourcePackArchive, ResourcePackHandoff,
-    ResourcePacks, SecurePending, StartGame,
+    ResourcePackIdentity, ResourcePackStore, ResourcePacks, SecurePending, StartGame,
     resource_pack_handoff::{
         MAX_RESOURCE_PACK_BYTES, MAX_RESOURCE_PACK_CHUNK_BYTES, MAX_RESOURCE_PACK_CHUNKS,
         MAX_RESOURCE_PACK_TOTAL_BYTES, MAX_RESOURCE_PACKS, ResourcePackContentKey,
@@ -151,6 +151,8 @@ pub struct ClientHandshakeConfig {
     pub client_cache_enabled: bool,
     /// The uploaded skin; `None` keeps the solid-white placeholder.
     pub skin: Option<ClientSkin>,
+    /// Archives held from earlier joins; offered packs found here are not requested again.
+    pub resource_pack_store: Option<std::sync::Arc<dyn ResourcePackStore>>,
 }
 
 impl ClientHandshakeConfig {
@@ -165,6 +167,7 @@ impl ClientHandshakeConfig {
             xbl_credentials: None,
             client_cache_enabled: false,
             skin: None,
+            resource_pack_store: None,
         }
     }
 
@@ -184,6 +187,7 @@ impl ClientHandshakeConfig {
             xbl_credentials: Some(xbl_credentials),
             client_cache_enabled: false,
             skin: None,
+            resource_pack_store: None,
         }
     }
 
@@ -198,6 +202,15 @@ impl ClientHandshakeConfig {
     #[must_use]
     pub fn with_skin(mut self, skin: ClientSkin) -> Self {
         self.skin = Some(skin);
+        self
+    }
+
+    #[must_use]
+    pub fn with_resource_pack_store(
+        mut self,
+        store: std::sync::Arc<dyn ResourcePackStore>,
+    ) -> Self {
+        self.resource_pack_store = Some(store);
         self
     }
 }
@@ -389,7 +402,9 @@ impl<T: Transport> BedrockStream<Handshake, Client, T> {
             .await?;
 
         // 4. Resource Packs
-        let start = packs.handle_packs().await?;
+        let start = packs
+            .handle_packs_with_store(config.resource_pack_store.as_deref())
+            .await?;
 
         // 5. Start Game - returns (stream, game_data)
         start.await_start_game().await
@@ -1649,6 +1664,180 @@ mod tests {
         assert_eq!(handoff.len(), 2);
     }
 
+    #[derive(Debug, Default)]
+    struct MemoryPackStore(Mutex<HashMap<(Uuid, String, u64), Vec<u8>>>);
+
+    impl ResourcePackStore for MemoryPackStore {
+        fn load(&self, identity: ResourcePackIdentity<'_>) -> Option<Vec<u8>> {
+            let key = (identity.pack_id, identity.version.to_owned(), identity.size);
+            self.0.lock().unwrap().get(&key).cloned()
+        }
+
+        fn store(&self, identity: ResourcePackIdentity<'_>, archive: &[u8]) {
+            let key = (identity.pack_id, identity.version.to_owned(), identity.size);
+            self.0.lock().unwrap().insert(key, archive.to_vec());
+        }
+    }
+
+    /// One negotiation of `offer` against `store`, serving chunks only for `served`.
+    async fn negotiate_with_store(
+        offer: &[(Uuid, &[u8], &str)],
+        served: &[(Uuid, &[u8])],
+        store: &MemoryPackStore,
+    ) -> (Vec<ResourcePackArchive>, Vec<McpePacket>) {
+        let info = McpePacket::from(crate::valentine::ResourcePacksInfoPacket {
+            resource_packs: offer
+                .iter()
+                .map(|&(id, data, key)| test_pack_info(id, data, "", key))
+                .collect(),
+            ..Default::default()
+        });
+        let mut inbound = vec![uncompressed_frame(&[info])];
+        for &(id, data) in served {
+            inbound.extend(
+                test_pack_packets(id, data, 4)
+                    .into_iter()
+                    .map(|packet| uncompressed_frame(&[packet])),
+            );
+        }
+        inbound.push(uncompressed_frame(&[McpePacket::from(
+            crate::valentine::ResourcePackStackPacket {
+                texture_pack_list: offer
+                    .iter()
+                    .map(|&(id, _, _)| crate::valentine::PackInstanceId {
+                        pack_id: id.to_string(),
+                        version: "1.0.0".into(),
+                        sub_pack_name: String::new(),
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        )]));
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let stream: BedrockStream<ResourcePacks, Client, ScriptedTransport> = BedrockStream {
+            transport: BedrockTransport::new(ScriptedTransport::new(inbound, Arc::clone(&sent))),
+            state: ResourcePacks { early_packet: None },
+            _role: PhantomData,
+        };
+        let start = stream
+            .handle_packs_with_store(Some(store))
+            .await
+            .expect("negotiation completes");
+        let session = valentine::bedrock::context::BedrockSession { shield_item_id: 0 };
+        let sent = sent
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|message| {
+                decode_batch(&mut message.buffer.clone(), &session, false, None)
+                    .expect("decode sent frame")
+            })
+            .collect();
+        (
+            start.state.resource_pack_handoff.unwrap().into_archives(),
+            sent,
+        )
+    }
+
+    fn requested_packs(sent: &[McpePacket]) -> Option<Vec<String>> {
+        sent.iter().find_map(|packet| match &packet.data {
+            McpePacketData::ResourcePackClientResponsePacket(response) => {
+                match &response.response {
+                    ResourcePackClientResponsePacketResponse::Downloading(downloading) => {
+                        Some(downloading.downloading_packs.clone())
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+    }
+
+    fn chunk_requests(sent: &[McpePacket]) -> usize {
+        sent.iter()
+            .filter(|packet| {
+                matches!(
+                    packet.data,
+                    McpePacketData::ResourcePackChunkRequestPacket(_)
+                )
+            })
+            .count()
+    }
+
+    #[tokio::test]
+    async fn a_rejoin_of_a_held_stack_requests_no_packs_and_keeps_this_joins_key() {
+        let id = Uuid::new_v4();
+        let data: &[u8] = b"encrypted archive bytes";
+        let store = MemoryPackStore::default();
+        let (first, sent) =
+            negotiate_with_store(&[(id, data, "first-key")], &[(id, data)], &store).await;
+        assert_eq!(first[0].archive, data);
+        assert_eq!(requested_packs(&sent), Some(vec![format!("{id}_1.0.0")]));
+
+        let (second, sent) = negotiate_with_store(&[(id, data, "second-key")], &[], &store).await;
+        assert_eq!(requested_packs(&sent), None, "HaveAllPacks skips SendPacks");
+        assert_eq!(chunk_requests(&sent), 0);
+        assert_eq!(second[0].archive, data);
+        assert_eq!(second[0].content_key.expose(), b"second-key");
+    }
+
+    #[tokio::test]
+    async fn only_packs_missing_from_the_store_are_requested() {
+        let held = Uuid::new_v4();
+        let missing = Uuid::new_v4();
+        let store = MemoryPackStore::default();
+        negotiate_with_store(
+            &[(held, b"held archive", "")],
+            &[(held, b"held archive")],
+            &store,
+        )
+        .await;
+        let (archives, sent) = negotiate_with_store(
+            &[
+                (held, b"held archive", ""),
+                (missing, b"missing archive", ""),
+            ],
+            &[(missing, b"missing archive")],
+            &store,
+        )
+        .await;
+        assert_eq!(
+            requested_packs(&sent),
+            Some(vec![format!("{missing}_1.0.0")])
+        );
+        assert_eq!(archives.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_changed_pack_or_a_wrong_sized_entry_is_downloaded_again() {
+        let id = Uuid::new_v4();
+        let store = MemoryPackStore::default();
+        negotiate_with_store(&[(id, b"version one", "")], &[(id, b"version one")], &store).await;
+        let (archives, sent) = negotiate_with_store(
+            &[(id, b"changed content", "")],
+            &[(id, b"changed content")],
+            &store,
+        )
+        .await;
+        assert!(requested_packs(&sent).is_some());
+        assert_eq!(archives[0].archive, b"changed content");
+
+        let identity = ResourcePackIdentity {
+            pack_id: id,
+            version: "1.0.0",
+            size: 15,
+        };
+        store.store(identity, b"short");
+        let (archives, sent) = negotiate_with_store(
+            &[(id, b"changed content", "")],
+            &[(id, b"changed content")],
+            &store,
+        )
+        .await;
+        assert!(requested_packs(&sent).is_some());
+        assert_eq!(archives[0].archive, b"changed content");
+    }
+
     #[tokio::test]
     async fn pack_handoff_accepts_required_and_rejects_duplicate_and_malformed_inputs_secret_safely()
      {
@@ -1999,8 +2188,14 @@ mod tests {
 
 impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
     #[instrument(skip_all, level = "trace")]
-    pub async fn handle_packs(
+    pub async fn handle_packs(self) -> Result<BedrockStream<StartGame, Client, T>, JolyneError> {
+        self.handle_packs_with_store(None).await
+    }
+
+    /// Negotiates packs, requesting only those `store` cannot supply, as vanilla does for its cache.
+    pub async fn handle_packs_with_store(
         mut self,
+        store: Option<&dyn ResourcePackStore>,
     ) -> Result<BedrockStream<StartGame, Client, T>, JolyneError> {
         // Check if we already received ResourcePacksInfo during handshake (LBSG sends it early)
         let info_pkt = if let Some(early) = self.state.early_packet.take() {
@@ -2056,7 +2251,11 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
                 info.resource_packs.len()
             );
             handoff = self
-                .download_optional_resource_packs(&mut info.resource_packs, &mut content_keys)
+                .download_optional_resource_packs(
+                    &mut info.resource_packs,
+                    &mut content_keys,
+                    store,
+                )
                 .await?;
         }
 
@@ -2147,11 +2346,12 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
         &mut self,
         offered: &mut [crate::valentine::PackInfoData],
         content_keys: &mut [Option<ResourcePackContentKey>],
+        store: Option<&dyn ResourcePackStore>,
     ) -> Result<ResourcePackHandoff, JolyneError> {
         if offered.len() > MAX_RESOURCE_PACKS {
             return Err(pack_handoff_error("pack count exceeds limit"));
         }
-        let mut requested = Vec::with_capacity(offered.len());
+        let mut names = Vec::with_capacity(offered.len());
         let mut seen = HashSet::with_capacity(offered.len());
         let mut total = 0u64;
         for pack in offered.iter() {
@@ -2169,7 +2369,27 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             if !seen.insert(name.clone()) {
                 return Err(pack_handoff_error("duplicate or ambiguous pack identity"));
             }
-            requested.push(name);
+            names.push(name);
+        }
+
+        let held = load_held_archives(store, offered);
+        let mut archives = Vec::with_capacity(offered.len());
+        let mut requested = Vec::with_capacity(offered.len());
+        let mut requested_indices = HashMap::with_capacity(offered.len());
+        for ((index, pack), held) in offered.iter_mut().enumerate().zip(held) {
+            match held {
+                Some(archive) => {
+                    archives.push(offered_archive(pack, archive, &mut content_keys[index]))
+                }
+                None => {
+                    requested_indices.insert(names[index].clone(), index);
+                    requested.push(names[index].clone());
+                }
+            }
+        }
+        // Vanilla answers HaveAllPacks directly when nothing is missing.
+        if requested.is_empty() {
+            return Ok(ResourcePackHandoff::new(archives));
         }
 
         self.transport
@@ -2183,14 +2403,8 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             })])
             .await?;
 
-        let requested_indices = requested
-            .iter()
-            .enumerate()
-            .map(|(index, name)| (name.clone(), index))
-            .collect::<HashMap<_, _>>();
-        let mut received = HashSet::with_capacity(offered.len());
-        let mut archives = Vec::with_capacity(offered.len());
-        for _ in 0..offered.len() {
+        let mut received = HashSet::with_capacity(requested.len());
+        for _ in 0..requested.len() {
             let raw = tokio::time::timeout(
                 std::time::Duration::from_secs(30),
                 recv_login_packet(&mut self.transport),
@@ -2231,7 +2445,7 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             for chunk in 0..data.numberof_chunks {
                 self.transport
                     .send_batch(&[McpePacket::from(ResourcePackChunkRequestPacket {
-                        resource_name: requested[index].clone(),
+                        resource_name: names[index].clone(),
                         chunk: i32::try_from(chunk)
                             .map_err(|_| pack_handoff_error("invalid pack chunk index"))?,
                     })])
@@ -2264,17 +2478,63 @@ impl<T: Transport> BedrockStream<ResourcePacks, Client, T> {
             if archive.len() != capacity || Sha256::digest(&archive).as_slice() != data.file_hash {
                 return Err(pack_handoff_error("pack length or digest mismatch"));
             }
-            archives.push(ResourcePackArchive {
-                pack_id: pack.pack_id_version.pack_uuid,
-                version: std::mem::take(&mut pack.pack_id_version.pack_version.version),
-                sub_pack_name: std::mem::take(&mut pack.subpack_name),
-                archive,
-                content_key: content_keys[index]
-                    .take()
-                    .expect("content key retained for each bounded offer"),
-            });
+            if let Some(store) = store {
+                store.store(offered_identity(pack), &archive);
+            }
+            archives.push(offered_archive(pack, archive, &mut content_keys[index]));
         }
         Ok(ResourcePackHandoff::new(archives))
+    }
+}
+
+/// Loads every offered pack's stored archive in parallel; each load is a disk read and a digest.
+fn load_held_archives(
+    store: Option<&dyn ResourcePackStore>,
+    offered: &[crate::valentine::PackInfoData],
+) -> Vec<Option<Vec<u8>>> {
+    let Some(store) = store else {
+        return vec![None; offered.len()];
+    };
+    std::thread::scope(|scope| {
+        let loads: Vec<_> = offered
+            .iter()
+            .map(|pack| {
+                scope.spawn(move || {
+                    store
+                        .load(offered_identity(pack))
+                        .filter(|archive| archive.len() as u64 == pack.pack_size)
+                })
+            })
+            .collect();
+        loads
+            .into_iter()
+            .map(|load| load.join().ok().flatten())
+            .collect()
+    })
+}
+
+fn offered_identity(pack: &crate::valentine::PackInfoData) -> ResourcePackIdentity<'_> {
+    ResourcePackIdentity {
+        pack_id: pack.pack_id_version.pack_uuid,
+        version: &pack.pack_id_version.pack_version.version,
+        size: pack.pack_size,
+    }
+}
+
+/// Pairs an archive with this join's offered content key, which is never read from a store.
+fn offered_archive(
+    pack: &mut crate::valentine::PackInfoData,
+    archive: Vec<u8>,
+    content_key: &mut Option<ResourcePackContentKey>,
+) -> ResourcePackArchive {
+    ResourcePackArchive {
+        pack_id: pack.pack_id_version.pack_uuid,
+        version: std::mem::take(&mut pack.pack_id_version.pack_version.version),
+        sub_pack_name: std::mem::take(&mut pack.subpack_name),
+        archive,
+        content_key: content_key
+            .take()
+            .expect("content key retained for each bounded offer"),
     }
 }
 

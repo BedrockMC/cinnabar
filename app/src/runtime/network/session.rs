@@ -80,6 +80,10 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             display_name: config.display_name,
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
+            resource_pack_store: super::resource_packs::compile_cache().map(|cache| {
+                std::sync::Arc::new(cache.clone())
+                    as std::sync::Arc<dyn protocol::ResourcePackStore>
+            }),
         },
         move |preparation, game_data, cancelled| {
             let packs = super::resource_packs::prepare_session_presentation(
