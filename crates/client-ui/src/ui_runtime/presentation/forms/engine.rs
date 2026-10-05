@@ -605,7 +605,7 @@ impl Painter<'_> {
         ]
     }
 
-    /// `rect` as logical bounds on whole physical pixels, where vanilla's `drawImage` places
+    /// `rect` as logical bounds on whole physical pixels, where vanilla places
     /// an image ([`pixel_snap`]).
     fn snapped(&self, rect: &RectOut) -> [f32; 4] {
         pixel_snap::snapped(
@@ -615,7 +615,7 @@ impl Painter<'_> {
         )
     }
 
-    /// `rect` as logical bounds moved to a whole physical pixel, where vanilla's `flushText`
+    /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
     /// places text ([`pixel_snap`]).
     fn positioned(&self, rect: &RectOut) -> [f32; 4] {
         pixel_snap::positioned(

@@ -26,7 +26,7 @@ fn a_control_centred_in_odd_free_space_lands_on_whole_pixels() {
     assert!(whole(rect, 1.0));
 }
 
-/// Sizes round up to whole pixels from the truncated position, as `drawImage` adds
+/// Sizes round up to whole pixels from the truncated position, as vanilla adds
 /// `ceil(w * s)` to `(int)(x * s)`.
 #[test]
 fn sizes_round_up_to_whole_pixels() {
@@ -221,7 +221,7 @@ fn absolute(nodes: &[UiNode], node: &UiNode) -> [f32; 4] {
     ]
 }
 
-/// The painter places a centred image where `drawImage` does: (142.5, 59.5) units at GUI scale
+/// The painter places a centred image where vanilla does: (142.5, 59.5) units at GUI scale
 /// 3 truncate to physical pixel (427, 178), and its size stays 585×456.
 #[test]
 fn the_painter_snaps_a_centred_image_to_whole_pixels() {
@@ -239,6 +239,9 @@ fn the_painter_snaps_in_physical_pixels_under_dpi() {
     );
 }
 
+/// Each line of a centred label starts on a whole physical pixel, as vanilla truncates each
+/// line's alignment offset (`(int)(offset * guiScale) * invGuiScale` per line).
+#[test]
 fn the_painter_snaps_each_centred_line_to_whole_pixels() {
     for dpi in [1.0, 1.25] {
         let nodes = paint(

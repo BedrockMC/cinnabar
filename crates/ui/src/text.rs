@@ -200,8 +200,8 @@ pub struct TextWrap {
     pub chop: WordChop,
     /// Lines past this drop and the last kept one ends in `...`.
     pub max_lines: Option<u16>,
-    /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla's
-    /// `flushText` snaps each line to the pixel grid; zero keeps them exact.
+    /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
+    /// snaps each line to the pixel grid; zero keeps them exact.
     pub align_grid_65536: u32,
 }
 
