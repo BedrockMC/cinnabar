@@ -6,6 +6,7 @@ use bevy::render::renderer::WgpuWrapper;
 /// A single transparent face exercises address preparation without external carriers.
 fn water(tint: ChunkBiomeTintIdentity) -> ChunkRenderInstance {
     ChunkRenderInstance {
+        cube_layout: CubeQuadLayout::default(),
         key: SubChunkKey::new(0, 0, 0, 0),
         origin: [0; 3],
         generation: 1,
@@ -260,6 +261,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     instance.transparent_model_draw_refs = Arc::from([PackedModelDrawRef::new(0, 0)]);
     let entity = app.world_mut().spawn(instance.clone()).id();
     let allocation = GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: instance.key,
         generation: instance.generation,
         tint_identity: instance.tint_identity,

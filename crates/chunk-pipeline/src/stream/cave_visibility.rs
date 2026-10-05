@@ -6,7 +6,7 @@ impl WorldStream {
         &self,
         camera: SubChunkKey,
         scratch: &mut crate::CaveVisibilityScratch,
-        visible: &mut HashSet<SubChunkKey>,
+        visible: &mut crate::CaveVisibleSet,
     ) {
         crate::culling::fill_visible(camera, &self.connectivity, scratch, visible);
     }

@@ -62,6 +62,7 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        self.actor_block_syncs.remove_columns(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
@@ -107,7 +108,7 @@ impl WorldStream {
             self.mesh_dependency_masks
                 .retain(|key, _| !columns.contains(&key.chunk()));
             self.connectivity
-                .retain(|key, _| !columns.contains(&key.chunk()));
+                .retain(|key| !columns.contains(&key.chunk()));
         }
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();

@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
 
 #[path = "entity/inherited_cubes.rs"]
 mod inherited_cubes;
+mod source_paths;
 #[path = "entity/texture_mesh.rs"]
 mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
+pub use source_paths::{BED_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH};
+use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
 
 use v4::validate_extended_payload;
@@ -22,8 +24,8 @@ pub use v4::{
     EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
     EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
     EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
@@ -313,6 +315,7 @@ struct EntityCatalogPayload {
 
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
+    carrier_identity: Option<[u8; 32]>, // SHA-256 of the decoded carrier file
     source_manifest_sha256: [u8; 32],
     block_visual_count: u32,
     sources: Arc<[EntityAssetSource]>,
@@ -380,9 +383,8 @@ impl RuntimeEntityAssets {
             return Err(invalid("noncanonical MCBEENT4 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT4 envelope hash mismatch"));
-        }
+        let identity = crate::encoding::sealed_identity(bytes, payload_end)
+            .ok_or_else(|| invalid("MCBEENT4 envelope hash mismatch"))?;
         let payload_counts = v4::payload_counts(&bytes[HEADER_BYTES..payload_end])
             .map_err(|_| invalid("invalid MCBEENT4 catalog count preflight"))?;
         if payload_counts
@@ -432,13 +434,17 @@ impl RuntimeEntityAssets {
             item_visual_aliases: payload.item_visual_aliases,
             render: payload.render,
         };
-        Self::from_compiled(compiled)
+        Ok(Self {
+            carrier_identity: Some(identity),
+            ..Self::from_compiled(compiled)?
+        })
     }
 
     /// Validates a compiled catalog and wraps it without a blob round trip.
     pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
         let geometry_parents = validate_compiled(&compiled)?;
         Ok(Self {
+            carrier_identity: None,
             source_manifest_sha256: compiled.source_manifest_sha256,
             block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
@@ -465,6 +471,12 @@ impl RuntimeEntityAssets {
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
             render: Arc::new(compiled.render),
         })
+    }
+
+    /// The SHA-256 of the carrier this was decoded from; `None` when built from a compiled catalog.
+    #[must_use]
+    pub const fn carrier_identity(&self) -> Option<[u8; 32]> {
+        self.carrier_identity
     }
 
     #[must_use]
@@ -930,43 +942,6 @@ const fn dependency_asset_kind(kind: EntityDependencyKind) -> EntityAssetKind {
         EntityDependencyKind::RenderController => EntityAssetKind::RenderController,
         EntityDependencyKind::Texture => EntityAssetKind::Texture,
     }
-}
-
-fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Result<(), AssetError> {
-    let matches = match kind {
-        EntityAssetKind::Entity => path.starts_with("entity/") && path.ends_with(".json"),
-        EntityAssetKind::Attachable => path.starts_with("attachables/") && path.ends_with(".json"),
-        EntityAssetKind::Geometry => path.starts_with("models/entity/") && path.ends_with(".json"),
-        EntityAssetKind::Animation => path.starts_with("animations/") && path.ends_with(".json"),
-        EntityAssetKind::AnimationController => {
-            path.starts_with("animation_controllers/") && path.ends_with(".json")
-        }
-        EntityAssetKind::RenderController => {
-            path.starts_with("render_controllers/") && path.ends_with(".json")
-        }
-        EntityAssetKind::Texture => {
-            path.starts_with("textures/") && (path.ends_with(".png") || path.ends_with(".tga"))
-        }
-    };
-    if matches {
-        Ok(())
-    } else {
-        Err(invalid("entity symbol kind does not match its source path"))
-    }
-}
-
-fn validate_relative_path(path: &str) -> Result<(), AssetError> {
-    if path.is_empty()
-        || path.len() > MAX_ENTITY_ASSET_PATH_BYTES
-        || path.starts_with('/')
-        || path.contains('\\')
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(invalid("entity source path is unsafe or exceeds its bound"));
-    }
-    Ok(())
 }
 
 fn validate_identifier(identifier: &str) -> Result<(), AssetError> {

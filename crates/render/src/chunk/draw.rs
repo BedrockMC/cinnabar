@@ -33,6 +33,7 @@ pub(in crate::chunk) fn queue_chunks(
         ResMut<ChunkIndirectBatches>,
         ResMut<ChunkModelIndirectBatches>,
         ResMut<ChunkDepthLiquidIndirectBatches>,
+        ResMut<pipeline::solid::ChunkSolidIndirectBatches>,
     )>,
     mut next_tick: Local<Tick>,
     mut unsupported_reported: Local<bool>,
@@ -96,6 +97,9 @@ pub(in crate::chunk) fn queue_chunks(
     }
     drop(diagnostic_timer);
     let draw_functions = draw_functions.read();
+    let solid_direct_draw = draw_functions.id::<pipeline::solid::DrawSolidChunkCommands>();
+    let solid_indirect_draw =
+        draw_functions.id::<pipeline::solid::DrawSolidChunkIndirectCommands>();
     let direct_draw = draw_functions.id::<DrawChunkCommands>();
     let indirect_draw = draw_functions.id::<DrawChunkIndirectCommands>();
     let model_direct_draw = draw_functions.id::<DrawModelCommands>();
@@ -105,6 +109,7 @@ pub(in crate::chunk) fn queue_chunks(
     indirect_batch_sets.p0().0.clear();
     indirect_batch_sets.p1().0.clear();
     indirect_batch_sets.p2().0.clear();
+    indirect_batch_sets.p3().0.clear();
     if draw_mode == ChunkDrawMode::Unsupported {
         frame_probe.clear();
         if !*unsupported_reported {
@@ -149,14 +154,15 @@ pub(in crate::chunk) fn queue_chunks(
         let Some(phase) = opaque_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            ChunkPipelineKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-                enhanced: enhanced.is_some(),
-            },
-        ) else {
+        let key = ChunkPipelineKey {
+            msaa: *msaa,
+            hdr: view.hdr,
+            enhanced: enhanced.is_some(),
+        };
+        let Ok(pipeline_id) = pipeline.variants.specialize(&pipeline_cache, key) else {
+            continue;
+        };
+        let Ok(solid_pipeline_id) = pipeline.solid_variants.specialize(&pipeline_cache, key) else {
             continue;
         };
         let Ok(model_pipeline_id) = pipeline.model_variants.specialize(
@@ -234,18 +240,31 @@ pub(in crate::chunk) fn queue_chunks(
             if visible.is_empty() {
                 continue;
             }
+            let cube_entities = front_to_back_cube_entities(
+                visible.iter().filter_map(|(entity, _)| {
+                    allocations
+                        .get(*entity)
+                        .ok()
+                        .map(|item| (*entity, item.key))
+                }),
+                &view.rangefinder3d(),
+            );
+            indirect_batch_sets.p3().0.insert(
+                view_entity,
+                pipeline::solid::ChunkSolidIndirectBatch {
+                    camera: pipeline::solid::solid_cull_camera(view, enhanced.is_some()),
+                    cubes: ChunkIndirectBatch {
+                        visible_entities: cube_entities.clone(),
+                        drawn_allocations: Vec::new(),
+                        indirect_offset: 0,
+                        command_count: 0,
+                    },
+                },
+            );
             indirect_batch_sets.p0().0.insert(
                 view_entity,
                 ChunkIndirectBatch {
-                    visible_entities: front_to_back_cube_entities(
-                        visible.iter().filter_map(|(entity, _)| {
-                            allocations
-                                .get(*entity)
-                                .ok()
-                                .map(|item| (*entity, item.key))
-                        }),
-                        &view.rangefinder3d(),
-                    ),
+                    visible_entities: cube_entities,
                     drawn_allocations: Vec::new(),
                     indirect_offset: 0,
                     command_count: 0,
@@ -276,6 +295,25 @@ pub(in crate::chunk) fn queue_chunks(
                 },
             );
 
+            let this_tick = next_tick.get() + 1;
+            next_tick.set(this_tick);
+            phase.add(
+                Opaque3dBatchSetKey {
+                    draw_function: solid_indirect_draw,
+                    pipeline: solid_pipeline_id,
+                    material_bind_group_index: None,
+                    lightmap_slab: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                Opaque3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                },
+                (view_entity, *view_main_entity),
+                InputUniformIndex::default(),
+                BinnedRenderPhaseType::NonMesh,
+                *next_tick,
+            );
             let this_tick = next_tick.get() + 1;
             next_tick.set(this_tick);
             phase.add(
@@ -351,25 +389,40 @@ pub(in crate::chunk) fn queue_chunks(
             if !frame_probe.record_visible(render_entity, identity) {
                 continue;
             }
-            let this_tick = next_tick.get() + 1;
-            next_tick.set(this_tick);
-            phase.add(
-                Opaque3dBatchSetKey {
-                    draw_function: direct_draw,
-                    pipeline: pipeline_id,
-                    material_bind_group_index: None,
-                    lightmap_slab: None,
-                    vertex_slab: default(),
-                    index_slab: None,
-                },
-                Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
-                },
-                (render_entity, main_entity),
-                InputUniformIndex::default(),
-                BinnedRenderPhaseType::NonMesh,
-                *next_tick,
-            );
+            // Solid before cutout, so the cutout bin follows it in insertion order.
+            let cube_draws = [
+                (
+                    cube_stream_drawable(allocation),
+                    solid_direct_draw,
+                    solid_pipeline_id,
+                ),
+                (
+                    cutout_indirect_command(allocation).is_some(),
+                    direct_draw,
+                    pipeline_id,
+                ),
+            ];
+            for (_, draw_function, pipeline) in cube_draws.into_iter().filter(|draw| draw.0) {
+                let this_tick = next_tick.get() + 1;
+                next_tick.set(this_tick);
+                phase.add(
+                    Opaque3dBatchSetKey {
+                        draw_function,
+                        pipeline,
+                        material_bind_group_index: None,
+                        lightmap_slab: None,
+                        vertex_slab: default(),
+                        index_slab: None,
+                    },
+                    Opaque3dBinKey {
+                        asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    },
+                    (render_entity, main_entity),
+                    InputUniformIndex::default(),
+                    BinnedRenderPhaseType::NonMesh,
+                    *next_tick,
+                );
+            }
             if model_direct_draw_command(allocation).is_some() {
                 let this_tick = next_tick.get() + 1;
                 next_tick.set(this_tick);
