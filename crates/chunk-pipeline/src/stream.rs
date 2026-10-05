@@ -48,6 +48,7 @@ mod block_entities;
 mod block_events;
 mod cave_visibility;
 mod cohort;
+mod column_set;
 mod commit_budget;
 mod connectivity;
 mod construction;
@@ -85,6 +86,7 @@ use client_world::ingestion::{
     BlockMutationBatch, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds, DecodeJob,
     PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob, dimension_slots,
 };
+use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
@@ -293,8 +295,8 @@ pub struct WorldStream {
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,
-    resident: BTreeSet<SubChunkKey>,
-    known_air: BTreeSet<SubChunkKey>,
+    resident: ColumnSubChunkSet,
+    known_air: ColumnSubChunkSet,
     loaded_columns: BTreeSet<ChunkKey>,
     connectivity: crate::culling::ConnectivityGrid,
     connectivity_generation: u64,

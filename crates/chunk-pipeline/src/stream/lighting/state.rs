@@ -509,18 +509,12 @@ impl WorldStream {
             .max_by_key(|(candidate, _)| candidate.y)
     }
 
-    /// Iterates loaded sources in one column without scanning unrelated X coordinates.
+    /// Iterates loaded sources in one column without visiting unrelated sections.
     pub(in crate::stream) fn light_column_sources(
         &self,
         key: SubChunkKey,
     ) -> impl Iterator<Item = SubChunkKey> + '_ {
-        self.resident
-            .range(
-                SubChunkKey::new(key.dimension, key.x, i32::MIN, i32::MIN)
-                    ..=SubChunkKey::new(key.dimension, key.x, i32::MAX, i32::MAX),
-            )
-            .copied()
-            .filter(move |candidate| candidate.z == key.z)
+        self.resident.column(key.chunk()).copied()
     }
 
     /// Extends the vanilla sky ceiling to include taller loaded columns.

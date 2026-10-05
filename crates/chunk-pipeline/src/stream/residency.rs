@@ -101,8 +101,10 @@ impl WorldStream {
             )
         });
         if !changed.is_empty() {
-            self.resident.retain(|key| !columns.contains(&key.chunk()));
-            self.known_air.retain(|key| !columns.contains(&key.chunk()));
+            for key in &changed {
+                self.resident.remove(key);
+                self.known_air.remove(key);
+            }
             self.applied_mesh_generations
                 .retain(|key, _| !columns.contains(&key.chunk()));
             self.mesh_dependency_masks
@@ -144,24 +146,12 @@ impl WorldStream {
             rayon::spawn(move || drop((retired, retired_indexes)));
         }
     }
-    /// Fresh column arrivals search one ordered X range instead of every resident slot.
+    /// Collects only the sections belonging to the columns being retired.
     fn resident_keys_in_columns(&self, columns: &BTreeSet<ChunkKey>) -> BTreeSet<SubChunkKey> {
-        if columns.len() == 1 {
-            let column = *columns.first().unwrap();
-            let first = SubChunkKey::new(column.dimension, column.x, i32::MIN, i32::MIN);
-            let last = SubChunkKey::new(column.dimension, column.x, i32::MAX, i32::MAX);
-            self.resident
-                .range(first..=last)
-                .filter(|key| key.z == column.z)
-                .copied()
-                .collect()
-        } else {
-            self.resident
-                .iter()
-                .copied()
-                .filter(|key| columns.contains(&key.chunk()))
-                .collect()
-        }
+        columns
+            .iter()
+            .flat_map(|column| self.resident.column(*column).copied())
+            .collect()
     }
     pub(super) fn evict_all_resident(&mut self) {
         self.light_diagnostics.columns.clear();
