@@ -7,11 +7,15 @@
     (export "set-camera-rig" (func (param "rig" (option $rig)) (result (result (error string)))))
     (export "request-command" (func (param "command" string) (result (result (error string)))))))
   (import "$EVENTS" (instance $events
+    (type $c (record (field "name" string) (field "values" (list f32))))
+    (export "cue" (type $cue (eq $c)))
     (export "emit" (func (param "name" string) (param "values" (list f32))
-      (result (result (error string)))))))
+      (result (result (error string)))))
+    (export "poll" (func (result (list $cue))))))
   (alias export $gameplay "set-camera-rig" (func $set-rig))
   (alias export $gameplay "request-command" (func $request-command))
   (alias export $events "emit" (func $emit))
+  (alias export $events "poll" (func $poll))
   (core module $memory-module
     (memory (export "memory") 1)
     (data (i32.const 512) "camera.dodge")
@@ -19,7 +23,8 @@
     (global $next (mut i32) (i32.const 4096))
     (func (export "realloc") (param i32 i32 i32 i32) (result i32)
       (local $old i32)
-      global.get $next local.tee $old
+      global.get $next local.get 2 i32.add i32.const 1 i32.sub
+      i32.const 0 local.get 2 i32.sub i32.and local.tee $old
       local.get 3 i32.add global.set $next local.get $old))
   (core instance $mem (instantiate $memory-module))
   (alias core export $mem "memory" (core memory $memory))
@@ -27,10 +32,12 @@
   (core func $lower-rig (canon lower (func $set-rig) (memory $memory) (realloc $realloc)))
   (core func $lower-command (canon lower (func $request-command) (memory $memory) (realloc $realloc)))
   (core func $lower-emit (canon lower (func $emit) (memory $memory) (realloc $realloc)))
+  (core func $lower-poll (canon lower (func $poll) (memory $memory) (realloc $realloc)))
   (core module $code
     (import "host" "rig" (func $rig (param i32 f32 f32 f32 f32 f32 i32)))
     (import "host" "command" (func $command (param i32 i32 i32)))
     (import "host" "emit" (func $emit (param i32 i32 i32 i32 i32)))
+    (import "host" "poll" (func $poll (param i32)))
     (import "host" "memory" (memory 1))
     (global $frames (mut i32) (i32.const 0))
     (func (export "init") $INIT)
@@ -41,6 +48,7 @@
     (export "rig" (func $lower-rig))
     (export "command" (func $lower-command))
     (export "emit" (func $lower-emit))
+    (export "poll" (func $lower-poll))
     (export "memory" (memory $memory)))
   (core instance $run (instantiate $code (with "host" (instance $host))))
   (func (export "init") (canon lift (core func $run "init")))

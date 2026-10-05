@@ -210,9 +210,10 @@ change, swept against blocks like the vanilla boom; it presents third-person-bac
 until `none`, a trap or a reload. `CINNABAR_MOD_COMMANDS=ability` (comma-separated)
 lets `gameplay.request-command` send `/ability ...` as a vanilla player command
 request; any other command is refused, and requests are capped by
-`MAX_COMMANDS_PER_FRAME` and `MAX_COMMANDS_PER_SECOND`. `events.emit` publishes bounded presentation cues in the app's
-`ModCueFeed`. `input.read-controls` also reports held keys. All of these commit only
-after a successful callback; `examples/mods/showcase-camera` uses every one.
+`MAX_COMMANDS_PER_FRAME` and `MAX_COMMANDS_PER_SECOND`. `events.emit` publishes bounded
+cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
+`MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
+only after a successful callback and is dropped on a trap or reload.
 
 ## Attach a local component to a running client
 

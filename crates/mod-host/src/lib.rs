@@ -22,7 +22,7 @@ pub use runtime::cinnabar::extension::gameplay::{
 };
 #[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
-    input::Controls as ControlFrame, panel::Event as ControlEvent,
+    events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
 };
 
 /// Successfully committed local interaction requests, consumed once per frame.
@@ -31,14 +31,6 @@ pub use runtime::cinnabar::extension::{
 pub struct InteractionOutput {
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
-}
-
-/// One committed local presentation cue; it carries no authority.
-#[cfg(feature = "execution")]
-#[derive(Clone, Debug, PartialEq)]
-pub struct ModCue {
-    pub name: String,
-    pub values: Vec<f32>,
 }
 
 /// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
@@ -151,6 +143,11 @@ impl ModHost {
     /// Consumes the last successful frame's granted command requests once.
     pub fn take_commands(&mut self) -> Vec<String> {
         self.instance.take_commands()
+    }
+
+    /// Cues the next callback can poll, typically last frame's from every loaded mod.
+    pub fn deliver_cues(&mut self, cues: Vec<ModCue>) {
+        self.instance.deliver_cues(cues);
     }
 
     /// Consumes the last successful frame's presentation cues once.
