@@ -5143,6 +5143,19 @@ no longer needs RUST_MCBE_TELEPORT_ACK; that opt-in still enables unverified ext
 
 ## Cinnabar extension: server experiences (incomplete; not vanilla parity)
 
+- Discovery, signed session negotiation, scoped consent, hashed bundle delivery,
+  capability hosting and synchronized media are an opt-in Cinnabar extension.
+- This branch is code-only. Local compilation and regression validation are now
+  authorized; no vanilla, visual, performance or containment gate is closed.
+- Production remote execution must remain unavailable until restricted helpers,
+  compiler limits and media decoding pass independent cross-platform validation.
+- See `docs/server-experiences.md` for the client implementation and remaining gates.
+- Provisional, labeled incomplete: server WIT 0.4 focus snapshots stop counting when the
+  player is farther than `provisionalFocusRange` (`tools/localserver/experience/limits.go`,
+  Dragonfly's survival block reach). Vanilla closes a block container screen beyond the
+  player's pick range (per input mode, survival or creative), measured squared from the
+  player's eyes to the block centre; the range constants are not yet known. Replace the
+  constant with those values, per game mode, once they are known.
 
 - Implemented client preview: admitted marker, signed session challenge, scoped trust
   JSON-UI, HTTPS/hash cache, bounded ordered ScriptMessage records, versioned WIT,

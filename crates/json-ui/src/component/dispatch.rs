@@ -227,9 +227,9 @@ impl Dispatcher {
         out
     }
 
-    /// A screen controller's text for the edit boxes whose `text_box_name` is `name`
-    /// (`TextEditBoxComponent::setText`): it replaces the text, cut to `max_length` characters,
-    /// keeps each box's selection, and raises no event.
+    /// A screen controller's text for the edit boxes whose `text_box_name` is `name`, as vanilla
+    /// sets an edit box's text: it replaces the text, cut to `max_length` characters, keeps each
+    /// box's selection, and raises no event.
     pub fn set_edit_text(
         &mut self,
         regions: &[HitRegion],
