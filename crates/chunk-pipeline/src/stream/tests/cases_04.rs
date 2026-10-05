@@ -503,6 +503,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -575,6 +576,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -647,6 +649,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -714,6 +717,7 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: std::time::Duration::from_millis(5),
         urgent: false,
     });
@@ -789,7 +793,10 @@ fn publication_stage_queue_wait_excludes_worker_duration_and_maxima_do_not_shrin
     stats.observe_decode_queue_wait(super::queue_wait(queued_at, started_at));
     stats.observe_decode_queue_wait(std::time::Duration::from_millis(3));
     stats.observe_light_queue_wait(std::time::Duration::from_millis(11));
-    stats.observe_mesh_queue_wait(std::time::Duration::from_millis(13));
+    stats.observe_mesh_queue_wait(
+        std::time::Duration::from_millis(13),
+        std::time::Duration::ZERO,
+    );
     stats.max_decode_duration = stats
         .max_decode_duration
         .max(finished_at.saturating_duration_since(started_at));

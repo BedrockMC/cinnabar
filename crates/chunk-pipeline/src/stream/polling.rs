@@ -238,7 +238,7 @@ impl WorldStream {
         Arc::clone(self.authority.resolved_biome_tints())
     }
     pub fn connectivity(&self, key: SubChunkKey) -> Option<FaceConnectivity> {
-        self.connectivity.get(&key).copied()
+        self.connectivity.get(&key)
     }
     pub fn surface_eye_position(&self, block_x: i32, block_z: i32) -> Option<[f32; 3]> {
         let block_y = self.top_non_air_block_y(block_x, block_z)?;

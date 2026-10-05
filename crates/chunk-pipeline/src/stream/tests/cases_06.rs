@@ -523,6 +523,7 @@ fn stale_mesh_completion_cannot_replace_current_revision() {
         dependency_mask: MeshDependencyMask::new(false, true),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: std::time::Duration::ZERO,
         urgent: false,
     });
