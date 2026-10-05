@@ -64,6 +64,7 @@ struct ModRuntime {
     label_rebuilds: u64,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
+    render_merge: mod_host::mod_render::RenderMerge,
     last_reload: Instant,
     controls: mod_host::ControlFrame,
     reload_on_main: bool,
@@ -161,6 +162,7 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
             label_inputs: Vec::new(),
             label_rebuilds: 0,
             render_sources: Vec::new(),
+            render_merge: Default::default(),
             last_reload: Instant::now(),
             controls: mod_host::empty_controls(),
             reload_on_main: true,
