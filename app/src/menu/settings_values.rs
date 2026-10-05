@@ -118,11 +118,7 @@ mod tests {
     use super::*;
 
     fn menu() -> MenuRuntime {
-        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        // Saved host settings are exercised by the dedicated persistence tests.
-        menu.sync_fullscreen(false);
-        let _ = menu.take_fullscreen_change();
-        menu
+        MenuRuntime::new(true, 2, "Steve".to_owned())
     }
 
     #[test]

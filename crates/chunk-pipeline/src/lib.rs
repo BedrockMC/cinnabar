@@ -5,6 +5,9 @@ mod stream;
 
 pub use culling::{CaveVisibilityScratch, CaveVisibleSet};
 
+#[cfg(feature = "benchmark-support")]
+#[doc(hidden)]
+pub use stream::benchmark_support;
 pub use stream::{
     ActiveBlockCrack, ActorBlockSyncFence, BlockCrackSnapshot, BlockCrackStatus,
     BuildProfileIdentity, CohortManifestIdentity, DECODE_DISPATCH_BUDGET_PER_POLL,

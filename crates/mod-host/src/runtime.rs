@@ -34,6 +34,9 @@ struct State {
     camera_writes: u32,
     pending_camera: Option<CameraDelta>,
     camera_delta: Option<CameraDelta>,
+    packet_delay_ms: u32,
+    pending_packet_delay: Option<u32>,
+    packet_delay_writes: u32,
     controls: controls::ControlState,
     world: gameplay::WorldState,
 }
@@ -62,6 +65,9 @@ impl State {
             camera_writes: 0,
             pending_camera: None,
             camera_delta: None,
+            packet_delay_ms: 0,
+            pending_packet_delay: None,
+            packet_delay_writes: 0,
             controls: controls::ControlState::new(settings),
             world: gameplay::WorldState::default(),
         }
@@ -159,6 +165,8 @@ impl Instance {
         state.snapshot = None;
         state.pending_camera = None;
         state.camera_delta = None;
+        state.pending_packet_delay = None;
+        state.packet_delay_writes = 0;
         state.controls.begin_frame();
         state.world.begin_frame();
         if !self.active {
@@ -190,6 +198,8 @@ impl Instance {
             self.store.data_mut().camera_delta = None;
             self.store.data_mut().controls.revoke();
             self.store.data_mut().world = gameplay::WorldState::default();
+            self.store.data_mut().packet_delay_ms = 0;
+            self.store.data_mut().pending_packet_delay = None;
             bail!("mod quarantined after a guest trap: {error:#}");
         }
         commit(&mut self.store);
@@ -219,6 +229,10 @@ impl Instance {
 
     pub(super) fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         self.store.data_mut().camera_delta.take()
+    }
+
+    pub(super) fn packet_delay_ms(&self) -> u32 {
+        self.store.data().packet_delay_ms
     }
 
     /// Reads the committed presentation clock without entering the component.
@@ -266,6 +280,9 @@ fn commit(store: &mut Store<State>) {
     state.controls.commit();
     state.world.commit();
     state.camera_delta = state.pending_camera.take();
+    if let Some(delay) = state.pending_packet_delay.take() {
+        state.packet_delay_ms = delay;
+    }
     if let Some(ticks) = state.pending_time.take() {
         state.time_override = ticks;
     }

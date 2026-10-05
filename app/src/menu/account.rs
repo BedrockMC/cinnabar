@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn only_validated_authentication_selects_the_cache_for_a_connection() {
-        let layout = InstallLayout::discover().unwrap();
+        let layout = crate::install_layout::checkout();
         assert_eq!(validated_auth_cache(&layout, None), None);
         assert_eq!(
             validated_auth_cache(&layout, Some(&AuthState::SignedOut)),

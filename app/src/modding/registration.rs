@@ -57,6 +57,7 @@ pub(super) struct Grants {
     settings: bool,
     entities: bool,
     commands: Vec<String>,
+    packet_delay: bool,
 }
 
 impl From<&Grants> for ModGrants {
@@ -70,6 +71,7 @@ impl From<&Grants> for ModGrants {
             settings: grants.settings,
             entities: grants.entities,
             commands: grants.commands.clone(),
+            packet_delay: grants.packet_delay,
         }
     }
 }

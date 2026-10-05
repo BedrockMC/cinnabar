@@ -47,6 +47,15 @@ fn write_registration(directory: &Scratch, registration: &Registration) {
     .unwrap();
 }
 
+#[test]
+fn packet_delay_grant_is_opt_in_and_survives_registration_decode() {
+    let old: Grants = serde_json::from_str(r#"{"controls":true}"#).unwrap();
+    assert!(!ModGrants::from(&old).packet_delay);
+    let selected: Grants =
+        serde_json::from_str(r#"{"controls":true,"packet_delay":true}"#).unwrap();
+    assert!(ModGrants::from(&selected).packet_delay);
+}
+
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     let package = include_str!("../../../../crates/mod-api/wit/extension.wit")
         .lines()

@@ -46,7 +46,7 @@ interface environment {
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
 }
 
-/// Explicit local gameplay capabilities; no world mutation or packet access.
+/// Explicit local gameplay capabilities; no raw packet access.
 interface gameplay {
     record vector3 { x: f32, y: f32, z: f32 }
     /// Remote player feet in world coordinates, without names or network access.
@@ -70,6 +70,10 @@ interface gameplay {
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
     pulse-attack: func() -> result<_, string>;
+    /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
+    /// Delays post-login application packets in both directions, without raw packet access.
+    /// Retained only after a successful callback; no current gameplay frame required.
+    set-packet-delay: func(delay-ms: u32) -> result<_, string>;
 
     /// A nearby non-player actor; health comes from its replicated health attribute.
     record mob {
