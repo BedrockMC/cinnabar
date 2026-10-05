@@ -66,7 +66,7 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
             || identity.model.key != allocation.key
             || allocation.model_range.as_ref() != Some(&identity.model.model_range)
             || allocation.transparent_model_draw_range.as_ref() != Some(&identity.model.draw_range)
-            || snapshot.generation() != identity.water_generation
+            || snapshot.generation() != draw.water_generation
             || snapshot.buffer_slot() != draw.water_slot
             || snapshot.key.asset_identity != identity.asset_identity
             || snapshot.key.tint_identity != identity.tint_identity
@@ -107,10 +107,11 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
                     );
                 }
                 MixedStream::Water => {
+                    let start = draw.water_range.start;
                     let Some(args) = transparent_draw_range_args(
                         draw.water_slot,
                         arena.transparent_slot_refs,
-                        segment.range.clone(),
+                        start + segment.range.start..start + segment.range.end,
                     ) else {
                         return RenderCommandResult::Skip;
                     };
@@ -127,7 +128,7 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
         frame_probe.record_direct_streams(item.entity(), frame_identity, ChunkStreamMask::MODEL);
         if frame_probe.is_active()
             && let Some(water_draw) =
-                transparent_frame_draw_for_range(snapshot, arena, identity.water_range.clone())
+                transparent_frame_draw_for_range(snapshot, arena, draw.water_range.clone())
         {
             frame_probe.record_transparent_draw(snapshot.generation(), [water_draw]);
         }
