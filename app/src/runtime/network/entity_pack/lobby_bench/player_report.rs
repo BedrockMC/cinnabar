@@ -260,7 +260,7 @@ fn lobby_player_report() {
         bootstrap: capture.bootstrap,
         packets: vec![],
     };
-    let (mut world, _, mut replay) = build_world(&empty, Path::new(&pack), false);
+    let (mut world, _, mut replay) = build_world(&empty, Some(Path::new(&pack)), false);
     let cameras: Vec<Entity> = world
         .query_filtered::<Entity, bevy::prelude::With<crate::camera::FlyCamera>>()
         .iter(&world)
