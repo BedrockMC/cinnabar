@@ -921,6 +921,7 @@ mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
     ActorFramePartialTick, HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+    publish_entity_shadows,
 };
 
 #[cfg(test)]

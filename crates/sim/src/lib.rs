@@ -26,7 +26,7 @@ pub use simulator::{
     AxisCollisions, ControlledTickResult, JUMP_DELAY_TICKS, MAX_BLOCK_SAMPLES_PER_TICK,
     MovementEffects, MovementEnvironment, MovementInput, MovementMode, PlayerState,
     ProcessedControls, SPRINT_SPEED_MULTIPLIER, SimulationError, Simulator, TICKS_PER_SECOND,
-    TickResult, pose_fits, sample_water_head,
+    TickResult, pose_fits, sample_liquid_submersion, sample_water_head,
 };
 pub use world::{
     BlockHit, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionIdSpace,
