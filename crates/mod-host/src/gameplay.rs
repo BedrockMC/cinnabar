@@ -4,10 +4,10 @@ use crate::{
 };
 use anyhow::{Result, bail, ensure};
 use mod_api::{
-    MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME, MAX_CUE_NAME_BYTES,
-    MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_GAMEPLAY_MOBS, MAX_GAMEPLAY_PLAYERS,
-    MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES, MAX_RIG_BACK_BLOCKS, MAX_RIG_FOV_DELTA_DEGREES,
-    MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS, MAX_RIG_VERTICAL_BLOCKS,
+    MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_SECOND,
+    MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_GAMEPLAY_MOBS,
+    MAX_GAMEPLAY_PLAYERS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES, MAX_RIG_BACK_BLOCKS,
+    MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS, MAX_RIG_VERTICAL_BLOCKS,
 };
 
 /// Mob input, the retained rig, and per-frame command and cue output.
@@ -20,6 +20,8 @@ pub(super) struct WorldState {
     pending_rig: Option<Option<GameplayCameraRig>>,
     pending_commands: Vec<String>,
     pending_cues: Vec<ModCue>,
+    window_seconds: f32,
+    window_sent: usize,
 }
 
 impl WorldState {
@@ -33,11 +35,21 @@ impl WorldState {
         self.pending_cues.clear();
     }
 
+    /// Advances the one-second command rate window by host-measured frame time.
+    pub fn advance_command_window(&mut self, seconds: f32) {
+        self.window_seconds += seconds;
+        if self.window_seconds >= 1.0 {
+            self.window_seconds = 0.0;
+            self.window_sent = 0;
+        }
+    }
+
     pub fn commit(&mut self) {
         if let Some(rig) = self.pending_rig.take() {
             self.rig = rig;
         }
         self.commands = std::mem::take(&mut self.pending_commands);
+        self.window_sent += self.commands.len();
         self.cues = std::mem::take(&mut self.pending_cues);
     }
 }
@@ -213,6 +225,9 @@ impl cinnabar::extension::gameplay::Host for State {
             return Ok(Err(
                 "command is not granted or not short printable text".into()
             ));
+        }
+        if self.world.window_sent + self.world.pending_commands.len() >= MAX_COMMANDS_PER_SECOND {
+            return Ok(Err("command rate limit reached".into()));
         }
         self.world.pending_commands.push(command);
         Ok(Ok(()))

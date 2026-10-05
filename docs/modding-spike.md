@@ -209,8 +209,8 @@ eye, nearest first, with type ID and replicated health. `gameplay.set-camera-rig
 change, swept against blocks like the vanilla boom; it presents third-person-back
 until `none`, a trap or a reload. `CINNABAR_MOD_COMMANDS=ability` (comma-separated)
 lets `gameplay.request-command` send `/ability ...` as a vanilla player command
-request; any other command is refused, and at most `MAX_COMMANDS_PER_FRAME` go per
-callback. `events.emit` publishes bounded presentation cues in the app's
+request; any other command is refused, and requests are capped by
+`MAX_COMMANDS_PER_FRAME` and `MAX_COMMANDS_PER_SECOND`. `events.emit` publishes bounded presentation cues in the app's
 `ModCueFeed`. `input.read-controls` also reports held keys. All of these commit only
 after a successful callback; `examples/mods/showcase-camera` uses every one.
 

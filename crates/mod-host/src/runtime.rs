@@ -167,6 +167,7 @@ impl Instance {
         gameplay::validate_snapshot(snapshot.as_ref())?;
         gameplay::validate_mobs(snapshot.as_ref(), &mobs)?;
         controls::validate_frame(&controls)?;
+        let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
         state.pressed = pressed;
         state.writes = 0;
@@ -174,6 +175,7 @@ impl Instance {
         state.gameplay_reads = 0;
         state.camera_writes = 0;
         state.snapshot = snapshot;
+        state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
         state.controls.frame = controls;
         self.store.set_fuel(FRAME_FUEL)?;
