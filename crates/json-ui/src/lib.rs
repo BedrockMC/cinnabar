@@ -223,8 +223,8 @@ impl Context {
             .fold(Self::desktop(), |context, (name, value)| {
                 context.with_flag(name, *value)
             });
-        // `SceneFactory::_createSafeZoneSizeVar` at the desktop defaults (safe
-        // zone 1, screen position 0) sizes every buffer zero along its axis.
+        // The safe zone at the desktop defaults (safe zone 1, screen position 0)
+        // sizes every buffer zero along its axis.
         let vertical = || serde_json::json!(["100%", 0]);
         let horizontal = || serde_json::json!([0, "100%"]);
         context

@@ -119,7 +119,7 @@ pub struct PhysicsMovementSample {
     pub position: [f32; 3],
     /// This tick's resolved displacement, used by local movement evidence.
     pub movement: [f32; 3],
-    /// End-of-tick StateVector motion sent as PlayerAuthInput.PosDelta.
+    /// End-of-tick velocity sent as PlayerAuthInput.PosDelta.
     pub velocity: [f32; 3],
     pub move_vector: [f32; 2],
     /// Pre-normalization device sample used for the digital raw-input fallback.

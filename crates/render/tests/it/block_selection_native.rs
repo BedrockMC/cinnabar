@@ -141,7 +141,7 @@ fn current_stair_selection_surface_uses_authoritative_corner_rotation_and_half()
             };
             let mut frame = BlockSelectionFrame::default();
             frame.update(Some(&target), Vec3::splat(3.0), Vec3::NEG_Z, true);
-            // Named native StairBlock::getOutline deliberately uses one full box.
+            // Vanilla stair outlines deliberately use one full box.
             assert_eq!(frame.outline.len(), 12 * 6);
             frame.update(Some(&target), Vec3::splat(3.0), Vec3::NEG_Z, false);
             assert_eq!(frame.highlight.len(), quad_count * 6);

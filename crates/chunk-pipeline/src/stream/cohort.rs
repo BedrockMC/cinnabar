@@ -1,7 +1,7 @@
 use super::diagnostics::deterministic_chunk_key_hash;
 use super::*;
 
-// ClientLoadingProgressTickingSystem::mChunksNeededForLoadOffsets covers nine columns.
+// Vanilla's join loading waits on the nine columns around the player.
 const STARTUP_RADIUS: i32 = 1;
 
 /// Server publisher scope, the view cohort committed from it, and the columns it requires.
