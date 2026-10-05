@@ -14,7 +14,7 @@ use ui::TextLayoutCache;
 use super::render_report::{compile_local_pack, world_for};
 use crate::presentation::{actors, entity_layers};
 use client_ui::ui_runtime::presentation::{
-    nametag_atlas::{GlyphPage, NametagAtlas, font_page},
+    nametag_atlas::{GlyphPage, GlyphPixels, NametagAtlas, font_page},
     nametags::{build_nametag_scene, extract_nametag},
 };
 
@@ -123,7 +123,7 @@ fn render_captured_scene() {
                     .map(|pixels| GlyphPage {
                         width: GLYPH_PAGE_SIDE,
                         height: GLYPH_PAGE_SIDE,
-                        rgba8: pixels,
+                        pixels: GlyphPixels::Rgba8(pixels),
                     })
             })
         },
