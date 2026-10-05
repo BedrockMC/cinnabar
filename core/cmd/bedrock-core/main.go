@@ -232,6 +232,7 @@ func runWithResourcePackCacheFactory(
 	logger.Info("core starting", "endpoint", opts.socketDir, "upstream", opts.upstream)
 	var statusStore *control.Store
 	var controlServer *control.Server
+	packetDelay := new(proxy.PacketDelay)
 	if opts.controlStatus && opts.catalogFile == "" {
 		// Bound before authentication so a launcher can poll the device code.
 		statusStore = control.NewStore()
@@ -240,6 +241,7 @@ func runWithResourcePackCacheFactory(
 			return fmt.Errorf("start control endpoint: %w", err)
 		}
 		defer func() { _ = controlServer.Close() }()
+		controlServer.SetPacketDelay(packetDelay)
 	}
 	authentication := "offline"
 	var tokenSource oauth2.TokenSource
@@ -347,6 +349,7 @@ func runWithResourcePackCacheFactory(
 		onDisconnect = statusStore.ObserveDisconnect
 	}
 	serveErr := serve(ctx, proxy.Config{
+		PacketDelay:         packetDelay,
 		SocketDir:           opts.socketDir,
 		Upstream:            opts.upstream,
 		Account:             account,
