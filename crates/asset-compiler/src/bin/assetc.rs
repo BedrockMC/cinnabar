@@ -877,5 +877,8 @@ fn read_bounded_with_limit(
 }
 
 #[cfg(test)]
+#[path = "../../build_support/lockfile.rs"]
+mod lockfile;
+#[cfg(test)]
 #[path = "assetc/tests.rs"]
 mod tests;

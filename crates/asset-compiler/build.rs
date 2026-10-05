@@ -1,5 +1,6 @@
-//! Embeds `ASSETC_SOURCE_SHA256`: a digest of every workspace crate the compiler links and every
-//! file they embed, so `assetc prepare` rebuilds carriers exactly when compiler code changes.
+//! Embeds `ASSETC_SOURCE_SHA256`: a digest of every workspace crate the compiler links, every file
+//! they embed and the locked external packages they reach, so `assetc prepare` rebuilds carriers
+//! exactly when compiler code or its dependencies change.
 
 use std::{
     collections::BTreeSet,
@@ -8,6 +9,9 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
+
+#[path = "build_support/lockfile.rs"]
+mod lockfile;
 
 /// Crate directories that never reach the binary.
 const SKIPPED_DIRS: &[&str] = &["tests", "benches", "target"];
@@ -37,6 +41,14 @@ fn main() {
         hasher.update(relative.to_string_lossy().replace('\\', "/").as_bytes());
         hasher.update([0]);
         hasher.update(fs::read(path).unwrap_or_default());
+        hasher.update([0]);
+    }
+    let lock = root.join("Cargo.lock");
+    println!("cargo:rerun-if-changed={}", lock.display());
+    let locked = fs::read_to_string(&lock).unwrap_or_default();
+    let package = env::var("CARGO_PKG_NAME").unwrap();
+    for line in lockfile::external_closure(&locked, &package) {
+        hasher.update(line.as_bytes());
         hasher.update([0]);
     }
     println!(
