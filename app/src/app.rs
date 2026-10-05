@@ -550,7 +550,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         }
         Ok(None) => {
             eprintln!(
-                "optional sound bank was not found; run `make audio-bank` (or `make assets`) to enable playback"
+                "optional sound bank was not found; run `make audio-bank-assets` (or `make assets`) to enable playback"
             );
             None
         }
