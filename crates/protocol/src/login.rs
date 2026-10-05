@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::path::Path;
+use std::sync::Arc;
 
 use bytes::{Buf, Bytes};
 use jolyne::error::JolyneError;
@@ -14,8 +15,8 @@ use crate::blob_cache::ResolverReady;
 use crate::socket_transport::SocketTransport;
 use crate::{
     BlobCacheResolver, BlobCacheStats, ClientBlobCache, GameData, LevelChunkEvent, Packet,
-    ProtocolError, ResourcePackHandoff, ServerDisconnectEvent, ServerTransferEvent, WorldEvent,
-    into_world_event,
+    ProtocolError, ResourcePackHandoff, ResourcePackStore, ServerDisconnectEvent,
+    ServerTransferEvent, WorldEvent, into_world_event,
 };
 
 mod boundary;
@@ -43,7 +44,7 @@ impl LoginSequence {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_inner(transport, display_name, None, skin).await
+        Self::connect_transport_inner(transport, display_name, None, skin, None).await
     }
 
     /// Connects with a persistent verified cache and a fresh session-owned resolver.
@@ -52,11 +53,12 @@ impl LoginSequence {
         display_name: &str,
         cache: ClientBlobCache,
         skin: Option<crate::ClientSkin>,
+        pack_store: Option<Arc<dyn ResourcePackStore>>,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
         let transport = SocketTransport::connect(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
-        Self::connect_transport_inner(transport, display_name, Some(cache), skin).await
+        Self::connect_transport_inner(transport, display_name, Some(cache), skin, pack_store).await
     }
 
     /// Headless test seam that treats the received spawn prerequisites as presentation readiness.
@@ -66,7 +68,7 @@ impl LoginSequence {
         display_name: &str,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let (mut session, data) =
-            Self::connect_transport_inner(transport, display_name, None, None).await?;
+            Self::connect_transport_inner(transport, display_name, None, None, None).await?;
         session.finish_loading().await?;
         Ok((session, data))
     }
@@ -79,7 +81,7 @@ impl LoginSequence {
         cache: ClientBlobCache,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let (mut session, data) =
-            Self::connect_transport_inner(transport, display_name, Some(cache), None).await?;
+            Self::connect_transport_inner(transport, display_name, Some(cache), None, None).await?;
         session.finish_loading().await?;
         Ok((session, data))
     }
@@ -89,6 +91,7 @@ impl LoginSequence {
         display_name: &str,
         cache: Option<ClientBlobCache>,
         skin: Option<crate::ClientSkin>,
+        pack_store: Option<Arc<dyn ResourcePackStore>>,
     ) -> Result<(PlaySession<T>, GameData), ProtocolError> {
         let peer_addr = transport.peer_addr();
         let mut transport = BedrockTransport::new(transport);
@@ -98,6 +101,9 @@ impl LoginSequence {
             .with_client_cache_enabled(cache.is_some());
         if let Some(skin) = skin {
             config = config.with_skin(skin);
+        }
+        if let Some(store) = pack_store {
+            config = config.with_resource_pack_store(store);
         }
         let (stream, game_data) = stream.join(config).await?;
         Ok((PlaySession::new(stream, cache), game_data))

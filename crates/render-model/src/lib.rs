@@ -25,8 +25,8 @@ pub use actor::{
     geometry_from_runtime_assets, install_default_player_skin, is_equipment_rig_id,
     is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id, item_mesh_rig_id,
     layer_geometries, layer_geometry_rig_id, normalize_actor_skin, normalize_actor_skin_cached,
-    pack_equipment_rig_id, pack_geometries, pack_rig_id, skin_geometry, skin_rig_id,
-    standard_biped_overlay_vertices, standard_biped_vertices,
+    pack_equipment_rig_id, pack_geometries, pack_rig_id, resolve_geometry_bones, skin_geometry,
+    skin_rig_id, standard_biped_overlay_vertices, standard_biped_vertices,
 };
 pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,

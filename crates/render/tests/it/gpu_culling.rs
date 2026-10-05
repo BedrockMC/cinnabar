@@ -849,8 +849,9 @@ fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
     let Some(gpu) = Gpu::for_fixture_with("gpu culled terrain raster", features) else {
         return;
     };
-    // Count-driven indirect draws run where the device has them; Metal replays the read-back args.
-    let indirect = gpu.device.features().contains(features) && gpu.backend != wgpu::Backend::Metal;
+    // Replay args on backends whose count draws cannot preserve the shader's base offsets.
+    let indirect = gpu.device.features().contains(features)
+        && model::count_draw_offsets_supported(gpu.backend);
     let terrain = terrain();
     let slots = terrain.records.len();
     let enabled = enabled_words(|slot| slot != 7, slots);

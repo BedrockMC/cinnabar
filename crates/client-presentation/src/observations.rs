@@ -96,4 +96,6 @@ pub struct CursorPolicy {
     pub consent: bool,
     pub absorbs_input: bool,
     pub steals_mouse: Option<bool>,
+    /// A developer controller owns input: leave the OS cursor and held input alone.
+    pub driven: bool,
 }

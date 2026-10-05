@@ -2,7 +2,8 @@
 //! two-phase Hi-Z occlusion, and count-driven multi-draw-indirect submission.
 //!
 //! Direct-draw devices (Metal) instead read occlusion bits back for later frames to skip; see
-//! [`direct`]. Frames with an active presentation or visibility probe keep plain CPU culling.
+//! [`direct`]. DX12 count draws lose shader base offsets, so it keeps CPU culling, as do frames
+//! with an active presentation or visibility probe.
 
 #[cfg(test)]
 mod app_tests;
@@ -48,9 +49,11 @@ pub(in crate::chunk) fn gpu_cull_supported(
     draw_mode: ChunkDrawMode,
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
+    backend: wgpu::Backend,
     forced_cpu: bool,
 ) -> bool {
     !forced_cpu
+        && model::count_draw_offsets_supported(backend)
         && draw_mode == ChunkDrawMode::MultiDrawIndirect
         // Count-driven draws address quads through a non-zero `first_instance`.
         && features.contains(
@@ -180,6 +183,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
         draw_mode,
         device.features(),
         adapter.get_downlevel_capabilities().flags,
+        adapter.get_info().backend,
         forced_cpu,
     ));
     let direct = DirectOcclusionSupport(direct_occlusion_supported(
