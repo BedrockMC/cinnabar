@@ -18,8 +18,6 @@ use std::{
 pub(crate) mod output;
 
 const MAX_EVENTS: usize = 16;
-/// A presented frame this far past the looped position means the timeline wrapped.
-const LOOP_SLACK_US: u64 = 500_000;
 
 pub struct Player {
     owner: Principal,
@@ -39,6 +37,7 @@ pub struct Player {
     decoder_generation: u64,
     decoder_ended: bool,
     presented_us: Option<u64>,
+    last_position_us: Option<u64>,
     announce_playing: bool,
     ended: bool,
     events: Vec<Event>,
@@ -128,6 +127,7 @@ impl Player {
             decoder_generation: 0,
             decoder_ended: false,
             presented_us: None,
+            last_position_us: None,
             announce_playing: false,
             ended: false,
             events: Vec::new(),
@@ -210,17 +210,22 @@ impl Player {
             self.stop_decoder();
             return Ok(());
         }
-        if self.playback.loop_us.is_some()
-            && self
-                .presented_us
-                .is_some_and(|shown| position.saturating_add(LOOP_SLACK_US) < shown)
-        {
+        // Only a loop wrap moves a playing timeline backward without a new decode generation.
+        let wrapped = self.playback.loop_us.is_some()
+            && self.playback.playing
+            && self.playback.decode_generation == was_generation
+            && self.last_position_us.is_some_and(|last| position < last);
+        self.last_position_us = Some(position);
+        if wrapped {
             self.playback.restart_decode()?;
         }
         if self.decoder_generation != self.playback.decode_generation {
             self.stop_decoder();
             // A replaced helper's IPC thread releases the decoder slot shortly after it dies.
             if !super::worker::DecoderLease::free() {
+                if self.playback.playing {
+                    self.playback.hold(server_us, duration);
+                }
                 return Ok(());
             }
             self.worker = Some(Worker::start(
@@ -393,6 +398,7 @@ mod tests {
             decoder_generation: 0,
             decoder_ended: false,
             presented_us: None,
+            last_position_us: None,
             announce_playing: false,
             ended: false,
             events: Vec::new(),
@@ -401,6 +407,10 @@ mod tests {
     }
 
     fn play(player: &mut Player, revision: u64, at_us: u64) {
+        control(player, revision, at_us, Operation::Play { position_us: 0 });
+    }
+
+    fn control(player: &mut Player, revision: u64, at_us: u64, operation: Operation) {
         let message = Message {
             owner: player.owner.clone(),
             instance: INITIAL_MEDIA_INSTANCE,
@@ -409,13 +419,71 @@ mod tests {
             world_epoch: 1,
             revision,
             effective_server_us: at_us,
-            operation: Operation::Play { position_us: 0 },
+            operation,
         };
         player.control(message, at_us).unwrap();
     }
 
     #[test]
+    fn waiting_for_the_decoder_slot_holds_the_timeline() {
+        let _slot = super::super::worker::tests::DECODER_SLOT.lock();
+        let lease = super::super::worker::DecoderLease::acquire().unwrap();
+        let mut player = player();
+        play(&mut player, 1, 0);
+        player.tick(0, 0, true).unwrap();
+        player.tick(0, 400_000, true).unwrap();
+        assert_eq!(
+            player.position_us(400_000),
+            Some(0),
+            "the clip ran without output"
+        );
+        drop(lease);
+    }
+
+    #[test]
+    fn a_short_loop_restarts_decoding_when_the_timeline_wraps() {
+        let _slot = super::super::worker::tests::DECODER_SLOT.lock();
+        let lease = super::super::worker::DecoderLease::acquire().unwrap();
+        let mut player = player();
+        control(
+            &mut player,
+            1,
+            0,
+            Operation::SetLoop {
+                bounds_us: Some([0, 500_000]),
+            },
+        );
+        play(&mut player, 2, 0);
+        player.playback.advance(0, 500_000).unwrap();
+        player.decoder_generation = player.playback.decode_generation;
+        player.presented_us = Some(400_000);
+        player
+            .output
+            .frames
+            .push(
+                VideoFrame {
+                    generation: player.decoder_generation,
+                    pts_us: 450_000,
+                    width: 2,
+                    height: 2,
+                    rgba: vec![0; 16],
+                },
+                player.decoder_generation,
+            )
+            .unwrap();
+        player.tick(0, 450_000, true).unwrap();
+        let before = player.playback.decode_generation;
+        player.tick(0, 520_000, true).unwrap();
+        assert!(
+            player.playback.decode_generation > before,
+            "wrap went unnoticed"
+        );
+        drop(lease);
+    }
+
+    #[test]
     fn a_restart_waits_for_the_previous_decoder_to_release_its_lease() {
+        let _slot = super::super::worker::tests::DECODER_SLOT.lock();
         let lease = super::super::worker::DecoderLease::acquire().unwrap();
         let mut player = player();
         play(&mut player, 1, 0);

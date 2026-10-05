@@ -260,6 +260,11 @@ fn prepare_media_screens(
                     texture.upload(&queue, size, state.texture_generation, &frame.rgba);
             }
         }
+        if screen.frame.is_none() {
+            // A reused id with a new clip shows black until that clip's first frame.
+            state.serial = None;
+            state.uploaded = false;
+        }
         let textured = state.texture.is_some() && state.uploaded;
         let record = screen_record(screen, textured);
         if state.record != Some(record) {
@@ -715,6 +720,36 @@ mod tests {
         let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
         assert_eq!(state.texture.as_ref().map(MediaTexture::size), Some([4, 2]));
         assert_ne!(state.bind_key(view), before);
+    }
+
+    #[test]
+    fn a_reused_screen_without_a_frame_draws_black_not_the_old_clip() {
+        let mut app = budget_app();
+        let view = app
+            .world()
+            .resource::<RenderDevice>()
+            .create_buffer(&BufferDescriptor {
+                label: None,
+                size: 16,
+                usage: BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            })
+            .id();
+        prepared(
+            &mut app,
+            vec![MediaScreen {
+                frame: Some(frame(1, 2)),
+                ..screen(7, 0.0)
+            }],
+        );
+        prepared(&mut app, vec![screen(7, 0.0)]);
+        let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
+        assert_eq!(
+            state.bind_key(view).1,
+            None,
+            "still sampling the previous clip"
+        );
+        assert_eq!(state.record.map(|record| record[3]), Some(0.0));
     }
 
     #[test]
