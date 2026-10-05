@@ -88,12 +88,7 @@ impl WorldStream {
     /// Mesh acknowledgements additionally prevent exposing unpresented local terrain.
     #[must_use]
     pub fn local_terrain_ready(&self) -> bool {
-        let position = self.authority.resolved_server_position().position;
-        let center = ChunkKey::new(
-            self.authority.current_dimension(),
-            floor_to_i32(position[0]).div_euclid(16),
-            floor_to_i32(position[2]).div_euclid(16),
-        );
+        let center = self.player_column();
         let nearby = |column: ChunkKey| {
             column.dimension == center.dimension
                 && column.x.abs_diff(center.x) <= STARTUP_RADIUS as u32
@@ -126,6 +121,38 @@ impl WorldStream {
 
     pub fn loaded_column_count(&self) -> usize {
         self.loaded_columns.len()
+    }
+
+    fn player_column(&self) -> ChunkKey {
+        self.column_at(self.authority.resolved_server_position().position)
+    }
+
+    fn column_at(&self, position: [f32; 3]) -> ChunkKey {
+        ChunkKey::new(
+            self.authority.current_dimension(),
+            floor_to_i32(position[0]).div_euclid(16),
+            floor_to_i32(position[2]).div_euclid(16),
+        )
+    }
+
+    /// Loaded columns in the current dimension's square `radius` columns around `position`,
+    /// and the square's size.
+    #[must_use]
+    pub fn loaded_columns_around(&self, position: [f32; 3], radius: u16) -> (usize, usize) {
+        let center = self.column_at(position);
+        let radius = i32::from(radius);
+        let loaded = (-radius..=radius)
+            .flat_map(|x| (-radius..=radius).map(move |z| (x, z)))
+            .filter(|&(x, z)| {
+                self.loaded_columns.contains(&ChunkKey::new(
+                    center.dimension,
+                    center.x.saturating_add(x),
+                    center.z.saturating_add(z),
+                ))
+            })
+            .count();
+        let side = usize::try_from(radius * 2 + 1).unwrap_or(0);
+        (loaded, side * side)
     }
     pub fn capture_source_columns(&mut self) {
         self.publisher.source_columns = self.tracked_columns();
