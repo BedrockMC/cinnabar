@@ -4,27 +4,27 @@ use super::app_tests::{
     KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin, render_plugin,
 };
 use super::direct::{DirectOcclusion, VerdictQueue, direct_occlusion_supported};
-use super::occlusion::{
-    MAX_VERDICT_TURN, OcclusionBasis, OcclusionHistory, OcclusionView, VerdictTag,
-};
+use super::occlusion::{OcclusionBasis, OcclusionHistory, VerdictTag};
 use super::*;
 
 const EYE: [f32; 3] = [8.5, 70.0, 8.5];
 
-fn view(eye: [f32; 3], world: u64) -> OcclusionView {
-    OcclusionView {
-        basis: OcclusionBasis {
-            eye,
-            clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05).to_cols_array(),
-            depth_size: [256, 256],
-            world,
-        },
-        forward: [0.0, 0.0, -1.0],
+fn view(eye: [f32; 3], world: u64) -> OcclusionBasis {
+    OcclusionBasis {
+        eye,
+        view_rotation: Mat3::IDENTITY.to_cols_array(),
+        clip_from_view: Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05).to_cols_array(),
+        depth_size: [256, 256],
+        world,
     }
 }
 
-fn tag(frame: u64, view: OcclusionView, slots: u32) -> VerdictTag {
-    VerdictTag { frame, view, slots }
+fn tag(frame: u64, basis: OcclusionBasis, slots: u32) -> VerdictTag {
+    VerdictTag {
+        frame,
+        basis,
+        slots,
+    }
 }
 
 fn words(occluded: &[u32]) -> Vec<u32> {
@@ -35,9 +35,9 @@ fn words(occluded: &[u32]) -> Vec<u32> {
     words
 }
 
-fn turned(view: OcclusionView, angle: f32) -> OcclusionView {
-    OcclusionView {
-        forward: [angle.sin(), 0.0, -angle.cos()],
+fn turned(view: OcclusionBasis, angle: f32) -> OcclusionBasis {
+    OcclusionBasis {
+        view_rotation: Mat3::from_rotation_y(angle).to_cols_array(),
         ..view
     }
 }
@@ -63,13 +63,13 @@ fn a_slot_is_skipped_only_after_consecutive_occluded_verdicts_of_an_unchanged_ba
     let moved = view([EYE[0] + 1.0e-3, EYE[1], EYE[2]], history.world());
     assert!(!history.skips(1, &moved));
     let mut zoomed = still;
-    zoomed.basis.clip_from_view[0] *= 1.1;
+    zoomed.clip_from_view[0] *= 1.1;
     assert!(!history.skips(1, &zoomed));
     let mut resized = still;
-    resized.basis.depth_size = [512, 256];
+    resized.depth_size = [512, 256];
     assert!(!history.skips(1, &resized));
-    assert!(history.skips(1, &turned(still, MAX_VERDICT_TURN * 0.9)));
-    assert!(!history.skips(1, &turned(still, MAX_VERDICT_TURN * 1.1)));
+    // Any turn too: the near plane swings with the view and can clip a near occluder.
+    assert!(!history.skips(1, &turned(still, 1.0e-3)));
 
     // A verdict under a new basis restarts every run, even if the old pose returns.
     history.apply(&tag(4, moved, 4), &words(&[1]));
@@ -77,7 +77,7 @@ fn a_slot_is_skipped_only_after_consecutive_occluded_verdicts_of_an_unchanged_ba
 }
 
 #[test]
-fn verdicts_settle_until_the_basis_direction_or_a_record_changes() {
+fn verdicts_settle_until_the_view_or_a_record_changes() {
     let mut history = OcclusionHistory::default();
     history.assign(0, 1);
     let still = view(EYE, history.world());

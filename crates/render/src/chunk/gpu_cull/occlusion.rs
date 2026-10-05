@@ -1,21 +1,20 @@
 //! Which sub-chunks a direct-draw frame may skip on the strength of read-back occlusion bits.
 //!
-//! A verdict comes from a depth one or more frames old. Occlusion along a ray depends only on
-//! the eye position, so a verdict is honoured only while the eye, projection, depth size and
-//! resident geometry match the frame it was computed on; any eye translation voids it, because
-//! parallax past a near occluder uncovers far terrain by tens of pixels per block. For the same
-//! reason a settled verdict stays true until one of those changes, so a still camera stops
-//! asking for new ones.
+//! A verdict comes from a depth one or more frames old, so it is honoured only while the view
+//! matches the frame it was computed on exactly. Any eye translation voids it, because parallax
+//! past a near occluder uncovers far terrain by tens of pixels per block; so does any turn,
+//! because the near plane swings with the view and can clip an occluder just beyond it. A
+//! settled verdict stays true until something changes, so a still camera stops asking for more.
 
 /// Consecutive occluded readbacks under one basis before a slot is skipped.
 pub const REQUIRED_OCCLUDED_READBACKS: u8 = 2;
-/// View turn (radians) since the latest verdict beyond which a frame skips nothing.
-pub const MAX_VERDICT_TURN: f32 = 0.35;
 
 /// What a verdict's depth was rendered from; a verdict holds only while all of it matches.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OcclusionBasis {
     pub eye: [f32; 3],
+    /// Column-major `world_from_view` rotation; it orients the near plane.
+    pub view_rotation: [f32; 9],
     /// Column-major `clip_from_view`; the near plane decides which occluders rasterise.
     pub clip_from_view: [f32; 16],
     pub depth_size: [u32; 2],
@@ -23,18 +22,11 @@ pub struct OcclusionBasis {
     pub world: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct OcclusionView {
-    pub basis: OcclusionBasis,
-    /// Unit view direction.
-    pub forward: [f32; 3],
-}
-
 /// The frame and view one readback's bits were computed for, over its first `slots` slots.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VerdictTag {
     pub frame: u64,
-    pub view: OcclusionView,
+    pub basis: OcclusionBasis,
     pub slots: u32,
 }
 
@@ -45,9 +37,8 @@ pub struct OcclusionHistory {
     /// Frame each slot's current record was written; older verdicts describe another record.
     since: Vec<u64>,
     basis: Option<OcclusionBasis>,
-    forward: [f32; 3],
     world: u64,
-    /// Verdicts since the basis, view direction or any record last changed.
+    /// Verdicts since the basis or any record last changed.
     settled: u8,
     assigned_at: u64,
 }
@@ -80,13 +71,9 @@ impl OcclusionHistory {
 
     /// Folds one readback in; a new basis restarts every run.
     pub fn apply(&mut self, tag: &VerdictTag, occluded: &[u32]) {
-        if self.basis != Some(tag.view.basis) {
-            self.basis = Some(tag.view.basis);
+        if self.basis != Some(tag.basis) {
+            self.basis = Some(tag.basis);
             self.runs.fill(0);
-            self.settled = 0;
-        }
-        if self.forward != tag.view.forward {
-            self.forward = tag.view.forward;
             self.settled = 0;
         }
         if tag.frame >= self.assigned_at {
@@ -102,27 +89,22 @@ impl OcclusionHistory {
         }
     }
 
-    /// Whether `slot` may be skipped when drawing `view`.
-    pub fn skips(&self, slot: u32, view: &OcclusionView) -> bool {
-        self.basis == Some(view.basis)
-            && view.basis.world == self.world
-            && dot(self.forward, view.forward) >= MAX_VERDICT_TURN.cos()
+    /// Whether `slot` may be skipped when drawing from `basis`.
+    pub fn skips(&self, slot: u32, basis: &OcclusionBasis) -> bool {
+        self.current(basis)
             && self
                 .runs
                 .get(slot as usize)
                 .is_some_and(|&run| run >= REQUIRED_OCCLUDED_READBACKS)
     }
 
-    /// Whether another verdict for `view` would repeat the last ones: same eye, projection,
-    /// geometry and direction, and enough verdicts since any record changed.
-    pub fn settled(&self, view: &OcclusionView) -> bool {
-        self.basis == Some(view.basis)
-            && view.basis.world == self.world
-            && self.forward == view.forward
-            && self.settled >= REQUIRED_OCCLUDED_READBACKS
+    /// Whether another verdict for `basis` would repeat the last ones: the same view and
+    /// geometry, with enough verdicts since any record changed.
+    pub fn settled(&self, basis: &OcclusionBasis) -> bool {
+        self.current(basis) && self.settled >= REQUIRED_OCCLUDED_READBACKS
     }
-}
 
-fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
-    left.iter().zip(right).map(|(a, b)| a * b).sum()
+    fn current(&self, basis: &OcclusionBasis) -> bool {
+        self.basis == Some(*basis) && basis.world == self.world
+    }
 }
