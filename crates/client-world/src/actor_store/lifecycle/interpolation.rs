@@ -30,7 +30,7 @@ impl ActorStore {
                         } else {
                             actor.received_pose
                         };
-                    // Native MovementInterpolator tick clears StateVector velocity
+                    // Vanilla's interpolation tick clears velocity
                     // before decrementing any positive interpolation count, including its last tick.
                     if actor.interpolation_ticks_remaining > 0 {
                         actor.status.native_velocity = [0.0; 3];

@@ -292,7 +292,7 @@ impl FromWorld for CloudPipeline {
                 buffers: Vec::new(),
                 ..default()
             },
-            // Native cloud PassState cull1 translates to BGFX CULL_CW:
+            // Vanilla's cloud material culls clockwise faces:
             // preserve the outward counter-clockwise texel faces.
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,

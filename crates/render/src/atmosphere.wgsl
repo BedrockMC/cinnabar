@@ -38,7 +38,7 @@ fn atmosphere_vertex(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
         let angle = atmosphere.sky_extra.y * 6.283185307;
         let cosine = cos(angle);
         let sine = sin(angle);
-        // LevelRendererCamera rotates the star mesh around +Z.
+        // Vanilla rotates the star mesh around +Z.
         let sky = vec3(star.x * cosine - star.y * sine, star.y * cosine + star.x * sine, star.z);
         var clip = view.clip_from_world * vec4(sky + view.world_position, 1.0);
         clip.z = 0.0;
@@ -59,8 +59,8 @@ fn view_ray(position: vec2<f32>) -> vec3<f32> {
     return normalize((view.world_from_view * vec4(view_direction, 0.0)).xyz);
 }
 
-// Current 1.26.50.26 buildSkyMesh has red0 at its centre and
-// red1 at this decagon rim. renderSky places its plane at Y256
+// The 1.26.50.26 sky mesh has red0 at its centre and
+// red1 at this decagon rim. Vanilla places its plane at Y256
 // and scales XZ by2000. Intersecting the view ray and evaluating the fan's
 // barycentrics reproduces its perspective-interpolated vertex red without
 // allocating or drawing another mesh. Beyond its rim the fog colour remains.
@@ -95,7 +95,7 @@ fn native_sky_fog_weight(ray: vec3<f32>) -> f32 {
 }
 
 // The stock orbital transform keeps local-X on−Z through the whole
-// orbit. buildSunAndMoonQuad maps−X→u1 and−Z→v0, hence fixed+Z
+// orbit. The celestial quad maps−X→u1 and−Z→v0, hence fixed+Z
 // image-right and this rotating image-down basis. A world-up cross product
 // instead flips both texture axes as the celestial body crosses the zenith.
 fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>, half_extent: f32) -> vec3<f32> {
@@ -109,7 +109,7 @@ fn celestial_uv(ray: vec3<f32>, direction: vec3<f32>, half_extent: f32) -> vec3<
 }
 
 // Current orbital calculation stores the eased day angle in
-// degrees (moon offset 180). Ordinary renderSunAndMoon admits the
+// degrees (moon offset 180). Ordinary vanilla admits the
 // sprite through 105/255, without any horizon-height alpha interpolation.
 fn celestial_visibility(phase_offset: f32) -> f32 {
     let half_angle = atmosphere.sky_extra.y * 3.141592741;
@@ -117,7 +117,7 @@ fn celestial_visibility(phase_offset: f32) -> f32 {
     return select(0.0, 1.0, degrees <= 105.0 || degrees >= 255.0);
 }
 
-// Target renderSunAndMoon scales the stock celestial alpha by
+// The target version scales the stock celestial alpha by
 // clamp(1−2*interpolatedRain,0,1). SunMoon's fragment shader multiplies
 // colour by the sampled RGBA, and its material blends SourceAlpha→One.
 fn celestial_weather_alpha() -> f32 {

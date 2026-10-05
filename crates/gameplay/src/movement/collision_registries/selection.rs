@@ -20,7 +20,7 @@ impl super::PhysicsCollisionRegistries {
     }
 }
 
-/// Visual bounds for plants; `BlockType::clip` picks these independently
+/// Visual bounds for plants; vanilla ray clipping picks these independently
 /// of movement collision.
 pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     let name = record.name.strip_prefix("minecraft:")?;
@@ -30,7 +30,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         if height >= u64::from(TOP_SNOW_LAYER_COUNT) {
             return None;
         }
-        // TopSnowBlock::getVisualShape: full X/Z,
+        // Snow layers: full X/Z,
         // visual/outline height (height + 1)/8, independently of collision.
         return Some(Aabb::new(
             Vec3::ZERO,
@@ -63,11 +63,10 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
         | "acacia_sapling" | "dark_oak_sapling" | "cherry_sapling" | "pale_oak_sapling" => {
             (0.1, 0.8, 0.9)
         }
-        // DeadBushBlock constructor overrides inherited
-        // flower bounds with grass-sized bounds, including maxY=.8.
+        // Dead bushes use grass-sized bounds rather than flower bounds,
+        // including maxY=.8.
         "deadbush" => (0.1, 0.8, 0.9),
-        // BushBlock uses
-        // minXYZ=(0,0,0), maxX=1; ctor literals set maxY=.8 and maxZ=1.
+        // Bushes span minXYZ=(0,0,0) to (1, .8, 1).
         "bush" => (0.0, 0.8, 1.0),
         "tall_grass" | "large_fern" | "sunflower" | "lilac" | "rose_bush" | "peony" => {
             let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
@@ -79,7 +78,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<Aabb> {
     Some(bounds([inset, 0.0, inset], [edge, height, edge]))
 }
 
-/// TorchBlock chooses the visual box by `torch_facing_direction`, independently
+/// Torches choose the visual box by `torch_facing_direction`, independently
 /// of its empty collision. Four wall boxes and one upright box cover the orientations.
 fn torch_shape(record: &RegistryRecord) -> Option<Aabb> {
     let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;

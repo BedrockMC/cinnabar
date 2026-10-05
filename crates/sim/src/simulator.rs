@@ -50,9 +50,9 @@ const SPRINT_JUMP_IMPULSE: f64 = 0.2;
 /// this and each subsequent tick decrements it; prediction replays rebuild
 /// initiations against the same gate, so it is part of the public contract.
 pub const JUMP_DELAY_TICKS: u8 = 10;
-// FinalizeMove uses the native float epsilon.
+// Vanilla move finalization uses the f32 epsilon.
 const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
-/// `bedsim v0.1.3` `ClimbSpeed`, cited there against `Mob::ascendLadder()`.
+/// `bedsim v0.1.3` `ClimbSpeed`, vanilla's ladder ascent speed.
 const CLIMB_SPEED: f64 = 0.2;
 // Provisional block-modifier and enchantment coefficients with no bedsim oracle;
 // each needs independent measurement.
@@ -200,7 +200,7 @@ impl Simulator {
                 water::jump(&mut next.velocity.y);
             }
         }
-        // TravelTypeSensing (0x09fefcb0) selects water by WasInWater,
+        // Vanilla selects water travel by the previous tick's in-water flag,
         // independent of the retained swimming pose on a dry low ceiling.
         if matches!(
             input.mode,
@@ -399,7 +399,7 @@ impl Simulator {
                     }
                 }
                 crate::SurfaceResponse::Bed if bounces => {
-                    // Current BedBlock restitution.
+                    // Vanilla bed restitution.
                     f64::from(-0.75_f32 * pre_collision_velocity.y as f32)
                 }
                 _ => 0.0,
@@ -496,7 +496,7 @@ impl Simulator {
     }
 }
 
-/// `WaterTravelSystem`'s travel speed: the water base blended toward the ground
+/// Vanilla water travel speed: the water base blended toward the ground
 /// movement speed, multiplying the effective enchantment level before division.
 fn water_travel_speed(
     input: &MovementInput,

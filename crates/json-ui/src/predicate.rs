@@ -252,7 +252,7 @@ struct EvalScope<'a> {
 impl ops::Scope for EvalScope<'_> {
     fn result_property(&self, name: &str) -> Option<Operand> {
         if !self.bindings.has_bag() {
-            // `getPropertyValue` without a bag yields the name as text.
+            // A property read without a bag yields the name as text.
             return Some(Operand::Str(name.to_owned()));
         }
         self.property(name)

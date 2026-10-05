@@ -23,7 +23,7 @@ const MOB_STABLE_TICKS: u32 = 10;
 const STRIDE_STEP_MIN: f32 = 0.05;
 const STRIDE_GAIN: f32 = 3.0;
 const STRIDE_READ_SCALE: f32 = 0.6;
-// FishAnimationSystem tick consumes StateVector velocity in blocks/tick.
+// Vanilla fish animation consumes actor velocity in blocks/tick.
 const FISH_PHASE_SPEED_GAIN: f32 = 0.1;
 
 /// One tick of actor state the motion model consumes.
@@ -49,7 +49,7 @@ pub(super) struct MotionState {
     stable_ticks: u32,
     /// Stride accumulator behind `query.walk_distance`.
     stride: f32,
-    /// FishAnimationComponent survives geometry/controller resets for this actor lifetime.
+    /// Fish animation phase survives geometry/controller resets for this actor lifetime.
     fish_phase: [f32; 2],
     pub(super) horse: super::horse::AnimationState,
 }

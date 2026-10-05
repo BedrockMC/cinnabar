@@ -45,13 +45,13 @@ pub struct ActorPickup {
 pub struct ActorStatus {
     pub(super) terrain_interlock: super::terrain_interlock::TerrainInterlock,
     pub(super) movement_interpolation: super::movement_interpolation::MovementInterpolation,
-    /// Native StateVector displacement per tick, distinct from query-derived movement speed.
+    /// Vanilla velocity per tick, distinct from query-derived movement speed.
     pub(crate) native_velocity: [f32; 3],
     /// Ticks of hurt state remaining.
     pub hurt_time: u8,
     /// Signed native shake countdown, set verbatim by ActorEvent::Shake.
     pub shake_time: i32,
-    /// The current hurt came without damage, so it shows no red flash (`SkipRedFlashComponent`).
+    /// The current hurt came without damage, so it shows no red flash.
     pub skip_red_flash: bool,
     /// Server-streamed hurt direction, when the server provides one.
     pub hurt_direction: Option<f32>,
@@ -109,7 +109,7 @@ impl ActorStatus {
             pickup.ticks = pickup.ticks.saturating_add(1).min(PICKUP_DURATION_TICKS);
         }
         self.hurt_time = self.hurt_time.saturating_sub(1);
-        // Native Actor::baseTick decrements only positive
+        // Vanilla's actor tick decrements only positive
         // shake values. Zero and well-formed negative server values stay unchanged.
         if self.shake_time > 0 {
             self.shake_time -= 1;
@@ -192,7 +192,7 @@ impl ActorStore {
                 }
             }
             ActorStatusKind::SpawnAlive => actor.status.revive(),
-            // Actor::handleEntityEvent, case 0x27.
+            // Entity event 39 (0x27) sets the shake countdown verbatim.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
             // Particle-only kinds have no retained actor state.
             _ => {}

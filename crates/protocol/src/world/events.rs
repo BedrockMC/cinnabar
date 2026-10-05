@@ -228,12 +228,12 @@ pub struct RespawnEvent {
 }
 
 impl RespawnEvent {
-    /// Native ClientNetworkHandler 014b1c90 stores this phase without moving the actor.
+    /// Vanilla stores this phase without moving the actor.
     pub const fn searching_for_spawn(self) -> bool {
         self.state == 0
     }
 
-    /// Native ClientNetworkHandler 014b1c90 applies this phase through LocalPlayer::respawn.
+    /// Vanilla respawns the local player on this phase.
     pub const fn ready_to_spawn(self) -> bool {
         self.state == 1
     }
