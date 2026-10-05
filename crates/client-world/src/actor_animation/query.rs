@@ -72,7 +72,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
 ];
 pub(super) const FLAG_SNEAKING: u32 = 1;
 pub(super) const FLAG_USING_ITEM: u32 = 4;
-pub(super) const FLAG_BABY: u32 = 11;
+pub(super) use crate::actor_store::FLAG_BABY;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
@@ -87,7 +87,7 @@ const INTEGER_QUERIES: [(&str, u32); 8] = [
     ("structural_integrity", 1),
     ("swelling_dir", 21),
     ("trade_tier", 101),
-    ("variant", 2),
+    ("variant", crate::actor_store::VARIANT_METADATA_KEY),
 ];
 const KEY_CARRY_BLOCK: u32 = 23;
 const FLOAT_QUERIES: [(&str, u32, f32); 3] = [

@@ -61,7 +61,8 @@ use crate::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
             NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, receive_network_events, spawn_network,
+            publish_actor_render_frame, publish_entity_shadows, receive_network_events,
+            spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
@@ -241,7 +242,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
         )
         .add_systems(
             Update,
@@ -863,6 +866,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ScreenOverlayRenderPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
+        render::EntityShadowRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,

@@ -21,7 +21,9 @@ mod cloud_render;
 pub use cloud_render::CloudVisibility;
 mod dropped_item;
 mod enhanced;
+mod entity_shadow_render;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
+pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};
 mod gpu_timing;
 pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
 
