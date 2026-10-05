@@ -518,7 +518,7 @@ func relayPackets(
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPacketsWithDelay(pumpCtx, delay, downstream, upstream, true)}
+		results <- result{"downstream to upstream", pumpPacketsWithDelay(pumpCtx, delay, downstream, upstream, true, session)}
 	}()
 	go func() {
 		results <- result{"upstream to downstream", pumpPacketsWithDelay(pumpCtx, delay, upstream, downstream, false)}
@@ -602,7 +602,7 @@ func pumpPackets(
 	return pumpPacketsWithDelay(context.Background(), nil, source, destination, fromDownstream)
 }
 
-func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, destination packetSession, fromDownstream bool) (err error) {
+func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, destination packetSession, fromDownstream bool, sessions ...uint64) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicTypeError("relaying packets", recovered)
@@ -624,6 +624,24 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 	if upstreamIdentity.DisplayName != "" {
 		inspect = isText
 	}
+	var ownID, session uint64
+	if fromDownstream && delay != nil {
+		ownID = ownRuntimeID(source, destination)
+		session, _ = delay.PositionSnapshot()
+		if len(sessions) != 0 {
+			session = sessions[0]
+		}
+		inspect = func(id uint32) bool {
+			if upstreamIdentity.DisplayName != "" && isText(id) {
+				return true
+			}
+			if !isOwnMovement(id) {
+				return false
+			}
+			_, enabled := delay.positionToken()
+			return enabled
+		}
+	}
 	reader := newDelayedPacketReader(ctx, delay, source, destination, !fromDownstream, relayIdleFlush, inspect)
 	defer reader.Close()
 	// Packets buffered before the relay began leave as their own batch.
@@ -636,14 +654,22 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 		if err != nil {
 			return err
 		}
+		epoch, tracking := delay.positionToken()
+		var position *ForwardedPosition
 		for _, raw := range batch {
 			if err := forwardPacket(destination, raw, upstreamIdentity); err != nil {
 				return attributeRelayError(err, fromDownstream)
+			}
+			if tracking && fromDownstream {
+				if candidate := ownMovementPosition(raw, ownID); candidate != nil {
+					position = candidate
+				}
 			}
 		}
 		if err := reader.Flush(); err != nil {
 			return err
 		}
+		delay.commitPosition(session, epoch, position)
 	}
 }
 

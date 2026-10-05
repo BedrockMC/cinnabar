@@ -202,6 +202,10 @@ impl ModHost {
     pub fn packet_delay_ms(&self) -> u32 {
         self.instance.packet_delay_ms()
     }
+    /// Explicit opt-in to the private core's last-relayed local position witness.
+    pub fn show_real_position(&self) -> bool {
+        self.instance.show_real_position()
+    }
 
     /// Consumes the last successful frame's rotation once, without entering the guest.
     pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {

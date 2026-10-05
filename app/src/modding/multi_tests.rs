@@ -44,13 +44,17 @@ fn set_files_keep_order_and_per_mod_grants() {
     let directory = tempfile::tempdir().unwrap();
     let set = directory.path().join("mods.json");
     let write = |json: &str| std::fs::write(&set, json).unwrap();
+    let camera = directory.path().join("camera.wasm");
+    let effects = directory.path().join("effects.wasm");
     write(
-        r#"{"version":1,"mods":[
-            {"component":"/mods/camera.wasm","grants":{"camera":true,"commands":["ability"]}},
-            {"component":"/mods/effects.wasm","grants":{"environment":true}}]}"#,
+        &serde_json::json!({"version":1,"mods":[
+            {"component":camera,"grants":{"camera":true,"commands":["ability"]}},
+            {"component":effects,"grants":{"environment":true}}
+        ]})
+        .to_string(),
     );
     let mods = read_set(&set).unwrap();
-    assert_eq!(mods[0].0, Path::new("/mods/camera.wasm"));
+    assert_eq!(mods[0].0, camera);
     assert!(mods[0].1.camera && !mods[0].1.environment);
     assert_eq!(mods[0].1.commands, ["ability"]);
     assert!(mods[1].1.environment && !mods[1].1.camera);
