@@ -228,3 +228,29 @@ fn command_grants_reject_non_names() {
     }
     assert!(granted().validate().is_ok());
 }
+
+#[test]
+fn commands_are_rate_limited_per_second_of_frame_time() {
+    let mut state = state(granted());
+    let mut sent = 0;
+    for _ in 0..MAX_COMMANDS_PER_SECOND * 2 {
+        state.world.begin_frame();
+        state.world.advance_command_window(0.01);
+        if state
+            .request_command("/ability flash".into())
+            .unwrap()
+            .is_ok()
+        {
+            sent += 1;
+        }
+        state.world.commit();
+    }
+    assert_eq!(sent, MAX_COMMANDS_PER_SECOND);
+    state.world.advance_command_window(1.0);
+    assert!(
+        state
+            .request_command("/ability flash".into())
+            .unwrap()
+            .is_ok()
+    );
+}

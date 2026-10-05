@@ -27,6 +27,8 @@ pub const MAX_RIG_FOV_DELTA_DEGREES: f32 = 30.0;
 pub const MAX_COMMAND_GRANTS: usize = 8;
 pub const MAX_COMMAND_BYTES: usize = 128;
 pub const MAX_COMMANDS_PER_FRAME: usize = 4;
+/// Command requests accepted per second of gameplay frame time.
+pub const MAX_COMMANDS_PER_SECOND: usize = 10;
 /// Presentation cue bounds per frame.
 pub const MAX_CUES_PER_FRAME: usize = 16;
 pub const MAX_CUE_NAME_BYTES: usize = 32;
