@@ -419,6 +419,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -582,8 +583,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     }
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
-    #[cfg(feature = "local-mods")]
-    let font_runtime = crate::modding::font::with_optional_font(font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
