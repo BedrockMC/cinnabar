@@ -99,7 +99,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "asset-compiler", 
 [[crates]]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
-test_support_features = ["publication-test-support"]
+test_support_features = ["publication-test-support", "benchmark-support"]
 allowed_dependencies = ["client-world", "meshing", "assets", "world", "render-api"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "protocol", "bevy", "wgpu"]

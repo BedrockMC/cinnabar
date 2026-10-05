@@ -1,3 +1,20 @@
+## Headless chunk cost baselines
+
+- Criterion exercises production palette/column decode, light solves, cube/biome
+  meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
+- Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
+  Benchmark smoke passes all 21 cases on the pinned toolchain without local carriers.
+- The largest fixture stores 871 sections in 218 target columns, with preloaded
+  implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
+- Initial Windows/i9-14900HX baseline: pinned Rust, optimized bench profile, 100 samples
+  per case. Burst point estimates for 4/16/64/871 stored sections are
+  14.53/19.24/35.82/257.54 ms; the 871 estimate interval is 253.87–261.76 ms.
+  Radius-16 metadata scan is 1.33 ms; mixed cube mesh is 0.50 ms; full light solves
+  are 0.40–0.48 ms. Local Criterion data is saved as `chunks` under `target/criterion/`.
+- Incomplete native performance acceptance: socket framing, GPU preparation/uploads,
+  draws and complete Bevy frames are outside these CPU measurements. No client
+  optimisation or parity gate is claimed. Commands and boundaries are in the README.
+
 ## GPU terrain culling with Hi-Z occlusion
 
 - On Vulkan/DX12 with native multi-draw-indirect-count, opaque terrain (solid runs, cutout,
