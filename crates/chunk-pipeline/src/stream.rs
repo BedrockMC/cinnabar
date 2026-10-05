@@ -43,6 +43,8 @@ use client_world::{
 
 mod actor_block_sync;
 pub use actor_block_sync::ActorBlockSyncFence;
+#[cfg(feature = "benchmark-support")]
+pub mod benchmark_support;
 mod block_cracks;
 mod block_entities;
 mod block_events;
