@@ -75,6 +75,16 @@ for path in "$data_home" "$bin_dir"; do
     case "$path" in *'
 '*) fail 'Installation paths must not contain newlines' ;; esac
 done
+while [ "${data_home%/}" != "$data_home" ]; do data_home=${data_home%/}; done
+while [ "${bin_dir%/}" != "$bin_dir" ]; do bin_dir=${bin_dir%/}; done
+# Pruning and the launcher would otherwise remove or shadow each other.
+app_dir="$data_home/cinnabar/app"
+case "$bin_dir/" in
+    "$app_dir/"*) fail "CINNABAR_BIN_DIR must not be inside the app folder: $bin_dir" ;;
+esac
+case "$app_dir/" in
+    "$bin_dir/cinnabar/"*) fail "CINNABAR_BIN_DIR must not contain the app folder: $bin_dir" ;;
+esac
 
 cleanup() {
     [ -z "$work" ] || rm -rf "$work"
@@ -144,7 +154,6 @@ fi
 [ "$actual" = "$expected" ] || fail 'SHA-256 mismatch; nothing was installed. Please try again'
 printf 'Verified SHA-256. Preparing the application...\n'
 
-app_dir="$data_home/cinnabar/app"
 desktop_dir="$data_home/applications"
 icon_dir="$data_home/icons/hicolor/256x256/apps"
 mkdir -p "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir"
@@ -162,17 +171,16 @@ lock_install() {
         flock 9 && return
     fi
     # Without flock, a symlink naming the owner's pid is created atomically with its content.
+    # A lock is stale once its owner is dead and it is over 10 minutes old; it is reclaimed by
+    # renaming it to a unique tombstone and retrying. The residual race needs two runs to reclaim
+    # the same stale lock at once; flock, present on essentially every Linux, avoids it entirely.
     waiting=
     until ln -s "$$" "$app_dir/.lock.pid" 2>/dev/null; do
         owner=$(readlink "$app_dir/.lock.pid" 2>/dev/null) || owner=
         if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null &&
-            mv "$app_dir/.lock.pid" "$stage/stale-lock" 2>/dev/null; then
-            # Restore a live lock taken over between the check and the move.
-            if [ "$(readlink "$stage/stale-lock")" != "$owner" ] && [ ! -e "$app_dir/.lock.pid" ] &&
-                [ ! -L "$app_dir/.lock.pid" ]; then
-                mv "$stage/stale-lock" "$app_dir/.lock.pid" 2>/dev/null || true
-            fi
-            rm -f "$stage/stale-lock"
+            [ -n "$(find "$app_dir/.lock.pid" -prune -mmin +10 2>/dev/null)" ]; then
+            mv "$app_dir/.lock.pid" "$app_dir/.lock.stale.$$" 2>/dev/null &&
+                rm -f "$app_dir/.lock.stale.$$"
             continue
         fi
         [ -n "$waiting" ] || printf 'Waiting for another Cinnabar install to finish...\n'
@@ -260,11 +268,14 @@ mv -f "$launcher_stage" "$bin_dir/cinnabar"
 mv -f "$desktop_stage" "$desktop_dir/cinnabar.desktop"
 mv -f "$icon_stage" "$icon_dir/cinnabar.png"
 # Keep the replaced build, which may still be running; drop older builds and the legacy image.
+hex='[0-9a-f]'
 for entry in "$app_dir"/*; do
-    [ -e "$entry" ] || continue
-    case "${entry##*/}" in
-        current|previous|"$build"|"$previous") ;;
-        *) rm -rf "$entry" ;;
+    name=${entry##*/}
+    case "$name" in
+        "$build"|"$previous") ;;
+        Cinnabar.AppImage) [ ! -f "$entry" ] || [ -L "$entry" ] || rm -f "$entry" ;;
+        *-$hex$hex$hex$hex$hex$hex$hex$hex$hex$hex$hex$hex)
+            [ ! -d "$entry" ] || [ -L "$entry" ] || rm -rf "$entry" ;;
     esac
 done
 if command -v update-desktop-database >/dev/null 2>&1; then

@@ -60,7 +60,7 @@ shutil.copyfile(asset, output)
 
 # Real tools the installer and fixtures may use; curl and wget are deliberately absent.
 SYSTEM_TOOLS = ("sh", "awk", "sed", "mktemp", "sha256sum", "shasum", "cp", "mv", "rm", "chmod",
-                "mkdir", "cat", "ln", "readlink", "dirname", "tr", "head", "env", "pwd", "sleep")
+                "mkdir", "cat", "ln", "readlink", "dirname", "tr", "head", "env", "pwd", "sleep", "find")
 
 # Holds the run given FIXTURE_PAUSE_DIR just before it repoints app/current.
 PAUSING_MV = '''
@@ -355,14 +355,53 @@ esac
                                    "fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)\n")
         self.overlapping_installs(flock=True)
 
-    def test_a_crashed_install_lock_is_reclaimed(self):
+    def dead_lock(self, age):
         dead = subprocess.Popen(["true"])
         dead.wait()
         self.app.mkdir(parents=True)
-        (self.app / ".lock.pid").symlink_to(str(dead.pid))
+        lock = self.app / ".lock.pid"
+        lock.symlink_to(str(dead.pid))
+        stamp = time.time() - age
+        os.utime(lock, (stamp, stamp), follow_symlinks=False)
+        return lock
+
+    def test_a_crashed_install_lock_is_reclaimed_after_ten_minutes(self):
+        lock = self.dead_lock(age=11 * 60)
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((self.app / ".lock.pid").is_symlink())
+        self.assertFalse(lock.is_symlink())
+        self.assertFalse(list(self.app.glob(".lock.stale.*")))
+
+    def test_a_recent_lock_with_a_dead_owner_is_not_reclaimed(self):
+        lock = self.dead_lock(age=60)
+        with self.assertRaises(subprocess.TimeoutExpired) as waited:
+            subprocess.run(["sh", str(self.script)], env=self.env, capture_output=True, timeout=5)
+        self.assertIn(b"Waiting for another Cinnabar install", waited.exception.stdout or b"")
+        self.assertTrue(lock.is_symlink())
+        self.assertFalse((self.app / "current").exists())
+
+    def test_bin_dir_overlapping_the_app_folder_is_rejected_before_changes(self):
+        for bin_dir in (self.app, self.app / "bin", self.data):
+            with self.subTest(bin_dir=bin_dir):
+                result = self.install(CINNABAR_BIN_DIR=str(bin_dir) + "/")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("CINNABAR_BIN_DIR must not", result.stderr)
+                self.assertEqual(self.requests(), [])
+                self.assertFalse(self.data.exists())
+
+    def test_pruning_removes_only_obsolete_builds_and_the_legacy_image(self):
+        image, _ = self.preserve_existing()
+        keep = [self.app / "notes", self.app / "custom-0123456789ab.txt"]
+        keep[0].mkdir()
+        keep[1].write_text("user file")
+        stale = self.app / "v0.0.1-0123456789ab"
+        stale.mkdir()
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(stale.exists())
+        self.assertFalse(image.exists())
+        for path in keep:
+            self.assertTrue(path.exists(), path)
 
     def test_launcher_reports_an_incomplete_install(self):
         self.assertEqual(self.install().returncode, 0)
