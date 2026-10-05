@@ -52,6 +52,14 @@ impl TransparentModelDrawOrders {
             .filter(|entry| &entry.identity == identity)
     }
 
+    /// Whether `identity` holds a sorted GPU order that no CPU witness describes.
+    pub(in crate::chunk) fn is_unwitnessed(
+        &self,
+        identity: &TransparentModelAllocationIdentity,
+    ) -> bool {
+        self.unwitnessed.get(&identity.entity) == Some(identity)
+    }
+
     fn insert(
         &mut self,
         identity: TransparentModelAllocationIdentity,
