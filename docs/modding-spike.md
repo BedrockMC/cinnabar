@@ -228,8 +228,8 @@ reload. A component that fails to load is skipped:
 ]}
 ```
 
-File order settles conflicts: the earliest camera rig, rotation, time override and attack
-reach win; a key reserved by an earlier mod never reaches a later one; the first mod with
+File order settles conflicts: the earliest camera rig, rotation, time override, attack
+reach and non-zero packet delay win; a key reserved by an earlier mod never reaches a later one; the first mod with
 a panel owns it; labels join with ` | `; commands and cues keep load order. Each mod polls
 every mod's previous-frame cues. The set takes precedence over `CINNABAR_MOD_COMPONENT`
 and the registration watcher, which still load a single mod.
