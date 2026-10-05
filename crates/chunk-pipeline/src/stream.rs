@@ -310,6 +310,7 @@ pub struct WorldStream {
     chunk_radius: Option<i32>,
     last_retention_center: Option<ChunkKey>,
     last_retention_radius: Option<i32>,
+    local_player_chunk: Option<ChunkKey>,
     stats: WorldStreamStats,
 }
 
