@@ -211,6 +211,19 @@ impl Playback {
         }
     }
 
+    /// Loop ends crossed since the last rebase; zero without loop bounds.
+    pub fn loop_cycle(&self, server_us: u64) -> u64 {
+        let position = self.position_us.saturating_add(if self.playing {
+            server_us.saturating_sub(self.anchor_us)
+        } else {
+            0
+        });
+        match self.loop_us {
+            Some([start, end]) if position >= end => 1 + (position - end) / (end - start),
+            _ => 0,
+        }
+    }
+
     /// Keeps the timeline from advancing while the decoder rebuffers; call every starved tick.
     pub fn hold(&mut self, server_us: u64, duration_us: u64) {
         if !self.held {
