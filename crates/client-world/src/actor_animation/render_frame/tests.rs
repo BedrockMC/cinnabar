@@ -1,7 +1,8 @@
 use super::*;
 use assets::{CompiledMolangExpression, EntityAssetKind, EntityGeometryScalar, MolangFunction};
 
-fn fixture() -> crate::actor_store::ActorStore {
+/// A `minecraft:test` rig whose pre-animation counts ticks and draws a random number, posing both.
+pub(in crate::actor_animation) fn counting_random_assets() -> Arc<RuntimeEntityAssets> {
     let mut compiled = super::super::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/item.json".into();
     compiled.symbols[4].kind = EntityAssetKind::Entity;
@@ -36,7 +37,11 @@ fn fixture() -> crate::actor_store::ActorStore {
         .collect::<Vec<_>>()
         .into_boxed_slice();
     compiled.render.layers[0].color = Some([1, 2, 3, 3]);
-    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap())
+}
+
+fn fixture() -> crate::actor_store::ActorStore {
+    let assets = counting_random_assets();
     let mut store = crate::actor_store::ActorStore::new_with_entity_assets(1, 0, assets);
     let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
     actor.unique_id = 17;

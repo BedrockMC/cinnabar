@@ -248,7 +248,7 @@ fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
 
 fn build_world(
     capture: &Capture,
-    pack_path: &Path,
+    pack_path: Option<&Path>,
     away: bool,
 ) -> (World, Vec<(u32, Vec<u8>)>, Replay) {
     let compiled = PathBuf::from(
@@ -296,9 +296,12 @@ fn build_world(
     {
         super::set_vanilla_refs(refs);
     }
-    let view = super::super::local_pack::local_pack_view_at(pack_path).unwrap();
-    let pack =
-        super::compile(&view, super::vanilla_refs().as_deref()).expect("the pack defines entities");
+    let pack = pack_path.map(|path| {
+        let view = super::super::local_pack::local_pack_view_at(path).unwrap();
+        let pack = super::compile(&view, super::vanilla_refs().as_deref())
+            .expect("the pack defines entities");
+        (pack, super::pack_property_defaults(&view))
+    });
 
     let mut stream = WorldStream::new_with_asset_sets(
         capture.bootstrap,
@@ -307,14 +310,16 @@ fn build_world(
         capture.bootstrap.player_position,
         None,
     );
-    stream.set_pack_entities(Some((
-        Arc::clone(&pack.assets),
-        pack.bindings
-            .iter()
-            .map(|binding| binding.geometry_candidate)
-            .collect(),
-    )));
-    stream.seed_property_defaults(&super::pack_property_defaults(&view));
+    if let Some((pack, defaults)) = &pack {
+        stream.set_pack_entities(Some((
+            Arc::clone(&pack.assets),
+            pack.bindings
+                .iter()
+                .map(|binding| binding.geometry_candidate)
+                .collect(),
+        )));
+        stream.seed_property_defaults(defaults);
+    }
     let mut replay = Replay {
         session: BedrockSession { shield_item_id: 0 },
         sequence: 0,
@@ -337,7 +342,7 @@ fn build_world(
         Arc::clone(&loaded.runtime),
         entity_runtime,
     );
-    client_world.pack_entities = Some(pack);
+    client_world.pack_entities = pack.map(|(pack, _)| pack);
     client_world.stream = Some(stream);
     let mut world = crate::tests::actor_frame_allocations::actor_frame_world(
         client_world,
@@ -502,7 +507,7 @@ fn lobby_frame_bench() {
     let away = std::env::var_os("CINNABAR_LOBBY_LOOK_AWAY").is_some();
     let digest = std::env::var_os("CINNABAR_LOBBY_DIGEST").is_some();
     let capture = read_capture(Path::new(&capture));
-    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), away);
+    let (mut world, rest, mut replay) = build_world(&capture, Some(Path::new(&pack)), away);
 
     let started = Instant::now();
     let mut clock = started;
