@@ -46,11 +46,10 @@ fn render_bone() -> RenderBoneTransform {
 }
 
 fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
-    ActorSnapshot {
+    let mut actor = super::actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: runtime_id as i64,
         runtime_id,
-        spawn_revision: 3,
-        movement_revision,
         kind: ActorKind::Player {
             uuid: [runtime_id as u8; 16],
             username: "player".into(),
@@ -60,30 +59,24 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         pitch: 0.0,
         yaw: 90.0,
         head_yaw: 90.0,
-        previous_pose: ActorPose {
-            position: [2.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        },
-        received_pose: ActorPose {
-            position: [4.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 90.0,
-            head_yaw: 90.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 90.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: Some(41),
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 3;
+    actor.movement_revision = movement_revision;
+    actor.on_ground = Some(true);
+    actor.source_tick = Some(41);
+    actor.previous_pose = ActorPose {
+        position: [2.0, 64.0, -2.0],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+    };
+    actor
 }
 
 fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
@@ -140,6 +133,7 @@ fn rig<'a>(
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
