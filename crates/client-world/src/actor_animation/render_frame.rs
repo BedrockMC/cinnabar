@@ -241,7 +241,7 @@ pub(super) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize)
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::actor_animation) mod tests;
 
 #[cfg(test)]
 mod orb_tests;
