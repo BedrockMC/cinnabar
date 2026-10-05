@@ -2161,3 +2161,17 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## tools/registrygen/block_v2193_light_test.go
 - // 1.26.50.26 TopSnowBlock sets dampening to zero; the
 - // inherited getter and per-height component override do not change it.
+
+## crates/render-model/src/entity_shadow.rs
+- Volume mesh: `PrefabMeshGenerator::buildShadowVolume` (13 segments, rings 0.25 at y −3 and 0.75 at y 0.01; scaled per instance by radius in `_insertVanillaShadows`).
+- Colour: `ShadowColor` uniform built in `LevelRendererPlayer::createViewRenderObject` from `DimensionClientUtils::getInterpolatedSkyColor` and `getSunriseColor` (constants 0.5/0.4 tint, Rec. 709 luminance, 0.7 grey, 0.03 span).
+- Blend and overlap: `ShadowVolume` back/front stencil passes then the `ShadowOverlay` pass (`shadow_back`, `shadow_front`, `shadow_overlay` materials).
+
+## crates/client-world/src/actor_store/shadow.rs
+- Radius: `Actor::getShadowRadius` (AABBShapeComponent width) and overrides on Ghast, HappyGhast, Creaking, Spider (CaveSpider), EvocationFang, Armadillo, Horse, EnderDragon, Tadpole, IronGolem, Shulker, Turtle, Slime (LavaSlime, SulfurCube), TripodCamera, EnderCrystal, Boat (ChestBoat), Parrot, Player, and the zero-radius classes (ArmorStand, AreaEffectCloud, FishingHook, Minecart family, ExperienceOrb, LeashKnot, EyeOfEnder, LightningBolt, PrimedTnt, FallingBlockActor, FireworksRocketActor, Painting).
+- Admission: `createViewRenderObject` caster loop: `isAlive`, radius > 0, `!isOnFire`, `!isUnderLiquid(Any)` at attach location 7, `!isInvisible`, ActorType projectile bit, vehicle `isInvisible`.
+- Drop: `RelativeShadowOffsetComponent` (Ghast −0.875, HappyGhast −0.5) × ActorDataBoundingBoxComponent height × scale.
+- Projectile identifiers: `VanillaActorRegistryAnon` factory table (types with bit 0x400000).
+
+## crates/sim/src/simulator/water.rs
+- `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
