@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/sandertv/go-raknet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 )
 
 type transportFixture struct {
@@ -252,4 +254,42 @@ func BenchmarkJoinTransportOverlap(b *testing.B) {
 			}
 		})
 	}
+}
+
+// Authentication slower than the upstream's login deadline must not fail the join on the expired prefix.
+func TestPreparedTransportRedialsAfterUpstreamLoginTimeout(t *testing.T) {
+	listener, err := minecraft.ListenConfig{
+		AuthenticationDisabled: true,
+		LoginTimeout:           150 * time.Millisecond,
+		ErrorLog:               slog.New(slog.DiscardHandler),
+	}.Listen("raknet", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{})
+				time.Sleep(time.Second)
+				_ = conn.Close()
+			}()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	address := listener.Addr().String()
+	connection, err := dialWithPreparedTransport(ctx, minecraft.RakNet{}, address, func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
+		// Stands in for credential acquisition that outlasts the upstream login deadline.
+		time.Sleep(time.Second)
+		return minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "fixture"}, ErrorLog: slog.New(slog.DiscardHandler)}.DialContextNetwork(ctx, network, address)
+	})
+	if err != nil {
+		t.Fatalf("join after slow authentication = %v, want a fresh transport", err)
+	}
+	_ = connection.Close()
 }
