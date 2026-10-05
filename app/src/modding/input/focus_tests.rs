@@ -45,7 +45,8 @@ fn unfocused_stop_and_toggle_keys_preserve_editor_and_do_not_replay_on_regain() 
         ..Default::default()
     };
     let mut host =
-        mod_host::ModHost::load_snapshot_with_grants(&path, fixture().as_bytes(), grants).unwrap();
+        mod_host::ModHost::load_snapshot_with_grants(&path, fixture().as_bytes(), grants.clone())
+            .unwrap();
     host.set_panel_open(true);
     let player = crate::player_runtime::PlayerRuntime::new(1);
     let ui = UiRuntime::new(1);

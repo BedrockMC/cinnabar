@@ -115,7 +115,10 @@ pub fn update_camera_fov(
 ) {
     let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
     let base = settings.horizontal_fov_degrees();
-    let fov_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
+    let rig_delta = settings.rig().map_or(0.0, |rig| rig.fov_delta_degrees);
+    let fov_degrees = server
+        .fov_override_degrees(base)
+        .unwrap_or(base * modifier + rig_delta);
     for mut projection in &mut cameras {
         let perspective = match projection.as_mut() {
             Projection::Perspective(perspective) => Some(perspective),

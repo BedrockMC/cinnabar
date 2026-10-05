@@ -5,8 +5,8 @@ use semantic_input::PerspectiveMode;
 use sim::WorldCollisionIdentity;
 
 use crate::camera::{
-    CameraSettingsAuthority, FlyCamera, collision_safe_perspective_pose, perspective_pose,
-    unavailable_world_perspective_pose,
+    CameraSettingsAuthority, FlyCamera, collision_safe_perspective_pose, collision_safe_rig_pose,
+    perspective_pose, unavailable_world_perspective_pose,
 };
 
 pub const LOCAL_AVATAR_EYE_HEIGHT_BLOCKS: f32 = protocol::STANDING_PLAYER_EYE_HEIGHT;
@@ -639,12 +639,20 @@ pub fn resolve_camera_pose(
             collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
         );
-        collision_safe_perspective_pose(
-            view.eye_translation(),
-            view.camera_rotation(),
-            perspective,
-            &collision_world,
-        )
+        match settings.rig() {
+            Some(rig) => collision_safe_rig_pose(
+                view.eye_translation(),
+                view.camera_rotation(),
+                rig,
+                &collision_world,
+            ),
+            None => collision_safe_perspective_pose(
+                view.eye_translation(),
+                view.camera_rotation(),
+                perspective,
+                &collision_world,
+            ),
+        }
     } else {
         unavailable_world_perspective_pose(
             view.eye_translation(),
