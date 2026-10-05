@@ -151,6 +151,8 @@ fn render_is_denied_by_default_even_with_other_grants() {
         settings: false,
         render: false,
         render_depth: true,
+        entities: true,
+        commands: vec!["ability".into()],
         packet_delay: true,
     };
     let (_dir, mut host) = load(&calls, &init, &frame, grants);

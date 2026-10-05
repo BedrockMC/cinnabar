@@ -242,10 +242,7 @@ impl<'a> Binder<'a> {
             );
             vars
         };
-        let resolved = self
-            .lib
-            .resolve_with(reference, &cache_key.1, &vars)
-            .map(Arc::new);
+        let resolved = self.lib.resolve_shared(reference, &cache_key.1, &vars);
         self.resolved_with.insert(cache_key, resolved.clone());
         resolved
     }

@@ -3,30 +3,11 @@ use crate::ModGrants;
 use wit::Host as _;
 
 fn state() -> State {
-    State {
-        limits: wasmtime::StoreLimitsBuilder::new().build(),
-        pressed: false,
-        label: None,
-        pending: None,
-        writes: 0,
-        grants: ModGrants {
-            render: true,
-            ..Default::default()
-        },
-        time_override: None,
-        pending_time: None,
-        environment_writes: 0,
-        snapshot: None,
-        gameplay_reads: 0,
-        camera_writes: 0,
-        pending_camera: None,
-        camera_delta: None,
-        packet_delay_ms: 0,
-        pending_packet_delay: None,
-        packet_delay_writes: 0,
-        controls: super::super::controls::ControlState::new(String::new()),
-        render: RenderState::new(),
-    }
+    let grants = ModGrants {
+        render: true,
+        ..Default::default()
+    };
+    State::new(grants, String::new())
 }
 
 #[test]

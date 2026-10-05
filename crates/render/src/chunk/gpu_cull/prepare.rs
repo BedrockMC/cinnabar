@@ -21,13 +21,13 @@ const MIN_CAPACITY: u32 = 1024;
 /// Render entities whose main-world chunk is not inherited-visible (the cave culler hides them).
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkHiddenEntities {
-    hidden: HashSet<Entity>,
-    changed: Vec<Entity>,
+    pub(super) hidden: HashSet<Entity>,
+    pub(super) changed: Vec<Entity>,
 }
 
 pub(super) struct PreparedPyramid {
     pub(super) pyramid: HizPyramid,
-    depth: TextureViewId,
+    pub(super) depth: TextureViewId,
     pub(super) bindings: PyramidBindings,
 }
 
@@ -96,7 +96,7 @@ pub(super) fn extract_hidden_chunks(
     }
 }
 
-type CullViewComponents = (
+pub(super) type CullViewComponents = (
     &'static ExtractedView,
     &'static Frustum,
     Option<&'static ViewDepthTexture>,
@@ -157,14 +157,8 @@ pub(super) fn prepare_gpu_cull(
     let Ok((extracted, frustum, depth, msaa, resolution_override)) = views.get(view.entity) else {
         return;
     };
-    let depth = depth.filter(|depth| {
-        resolution_override.is_none()
-            && depth
-                .texture
-                .usage()
-                .contains(TextureUsages::TEXTURE_BINDING)
-    });
-    prepare_pyramid(cull, &device, depth, *msaa);
+    let depth = sampleable_depth(depth, resolution_override);
+    prepare_pyramid(&mut cull.pyramid, &cull.kernels, &device, depth, *msaa);
     let storage = cull.storage.as_ref().expect("records were uploaded");
     let hiz_mips = cull
         .pyramid
@@ -208,17 +202,7 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
         cull.table.mark_all_dirty();
     }
     let storage = cull.storage.as_ref().expect("storage was just ensured");
-    let record_bytes = std::mem::size_of::<CullRecord>() as u64;
-    let dirty = cull.table.take_dirty();
-    let records = cull.table.records();
-    for run in dirty.chunk_by(|left, right| left + 1 == *right) {
-        let (first, last) = (run[0] as usize, run[run.len() - 1] as usize);
-        queue.write_buffer(
-            &storage.records,
-            first as u64 * record_bytes,
-            bytemuck::cast_slice(&records[first..=last]),
-        );
-    }
+    write_dirty_records(&mut cull.table, queue, &storage.records);
     if cull.table.take_enabled_dirty() {
         let enabled = cull.table.enabled();
         let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
@@ -228,41 +212,74 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
     }
 }
 
-fn prepare_pyramid(
-    cull: &mut GpuCull,
+/// The view's depth when a pyramid can seed from it at full resolution.
+pub(super) fn sampleable_depth<'a>(
+    depth: Option<&'a ViewDepthTexture>,
+    resolution_override: Option<&MainPassResolutionOverride>,
+) -> Option<&'a ViewDepthTexture> {
+    depth.filter(|depth| {
+        resolution_override.is_none()
+            && depth
+                .texture
+                .usage()
+                .contains(TextureUsages::TEXTURE_BINDING)
+    })
+}
+
+/// Writes the table's dirty records into `records` in contiguous runs.
+pub(super) fn write_dirty_records(
+    table: &mut CullSlots,
+    queue: &RenderQueue,
+    records: &wgpu::Buffer,
+) {
+    let record_bytes = std::mem::size_of::<CullRecord>() as u64;
+    let dirty = table.take_dirty();
+    let source = table.records();
+    for run in dirty.chunk_by(|left, right| left + 1 == *right) {
+        let (first, last) = (run[0] as usize, run[run.len() - 1] as usize);
+        queue.write_buffer(
+            records,
+            first as u64 * record_bytes,
+            bytemuck::cast_slice(&source[first..=last]),
+        );
+    }
+}
+
+/// Keeps `prepared` seeded from `depth`, reusing the pyramid while the target size holds.
+pub(super) fn prepare_pyramid(
+    prepared: &mut Option<PreparedPyramid>,
+    kernels: &CullKernels,
     device: &RenderDevice,
     depth: Option<&ViewDepthTexture>,
     msaa: Msaa,
 ) {
     let Some(depth) = depth else {
-        cull.pyramid = None;
+        *prepared = None;
         return;
     };
     let size = depth.texture.size();
     let depth_size = [size.width, size.height];
     let view = depth.view();
-    if cull.pyramid.as_ref().is_some_and(|prepared| {
+    if prepared.as_ref().is_some_and(|prepared| {
         prepared.depth == view.id() && prepared.pyramid.depth_size == depth_size
     }) {
         return;
     }
-    let pyramid = cull
-        .pyramid
+    let pyramid = prepared
         .take()
         .map(|prepared| prepared.pyramid)
         .filter(|pyramid| pyramid.depth_size == depth_size)
         .unwrap_or_else(|| HizPyramid::new(device.wgpu_device(), depth_size));
     let bindings =
-        cull.kernels
-            .pyramid_bindings(device.wgpu_device(), view, msaa.samples() > 1, &pyramid);
-    cull.pyramid = Some(PreparedPyramid {
+        kernels.pyramid_bindings(device.wgpu_device(), view, msaa.samples() > 1, &pyramid);
+    *prepared = Some(PreparedPyramid {
         pyramid,
         depth: view.id(),
         bindings,
     });
 }
 
-fn cull_view_input(
+pub(super) fn cull_view_input(
     view: &ExtractedView,
     frustum: &Frustum,
     depth_size: [u32; 2],

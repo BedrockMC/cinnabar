@@ -1826,6 +1826,7 @@ dependencies = [
  "server-experience",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
+ "url",
  "wit-component",
  "zip",
 ]
@@ -6061,6 +6062,7 @@ version = "0.1.7"
 dependencies = [
  "anyhow",
  "dav1d",
+ "libc",
  "matroska-demuxer",
  "opus",
  "protocol",

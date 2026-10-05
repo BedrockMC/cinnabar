@@ -40,6 +40,10 @@ impl CullSlots {
         &self.enabled
     }
 
+    pub(in crate::chunk) fn contains(&self, entity: Entity) -> bool {
+        self.slots.contains_key(&entity)
+    }
+
     /// Frees `entity`'s slot after its allocation component is gone.
     pub(in crate::chunk) fn remove(&mut self, entity: Entity) {
         if let Some(slot) = self.slots.remove(&entity) {

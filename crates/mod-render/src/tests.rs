@@ -73,3 +73,56 @@ fn pass_names_are_short_identifiers() {
         assert!(!pass_name_valid(name), "{name}");
     }
 }
+
+fn pass(name: &str, order: i32, revision: u64) -> Pass {
+    Pass {
+        name: name.into(),
+        order,
+        depth: false,
+        source: Arc::from(""),
+        shader: Arc::from(""),
+        revision,
+        enabled: true,
+        params: [0.0; MAX_PASS_PARAMS],
+    }
+}
+
+fn output(passes: Vec<Pass>, decals: usize) -> RenderOutput {
+    RenderOutput {
+        passes,
+        primitives: Arc::new(Primitives {
+            decals: vec![decal(); decals],
+            ..Default::default()
+        }),
+    }
+}
+
+#[test]
+fn merging_keeps_load_order_priority_within_the_single_mod_budgets() {
+    let camera = output(vec![pass("shake", 5, 1), pass("grade", 0, 2)], 40);
+    let effects = output(vec![pass("shake", -1, 3), pass("aura", 1, 4)], 40);
+    let merged = merge([&camera, &effects]);
+    let passes: Vec<_> = merged
+        .passes
+        .iter()
+        .map(|pass| (pass.name.as_str(), pass.revision))
+        .collect();
+    assert_eq!(passes, [("grade", 2), ("aura", 4), ("shake", 1)]);
+    assert_eq!(merged.primitives.decals.len(), mod_api::MAX_RENDER_DECALS);
+
+    let crowded: Vec<_> = (0..mod_api::MAX_RENDER_PASSES as u64 + 2)
+        .map(|index| pass(&format!("p{index}"), 0, index))
+        .collect();
+    let late = output(vec![pass("late", -9, 99)], 0);
+    let merged = merge([&output(crowded, 0), &late]);
+    assert_eq!(merged.passes.len(), mod_api::MAX_RENDER_PASSES);
+    assert!(merged.passes.iter().all(|pass| pass.name != "late"));
+}
+
+#[test]
+fn a_lone_drawing_mod_shares_its_primitives_so_nothing_rebuilds() {
+    let drawing = output(Vec::new(), 3);
+    let passes_only = output(vec![pass("grade", 0, 1)], 0);
+    let merged = merge([&passes_only, &drawing]);
+    assert!(Arc::ptr_eq(&merged.primitives, &drawing.primitives));
+}

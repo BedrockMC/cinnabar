@@ -29,6 +29,8 @@ interface input {
         gameplay: bool,
         panel-open: bool,
         keys-pressed: list<string>,
+        /// Physical keys held this frame, including reserved ones.
+        keys-held: list<string>,
         events: list<event>,
     }
     /// True only for the current frame's host-assigned action edge.
@@ -72,6 +74,35 @@ interface gameplay {
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.
     set-packet-delay: func(delay-ms: u32) -> result<_, string>;
+
+    /// A nearby non-player actor; health comes from its replicated health attribute.
+    record mob {
+        runtime-id: u64,
+        unique-id: s64,
+        type-id: string,
+        position: vector3,
+        health: option<f32>,
+        max-health: option<f32>,
+    }
+    /// Requires the entities grant and a current frame; nearest first, bounded by count and range.
+    read-mobs: func() -> result<list<mob>, string>;
+
+    /// Camera-local blocks (x right, y up, z back), roll in radians, FOV change in degrees.
+    record camera-rig { offset: vector3, roll: f32, fov-delta: f32 }
+    /// Retained third-person rig, swept against blocks; none restores the player's own view.
+    set-camera-rig: func(rig: option<camera-rig>) -> result<_, string>;
+
+    /// Sent as a player command request after frame returns; the command must be granted by name.
+    request-command: func(command: string) -> result<_, string>;
+}
+
+/// Local presentation cues shared by loaded mods; they carry no authority.
+interface events {
+    record cue { name: string, values: list<f32> }
+    /// Published to the host and every loaded mod after frame returns.
+    emit: func(name: string, values: list<f32>) -> result<_, string>;
+    /// Cues loaded mods committed last frame; the same bounded list for every call in a callback.
+    poll: func() -> list<cue>;
 }
 
 /// Local custom rendering: sandboxed WGSL post-process passes and bounded world-space primitives.
@@ -119,6 +150,7 @@ world extension {
     import input;
     import environment;
     import gameplay;
+    import events;
     import panel;
     import settings;
     import render;
