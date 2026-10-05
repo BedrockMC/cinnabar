@@ -105,8 +105,25 @@ func dialWithPreparedTransport(
 	case minecraft.RakNet, *minecraft.RakNet:
 		prepared := newPreparedTransport(ctx, network, address)
 		defer func() { prepared.finish(connection != nil && err == nil) }()
-		return dial(ctx, prepared, address)
+		connection, err = dial(ctx, prepared, address)
+		if err != nil && prepared.handedOff.Load() && ctx.Err() == nil && stalePreLogin(err) {
+			// The upstream can expire the early connection while its shutdown is still deferred, so
+			// login fails on a live-looking transport; retry once on a fresh one.
+			prepared.finish(false)
+			return dial(ctx, network, address)
+		}
+		return connection, err
 	default:
 		return dial(ctx, network, address)
 	}
+}
+
+// stalePreLogin reports a login that failed on a closed transport rather than a server answer.
+func stalePreLogin(err error) bool {
+	var transfer *minecraft.TransferError
+	var disconnect minecraft.DisconnectError
+	if errors.As(err, &transfer) || errors.As(err, &disconnect) {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, net.ErrClosed)
 }
