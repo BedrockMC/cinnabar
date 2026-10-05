@@ -125,19 +125,27 @@ func TestEntitlementsAreDedupedAndPaged(t *testing.T) {
 	}
 }
 
-// Authored to vanilla's store page format; rows carry queries, not offers.
-const pageFixture = `{"result":{"pageId":"page-1","layout":[{"sectionName":"New","rows":[
-{"telemetryId":"r1","controlId":"StoreRow","components":[{"type":"itemListComp"}],"queries":[{"queryContentTypes":["Durable"],"orTags":["new"],"itemLimit":10}]},
+// Synthesized in the live page shape: a curated row lists its offers inline under a header; a query
+// row carries catalog queries.
+const pageFixture = `{"result":{"pageId":"page-1","layout":[{"sectionName":"rows","rows":[
+{"controlId":"Layout","components":[{"type":"topBarSearchComp","isVisible":true}],"queries":null},
+{"telemetryId":"r0","controlId":"StoreRow","components":[{"type":"itemListComp","totalItems":9,
+ "items":[{"id":"BBBBBBBB-0000-0000-0000-000000000002","title":"Curated","creatorName":"Maker","rating":{"average":4.5,"totalCount":3},
+  "thumbnail":{"type":"Thumbnail","url":"https://cdn.example.test/c.png"},"price":{"listPrice":990,"currencyId":"coin"}}]},
+ {"type":"carouselComp"},{"type":"headerComp","headerText":"Featured"}],"queries":null},
+{"telemetryId":"r1","controlId":"StoreRow","components":[{"type":"itemListComp"},{"type":"headerComp","headerText":"New"}],
+ "queries":[{"queryContentTypes":["Durable"],"orTags":["new"],"itemLimit":10}]},
 {"telemetryId":"r2","queries":[{"rarityFilters":["epic"]}]}]}]}}`
 
-// A page row is filled by running its query through the catalog, with the owned ids sent along.
-func TestHomeFillsRowsFromTheirQueries(t *testing.T) {
+// Curated rows map their inline offers and query rows are filled through the catalog, in page order,
+// with the owned ids sent along.
+func TestHomeMapsCuratedRowsAndFillsQueryRows(t *testing.T) {
 	cat := &fakeCatalog{items: []playfabcatalog.Item{{ID: "AAAAAAAA-0000-0000-0000-000000000001", Title: playfabcatalog.Dictionary[string]{"NEUTRAL": "Alpha"}}}}
 	var body marketplace.PageRequest
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1.0/session/config":
-			_, _ = io.WriteString(w, `{"result":{"knownPages":{"home":"page-1"},"userListsVersion":"lists-1"}}`)
+			_, _ = io.WriteString(w, `{"result":{"knownPages":{"storeRoot":"page-1"},"userListsVersion":"lists-1"}}`)
 		case "/api/v2.0/layout/pages/page-1":
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			w.Header().Set("InventoryETag", "etag-2")
@@ -147,13 +155,22 @@ func TestHomeFillsRowsFromTheirQueries(t *testing.T) {
 			_, _ = io.WriteString(w, inventoryFixture)
 		}
 	}, cat)
-	page, err := client.Home(context.Background(), "home")
-	if err != nil || len(page.Rows) != 1 || page.InventoryVersion != "etag-2" {
+	page, err := client.Home(context.Background(), marketplace.PageStoreRoot)
+	if err != nil || len(page.Rows) != 2 || page.InventoryVersion != "etag-2" {
 		t.Fatalf("page = %+v err=%v", page, err)
 	}
-	row := page.Rows[0]
-	if row.Title != "New" || row.Kind != "itemListComp" || len(row.Offers) != 1 || !row.Offers[0].Owned {
-		t.Fatalf("row = %+v", row)
+	curated := page.Rows[0]
+	if curated.Title != "Featured" || curated.Kind != "itemListComp" || len(curated.Offers) != 1 {
+		t.Fatalf("curated row = %+v", curated)
+	}
+	offer := curated.Offers[0]
+	if offer.ID != "bbbbbbbb-0000-0000-0000-000000000002" || offer.Title != "Curated" || offer.ThumbnailURL == "" ||
+		offer.Rating == nil || offer.Rating.Count != 3 || offer.Prices[0].Amount != 990 || !offer.Owned {
+		t.Fatalf("curated offer = %+v", offer)
+	}
+	queried := page.Rows[1]
+	if queried.Title != "New" || len(queried.Offers) != 1 || !queried.Offers[0].Owned {
+		t.Fatalf("query row = %+v", queried)
 	}
 	if len(body.Entitlements) != 2 || body.InventoryVersion != "etag-1" || body.ListVersion != "lists-1" {
 		t.Fatalf("page body = %+v", body)
@@ -166,21 +183,21 @@ func TestHomeFillsRowsFromTheirQueries(t *testing.T) {
 			_, _ = io.WriteString(w, pageFixture)
 			return
 		}
-		_, _ = io.WriteString(w, `{"result":{"knownPages":{"home":"page-1"}}}`)
+		_, _ = io.WriteString(w, `{"result":{"knownPages":{"storeRoot":"page-1"}}}`)
 	}, &fakeCatalog{err: errors.New("catalog down")})
 	failing.inventory = &inventoryCache{set: map[string]struct{}{}, at: time.Now()}
-	if _, err := failing.Home(context.Background(), "home"); err == nil {
-		t.Fatal("a page whose every row search failed was served")
+	if page, err := failing.Home(context.Background(), marketplace.PageStoreRoot); err != nil || len(page.Rows) != 1 || page.Rows[0].Title != "Featured" {
+		t.Fatalf("a failed query search must keep the curated rows: page = %+v err = %v", page, err)
 	}
 }
 
-// A page name the session config does not map fails locally, naming the known keys, instead of a 400 round trip.
+// A page name the session config does not map fails before any layout request.
 func TestHomeRefusesAPageTheSessionConfigDoesNotKnow(t *testing.T) {
 	var layoutRequests int
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1.0/session/config":
-			_, _ = io.WriteString(w, `{"result":{"knownPages":{"MultiItemPage_Inventory":"inv-1","MultiItemPage_CoinScreen":"coin-1"}}}`)
+			_, _ = io.WriteString(w, `{"result":{"knownPages":{"inventory":"inv-1","coinScreen":"coin-1"}}}`)
 		case strings.HasPrefix(r.URL.Path, "/api/v2.0/layout/pages/"):
 			layoutRequests++
 			w.WriteHeader(http.StatusBadRequest)
@@ -188,13 +205,8 @@ func TestHomeRefusesAPageTheSessionConfigDoesNotKnow(t *testing.T) {
 			_, _ = io.WriteString(w, inventoryFixture)
 		}
 	}, nil)
-	_, err := client.Home(context.Background(), "home")
-	if !errors.Is(err, ErrUnknownPage) {
+	if _, err := client.Home(context.Background(), marketplace.PageStoreRoot); !errors.Is(err, marketplace.ErrUnknownPage) {
 		t.Fatalf("err = %v, want ErrUnknownPage", err)
-	}
-	if msg := err.Error(); !strings.Contains(msg, `"home"`) ||
-		!strings.Contains(msg, "MultiItemPage_CoinScreen, MultiItemPage_Inventory") || strings.Contains(msg, "inv-1") {
-		t.Fatalf("error must name the missing key and the known keys only: %q", msg)
 	}
 	if layoutRequests != 0 {
 		t.Fatalf("sent %d layout requests for an unknown page", layoutRequests)

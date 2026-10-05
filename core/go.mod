@@ -8,6 +8,7 @@ require (
 	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58
 	github.com/df-mc/go-playfab/v2 v2.0.3
 	github.com/df-mc/go-xsapi/v2 v2.0.4-0.20260925130556-58a99d3044b7
+	github.com/go-gl/mathgl v1.2.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.4
@@ -26,7 +27,6 @@ require (
 	github.com/creachadair/jrpc2 v1.3.5 // indirect
 	github.com/creachadair/mds v0.26.1 // indirect
 	github.com/df-mc/jsonc v1.0.5 // indirect
-	github.com/go-gl/mathgl v1.2.0 // indirect
 	github.com/pion/datachannel v1.6.3 // indirect
 	github.com/pion/dtls/v3 v3.1.9 // indirect
 	github.com/pion/ice/v4 v4.4.4 // indirect
@@ -52,5 +52,5 @@ require (
 
 replace (
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261005130945-7db980be4fcc
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261005232121-2bc3e2a0463d
 )
