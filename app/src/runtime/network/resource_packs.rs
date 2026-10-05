@@ -185,15 +185,21 @@ fn compile_application(
                 Subscriber::Blocks,
                 previous.and_then(|old| old.block_overlay.clone()),
                 |view| {
-                    cached_block_overlay(&fingerprint, view, custom_blocks, hashed_block_ids, || {
-                        compile_block_overlay(
-                            view,
-                            custom_blocks,
-                            hashed_block_ids,
-                            BASE_MATERIAL_KEYS.get(),
-                        )
-                        .map(Arc::new)
-                    })
+                    cached_block_overlay(
+                        &fingerprint,
+                        view,
+                        custom_blocks,
+                        hashed_block_ids,
+                        || {
+                            compile_block_overlay(
+                                view,
+                                custom_blocks,
+                                hashed_block_ids,
+                                BASE_MATERIAL_KEYS.get(),
+                            )
+                            .map(Arc::new)
+                        },
+                    )
                 },
             );
             let Some((overlay, _)) = &blocks else { return };
@@ -202,14 +208,16 @@ fn compile_application(
             {
                 bevy::log::warn!(gaps = ?compiled.gaps, "server block visuals are incomplete");
             }
-            let block_icons = overlay.as_deref().map_or_else(BlockIcons::default, |compiled| {
-                custom_block_icons(
-                    &compiled.overlay,
-                    custom_blocks,
-                    hashed_block_ids,
-                    &inputs.block_items,
-                )
-            });
+            let block_icons = overlay
+                .as_deref()
+                .map_or_else(BlockIcons::default, |compiled| {
+                    custom_block_icons(
+                        &compiled.overlay,
+                        custom_blocks,
+                        hashed_block_ids,
+                        &inputs.block_items,
+                    )
+                });
             icons = compile_part(
                 &stack,
                 cancelled,
@@ -283,7 +291,10 @@ fn compile_application(
     fn record<T>(
         dependencies: &mut super::pack_reload_diff::Dependencies,
         subscriber: Subscriber,
-        (output, inputs): (T, Option<std::collections::BTreeSet<resource_pack::PackDependency>>),
+        (output, inputs): (
+            T,
+            Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
+        ),
     ) -> T {
         if let Some(inputs) = inputs {
             dependencies.insert(subscriber, inputs);
@@ -300,7 +311,10 @@ fn compile_application(
     // Artwork reads join the entity subscriber's rather than replacing them.
     let (entity_artwork, artwork_inputs) = artwork?;
     if let Some(inputs) = artwork_inputs {
-        dependencies.entry(Subscriber::Entities).or_default().extend(inputs);
+        dependencies
+            .entry(Subscriber::Entities)
+            .or_default()
+            .extend(inputs);
     }
     super::item_diagnostics::session_icons(icon_keys.len(), item_icons.as_deref());
     Some(PackApplication {
@@ -331,8 +345,8 @@ fn compile_application(
 static COMPILE_CACHE: std::sync::OnceLock<client_session::compile_cache::CompileCache> =
     std::sync::OnceLock::new();
 
-/// Bounds the persisted results; one large server stack's entity art is about 50 MiB.
-const COMPILE_CACHE_BYTES: u64 = 512 * 1024 * 1024;
+/// Bounds the persisted results; Zeqa's compiled entity pack is about 150 MB.
+const COMPILE_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub(crate) fn set_compile_cache_dir(dir: std::path::PathBuf) {
     let _ = COMPILE_CACHE.set(client_session::compile_cache::CompileCache::new(

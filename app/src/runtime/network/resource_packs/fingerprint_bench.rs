@@ -81,8 +81,11 @@ fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::ValidatedPackStack>
             let bytes = std::fs::read(&path).unwrap();
             let mut zip = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
             let mut manifest = String::new();
-            std::io::Read::read_to_string(&mut zip.by_name("manifest.json").unwrap(), &mut manifest)
-                .unwrap();
+            std::io::Read::read_to_string(
+                &mut zip.by_name("manifest.json").unwrap(),
+                &mut manifest,
+            )
+            .unwrap();
             let manifest: serde_json::Value =
                 serde_json::from_str(manifest.trim_start_matches('\u{feff}')).unwrap();
             let header = &manifest["header"];
@@ -101,7 +104,8 @@ fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::ValidatedPackStack>
             )
         })
         .collect();
-    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(archives));
+    let stack =
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(archives));
     assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
     stack
 }
@@ -119,7 +123,8 @@ fn join_icon_keys(view: &LayeredPackView) -> Vec<(Arc<str>, Arc<str>)> {
         .collect()
 }
 
-/// Times each join subscriber and the whole preparation on a local server stack.
+/// Times a join's preparation, then a rejoin, on a local server stack. `CINNABAR_JOIN_SERIAL`
+/// compiles on one thread; `CINNABAR_JOIN_CACHE` names a disk cache that a second run reads.
 #[test]
 #[ignore = "offline join timing; CINNABAR_JOIN_PACKS names cached unencrypted archives"]
 fn join_preparation_timing() {
@@ -131,56 +136,43 @@ fn join_preparation_timing() {
                 .file_name()
                 .unwrap(),
         );
-        let loaded = crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
-            path,
-            source: crate::asset_startup::AssetPathSource::CommandLine,
-        })
-        .unwrap();
+        let loaded =
+            crate::asset_startup::load_runtime_assets(crate::asset_startup::AssetSelection {
+                path,
+                source: crate::asset_startup::AssetPathSource::CommandLine,
+            })
+            .unwrap();
         let artwork =
             crate::asset_startup::require_actor_artwork(&loaded.selected_path, &loaded.entities)
                 .unwrap();
         super::super::set_base_actor_artwork(artwork, Arc::clone(loaded.entities.runtime()));
     }
+    if let Some(dir) = std::env::var_os("CINNABAR_JOIN_CACHE") {
+        set_compile_cache_dir(dir.into());
+    }
     let stack = join_stack(&paths);
     let view = LayeredPackView::new(Arc::clone(&stack));
-    let icons = join_icon_keys(&view);
     let inputs = Arc::new(super::super::pack_reload::PackInputs {
-        icons: icons.clone(),
+        icons: join_icon_keys(&view),
         ..Default::default()
     });
-    let time = |name: &str, run: &mut dyn FnMut()| {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(if std::env::var_os("CINNABAR_JOIN_SERIAL").is_some() {
+            1
+        } else {
+            0
+        })
+        .build()
+        .unwrap();
+    for round in ["join", "rejoin"] {
         let started = Instant::now();
-        run();
-        println!("JOIN_PART {name} ms={:.1}", started.elapsed().as_secs_f64() * 1e3);
-    };
-    let fingerprint = stack_fingerprint(&stack);
-    time("fingerprint", &mut || drop(stack_fingerprint(&stack)));
-    time("icons", &mut || {
-        drop(compile_session_icons(&view, &icons, BlockIcons::default()))
-    });
-    time("language", &mut || drop(merged_server_lang(&view)));
-    time("glyphs", &mut || drop(compile_session_glyphs(&view)));
-    time("entities", &mut || {
-        drop(super::super::entity_pack::compile_session_entities(&Vec::new(), &view))
-    });
-    time("entity_artwork", &mut || {
-        drop(super::super::entity_texture_reload::prepare(&view))
-    });
-    time("property_defaults", &mut || {
-        drop(super::super::entity_pack::pack_property_defaults(&view))
-    });
-    time("ui", &mut || drop(collect_server_ui(&view)));
-    time("sounds", &mut || {
-        drop(crate::audio::ServerSoundPack::from_view(&view))
-    });
-    let _ = fingerprint;
-    for round in ["cold", "warm"] {
-        let started = Instant::now();
-        let application = prepare_validated_application(Arc::clone(&stack), Arc::clone(&inputs));
+        let application =
+            pool.install(|| prepare_validated_application(Arc::clone(&stack), Arc::clone(&inputs)));
         println!(
-            "JOIN_PREPARE {round} ms={:.1} icons={} entities={} ui={} sounds={}",
+            "JOIN_PREPARE {round} ms={:.1} icons={} glyphs={} entities={} ui={} sounds={}",
             started.elapsed().as_secs_f64() * 1e3,
             application.item_icons.is_some(),
+            application.glyph_sheets.is_some(),
             application.entities.is_some(),
             application.server_ui.is_some(),
             application.server_sounds.is_some(),

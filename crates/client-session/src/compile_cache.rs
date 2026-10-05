@@ -104,8 +104,7 @@ impl CompileCache {
         fs::create_dir_all(&self.dir)?;
         let path = self.entry(key);
         let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let temporary =
-            path.with_extension(format!("{}.{sequence}.tmp", std::process::id()));
+        let temporary = path.with_extension(format!("{}.{sequence}.tmp", std::process::id()));
         let mut hash = Sha256::new();
         let mut file = fs::File::create(&temporary)?;
         let length = (payload.len() as u64).to_le_bytes();
@@ -254,6 +253,9 @@ mod tests {
             key.finalize()
         };
         assert_ne!(digest(&[b"ab", b"c"]), digest(&[b"a", b"bc"]));
-        assert_ne!(cache_key("entities").finalize(), cache_key("glyphs").finalize());
+        assert_ne!(
+            cache_key("entities").finalize(),
+            cache_key("glyphs").finalize()
+        );
     }
 }

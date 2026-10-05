@@ -75,9 +75,7 @@ pub fn spawn_network<P: Send + 'static>(
                     move || {
                         let preparation = crate::prepare_session_packs(handoff, &game_data);
                         let packs = unless_cancelled(&cancelled, || {
-                            prepare_presentation(&preparation, &game_data, &|| {
-                                *cancelled.borrow()
-                            })
+                            prepare_presentation(&preparation, &game_data, &|| *cancelled.borrow())
                         })
                         .flatten();
                         (preparation, game_data, packs)
