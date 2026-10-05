@@ -151,9 +151,21 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
 fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let font = independent_font(&[1024, 2048, 2048, 2048]);
     let presentation = UiPresentationRuntime::new(Arc::clone(&font)).unwrap();
+    let font_bytes: usize = font
+        .pages()
+        .iter()
+        .map(|page| page.pixels.bytes().len())
+        .sum();
+    let page_bytes = |side: u32| side as usize * side as usize * 4;
+    let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
+    let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
     assert_eq!(
         presentation.textures.plan().bytes(),
-        60 * 1024 * 1024 + 35 * 256 * 256 * 4
+        font_bytes
+            + small_page_bytes
+            + dynamic_bytes
+            + render_model::MAX_UI_ART_PAGES * page_bytes(render_model::UI_ART_PAGE_SIDE)
     );
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
@@ -771,4 +783,34 @@ fn frame_cost_bench_hidden_player_preview_while_turning() {
         presentation.sync_player_preview(Some(&skin), pose(frame), false, false, 0.0);
     }));
     eprintln!("FRAME_COST player_preview_turning_hidden: old={old:.3}ms new={new:.3}ms");
+}
+
+/// Coverage font pages add their own buckets beside the art and local-font slots and still fit.
+#[test]
+fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
+    let font = Arc::new(
+        (*independent_font(&[1024, 2048, 2048]))
+            .clone()
+            .with_coverage_pages(),
+    );
+    let presentation =
+        UiPresentationRuntime::with_hud(Arc::clone(&font), crate::test_support::fixture_hud())
+            .unwrap();
+    let plan = presentation.textures.plan();
+    assert!(plan.buckets().len() <= render_model::MAX_UI_TEXTURE_BUCKETS);
+    for (index, page) in presentation.textures.pages().iter().enumerate() {
+        let expected = if index < font.pages().len() {
+            render_model::UiTextureFormat::Coverage
+        } else {
+            render_model::UiTextureFormat::Rgba8
+        };
+        assert_eq!(page.format(), expected, "page {index}");
+    }
+    let local = presentation.textures.dynamic_start() + render_model::UI_LOCAL_FONT_PAGE_OFFSET;
+    let bucket = plan.buckets()[plan.locations()[local].bucket];
+    assert_eq!(bucket.format, render_model::UiTextureFormat::Rgba8);
+    assert_eq!(
+        bucket.dimensions,
+        [render_model::UI_LOCAL_FONT_PAGE_SIDE; 2]
+    );
 }

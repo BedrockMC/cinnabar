@@ -229,7 +229,7 @@ fn compile(pack: &Path) -> Vanilla {
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let artwork = pack_compiler::compile_actor_assets(pack, manifest).unwrap();
-    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &bytes).unwrap();
+    let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
     Vanilla {
         candidates: catalog
             .bindings()
@@ -298,6 +298,7 @@ fn move_mobs(world: &mut WorldStream, tick: u32, travel: f32) {
                     teleported: false,
                     player_mode: None,
                     source_tick: Some(u64::from(tick)),
+                    interpolation: Default::default(),
                 })),
             )
             .unwrap();

@@ -23,7 +23,7 @@ const MAX_QUEUED_SPLASHES: usize = 256;
 /// Ticks a bolt stays drawn after it spawns; needs native measurement.
 const BOLT_VISIBLE_TICKS: u32 = 8;
 
-const WEATHER_TEXTURES_FILENAME: &str = "vanilla-v1.mcbewth";
+const WEATHER_TEXTURES_FILENAME: &str = assets::carriers::WEATHER.output;
 const WEATHER_TEXTURES_COMPILE_COMMAND: &str = "make weather-assets";
 
 /// Loads the optional precipitation and End sky carrier next to the world carrier; an absent or

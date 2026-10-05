@@ -19,11 +19,11 @@ use assets::{
 };
 use client_world::ingestion::{
     BiomeDefinitionEvent, BlockCrackEvent, BlockUpdateEvent, DimensionRange, LevelChunkEvent,
-    LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent, WorldBootstrap,
-    WorldEvent, request_sub_chunk_column, vanilla_dimension_range,
+    LevelChunkMode, Packet, SubChunkBatchEvent, SubChunkReplyAdmissionEvent,
+    SyncedBlockUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
+    vanilla_dimension_range,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
-use hashbrown::HashMap as FastHashMap;
 use thiserror::Error;
 use world::{
     BiomeStorage, BlockEntityKey, BlockIds, BlockPos, BlockUpdate, BoundaryLightSample, ChunkKey,
@@ -41,6 +41,8 @@ use client_world::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, adjudicate_block_entity_visual,
 };
 
+mod actor_block_sync;
+pub use actor_block_sync::ActorBlockSyncFence;
 mod block_cracks;
 mod block_entities;
 mod block_events;
@@ -51,6 +53,7 @@ mod connectivity;
 mod construction;
 mod decode;
 mod diagnostics;
+mod dimension_transfer;
 mod dirty;
 mod helpers;
 mod light_diagnostics;
@@ -74,6 +77,7 @@ mod scheduler;
 mod seasonal_foliage;
 mod sequencing;
 mod sign_edit;
+mod transfer_priority;
 mod workers;
 
 pub use client_world::ingestion::WorldStreamError;
@@ -121,24 +125,19 @@ pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;
 const INITIAL_LIGHT_BACKLOG_THRESHOLD: usize = 256;
-fn light_job_cap_for_threads(worker_threads: usize) -> usize {
-    MAX_IN_FLIGHT_LIGHT_JOBS.min(
-        worker_threads
-            .saturating_div(4)
-            .max(MIN_EFFECTIVE_LIGHT_JOB_CAP),
-    )
+/// Quiet relighting admits half the light workers' width.
+fn light_job_cap_for_threads(light_workers: usize) -> usize {
+    (light_workers / 2).clamp(MIN_EFFECTIVE_LIGHT_JOB_CAP, MAX_IN_FLIGHT_LIGHT_JOBS)
 }
 fn effective_light_job_cap() -> usize {
-    // Quiet relighting uses fewer admissions; its workers have a separate queue.
-    light_job_cap_for_threads(rayon::current_num_threads())
+    light_job_cap_for_threads(workers::WORKERS.size().background)
 }
 fn initial_light_job_cap() -> usize {
-    // Initial lighting fills a larger bounded wave because it gates ready geometry.
-    MAX_IN_FLIGHT_LIGHT_JOBS.min(
-        rayon::current_num_threads()
-            .saturating_div(2)
-            .max(MIN_EFFECTIVE_LIGHT_JOB_CAP),
-    )
+    // Initial lighting fills every light worker because it gates ready geometry.
+    workers::WORKERS
+        .size()
+        .background
+        .clamp(MIN_EFFECTIVE_LIGHT_JOB_CAP, MAX_IN_FLIGHT_LIGHT_JOBS)
 }
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;
@@ -154,6 +153,7 @@ struct PendingSchedulerCandidate {
     key: SubChunkKey,
     revision: u64,
     urgent: bool,
+    transfer: bool,
 }
 
 impl PendingSchedulerCandidate {
@@ -163,13 +163,15 @@ impl PendingSchedulerCandidate {
             key,
             revision,
             urgent,
+            transfer: false,
         }
     }
 }
 
 impl PartialEq for PendingSchedulerCandidate {
     fn eq(&self, other: &Self) -> bool {
-        self.urgent == other.urgent
+        self.transfer == other.transfer
+            && self.urgent == other.urgent
             && self
                 .distance_squared
                 .total_cmp(&other.distance_squared)
@@ -189,13 +191,16 @@ impl PartialOrd for PendingSchedulerCandidate {
 
 impl Ord for PendingSchedulerCandidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.urgent.cmp(&other.urgent).then_with(|| {
-            other
-                .distance_squared
-                .total_cmp(&self.distance_squared)
-                .then_with(|| other.key.cmp(&self.key))
-                .then_with(|| other.revision.cmp(&self.revision))
-        })
+        self.transfer
+            .cmp(&other.transfer)
+            .then_with(|| self.urgent.cmp(&other.urgent))
+            .then_with(|| {
+                other
+                    .distance_squared
+                    .total_cmp(&self.distance_squared)
+                    .then_with(|| other.key.cmp(&self.key))
+                    .then_with(|| other.revision.cmp(&self.revision))
+            })
     }
 }
 
@@ -276,10 +281,12 @@ pub struct WorldStream {
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
+    actor_block_syncs: actor_block_sync::ActorBlockSyncs,
     mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
+    dimension_transfer_priority: Option<transfer_priority::DimensionTransferPriority>,
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
@@ -289,7 +296,7 @@ pub struct WorldStream {
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
-    connectivity: FastHashMap<SubChunkKey, FaceConnectivity>,
+    connectivity: crate::culling::ConnectivityGrid,
     connectivity_generation: u64,
     requests: requests::SubChunkRequests,
     unsent_column_deadlines: HashMap<ChunkKey, Instant>,

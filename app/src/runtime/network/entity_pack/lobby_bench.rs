@@ -260,9 +260,11 @@ fn build_world(
     })
     .unwrap();
     let entity_runtime = Arc::clone(loaded.entities.runtime());
-    let artwork =
-        crate::asset_startup::require_actor_artwork(&loaded.selected_path, &loaded.entities)
-            .unwrap();
+    let artwork = crate::asset_startup::actor_artwork(
+        &crate::asset_startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
+            .unwrap(),
+        &entity_runtime,
+    );
     let icons = crate::asset_startup::require_icon_assets(
         &loaded.selected_path,
         crate::asset_startup::vanilla_source_manifest_json(),
@@ -278,7 +280,7 @@ fn build_world(
             equipment_catalog,
             Arc::clone(icons.runtime()),
             Some(Arc::clone(&loaded.runtime)),
-            crate::asset_startup::load_optional_block_entity_assets(&loaded.selected_path),
+            crate::block_entities::load_block_entity_carrier(&loaded.selected_path),
             artwork,
         );
     let mut scene = render::ActorRenderScene::with_runtime_entity_assets_and_equipment(

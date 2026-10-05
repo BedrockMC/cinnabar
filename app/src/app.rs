@@ -29,16 +29,12 @@ use render::{
     RuntimeStageProfiler, UiRenderPlugin, VisibilityDiagnosticsInput,
 };
 mod startup;
-use startup::read_verified_physics_registry;
 
 #[cfg(feature = "acceptance")]
 use crate::acceptance::world_ready::emit_world_ready;
 use crate::{
     args,
-    asset_startup::{
-        LoadedAssetKind, load_runtime_assets, require_hud_assets, require_icon_assets,
-        select_asset_path_from_environment,
-    },
+    asset_startup::{LoadedAssetKind, select_asset_path_from_environment},
     block_use::{BlockUseRuntime, produce_block_use},
     camera::{FlyCameraPlugin, FlyCameraUpdateSet},
     environment::{
@@ -58,8 +54,7 @@ use crate::{
     },
     movement::{
         LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController,
-        PhysicsAuthorityGate, PhysicsCollisionRegistries, advance_local_physics,
-        send_movement_prediction_sync,
+        PhysicsAuthorityGate, advance_local_physics, send_movement_prediction_sync,
     },
     present_mode::{PresentModeRuntime, apply_runtime_vsync_setting},
     runtime::{
@@ -412,6 +407,7 @@ fn bind_direct_session_directory(
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
     crate::lifecycle::children::install_exit_hooks();
@@ -419,6 +415,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -441,8 +438,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let loaded_assets =
-        load_runtime_assets(selected_assets).context("load startup block assets")?;
+    let carriers = startup::load_startup_carriers(selected_assets, &layout.physics_registry);
+    let startup::CoreCarriers {
+        assets: loaded_assets,
+        actor: actor_catalog,
+        equipment: equipment_catalog,
+    } = carriers.core.context("load startup block assets")?;
     if let Some(notice) = &loaded_assets.notice {
         eprintln!("{notice}");
     } else if loaded_assets.kind == LoadedAssetKind::CompiledBlob {
@@ -465,40 +466,30 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     eprintln!("{}", loaded_assets.fonts.startup_summary());
     let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
     crate::runtime::network::set_vanilla_item_paths(&entity_runtime);
-    let actor_artwork = crate::asset_startup::require_actor_artwork(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    )
-    .context("load exact entity-linked neutral actor artwork")?;
+    let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
+    let actor_artwork = crate::asset_startup::actor_artwork(&actor_catalog, &entity_runtime);
     let hand_geometry = render::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
-    let hud_assets = require_hud_assets(&loaded_assets.selected_path)
+    let hud_assets = carriers
+        .hud
         .context("load pinned official Mojang sample HUD carrier")?;
     eprintln!("{}", hud_assets.startup_summary());
-    let icon_assets = require_icon_assets(
-        &loaded_assets.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
-    )
-    .context("load pinned official Mojang sample item-icon carrier")?;
+    let icon_assets = carriers
+        .icons
+        .context("load pinned official Mojang sample item-icon carrier")?;
     eprintln!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
-    let equipment_catalog = crate::asset_startup::load_optional_equipment_assets(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    );
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         crate::presentation::equipment::EquipmentRuntime::build(
             Arc::clone(&entity_runtime),
             equipment_catalog.clone(),
             Arc::clone(icon_assets.runtime()),
             Some(Arc::clone(&loaded_assets.runtime)),
-            crate::asset_startup::load_optional_block_entity_assets(&loaded_assets.selected_path),
+            carriers.block_entities.clone(),
             actor_artwork,
         );
-    let lang_assets = crate::asset_startup::require_lang_assets(
-        &loaded_assets.selected_path,
-        crate::asset_startup::vanilla_source_manifest_json(),
-    )
-    .context("load pinned official Mojang sample localization carrier")?;
+    let lang_assets = carriers
+        .lang
+        .context("load pinned official Mojang sample localization carrier")?;
     eprintln!("{}", lang_assets.startup_summary());
     let saved_settings = crate::menu::settings_options::SettingsOptions::load(
         &layout
@@ -509,55 +500,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         &loaded_assets.selected_path,
         args.language.as_deref().or(saved_settings.language()),
     );
-    // The sound-definition catalog binds optionally (VPA-017): absence falls
-    // back to a bounded empty catalog with this one-time notice, while a
-    // present-but-invalid carrier fails startup closed above through the
-    // typed error naming the exact path and rebuild command.
-    let loaded_audio = match crate::asset_startup::load_audio_assets(&loaded_assets.selected_path) {
-        Ok(Some(loaded)) => {
-            eprintln!("{}", loaded.startup_summary());
-            Some(loaded)
-        }
-        Ok(None) => {
-            eprintln!(
-                "{}",
-                crate::asset_startup::audio_assets_missing_notice(
-                    &crate::asset_startup::audio_asset_path(&loaded_assets.selected_path)
-                )
-            );
-            None
-        }
-        Err(error) => {
-            return Err(anyhow::Error::new(error))
-                .context("load optional pinned sound-definition carrier");
-        }
-    };
-    let pcm = crate::asset_startup::load_audio_pcm_assets(
-        &loaded_assets.selected_path,
-        loaded_audio.as_ref(),
-    )
-    .context("load optional reviewed finite PCM carrier")?;
-    let audio_catalog = loaded_audio.map(|loaded| loaded.into_runtime());
-    // The sound bank binds optionally: absence or damage leaves playback silent, never fatal.
-    let sound_bank = match crate::audio::SoundBank::open(
-        &crate::audio::sound_bank_path(&loaded_assets.selected_path),
-        audio_catalog.clone(),
-    ) {
-        Ok(Some(bank)) => {
-            eprintln!("loaded sound bank ({} sound files)", bank.file_count());
-            Some(bank)
-        }
-        Ok(None) => {
-            eprintln!(
-                "optional sound bank was not found; run `make audio-bank` (or `make assets`) to enable playback"
-            );
-            None
-        }
-        Err(error) => {
-            eprintln!("sound bank unusable, audio stays silent: {error}");
-            None
-        }
-    };
+    let startup::AudioCarriers {
+        catalog: audio_catalog,
+        pcm,
+        sound_bank,
+    } = carriers.audio?;
     let audio_device = if pcm.is_some() || sound_bank.is_some() {
         crate::named_audio::AudioDevice::open_default_once()
     } else {
@@ -567,23 +514,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let named_audio =
         crate::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = crate::audio::AudioEngine::new(sound_bank);
-    let particle_assets = crate::particles::load_optional_carrier(&loaded_assets.selected_path);
+    let particle_assets = carriers.particles;
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
-        crate::block_entities::load_block_entity_scene(&loaded_assets.selected_path);
+        crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
     block_entity_scene.install_entity_assets(&entity_runtime);
-    // Spawner mobs read the actor catalog; without it cages stay empty.
-    match crate::asset_startup::require_actor_assets(
-        &loaded_assets.selected_path,
-        &loaded_assets.entities,
-    ) {
-        Ok(catalog) => block_entity_scene.install_mob_assets(&entity_runtime, &catalog),
-        Err(error) => eprintln!("spawner mobs unavailable: {error}"),
-    }
+    block_entity_scene.install_mob_assets(&entity_runtime, &actor_catalog);
     let font_runtime = loaded_assets.fonts.into_runtime();
     let block_entity_font = Arc::clone(&font_runtime);
-    #[cfg(feature = "local-mods")]
-    let font_runtime = crate::modding::font::with_optional_font(font_runtime);
     let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
         font_runtime,
         hud_assets.into_runtime(),
@@ -591,8 +529,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     )
     .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
     // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
-    let ui_assets =
-        client_ui::ui_runtime::json_ui_assets::require_ui_assets(&loaded_assets.selected_path)?;
+    let ui_assets = carriers.ui?;
     ui_presentation
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
@@ -617,8 +554,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
-    let weather_textures =
-        environment::load_optional_weather_textures(&loaded_assets.selected_path);
+    let weather_textures = carriers.weather;
     let runtime_assets = loaded_assets.runtime;
     let asset_metrics = loaded_assets.metrics;
     let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -634,25 +570,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
         crate::runtime::network::HandRigBuilder::from_runtime_assets(&entity_runtime)?;
-    // One shared authority drives both startup registry gates: the
-    // world-carrier provenance pins and this physics binding both derive
-    // their protocol expectation from it, so a partially flipped carrier set
-    // fails closed here instead of aliasing live block identities.
-    let expected_protocol = crate::asset_startup::active_content_registry_protocol();
-    let collision_breg = crate::asset_startup::pinned_block_registry_bytes();
-    let collision_preg = read_verified_physics_registry(
-        &layout.physics_registry,
-        PHYSICS_REGISTRY_SHA256,
-        expected_protocol,
-    )?;
-    let collision_registries = PhysicsCollisionRegistries::bind_coherent_assets(
-        collision_breg,
-        &collision_preg,
-        &layout.physics_registry,
-        &loaded_assets.selected_path,
-        expected_protocol,
-    )
-    .context("decode and bind the active-content-protocol collision registries")?;
+    let collision_registries = carriers.collision?;
     eprintln!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
@@ -744,6 +662,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 ..default()
             })
             .set(render_plugin())
+            .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
             // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
             // graph requires post-process nodes that are intentionally absent
             // from this compact custom renderer.

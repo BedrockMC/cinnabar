@@ -203,7 +203,7 @@ impl InstallLayout {
 
     #[must_use]
     pub fn world_assets(&self) -> PathBuf {
-        self.compiled_assets.join("vanilla-v2193.mcbea")
+        self.compiled_assets.join(assets::carriers::WORLD.output)
     }
 
     /// The local player's own skin PNG, shipped beside the other assets under `resources/assets`
@@ -234,6 +234,12 @@ impl InstallLayout {
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    /// Join-time pack compilations reused across launches; safe to delete at any time.
+    #[must_use]
+    pub fn compiled_pack_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("resource-packs/compiled")
     }
 
     /// Immutable extension bundles, separate from per-server trust settings.
