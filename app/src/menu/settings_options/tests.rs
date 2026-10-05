@@ -343,3 +343,51 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
     assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 0);
     assert_eq!(menu.settings_snapshot().0.value("hide_hand"), 1);
 }
+
+#[test]
+fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
+    use super::hotbar_control_slot;
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Bindings".to_owned());
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
+        .unwrap();
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
+        Some(0)
+    );
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .remap(row, PhysicalControl::KeyboardUsage(0x15))
+    );
+    menu.settings_options = std::sync::Arc::new(
+        SettingsOptions::decode(&serde_json::to_vec(menu.settings_options.as_ref()).unwrap())
+            .unwrap(),
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
+        Some(0)
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x1e)),
+        None
+    );
+    assert!(
+        std::sync::Arc::make_mut(&mut menu.settings_options)
+            .remap(row, PhysicalControl::MouseButton(4))
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::MouseButton(4)),
+        Some(0)
+    );
+    assert_eq!(
+        hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(0x15)),
+        None
+    );
+    for (slot, usage) in (0x1f..=0x26).enumerate() {
+        assert_eq!(
+            hotbar_control_slot(Some(&menu), PhysicalControl::KeyboardUsage(usage)),
+            Some(slot as u8 + 1)
+        );
+    }
+}
