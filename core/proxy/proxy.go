@@ -346,14 +346,7 @@ func connectUpstream(
 		}
 	}()
 	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
-	upstream, err := dialFollowingTransfers(ctx, address, func(ctx context.Context, address string) (upstreamSession, error) {
-		upstream, dialErr := dial(ctx, address)
-		if dialErr != nil && upstream != nil {
-			dialErr = errors.Join(dialErr, finishPreparedResources(upstream, nil))
-			upstream = nil
-		}
-		return upstream, dialErr
-	})
+	upstream, err := dialFollowingTransfers(ctx, address, dial)
 	if err != nil {
 		logger.Error("upstream connection failed", "target", address, "authentication", authentication, "error", err)
 		return nil, err
@@ -371,7 +364,7 @@ func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return minecraft.RakNet{}
+	return remoteRakNet()
 }
 
 func dialFollowingTransfers(
@@ -388,7 +381,14 @@ func dialFollowingTransfers(
 		}
 		var transfer *minecraft.TransferError
 		if !errors.As(err, &transfer) {
+			if upstream != nil {
+				err = errors.Join(err, finishPreparedResources(upstream, nil))
+			}
 			return nil, err
+		}
+		if upstream != nil {
+			// The old server still gets its disconnect, but the next hop never waits for it.
+			go func() { _ = finishPreparedResources(upstream, nil) }()
 		}
 		if transfers >= maxInitialTransferHops {
 			return nil, fmt.Errorf("proxy: too many transfers before login (limit %d): %w", maxInitialTransferHops, err)
