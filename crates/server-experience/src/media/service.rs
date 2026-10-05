@@ -37,7 +37,6 @@ pub struct Player {
     decoder_generation: u64,
     decoder_ended: bool,
     presented_us: Option<u64>,
-    loop_cycle: u64,
     announce_playing: bool,
     ended: bool,
     events: Vec<Event>,
@@ -127,7 +126,6 @@ impl Player {
             decoder_generation: 0,
             decoder_ended: false,
             presented_us: None,
-            loop_cycle: 0,
             announce_playing: false,
             ended: false,
             events: Vec::new(),
@@ -201,7 +199,8 @@ impl Player {
             self.event(EventKind::Paused, position);
         }
         if self.playback.playing
-            && (!was_playing || self.playback.decode_generation != was_generation)
+            && (!was_playing
+                || self.playback.decode_generation != was_generation && !self.playback.looped)
         {
             self.ended = false;
             self.announce_playing = true;
@@ -209,15 +208,6 @@ impl Player {
         if !autoplay || self.playback.stopped || self.playback.decode_generation == 0 {
             self.stop_decoder();
             return Ok(());
-        }
-        // A wrap crosses the loop end; a rebuffering hold rebases without completing a cycle.
-        let cycle = self.playback.loop_cycle(server_us);
-        let wrapped = self.playback.playing
-            && self.playback.decode_generation == was_generation
-            && cycle > self.loop_cycle;
-        self.loop_cycle = cycle;
-        if wrapped {
-            self.playback.restart_decode()?;
         }
         if self.decoder_generation != self.playback.decode_generation {
             self.stop_decoder();
@@ -398,7 +388,6 @@ mod tests {
             decoder_generation: 0,
             decoder_ended: false,
             presented_us: None,
-            loop_cycle: 0,
             announce_playing: false,
             ended: false,
             events: Vec::new(),
