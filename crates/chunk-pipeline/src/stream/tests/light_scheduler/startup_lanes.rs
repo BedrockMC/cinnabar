@@ -281,3 +281,31 @@ fn urgent_mutation_ingresses_before_startup_dependencies_in_expired_polls() {
         Some(urgent)
     );
 }
+
+/// A superseded scan head cannot hide the live urgent record behind it from ingress.
+#[test]
+fn stale_scan_head_does_not_hide_urgent_work_behind_startup_ingress() {
+    let (mut stream, view) = stationary_lighting(true);
+    let urgent = SubChunkKey::new(1, 8, 5, 0);
+    let stale = SubChunkKey::new(1, 9, 5, 0);
+    let spawn: Vec<_> = (16..20).map(|y| SubChunkKey::new(1, 0, y, 0)).collect();
+    for key in spawn.iter().chain([&urgent, &stale]) {
+        install_current_light(&mut stream, *key, 0, 0, false);
+    }
+    stream
+        .mark_light_dirty_exact_with_priority(urgent, true)
+        .unwrap();
+    for key in &spawn {
+        stream.mark_light_dirty_exact(*key).unwrap();
+    }
+    stream.lighting.jobs.scan.push_front((stale, u64::MAX));
+    stream
+        .lighting
+        .jobs
+        .ingress(view, Some(Instant::now()), |_, _, _| (0, true));
+    let lane = &stream.lighting.jobs.lanes[0];
+    assert_eq!(
+        lane.ready.peek().map(|candidate| candidate.key),
+        Some(urgent)
+    );
+}
