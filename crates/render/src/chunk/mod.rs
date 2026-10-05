@@ -251,6 +251,8 @@ pub use textures::{
     plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 #[allow(unused_imports)]
+use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
+#[allow(unused_imports)]
 use transparent::liquid::{
     transparent_frame_draw_for_range, transparent_frame_draws, transparent_liquid_phase_distance,
 };
@@ -262,7 +264,7 @@ use transparent::model::{
     TransparentModelStagedSort, TransparentModelWorkerResult, TransparentUploadBudget,
     clear_active_transparent_metrics, fail_closed_transparent_sort_key_error,
     prepare_transparent_model_sorts, sort_transparent_model_candidates,
-    spawn_transparent_model_sort, spawn_transparent_sort, take_transparent_model_upload_batches,
+    spawn_transparent_model_sort, take_transparent_model_upload_batches,
     transparent_model_draw_candidate, transparent_model_phase_distance,
     transparent_model_subchunk_center, transparent_request_to_commit_latency,
 };
@@ -280,18 +282,19 @@ pub use transparent::sort::{
     DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME, MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_DRAW_REFS,
     MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS, PackedTransparentDrawRef,
     TRANSPARENT_REF_BUFFER_BYTES, TRANSPARENT_REF_SLOT_BYTES, TransparentAllocationIdentity,
-    TransparentDrawArgs, TransparentOrderedSnapshot, TransparentSortCandidate,
-    TransparentSortError, TransparentSortJobGate, TransparentSortResult, TransparentSortState,
-    TransparentUploadBatch, ViewSortGeneration, ViewSortKey, validate_transparent_sort_ref_count,
+    TransparentDrawArgs, TransparentOrderedSnapshot, TransparentSortError, TransparentSortJobGate,
+    TransparentSortResult, TransparentSortState, TransparentUploadBatch, ViewSortGeneration,
+    ViewSortKey, validate_transparent_sort_ref_count,
 };
 #[allow(unused_imports)]
 use transparent::sort::{
     INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
     MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
-    TransparentLiquidPhaseGroup, TransparentSortRequest, TransparentSortRuntime,
-    TransparentSortWork, TransparentStagedSnapshot, TransparentWorkerResult,
-    build_transparent_candidates, ensure_transparent_ref_capacity, prepare_transparent_sorts,
-    sort_transparent_candidates, transparent_draw_args, transparent_draw_range_args,
+    TransparentGroupInput, TransparentGroupOrder, TransparentLiquidPhaseGroup,
+    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
+    ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
+    spawn_transparent_sort, transparent_draw_args, transparent_draw_range_args,
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
     transparent_ref_offset, transparent_snapshot_addresses_are_resident,
 };
