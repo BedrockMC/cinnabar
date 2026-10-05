@@ -1,7 +1,7 @@
 #import cinnabar::lighting::{lit_colour, light_colour}
 
 // Near-camera first-person rig pass. It reuses the actor rig's packed storage layout
-// (ActorGpuInstance as 20 words, ActorRigVertex as 11 words, bones as 3x vec4 rows) so the
+// (Rust-strided instances and vertices, bones as 3x vec4 rows) so the
 // same CPU buffers feed both paths; only the view is hand-local and the fragment is lit.
 
 struct HandView {
@@ -100,7 +100,7 @@ fn hand_vertex(
         return out;
     }
 
-    let vertex_base = (span.first_vertex + vertex_index) * 11u;
+    let vertex_base = (span.first_vertex + vertex_index) * ACTOR_RIG_VERTEX_WORDS;
     let local = vec3(
         bitcast<f32>(vertex_words[vertex_base]),
         bitcast<f32>(vertex_words[vertex_base + 1u]),
