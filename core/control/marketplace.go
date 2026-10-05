@@ -123,6 +123,10 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		case errors.Is(err, store.ErrUnknownPage):
 			return reply.fail(codeStoreNotFound, "Unknown page")
 		}
+		// Thumbnail misses are per image and bounded by the client; everything else names why the store failed.
+		if method != methodStoreImage {
+			server.logServiceFailure(method, err)
+		}
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
 	switch method {
