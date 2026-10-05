@@ -28,6 +28,10 @@ const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 #[cfg(feature = "local-mods")]
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 #[cfg(feature = "local-mods")]
+const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
+#[cfg(feature = "local-mods")]
+const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
@@ -83,6 +87,8 @@ fn configure(app: &mut App, path: Option<&Path>) {
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
+        render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
+        render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
     };
     configure_with_grants(app, path, grants);
 }
@@ -127,6 +133,8 @@ fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) 
 
 #[cfg(feature = "local-mods")]
 fn configure_systems(app: &mut App, watching: bool) {
+    app.add_plugins(::render::ModRenderPlugin)
+        .add_systems(Update, render::grant_depth_sampling);
     if watching {
         app.add_systems(
             Update,
@@ -172,6 +180,7 @@ fn drive_mod(
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
     watcher: Option<Res<registration::Watcher>>,
+    render_scene: Option<ResMut<::render::ModRenderScene>>,
 ) {
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
@@ -213,6 +222,7 @@ fn drive_mod(
         }
         eprintln!("Cinnabar extension callback failed: {error:#}");
     }
+    render::publish(render_scene, &extension.host);
     if let Some(error) = extension.host.take_settings_error() {
         eprintln!("Cinnabar extension preferences could not be saved: {error}");
     }
@@ -336,3 +346,5 @@ mod gameplay;
 mod input;
 #[cfg(feature = "local-mods")]
 pub(crate) mod interaction;
+#[cfg(feature = "local-mods")]
+mod render;

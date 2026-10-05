@@ -14,6 +14,8 @@ const MAX_IMPORT_WRITES: u32 = 8;
 mod controls;
 #[path = "gameplay.rs"]
 mod gameplay;
+#[path = "render.rs"]
+mod render;
 
 struct State {
     limits: StoreLimits,
@@ -31,6 +33,7 @@ struct State {
     pending_camera: Option<CameraDelta>,
     camera_delta: Option<CameraDelta>,
     controls: controls::ControlState,
+    render: render::RenderState,
 }
 
 impl cinnabar::extension::hud::Host for State {
@@ -121,6 +124,7 @@ impl Instance {
             pending_camera: None,
             camera_delta: None,
             controls: controls::ControlState::new(settings),
+            render: render::RenderState::new(),
         };
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
@@ -147,6 +151,7 @@ impl Instance {
         state.pending_camera = None;
         state.camera_delta = None;
         state.controls.begin_frame();
+        state.render.begin_frame();
         if !self.active {
             return Ok(());
         }
@@ -171,6 +176,7 @@ impl Instance {
             self.store.data_mut().pending_camera = None;
             self.store.data_mut().camera_delta = None;
             self.store.data_mut().controls.revoke();
+            self.store.data_mut().render.revoke();
             bail!("mod quarantined after a guest trap: {error:#}");
         }
         commit(&mut self.store);
@@ -217,6 +223,11 @@ impl Instance {
         self.store.data_mut().controls.dirty_settings = None;
     }
 
+    pub(super) fn render(&self) -> (&mod_render::RenderOutput, u64) {
+        let render = &self.store.data().render;
+        (render.output(), render.generation())
+    }
+
     pub(super) fn settings(&self) -> &str {
         self.store.data().controls.settings()
     }
@@ -226,6 +237,7 @@ impl Instance {
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.controls.commit();
+    state.render.commit();
     state.camera_delta = state.pending_camera.take();
     if let Some(ticks) = state.pending_time.take() {
         state.time_override = ticks;

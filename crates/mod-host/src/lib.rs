@@ -13,6 +13,8 @@ mod settings;
 #[cfg(feature = "execution")]
 pub use mod_api::{MAX_CAMERA_DELTA_RADIANS, MAX_CONTROL_KEYS, MAX_GAMEPLAY_PLAYERS};
 #[cfg(feature = "execution")]
+pub use mod_render;
+#[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
     Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
@@ -74,6 +76,10 @@ pub struct ModGrants {
     pub interaction: bool,
     /// Allows the selected component's bounded companion settings file.
     pub settings: bool,
+    /// Allows sandboxed post passes and bounded world primitives.
+    pub render: bool,
+    /// Lets render passes read scene depth.
+    pub render_depth: bool,
 }
 
 /// A developer-selected component with transactional reload and trap quarantine.
@@ -152,6 +158,11 @@ impl ModHost {
     /// Consumes the last successful frame's rotation once, without entering the guest.
     pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         self.instance.take_camera_delta()
+    }
+
+    /// Committed render output and a process-unique generation that changes with it.
+    pub fn render(&self) -> (&mod_render::RenderOutput, u64) {
+        self.instance.render()
     }
 
     /// Returns only the last successfully committed plain-text label.

@@ -88,6 +88,24 @@ fn candidate(directory: &Scratch, enabled: bool, text: &str) -> Box<Candidate> {
     Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap())
 }
 
+fn rendered_output() -> mod_host::mod_render::RenderOutput {
+    use mod_host::mod_render::{Billboard, BillboardPattern, Primitives, RenderOutput};
+    RenderOutput {
+        passes: Vec::new(),
+        primitives: Arc::new(Primitives {
+            billboards: vec![Billboard {
+                position: [0.0; 3],
+                width: 1.0,
+                height: 1.0,
+                color: [1.0; 4],
+                pattern: BillboardPattern::Spark,
+                upright: false,
+            }],
+            ..Default::default()
+        }),
+    }
+}
+
 fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
     let (_, updates) = bounded(1);
     let (messages, receive_messages) = bounded(8);
@@ -330,6 +348,9 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_mod_panel_open(true);
+        let mut scene = render::ModRenderScene::default();
+        scene.apply(&rendered_output(), 7);
+        world.insert_resource(scene);
         install(
             &mut world,
             Update {
@@ -338,6 +359,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
                 result,
             },
         );
+        assert_eq!(world.resource::<render::ModRenderScene>().vertex_count(), 0);
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());
         assert!(!world.contains_resource::<VisualTimeOverride>());
