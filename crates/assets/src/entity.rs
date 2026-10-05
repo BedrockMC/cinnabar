@@ -12,7 +12,9 @@ mod source_paths;
 mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
-pub use source_paths::{BED_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH};
+pub use source_paths::{
+    BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH,
+};
 use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
 
