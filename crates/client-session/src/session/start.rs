@@ -48,6 +48,7 @@ pub fn spawn_network<P: Send + 'static>(
                         &config.display_name,
                         config.client_blob_cache.clone(),
                         Some(config.player_skin),
+                        config.resource_pack_store,
                     ),
                     &mut shutdown_rx,
                 )

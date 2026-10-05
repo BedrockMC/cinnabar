@@ -198,6 +198,7 @@ pub struct LocalViewPose {
     eye_translation: Vec3,
     feet_translation: Vec3,
     rotation: Quat,
+    freelook_rotation: Option<Quat>,
 }
 
 impl Default for LocalViewPose {
@@ -206,6 +207,7 @@ impl Default for LocalViewPose {
             eye_translation: Vec3::new(0.0, 80.0, 0.0),
             feet_translation: Vec3::new(0.0, 80.0 - protocol::PLAYER_NETWORK_OFFSET, 0.0),
             rotation: Quat::IDENTITY,
+            freelook_rotation: None,
         }
     }
 }
@@ -232,6 +234,30 @@ impl LocalViewPose {
     #[must_use]
     pub const fn rotation(self) -> Quat {
         self.rotation
+    }
+
+    /// Presentation can orbit independently while gameplay retains its facing.
+    pub fn camera_rotation(self) -> Quat {
+        self.freelook_rotation.unwrap_or(self.rotation)
+    }
+
+    pub fn set_freelook(&mut self, held: bool) {
+        if held {
+            self.freelook_rotation.get_or_insert(self.rotation);
+        } else {
+            self.freelook_rotation = None;
+        }
+    }
+
+    pub fn set_look_rotation(&mut self, rotation: Quat) {
+        let norm = rotation.length_squared();
+        if rotation.is_finite() && norm.is_finite() && norm > f32::EPSILON {
+            if let Some(camera) = self.freelook_rotation.as_mut() {
+                *camera = rotation.normalize();
+            } else {
+                self.set_rotation(rotation);
+            }
+        }
     }
 
     pub fn set_eye_translation(&mut self, translation: Vec3) {
@@ -571,6 +597,7 @@ pub fn reset_local_player_session(
     avatar: &mut LocalAvatarPresentation,
 ) {
     settings.reset_perspective();
+    view.set_freelook(false);
     let eye = Vec3::from_array(eye_position);
     view.set_subject_position(eye, eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET);
     avatar.begin_session(session_generation, runtime_id);
@@ -615,19 +642,23 @@ pub fn resolve_camera_pose(
         match settings.rig() {
             Some(rig) => collision_safe_rig_pose(
                 view.eye_translation(),
-                view.rotation(),
+                view.camera_rotation(),
                 rig,
                 &collision_world,
             ),
             None => collision_safe_perspective_pose(
                 view.eye_translation(),
-                view.rotation(),
+                view.camera_rotation(),
                 perspective,
                 &collision_world,
             ),
         }
     } else {
-        unavailable_world_perspective_pose(view.eye_translation(), view.rotation(), perspective)
+        unavailable_world_perspective_pose(
+            view.eye_translation(),
+            view.camera_rotation(),
+            perspective,
+        )
     };
     *camera_transform.1 = transform;
     *published = CameraPose::new(transform);

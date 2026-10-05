@@ -82,6 +82,8 @@ pub struct ModGrants {
     pub entities: bool,
     /// Command names this instance may request; empty denies command requests.
     pub commands: Vec<String>,
+    /// Allows bounded post-login packet delay through the private core endpoint.
+    pub packet_delay: bool,
 }
 
 /// A developer-selected component with transactional reload and trap quarantine.
@@ -186,6 +188,11 @@ impl ModHost {
     }
     pub fn take_interaction(&mut self) -> InteractionOutput {
         self.instance.take_interaction()
+    }
+
+    /// Retained request from a successful callback, independent of UI focus.
+    pub fn packet_delay_ms(&self) -> u32 {
+        self.instance.packet_delay_ms()
     }
 
     /// Consumes the last successful frame's rotation once, without entering the guest.
