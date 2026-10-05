@@ -6,8 +6,9 @@ use anyhow::{Result, bail, ensure};
 use mod_api::{
     MAX_CAMERA_DELTA_RADIANS, MAX_COMMAND_BYTES, MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_SECOND,
     MAX_CUE_NAME_BYTES, MAX_CUE_VALUES, MAX_CUES_PER_FRAME, MAX_GAMEPLAY_MOBS,
-    MAX_GAMEPLAY_PLAYERS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES, MAX_RIG_BACK_BLOCKS,
-    MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS, MAX_RIG_VERTICAL_BLOCKS,
+    MAX_GAMEPLAY_PLAYERS, MAX_INCOMING_CUES, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
+    MAX_RIG_BACK_BLOCKS, MAX_RIG_FOV_DELTA_DEGREES, MAX_RIG_ROLL_RADIANS, MAX_RIG_SIDE_BLOCKS,
+    MAX_RIG_VERTICAL_BLOCKS,
 };
 
 /// Mob input, the retained rig, and per-frame command and cue output.
@@ -17,6 +18,9 @@ pub(super) struct WorldState {
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
+    /// Delivered before a callback and dropped after it.
+    pub incoming: Vec<ModCue>,
+    polls: u32,
     pending_rig: Option<Option<GameplayCameraRig>>,
     pending_commands: Vec<String>,
     pending_cues: Vec<ModCue>,
@@ -27,6 +31,7 @@ pub(super) struct WorldState {
 impl WorldState {
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
+        self.polls = 0;
         self.mobs.clear();
         self.commands.clear();
         self.cues.clear();
@@ -126,10 +131,7 @@ impl cinnabar::extension::events::Host for State {
         if self.world.pending_cues.len() >= MAX_CUES_PER_FRAME {
             bail!("cue budget exhausted");
         }
-        if !cue_name_valid(&name)
-            || values.len() > MAX_CUE_VALUES
-            || !values.iter().all(|value| value.is_finite())
-        {
+        if !cue_valid(&name, &values) {
             return Ok(Err(
                 "cue must be a short name with a few finite values".into()
             ));
@@ -137,6 +139,26 @@ impl cinnabar::extension::events::Host for State {
         self.world.pending_cues.push(ModCue { name, values });
         Ok(Ok(()))
     }
+
+    fn poll(&mut self) -> Result<Vec<ModCue>> {
+        self.world.polls += 1;
+        if self.world.polls > MAX_IMPORT_WRITES {
+            bail!("cue poll budget exhausted");
+        }
+        Ok(self.world.incoming.clone())
+    }
+}
+
+fn cue_valid(name: &str, values: &[f32]) -> bool {
+    cue_name_valid(name) && values.len() <= MAX_CUE_VALUES && values.iter().all(|v| v.is_finite())
+}
+
+/// Keeps only cues a guest could have emitted, up to the per-callback bound.
+pub(super) fn incoming(cues: Vec<ModCue>) -> Vec<ModCue> {
+    cues.into_iter()
+        .filter(|cue| cue_valid(&cue.name, &cue.values))
+        .take(MAX_INCOMING_CUES)
+        .collect()
 }
 
 /// Rejects malformed host frames before granting a guest any access to them.

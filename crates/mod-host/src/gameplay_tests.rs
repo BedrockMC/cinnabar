@@ -254,3 +254,33 @@ fn commands_are_rate_limited_per_second_of_frame_time() {
             .is_ok()
     );
 }
+
+fn cue(name: &str) -> ModCue {
+    ModCue {
+        name: name.into(),
+        values: vec![1.0],
+    }
+}
+
+#[test]
+fn delivered_cues_are_filtered_bounded_and_polled_within_budget() {
+    let mut delivered = vec![cue("Bad Name"), cue("ability.flash")];
+    delivered.extend(std::iter::repeat_n(cue("x"), MAX_INCOMING_CUES + 4));
+    let kept = incoming(delivered);
+    assert_eq!(kept.len(), MAX_INCOMING_CUES);
+    assert_eq!(kept[0], cue("ability.flash"));
+    assert!(
+        incoming(vec![ModCue {
+            name: "a".into(),
+            values: vec![f32::NAN]
+        }])
+        .is_empty()
+    );
+
+    let mut state = state(ModGrants::default());
+    state.world.incoming = vec![cue("ability.flash")];
+    for _ in 0..MAX_IMPORT_WRITES {
+        assert_eq!(state.poll().unwrap(), [cue("ability.flash")]);
+    }
+    assert!(state.poll().is_err(), "poll budget traps");
+}

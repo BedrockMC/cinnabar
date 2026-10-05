@@ -225,6 +225,9 @@ fn drive_mod(
     });
     let snapshot = gameplay.snapshot(captured && !absorbed, &extension.grants);
     let mobs = gameplay.mobs(snapshot.as_ref(), &extension.grants);
+    if let Some(feed) = outputs.2.as_ref() {
+        extension.host.deliver_cues(feed.0.clone());
+    }
     let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
     controls.gameplay = snapshot.is_some();
     if extension.host.is_active()

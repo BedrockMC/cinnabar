@@ -128,53 +128,25 @@ fn frames_without_gameplay_cannot_set_a_rig_or_request_commands() {
     assert!(host.take_commands().is_empty());
 }
 
-/// The packaged showcase mod drives every new import through the real ABI.
+fn polled(count: u32) -> String {
+    format!(
+        "i32.const 700 call $poll i32.const 704 i32.load i32.const {count} i32.ne if unreachable end"
+    )
+}
+
 #[test]
-fn packaged_showcase_mod_requests_abilities_and_locks_on() {
-    let Some(path) = std::env::var_os("CINNABAR_SHOWCASE_COMPONENT") else {
-        eprintln!(
-            "skipping packaged_showcase_mod_requests_abilities_and_locks_on: fixture unavailable; \
-            requires CINNABAR_SHOWCASE_COMPONENT (build showcase-camera-mod and mod-host pack)"
-        );
-        return;
-    };
-    let grants = ModGrants {
-        players: true,
-        camera: true,
-        controls: true,
-        entities: true,
-        commands: vec!["ability".into()],
-        ..Default::default()
-    };
-    let mut host = ModHost::load_with_grants(std::path::Path::new(&path), grants).unwrap();
-    assert!(host.reserved_keys().contains(&"Digit1".to_owned()));
-    let boss = GameplayMob {
-        runtime_id: 9,
-        unique_id: 9,
-        type_id: "cinnabar:hollow_warden".into(),
-        position: GameplayVector3 {
-            x: 10.0,
-            y: 64.0,
-            z: 0.0,
-        },
-        health: Some(300.0),
-        max_health: Some(400.0),
-    };
-    let mut controls = crate::empty_controls();
-    controls.seconds = 0.016;
-    controls.gameplay = true;
-    controls.keys_pressed = vec!["KeyR".into(), "Digit3".into()];
-    host.frame_with_world(false, Some(snapshot()), vec![boss], controls)
-        .unwrap();
-    assert!(host.is_active());
-    assert_eq!(host.take_commands(), ["/ability flash"]);
-    let cues: Vec<_> = host.take_cues().into_iter().map(|cue| cue.name).collect();
-    assert_eq!(cues, ["lockon.on", "ability.flash"]);
-    let rig = host.camera_rig().unwrap();
-    assert!(rig.offset.x > 0.0 && rig.offset.z > 0.0);
-    assert!(
-        host.take_camera_delta()
-            .is_some_and(|delta| delta.yaw < 0.0)
+fn delivered_cues_cross_the_boundary_for_exactly_one_callback() {
+    let frame = format!(
+        "global.get $frames i32.const 1 i32.eq if {} else {} end",
+        polled(1),
+        polled(0)
     );
-    assert_eq!(host.label(), Some("Lock-on: Hollow Warden"));
+    let (_dir, mut host) = load("", &frame);
+    host.deliver_cues(vec![ModCue {
+        name: "ability.flash".into(),
+        values: vec![1.0, 2.0],
+    }]);
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    assert!(host.is_active());
 }

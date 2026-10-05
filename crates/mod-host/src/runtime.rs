@@ -195,6 +195,7 @@ impl Instance {
         commit(&mut self.store);
         self.store.data_mut().snapshot = None;
         self.store.data_mut().world.mobs = Vec::new();
+        self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
         Ok(())
     }
@@ -205,6 +206,11 @@ impl Instance {
 
     pub(super) fn take_commands(&mut self) -> Vec<String> {
         std::mem::take(&mut self.store.data_mut().world.commands)
+    }
+
+    /// Cues the next callback may poll; they last exactly one callback.
+    pub(super) fn deliver_cues(&mut self, cues: Vec<ModCue>) {
+        self.store.data_mut().world.incoming = gameplay::incoming(cues);
     }
 
     pub(super) fn take_cues(&mut self) -> Vec<ModCue> {
