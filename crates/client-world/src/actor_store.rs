@@ -624,6 +624,10 @@ pub(crate) struct ActorStore {
     /// Key of the synthetic local-player profile, present only while the player list carries no
     /// self entry; cleared when a real echo takes over or the actor set is reset.
     synthetic_local_uuid: Option<[u8; 16]>,
+    /// Last client-fed appearance, separate from server replacements of its profile.
+    synthetic_local_skin: Option<[u8; 32]>,
+    /// A client skin that could not fit the profile budget is retried on later feeds.
+    synthetic_local_skin_pending: bool,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
     synthetic_local_revision: u64,
     /// Whether the local player's own rig should render first-person; set by each pose feed.

@@ -656,16 +656,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let primary_window = Window {
+        title: launcher::PRODUCT_NAME.to_owned(),
+        present_mode,
+        ..default()
+    };
+    #[cfg(feature = "developer-control")]
+    let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: launcher::PRODUCT_NAME.to_owned(),
-                    present_mode,
-                    ..default()
-                }),
+                primary_window: Some(primary_window),
                 ..default()
             })
             .set(render_plugin())
@@ -887,6 +890,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     crate::modding::configure_from_environment(&mut app);
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 

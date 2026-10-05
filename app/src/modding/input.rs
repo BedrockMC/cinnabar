@@ -24,6 +24,9 @@ pub(super) struct PhysicalControls {
 }
 
 #[cfg(test)]
+mod focus_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -240,7 +243,7 @@ pub(super) fn prepare_mod_input(
             let name = format!("{:?}", event.key_code);
             let down = event.state == ButtonState::Pressed;
             transitions.push((name.clone(), down));
-            if down {
+            if down && window.focused {
                 panel_keys.push((
                     name,
                     event
@@ -283,7 +286,10 @@ pub(super) fn prepare_mod_input(
         && panel_keys.iter().any(|(key, _, repeat)| {
             !repeat && (key == "F10" || presentation.mod_panel_toggle_key() == Some(key.as_str()))
         });
-    if !window.focused || absorbed || interrupt {
+    if !window.focused {
+        presentation.cancel_mod_panel_pointer_input();
+    }
+    if absorbed || interrupt {
         presentation.cancel_mod_panel_edit();
     }
     let mut pressed = Vec::new();
@@ -312,7 +318,7 @@ pub(super) fn prepare_mod_input(
             .host
             .panel()
             .is_some_and(|panel| panel.capture_key);
-    if !window.focused || absorbed || !extension.host.is_active() || close_requested {
+    if !extension.host.is_active() || (window.focused && (absorbed || close_requested)) {
         open = false;
     } else if extension
         .host

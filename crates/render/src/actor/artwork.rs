@@ -1,7 +1,7 @@
 //! Immutable startup artwork pages. Pixel decoding and hashing never run per frame.
 use assets::RuntimeActorCatalog;
 use bevy::prelude::Resource;
-use render_model::{EntityRigId, MAX_RENDERED_PLAYERS, STANDARD_SKIN_BYTES};
+use render_model::EntityRigId;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -64,8 +64,8 @@ fn concatenate_layers<'a>(layers: impl Iterator<Item = &'a [u8]> + Clone) -> Vec
     pixels
 }
 
-fn player_page_bytes() -> usize {
-    MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES
+const fn player_page_bytes() -> usize {
+    super::PLAYER_SKIN_BUDGET_BYTES
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -539,6 +539,7 @@ impl ActorArtworkPages {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::MAX_RENDERED_PLAYERS;
 
     /// Route-only changes can retain the pixel identity but must invalidate prepared artwork.
     #[test]
