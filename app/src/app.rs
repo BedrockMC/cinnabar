@@ -412,6 +412,7 @@ fn bind_direct_session_directory(
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
     crate::lifecycle::children::install_exit_hooks();
@@ -742,6 +743,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 ..default()
             })
             .set(render_plugin())
+            .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
             // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
             // graph requires post-process nodes that are intentionally absent
             // from this compact custom renderer.
