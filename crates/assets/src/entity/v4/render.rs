@@ -25,6 +25,80 @@ pub enum EntityRenderMaterial {
     DissolveColor,
 }
 
+/// Independent raster states of an authored entity material.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityRenderMaterialState {
+    pub alpha_test: bool,
+    pub cull: bool,
+    pub blend: bool,
+    pub depth_write: bool,
+}
+
+impl Default for EntityRenderMaterialState {
+    fn default() -> Self {
+        Self {
+            alpha_test: false,
+            cull: true,
+            blend: false,
+            depth_write: true,
+        }
+    }
+}
+
+impl EntityRenderMaterialState {
+    pub const KIND_MASK: u32 = 0xff;
+    pub const AUTHORED: u32 = 1 << 8;
+    pub const ALPHA_TEST: u32 = 1 << 9;
+    pub const CULL: u32 = 1 << 10;
+    pub const BLEND: u32 = 1 << 11;
+    pub const DISABLE_DEPTH_WRITE: u32 = 1 << 12;
+
+    pub fn from_word(word: u32) -> Option<Self> {
+        (word & Self::AUTHORED != 0).then_some(Self {
+            alpha_test: word & Self::ALPHA_TEST != 0,
+            cull: word & Self::CULL != 0,
+            blend: word & Self::BLEND != 0,
+            depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
+        })
+    }
+}
+
+impl EntityRenderMaterial {
+    /// Packs the shader kind with optional independent authored states.
+    pub fn word(self, state: Option<EntityRenderMaterialState>) -> u32 {
+        let kind = self as u32;
+        match state {
+            None => kind,
+            Some(state) => {
+                kind | EntityRenderMaterialState::AUTHORED
+                    | if state.alpha_test {
+                        EntityRenderMaterialState::ALPHA_TEST
+                    } else {
+                        0
+                    }
+                    | if state.cull {
+                        EntityRenderMaterialState::CULL
+                    } else {
+                        0
+                    }
+                    | if state.blend {
+                        EntityRenderMaterialState::BLEND
+                    } else {
+                        0
+                    }
+                    | if state.depth_write {
+                        0
+                    } else {
+                        EntityRenderMaterialState::DISABLE_DEPTH_WRITE
+                    }
+            }
+        }
+    }
+}
+
+pub const ENTITY_ALPHA_TEST_THRESHOLD: f32 = 0.5;
+
 /// One render controller of a rig: the expressions that pick its textures, hidden parts and
 /// colours each tick. Layers of a rig are contiguous and ordered by `rig`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -32,6 +106,9 @@ pub enum EntityRenderMaterial {
 pub struct EntityRenderLayer {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub material: EntityRenderMaterial,
+    /// Absent in carriers that predate authored raster-state admission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material_state: Option<EntityRenderMaterialState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hurt_color: Option<[u32; 4]>,
     /// Index into the rig bindings.

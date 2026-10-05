@@ -737,3 +737,6 @@ mod velocity_tests;
 
 #[cfg(test)]
 mod movement_duration_tests;
+
+#[cfg(test)]
+mod scale_tests;

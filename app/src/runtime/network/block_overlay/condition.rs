@@ -1,6 +1,6 @@
 //! Per-state component resolution from permutation conditions.
 //!
-//! Only `q.block_state('name') ==/!= literal` conjunctions are evaluated, and
+//! Only block-state/property equality conjunctions are evaluated, and
 //! only when one state axis varies (sequential ids); hashed ids evaluate any
 //! combination. Anything else is counted and left at base.
 
@@ -131,10 +131,15 @@ fn evaluate_term<'a>(
         (true, left, right)
     };
     let left = left.trim();
-    let name = ["q.block_state(", "query.block_state("]
-        .into_iter()
-        .find_map(|prefix| left.strip_prefix(prefix))?
-        .strip_suffix(')')?;
+    let name = [
+        "q.block_state(",
+        "query.block_state(",
+        "q.block_property(",
+        "query.block_property(",
+    ]
+    .into_iter()
+    .find_map(|prefix| left.strip_prefix(prefix))?
+    .strip_suffix(')')?;
     let actual = state_value(unquote(name.trim())?)?;
     let right = right.trim();
     let equal = match actual {

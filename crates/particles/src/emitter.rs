@@ -14,6 +14,9 @@ use super::{
 
 mod manual;
 
+#[cfg(test)]
+mod lifetime_tests;
+
 /// Pixels for one dynamic terrain tile.
 #[derive(Clone, Debug)]
 pub struct TileRequest {

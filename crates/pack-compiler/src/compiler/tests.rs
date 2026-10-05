@@ -8,6 +8,8 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/lantern.rs"]
+mod lantern;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();

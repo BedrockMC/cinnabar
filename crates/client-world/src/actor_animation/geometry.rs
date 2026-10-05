@@ -184,6 +184,7 @@ pub(super) fn collect_controllers(
     output.push(ControllerState {
         controller,
         state: compiled.initial_state,
+        active: false,
         entered_tick: 0,
     });
     let states = assets.controller_states().get(

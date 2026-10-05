@@ -617,11 +617,12 @@ fn queue_actors(
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let Some(pipeline_id) =
-            params
-                .pipeline
-                .prepare_draw_variants(&params.pipeline_cache, *msaa, view.hdr)
-        else {
+        let Some(pipeline_id) = params.pipeline.prepare_draw_variants(
+            &params.pipeline_cache,
+            *msaa,
+            view.hdr,
+            params.gpu.spans.iter().map(|span| span.material),
+        ) else {
             continue;
         };
         let this_tick = next_tick.get() + 1;

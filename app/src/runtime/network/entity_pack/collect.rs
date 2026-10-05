@@ -154,6 +154,9 @@ pub(super) fn collect_files(
         }
     }
     files.extend(entities);
+    if let Some(materials) = material_definitions(view) {
+        files.push(("materials/_pack.material".into(), materials));
+    }
     for path in view.list("attachables/") {
         if path.ends_with(".json")
             && let Some(bytes) = view.read(path)
@@ -178,6 +181,43 @@ pub(super) fn collect_files(
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
+}
+
+/// Material identity is the child name; its parent remains part of the winning declaration.
+fn material_definitions(view: &LayeredPackView) -> Option<Vec<u8>> {
+    let mut definitions = BTreeMap::new();
+    for layer in view.layers() {
+        for path in layer
+            .files_under("materials/")
+            .into_iter()
+            .filter(|path| path.ends_with(".material"))
+        {
+            let Ok(Some(bytes)) = layer.read_file(path) else {
+                continue;
+            };
+            let Some(root) = parse_pack_json(&bytes) else {
+                continue;
+            };
+            let Some(materials) = root.get("materials").and_then(Value::as_object) else {
+                continue;
+            };
+            for (declaration, definition) in materials {
+                if !definition.is_object() {
+                    continue;
+                }
+                let child = declaration.split(':').next()?.trim_start_matches('+');
+                if !child.is_empty() {
+                    definitions.insert(child.to_owned(), (declaration.clone(), definition.clone()));
+                }
+            }
+        }
+    }
+    if definitions.is_empty() {
+        return None;
+    }
+    let mut materials = definitions.into_values().collect::<Map<_, _>>();
+    materials.insert("version".into(), Value::from("1.0.0"));
+    serde_json::to_vec(&serde_json::json!({"materials": materials})).ok()
 }
 
 /// Named definitions of `prefix` files, lowest layer first so a higher one replaces a name.
@@ -323,3 +363,6 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests;

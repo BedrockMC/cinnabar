@@ -172,6 +172,11 @@ impl ActorStore {
     pub(crate) fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.animation.snapshots()
     }
+    pub(crate) fn actor_particle_controllers(
+        &self,
+    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+        self.animation.particle_controllers()
+    }
     pub(crate) const fn animation_stats(&self) -> ActorAnimationStats {
         self.animation.stats()
     }

@@ -39,6 +39,7 @@ outside git.
 | Persistent palettes identify blocks by name and typed states. | Decode network NBT, qualify vanilla short names and resolve the canonical identity in the active registry. Unknown entries use air. |
 | Persistent custom identities are independent of the session's wire ID mode. | Keep the custom hash lookup in sequential overlays too; incomplete identities skip only their own slots. |
 | Advertised block identity is available before resource artwork. | Install canonical identities in the session world registry before terrain decoding and retain them in immutable worker snapshots. |
+| Legacy cube textures come from `blocks.json` when explicit visual components are absent. | Apply scalar, three-face or six-face bindings in stack order before caching the effective visual. |
 | A custom block without a collision component retains a full-block shape; disabled collision is empty. | Resolve the advertised block before applying its existing collision policy. |
 | Named builtin definitions override their dimension's default bounds. | Retain the definition name; the overworld key selects dimension 0 independently of the definition's numeric type. |
 | Definitions retain their first registration; instantiated dimensions retain their height. | Admit definitions before later decode snapshots and freeze a dimension's effective range when terrain first uses it. |
@@ -58,6 +59,9 @@ queue backpressure and production app wiring.
 Custom identity regressions cover named states, missing visual resources,
 incomplete definitions beside valid neighbors, admitted ranges, offset overflow,
 asset precedence and snapshots retained across registry replacement.
+Visual regressions cover legacy face bindings, per-block cache identity, valid
+lower bindings beneath malformed overrides, geometry-specialized animation
+instances, large artwork page sets and immutable geometry aliases.
 
 The live checks used macOS Metal on Apple M3 Pro, a 1280×752 logical window at
 2× display scale, vanilla render mode and a debug build. Hive hub walking,
@@ -66,7 +70,7 @@ destination and supported movement after the acknowledgement fix, but later
 disconnected. A subsequent movement-only run ended with an "Unfair Advantage"
 ban showing expiry `6d 23h`. Live connections stopped. That opaque server verdict
 does not establish its cause; final live acceptance after the custom identity
-correction remains blocked.
+correction was blocked until the user reported the account unbanned.
 
 The final offline run used build `8d32996a`, eight captured terrain columns, one
 synthetic air neighbor and a local teleport anchor. All 1,581 advertised custom
@@ -90,4 +94,43 @@ the server acknowledgement and loaded-area gates. Input ticks continue while
 prediction is held; LoadingEnd now waits for the JSON-UI loading presentation and
 a fresh destination frame. Three reproduced regressions cover named overworld
 probe heights, raised custom air columns and synced-block range freezing.
-Renewed live acceptance is in progress.
+The renewed hub join admitted all 24 packs and registered all 1,581 custom states,
+but live frames showed diagnostic custom terrain and missing custom actors. Many
+blocks use legacy `blocks.json` texture bindings that the visual compiler omitted;
+one cached diagnostic visual concealed hundreds of missing bindings. The entity
+bundle separately failed the compiled animation-table bound. After correcting
+that bound, the captured stack compiled 1,014 artwork bindings and 1,777 textures
+without dropping source files. Publication initially rejected 636 bindings at the
+artwork page ceiling and rejected the combined vanilla/server vertex catalog.
+CPU artwork page identifiers now retain all 551 pages with zero rejected bindings.
+Exact immutable vertex payloads share storage while keeping their independent rig
+metadata and routes; the combined catalog publishes 548,922 vertices within its
+existing bound. The captured-stack publication regression passes, all 25
+block-overlay checks pass with the encrypted fixture, and all 585 renderer checks
+pass. These offline checks retain original artwork and geometry.
+
+The following live Metal run restored custom floors and NPC models. User frames
+still exposed opaque title backs, black hologram panels, floating sheep, dark
+flowers, incomplete climbing vines and lamps, and diagnostic hay. The hub stayed
+connected for about 23 minutes before an opaque server Disconnect message ended
+the session. Its cause is unresolved. Subsequent client startup found the core
+endpoint absent; no new successful join is claimed from that attempt.
+
+Offline inspection reproduced a 32-face truncation on the 33-face climbing vine
+and 40-face large lamp, omitted legacy light filters and authored material states,
+rejected 41-choice geometry selectors, and stale absolute registry-ID checks for
+hay. Focused regressions now pass for those fixes, all 41 captured hologram
+variants, authored GPU material states and targeted-entity F3 diagnostics.
+Lantern bodies, caps and crossed handles replace the collision-box fallback;
+their sprite sampling survives carrier publication. Geometry measurements use a
+near-version witness and remain fallback support pending exact-version evidence.
+NPC controller particle bindings and alpha-first hex tint decoding also pass
+their owner and app route regressions. The following inspection build joined Hive
+with no missing textures, missing geometry, truncated models or unevaluated
+permutations in its block overlay. User frames show readable game titles, restored
+plants and visible NPC particles, while title backgrounds remain too pale.
+The user identified the floating-text hosts as sheep with server scale zero;
+the client incorrectly replaces that scale with one. Its correction is pending.
+This inspection session ended after about nine minutes with another opaque
+server kick and zero decode errors. Reconnection is not session acceptance.
+Full visual acceptance and the unresolved disconnect remain open in `plan.md`.

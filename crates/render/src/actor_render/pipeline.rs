@@ -30,8 +30,14 @@ impl ActorPipeline {
         cache: &PipelineCache,
         msaa: Msaa,
         hdr: bool,
+        materials: impl Iterator<Item = u32>,
     ) -> Option<bevy::render::render_resource::CachedRenderPipelineId> {
-        for material in 0..=assets::EntityRenderMaterial::DissolveColor as u32 {
+        for material in
+            std::iter::once(assets::EntityRenderMaterial::Default as u32).chain(materials)
+        {
+            if self.draw_variants.contains_key(&(msaa, hdr, material)) {
+                continue;
+            }
             let id = self
                 .variants
                 .specialize(
@@ -202,12 +208,37 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
-        if key.material == assets::EntityRenderMaterial::DissolveDepth as u32 {
+        if let Some(state) = crate::actor::material::state(key.material) {
+            descriptor.primitive.cull_mode = state
+                .cull
+                .then_some(bevy::render::render_resource::Face::Back);
+            descriptor
+                .depth_stencil
+                .as_mut()
+                .unwrap()
+                .depth_write_enabled = state.depth_write;
+            if state.blend {
+                let alpha = bevy::render::render_resource::BlendComponent {
+                    src_factor: bevy::render::render_resource::BlendFactor::SrcAlpha,
+                    dst_factor: bevy::render::render_resource::BlendFactor::OneMinusSrcAlpha,
+                    operation: bevy::render::render_resource::BlendOperation::Add,
+                };
+                descriptor.fragment.as_mut().unwrap().targets[0]
+                    .as_mut()
+                    .unwrap()
+                    .blend = Some(bevy::render::render_resource::BlendState {
+                    color: alpha,
+                    alpha,
+                });
+            }
+        }
+        let kind = key.material & assets::EntityRenderMaterialState::KIND_MASK;
+        if kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
                 .write_mask = ColorWrites::empty();
-        } else if key.material == assets::EntityRenderMaterial::DissolveColor as u32 {
+        } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = CompareFunction::Equal;
         }
         descriptor.fragment.as_mut().unwrap().targets[0]

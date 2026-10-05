@@ -173,13 +173,16 @@ fn actor_vertex(
 
 @fragment
 fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let material = input.material & ACTOR_MATERIAL_KIND_MASK;
+    let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
     if (input.valid == 0u) {
         discard;
     }
     if (!front && input.back_uv.x < -1.0e8) {
         discard;
     }
-    let one_sided_material = input.material == ACTOR_MATERIAL_DRAGON || input.material == ACTOR_MATERIAL_DISSOLVE_DEPTH || input.material == ACTOR_MATERIAL_DISSOLVE_COLOR;
+    if (!front && authored && (input.material & ACTOR_MATERIAL_CULL_FLAG) != 0u) { discard; }
+    let one_sided_material = material == ACTOR_MATERIAL_DRAGON || material == ACTOR_MATERIAL_DISSOLVE_DEPTH || material == ACTOR_MATERIAL_DISSOLVE_COLOR;
     if (!front && one_sided_material && input.surface == 0u) {
         discard;
     }
@@ -191,15 +194,16 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
     // decode before dye/overlay products, then transfer once at the output.
     var color = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.skin_layer)));
-    if (input.material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
-        if (color.a * input.dissolve_multiplier < 0.5) { discard; }
+    if (material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
+        if (color.a * input.dissolve_multiplier < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
         return vec4(0.0);
     }
-    if (input.material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < 0.5) { discard; }
-    if (input.material == ACTOR_MATERIAL_DRAGON && all(color == vec4(0.0))) { discard; }
+    if (material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+    if (material == ACTOR_MATERIAL_DRAGON && all(color == vec4(0.0))) { discard; }
     let color_mask_material = material_class.y != 0u;
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
-    if (!color_mask_material && !multitexture_material && input.material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
+    if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+    if (!authored && !color_mask_material && !multitexture_material && material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
     }
     if (input.tint != 0u) {
@@ -222,9 +226,9 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
-    let overlay = select(input.overlay, vec4(0.0), input.material == ACTOR_MATERIAL_DISSOLVE_COLOR);
+    let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
-    let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), input.material == ACTOR_MATERIAL_DRAGON);
+    let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), material == ACTOR_MATERIAL_DRAGON);
     let lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     return tint_to_linear(vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a));
 }

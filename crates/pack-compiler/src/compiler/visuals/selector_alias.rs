@@ -1,6 +1,10 @@
 use super::super::*;
 use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
 
+#[cfg(test)]
+#[path = "selector_alias/tests.rs"]
+mod tests;
+
 const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
     "minecraft:bone_block",
     "minecraft:chiseled_quartz_block",
@@ -23,7 +27,7 @@ pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryReco
         if state.len() != 1 || record.model_state.mask() != 0 {
             return None;
         }
-        return Some(13_112 + u32::from(exact_tagged_byte(state.get("explode_bit")?, 1)?));
+        return Some(u32::from(exact_tagged_byte(state.get("explode_bit")?, 1)?));
     }
 
     let has_deprecated = matches!(
@@ -45,16 +49,17 @@ pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryReco
     {
         return None;
     }
-    let (base, stride, deprecated) = match record.name.as_ref() {
-        "minecraft:hay_block" => (2_907, 4, exact_tagged_int(state.get("deprecated")?, 3)?),
-        "minecraft:bone_block" => (6_465, 4, exact_tagged_int(state.get("deprecated")?, 3)?),
-        "minecraft:quartz_block" => (5_442, 1, 0),
-        "minecraft:smooth_quartz" => (7_081, 1, 0),
-        "minecraft:chiseled_quartz_block" => (14_685, 1, 0),
-        "minecraft:purpur_block" => (15_344, 1, 0),
+    let (stride, deprecated) = match record.name.as_ref() {
+        "minecraft:hay_block" | "minecraft:bone_block" => {
+            (4, exact_tagged_int(state.get("deprecated")?, 3)?)
+        }
+        "minecraft:quartz_block"
+        | "minecraft:smooth_quartz"
+        | "minecraft:chiseled_quartz_block"
+        | "minecraft:purpur_block" => (1, 0),
         _ => return None,
     };
-    Some(base + axis_index * stride + deprecated)
+    Some(axis_index * stride + deprecated)
 }
 
 pub(in crate::compiler) fn is_selector_alias_cube_record(record: &RegistryRecord) -> bool {
@@ -72,7 +77,7 @@ pub(in crate::compiler) fn is_selector_alias_cube_record(record: &RegistryRecord
                 max_z: 100_000_000,
                 ..assets::CollisionBox::default()
             }]
-        && exact_selector_alias_cube_state(record) == Some(record.sequential_id)
+        && exact_selector_alias_cube_state(record).is_some()
 }
 
 pub(in crate::compiler) fn selector_alias_cube_inventory_is_exact(
@@ -86,9 +91,15 @@ pub(in crate::compiler) fn selector_alias_cube_inventory_is_exact(
         return false;
     }
     let mut ids = BTreeSet::new();
-    selected
-        .into_iter()
-        .all(|record| is_selector_alias_cube_record(record) && ids.insert(record.sequential_id))
+    let mut states = BTreeSet::new();
+    selected.into_iter().all(|record| {
+        is_selector_alias_cube_record(record)
+            && ids.insert(record.sequential_id)
+            && states.insert((
+                record.name.as_ref(),
+                exact_selector_alias_cube_state(record),
+            ))
+    })
 }
 
 pub(in crate::compiler) fn selector_alias_cube_material_descriptors(

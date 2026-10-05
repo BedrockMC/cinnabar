@@ -16,6 +16,8 @@ mod crystal;
 mod dragon;
 #[path = "actor/fish.rs"]
 mod fish;
+#[path = "actor/material_states.rs"]
+mod material_states;
 #[path = "actor/multitexture.rs"]
 mod multitexture;
 

@@ -19,6 +19,8 @@ use super::{
 
 const MAX_SLOTS_PER_LAYER: usize = 16;
 
+mod materials;
+
 pub(super) struct RenderSources<'a> {
     pub root: &'a Path,
     pub payloads: &'a SourcePayloads,
@@ -116,6 +118,7 @@ pub(super) fn compile_render(
         rig_geometries,
     } = input;
     let mut controllers = BTreeMap::<Box<str>, Option<Value>>::new();
+    let materials = materials::MaterialStates::load(root, payloads, sources)?;
     for source in sources
         .iter()
         .filter(|source| source.path.starts_with("render_controllers/"))
@@ -286,6 +289,8 @@ pub(super) fn compile_render(
             }
             layers.push(EntityRenderLayer {
                 material: native_material(description, definition),
+                material_state: material_target(description, definition)
+                    .and_then(|target| materials.resolve(target)),
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
@@ -319,19 +324,7 @@ fn native_material(
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
 ) -> EntityRenderMaterial {
-    let Some(alias) = controller
-        .get("materials")
-        .and_then(Value::as_array)
-        .and_then(|rules| rules.iter().rev().find_map(|rule| rule.get("*")?.as_str()))
-        .and_then(|alias| alias.strip_prefix("Material."))
-    else {
-        return EntityRenderMaterial::Default;
-    };
-    match description
-        .get("materials")
-        .and_then(|materials| materials.get(alias))
-        .and_then(Value::as_str)
-    {
+    match material_target(description, controller) {
         Some("ender_dragon") => EntityRenderMaterial::Dragon,
         Some("entity_dissolve_layer0.skinning" | "entity_dissolve_layer0") => {
             EntityRenderMaterial::DissolveDepth
@@ -341,6 +334,24 @@ fn native_material(
         }
         _ => EntityRenderMaterial::Default,
     }
+}
+
+fn material_target<'a>(
+    description: &'a Map<String, Value>,
+    controller: &Map<String, Value>,
+) -> Option<&'a str> {
+    let Some(alias) = controller
+        .get("materials")
+        .and_then(Value::as_array)
+        .and_then(|rules| rules.iter().rev().find_map(|rule| rule.get("*")?.as_str()))
+        .and_then(|alias| alias.strip_prefix("Material."))
+    else {
+        return None;
+    };
+    description
+        .get("materials")
+        .and_then(|materials| materials.get(alias))
+        .and_then(Value::as_str)
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition

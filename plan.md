@@ -1372,6 +1372,28 @@ the vanilla readiness updater's exact scheduling clock remains unverified.
 The user reports the Hive test account is unbanned; renewed live acceptance after
 integrating current dev is in progress. Loading UI and Hive gameplay parity gates
 remain open until their corresponding acceptance checks complete.
+The renewed join exposed omitted legacy block texture bindings and three actor
+catalog capacity failures. Their captured-stack and lower-owner regressions pass:
+all artwork bindings publish, and exact shared geometry fits the existing vertex
+budget. A live Metal pass restored the lobby floors and custom NPCs; title panels,
+holograms, plant lighting and lamps still failed visual inspection. Complete model
+chains, authored light filters, material states, selector capacity and active-registry
+hay admission pass their focused regressions, with a fresh client pass pending.
+General custom AO exponents, exact blend defaults, custom shader defines and
+cross-family transparent ordering remain incomplete. The latest live session ended
+with an opaque server disconnect after roughly 23 minutes; disconnect acceptance
+remains open. The inspection build received another opaque server kick after
+roughly nine minutes with zero decode errors. Targeted-entity F3 diagnostics
+pass their regressions. The user
+identified the sheep as zero-scale floating-text hosts; preserving scale zero
+and correcting the pale blended title backgrounds are in progress.
+Standing and hanging lantern body, cap and handle measurements use a near-version
+native witness. Their geometry, UVs and lighting remain fallback support pending
+exact current-version verification. NPC controller particle routing and alpha-first
+hex tint decoding pass owner and app route regressions; user frames show NPC
+particles. Their ten-minute emitter deadline remains incomplete.
+Unsupported locators and initialization scripts remain incomplete. Actor material
+pipelines still compile on first appearance; loading prewarming is incomplete.
 See `docs/evidence/hive-connection.md` for the functional checks.
 
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
