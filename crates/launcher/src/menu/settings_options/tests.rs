@@ -42,7 +42,8 @@ fn freelook_defaults_to_f_and_remaps_to_mouse_across_reload() {
     router
         .route(semantic_input::DeviceFrame {
             keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
-                activity_sequence: 1, mouse_buttons: vec![4],
+                activity_sequence: 1,
+                mouse_buttons: vec![4],
                 ..Default::default()
             }),
             ..Default::default()
