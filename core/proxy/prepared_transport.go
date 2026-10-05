@@ -61,7 +61,9 @@ func (prepared *preparedTransport) DialContext(ctx context.Context, address stri
 			return nil, prepared.err
 		}
 		if connection, ok := prepared.conn.(interface{ Context() context.Context }); ok && connection.Context().Err() != nil {
-			return nil, net.ErrClosed
+			// The upstream closes an idle connection once its login deadline passes, which slow
+			// authentication can outlast; finish closes the expired one and login takes a fresh dial.
+			return prepared.Network.DialContext(ctx, address)
 		}
 		prepared.handedOff.Store(true)
 		return prepared.conn, nil
