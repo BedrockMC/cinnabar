@@ -1,12 +1,25 @@
 use super::*;
 use std::hint::black_box;
 
-fn column_jobs(mut edit: impl FnMut(&mut WorldStream)) -> Vec<PreparedLightJob> {
-    let mut stream = lit_stream(0);
+fn column_jobs(edit: impl FnMut(&mut WorldStream)) -> Vec<PreparedLightJob> {
     let range = vanilla_dimension_range(0).unwrap();
-    let keys: Vec<_> = (0..range.sub_chunk_count)
-        .rev()
-        .map(|offset| SubChunkKey::new(0, 0, range.base_sub_chunk_y + offset as i32, 0))
+    batch_jobs(
+        (0..range.sub_chunk_count)
+            .rev()
+            .map(|offset| range.base_sub_chunk_y + offset as i32),
+        edit,
+    )
+}
+
+/// Column batch for the given section heights, highest first, as the scheduler orders it.
+fn batch_jobs(
+    heights: impl IntoIterator<Item = i32>,
+    mut edit: impl FnMut(&mut WorldStream),
+) -> Vec<PreparedLightJob> {
+    let mut stream = lit_stream(0);
+    let keys: Vec<_> = heights
+        .into_iter()
+        .map(|y| SubChunkKey::new(0, 0, y, 0))
         .collect();
     for key in &keys {
         stream.record_known_air(*key);
@@ -80,8 +93,9 @@ fn compare_full_column(jobs: Vec<PreparedLightJob>) -> usize {
         fast += usize::from(solved.used_uniform_fast_path);
         assert!(
             light_levels_equal(&solved.replacement, &full.sub_chunks()[&entry.key]),
-            "{:?}",
-            entry.key
+            "{:?} fast={}",
+            entry.key,
+            solved.used_uniform_fast_path
         );
         assert_eq!(
             solved.direct_sky.as_ref(),
@@ -346,4 +360,90 @@ fn mixed_tall_column_prefix_timing() {
         full[5],
         prefix[5]
     );
+}
+
+/// Skylight entering lower air from a side can rise into upper air, so peeling must not assume it dark.
+#[test]
+fn mixed_prefix_keeps_side_lit_air_below_dark_upper_air_dense() {
+    let side = SubChunkKey::new(0, 1, 9, 0);
+    let mut jobs = batch_jobs([10, 9, 8, 7], |stream| {
+        resident(stream, SubChunkKey::new(0, 0, 7, 0), 2);
+        install_current_light(stream, side, 0, 15, false);
+    });
+    for job in &mut jobs {
+        job.prior.trusted_boundaries.insert(side);
+    }
+    let full = full_column_oracle(&jobs);
+    assert_eq!(
+        full.sub_chunks()[&SubChunkKey::new(0, 0, 10, 0)].get(LightChannel::Sky, 15, 0, 8),
+        Some(13)
+    );
+    compare_full_column(jobs);
+}
+
+/// Random mixed batches: the prefix shortcut must match the full solver section for section.
+#[test]
+fn mixed_prefix_matches_the_full_solver_on_random_batches() {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = |bound: u64| {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state % bound
+    };
+    let range = vanilla_dimension_range(0).unwrap();
+    let highest = range.base_sub_chunk_y + range.sub_chunk_count as i32 - 1;
+    let sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for _ in 0..300 {
+        let len = 2 + next(5) as i32;
+        let top = range.base_sub_chunk_y
+            + len
+            + next((highest - range.base_sub_chunk_y - len) as u64) as i32;
+        let heights: Vec<_> = (0..len).map(|offset| top - offset).collect();
+        let kinds: Vec<_> = heights.iter().map(|_| next(8)).collect();
+        let lights: Vec<_> = heights
+            .iter()
+            .map(|_| {
+                (next(3) == 0).then(|| {
+                    (
+                        sides[next(4) as usize],
+                        next(16) as u8,
+                        [0, 15, next(16) as u8][next(3) as usize],
+                    )
+                })
+            })
+            .collect();
+        let open_sky = next(2) == 0 && top < highest;
+        let mut trusted = Vec::new();
+        let mut jobs = batch_jobs(heights.iter().copied(), |stream| {
+            for ((&y, &kind), light) in heights.iter().zip(&kinds).zip(&lights) {
+                let key = SubChunkKey::new(0, 0, y, 0);
+                match kind {
+                    0 | 1 => resident(stream, key, 2),
+                    2 => {
+                        stream
+                            .authority
+                            .update_block(key, BlockUpdate::new(8, next(16) as u8, 8, 0, 1), 0)
+                            .unwrap();
+                        stream.sync_resident(key);
+                    }
+                    _ => {}
+                }
+                if let Some(([dx, dz], block, sky)) = *light {
+                    let side = SubChunkKey::new(0, dx, y, dz);
+                    install_current_light(stream, side, block, sky, false);
+                    trusted.push(side);
+                }
+            }
+            if open_sky {
+                let above = SubChunkKey::new(0, 0, top + 1, 0);
+                install_current_light(stream, above, 0, 15, true);
+                trusted.push(above);
+            }
+        });
+        for job in &mut jobs {
+            job.prior.trusted_boundaries.extend(trusted.iter().copied());
+        }
+        compare_full_column(jobs);
+    }
 }
