@@ -89,6 +89,7 @@ impl MenuRuntime {
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers,
             saves: ServerWriter::new(config_path.clone(), loaded.allow_writes),
