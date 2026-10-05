@@ -400,8 +400,11 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
         else {
             return RenderCommandResult::Skip;
         };
-        let Some(args) = transparent_draw_range_args(snapshot.buffer_slot(), ref_range.clone())
-        else {
+        let Some(args) = transparent_draw_range_args(
+            snapshot.buffer_slot(),
+            arena.transparent_slot_refs,
+            ref_range.clone(),
+        ) else {
             return RenderCommandResult::Skip;
         };
         if args.instance_count == 0 {

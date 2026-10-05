@@ -257,7 +257,8 @@ fn install_graph(world: &mut World) {
     );
     let overlay = crate::ui_render::overlay::UiOverlayPostLabel.intern();
     if graph.get_node_state(overlay).is_ok() {
-        graph.add_node_edges((EnhancedPostLabel, overlay, Node3d::Tonemapping));
+        // The overlay graph places the HUD after post-processing; it still follows the grade.
+        graph.add_node_edge(EnhancedPostLabel, overlay);
         if hand {
             graph.add_node_edge(EnhancedHandLabel, overlay);
         }

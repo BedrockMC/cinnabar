@@ -166,9 +166,9 @@ pub use equipment::{
 pub use error::AssetError;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FontCatalogError,
-    FontCatalogIdentity, FontTexturePage, GlyphMetrics, MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE,
-    MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog,
-    encode_font_catalog,
+    FontCatalogIdentity, FontPixels, FontTexturePage, GlyphMetrics, MAX_FONT_GLYPHS,
+    MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES,
+    RuntimeFontCatalog, encode_font_catalog,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use glyph_sheet::{
