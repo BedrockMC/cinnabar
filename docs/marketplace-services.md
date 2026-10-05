@@ -16,18 +16,20 @@ needs one live capture against a sandbox account before it is relied on.
 | PlayFab entity token (`X-EntityToken`, `master_player_account`) | PlayFab Catalog calls |
 | MCToken (`Authorization`) + `Session-Id` header | every store-service call below |
 
-The store base URI is discovery `serviceEnvironments.store.prod.serviceUri`. ref. Protocol code lives in
-gophertunnel `minecraft/service/marketplace`, which keeps every request (and redirect) on that origin.
+The store base URI is discovery `serviceEnvironments.store.prod.serviceUri` (ref); inventory, balances and purchases go to
+`serviceEnvironments.entitlements.prod.serviceUri`. Opening the store needs both. Protocol code lives in gophertunnel
+`minecraft/service/marketplace`, which keeps each request (and redirect) on its service's origin. The core logs every
+failed `store_*` call except images as `launcher service failed`, redacted.
 
 ## Service calls
 
-Store-service paths are relative to the store base URI. Every answer is wrapped as `{"result": ...}`; errors are
+Paths are relative to the owning service's base URI. Every answer is wrapped as `{"result": ...}`; errors are
 `{namespace, code, message, customData}`.
 
 | Function | Call | Notes |
 | --- | --- | --- |
 | Session config | `GET /api/v1.0/session/config` with `Session-Id` | ref. `result`: `knownPages` (name -> page id), `latestTextureVersion`, `binaryUrls`, `globalNotTags`, `storeFilters`, `dressingRoomFilters`, `storeSearch`, `platformSkus`, `storeVersion`, `feedbackCharacterLimit`, `userListsVersion`, `badgePromoCountdownWindow`, `upsellQueries` |
-| Layout pages | `POST /api/v2.0/layout/pages/{id}` (`productId/{id}`, `packId/{id}` by navigation action) body `{entitlements, inventoryVersion, listVersion}` | ref. `id` is `knownPages[name]`, else the name. Headers `InventoryETag`, `X-UserLists-Version`; `result.layout[].{sectionName, rows[]}`; a row is `{telemetryId, controlId, components[], queries[]}` and carries no offers |
+| Layout pages | `POST /api/v2.0/layout/pages/{id}` (`productId/{id}`, `packId/{id}` by navigation action) body `{entitlements, inventoryVersion, listVersion}` | ref. `id` is `knownPages[name]`; a name the config lacks fails as `-32033` and the core logs the configured names. Headers `InventoryETag`, `X-UserLists-Version`; `result.layout[].{sectionName, rows[]}`; a row is `{telemetryId, controlId, components[], queries[]}` and carries no offers |
 | Row fill | PlayFab catalog search per row query | provisional: `Query.SearchFilter` maps content types, tags and product ids onto an OData filter; the vanilla search body is unconfirmed and rarity/piece/creator queries are refused |
 | Row continuation | `POST /api/v2.0/layout/items` body `{continuationToken, inventoryVersion}` | ref. `{continuationToken, result: [catalog items]}`; where rows get the token is not identified |
 | Catalog search / offer detail | PlayFab `Catalog/SearchItems`, `Catalog/GetItem` via `go-playfab` | doc |
