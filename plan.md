@@ -1,3 +1,10 @@
+## Configured inventory hotbar swaps
+
+- User-requested inventory shortcut: the configured hotbar key swaps the hovered cell directly with that hotbar slot.
+- Keyboard and mouse remaps share gameplay's saved bindings; replaced number keys no longer perform swaps.
+- Local prediction updates both cells immediately without an inventory transition animation or a server round trip.
+- Focused text fields retain input ownership. Installed Windows input acceptance is pending.
+
 ## Read-back terrain occlusion on direct-draw devices
 
 - Metal (any direct-draw device with compute) never draws indirectly. While the view holds
