@@ -57,6 +57,7 @@ struct Grants {
     settings: bool,
     render: bool,
     render_depth: bool,
+    packet_delay: bool,
 }
 
 impl From<&Grants> for ModGrants {
@@ -70,6 +71,7 @@ impl From<&Grants> for ModGrants {
             settings: grants.settings,
             render: grants.render,
             render_depth: grants.render_depth,
+            packet_delay: grants.packet_delay,
         }
     }
 }

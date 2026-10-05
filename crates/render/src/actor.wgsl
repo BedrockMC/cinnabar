@@ -23,6 +23,9 @@ struct BoneMatrix {
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
 @group(0) @binding(8) var<uniform> material_class: vec4<u32>;
+@group(0) @binding(9) var skins_64: texture_2d_array<f32>;
+@group(0) @binding(10) var skins_128: texture_2d_array<f32>;
+@group(0) @binding(11) var skins_256: texture_2d_array<f32>;
 
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
@@ -171,6 +174,18 @@ fn actor_vertex(
     return out;
 }
 
+// Player-skin layers carry their resolution class in the top byte; class 0 samples `skins`.
+// Every bound texture has one mip, so level 0 matches implicit-derivative sampling.
+fn sample_actor_texture(uv: vec2<f32>, layer: u32) -> vec4<f32> {
+    let index = i32(layer & 0xffffffu);
+    switch (layer >> 24u) {
+        case 1u: { return textureSampleLevel(skins_64, skin_sampler, uv, index, 0.0); }
+        case 2u: { return textureSampleLevel(skins_128, skin_sampler, uv, index, 0.0); }
+        case 3u: { return textureSampleLevel(skins_256, skin_sampler, uv, index, 0.0); }
+        default: { return textureSampleLevel(skins, skin_sampler, uv, index, 0.0); }
+    }
+}
+
 @fragment
 fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     if (input.valid == 0u) {
@@ -190,7 +205,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     }
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
     // decode before dye/overlay products, then transfer once at the output.
-    var color = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.skin_layer)));
+    var color = tint_to_gamma(sample_actor_texture(uv, input.skin_layer));
     if (input.material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
         if (color.a * input.dissolve_multiplier < 0.5) { discard; }
         return vec4(0.0);

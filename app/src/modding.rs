@@ -32,6 +32,8 @@ const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
 #[cfg(feature = "local-mods")]
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
 #[cfg(feature = "local-mods")]
+const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
@@ -89,6 +91,7 @@ fn configure(app: &mut App, path: Option<&Path>) {
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
         render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
         render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
+        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1"),
     };
     configure_with_grants(app, path, grants);
 }
@@ -160,6 +163,7 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );
+    app.add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
@@ -346,5 +350,7 @@ mod gameplay;
 mod input;
 #[cfg(feature = "local-mods")]
 pub(crate) mod interaction;
+#[cfg(feature = "local-mods")]
+mod packet_delay;
 #[cfg(feature = "local-mods")]
 mod render;

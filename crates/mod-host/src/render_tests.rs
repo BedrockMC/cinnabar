@@ -21,6 +21,9 @@ fn state() -> State {
         camera_writes: 0,
         pending_camera: None,
         camera_delta: None,
+        packet_delay_ms: 0,
+        pending_packet_delay: None,
+        packet_delay_writes: 0,
         controls: super::super::controls::ControlState::new(String::new()),
         render: RenderState::new(),
     }

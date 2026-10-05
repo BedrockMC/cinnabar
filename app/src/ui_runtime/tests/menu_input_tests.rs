@@ -394,6 +394,67 @@ fn escape_from_pause_settings_returns_to_pause_and_teardown_clears_context() {
 }
 
 #[test]
+fn chat_focus_loss_preserves_draft_and_does_not_open_pause() {
+    let mut menu = MenuRuntime::new(false, 2, "test".into());
+    let pause = launcher::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "pause_menu_on_focus_lost")
+        .unwrap();
+    menu.activate(MenuAction::SettingsOption(pause as u16, 1));
+    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat(&mut player);
+    runtime.insert_chat_text("unsent draft").unwrap();
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .init_resource::<Time<Real>>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(runtime)
+        .insert_resource(player)
+        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .insert_resource(menu)
+        .add_systems(
+            Update,
+            (super::super::drive_chat_keyboard_input, drive_menu_input).chain(),
+        );
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: false,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Enter);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    assert!(app.world().resource::<UiRuntime>().chat_focused());
+    assert_eq!(
+        app.world().resource::<UiRuntime>().chat_editor().as_str(),
+        "unsent draft"
+    );
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    assert!(app.world().resource::<UiRuntime>().chat_focused());
+    assert_eq!(
+        app.world().resource::<UiRuntime>().chat_editor().as_str(),
+        "unsent draft"
+    );
+}
+
+#[test]
 fn chat_input_preserves_buttons_for_the_visible_menu() {
     let mut app = App::new();
     app.add_message::<KeyboardInput>()

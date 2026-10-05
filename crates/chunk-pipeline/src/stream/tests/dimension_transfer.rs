@@ -201,3 +201,21 @@ fn dimension_presentation_waits_for_footing_but_not_full_height_neighbor_meshes(
     admit_air(&mut stream, footing);
     assert!(stream.dimension_transfer_presentable(position));
 }
+
+#[test]
+fn columns_around_a_position_count_only_its_dimension_and_square() {
+    let mut stream = destination_stream(0);
+    let position = [40.0, 70.0, -8.0];
+    assert_eq!(stream.loaded_columns_around(position, 1), (0, 9));
+    for x in 1..=3 {
+        for z in -2..=0 {
+            stream.loaded_columns.insert(ChunkKey::new(0, x, z));
+        }
+    }
+    stream.loaded_columns.insert(ChunkKey::new(1, 2, -1));
+    stream.loaded_columns.insert(ChunkKey::new(0, 9, 9));
+    assert_eq!(stream.loaded_columns_around(position, 1), (9, 9));
+    assert_eq!(stream.loaded_columns_around(position, 2), (9, 25));
+    assert_eq!(stream.loaded_columns_around(position, 0), (1, 1));
+    assert_eq!(stream.loaded_columns_around([0.0; 3], 0), (0, 1));
+}
