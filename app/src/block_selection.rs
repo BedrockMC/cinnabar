@@ -52,7 +52,7 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
 }
 
 /// Resolves reviewed visual bounds from the same shapes that admitted the pick.
-/// StairBlock::getOutline deliberately returns a full
+/// Vanilla stairs deliberately outline a full
 /// unit box: unioning its slab/step/inner collision pieces preserves that native
 /// wire outline. Model highlighting below uses the separate actual surface.
 fn target(

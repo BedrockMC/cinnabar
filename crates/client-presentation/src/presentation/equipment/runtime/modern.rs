@@ -128,7 +128,7 @@ fn interpolate_parent(
     })
 }
 
-/// Native setupAttachableNoChecks copies the parent's complete matrix before the held
+/// Vanilla attachable setup copies the parent's complete matrix before the held
 /// model's own channels. Poses and translations here already use the mirrored rig frame.
 fn compose_parent(
     parent: RenderBoneTransform,

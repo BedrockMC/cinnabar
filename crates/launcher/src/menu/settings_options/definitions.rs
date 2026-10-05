@@ -147,7 +147,7 @@ const CHAT_DURATIONS: &[SettingChoice] = &[
 ];
 
 // Defaults retained from the existing desktop host are provisional until the
-// current OptionRegistry values are recovered; see plan.md.
+// current vanilla option defaults are confirmed; see plan.md.
 pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     dropdown(
         "content_log_gui_level",

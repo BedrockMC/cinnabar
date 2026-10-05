@@ -794,6 +794,44 @@ func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	}
 }
 
+// A transferred session whose Close blocks must neither delay the next hop nor skip its close.
+func TestConnectUpstreamDoesNotWaitForTransferredSessionClose(t *testing.T) {
+	allowClose := make(chan struct{})
+	transferred := &gatedCloseUpstream{fakeUpstream: newFakeUpstream(nil), closeStarted: make(chan struct{}), allowClose: allowClose}
+	want := newFakeUpstream(nil)
+	dials := 0
+	result := make(chan upstreamSession, 1)
+	go func() {
+		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		got, err := connectUpstream(context.Background(), "zeqa.net:19132", "microsoft", logger, func(context.Context, string) (upstreamSession, error) {
+			dials++
+			if dials == 1 {
+				return transferred, &minecraft.TransferError{Address: "pvp.inpvp.net", Port: 19132}
+			}
+			return want, nil
+		})
+		if err != nil {
+			t.Errorf("connectUpstream() error = %v", err)
+		}
+		result <- got
+	}()
+	select {
+	case got := <-result:
+		if got != want {
+			t.Fatalf("connectUpstream() session = %p, want %p", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		close(allowClose)
+		t.Fatal("next hop waited for the transferred session's Close")
+	}
+	close(allowClose)
+	select {
+	case <-transferred.closeStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transferred session was never closed")
+	}
+}
+
 func TestConnectUpstreamReportsOrderedConnectionState(t *testing.T) {
 	var output lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))

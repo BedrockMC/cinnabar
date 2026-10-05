@@ -715,7 +715,7 @@ fn held_request() -> HeldItemRequest {
     }
 }
 
-/// Air use matches `GameMode::baseUseItem`: action 1, face 255, no trigger, no block.
+/// Air use matches vanilla: action 1, face 255, no trigger, no block.
 #[test]
 fn click_air_carries_vanilla_base_use_item_fields() {
     let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(built) =

@@ -1,8 +1,8 @@
 //! Block facts icon baking needs beyond the world carrier: registry families, the pack's carried
 //! textures, and the canonical state an item is drawn from.
 //!
-//! Vanilla's item renderer draws a block item flat when `BlockTessellator::canRender` rejects
-//! its shape; `BlockItem::getIconInfo` then shows the carried texture, down face, at the
+//! Vanilla's item renderer draws a block item flat when it cannot tessellate
+//! its shape, and then shows the carried texture, down face, at the
 //! block's variant.
 
 use std::path::Path;
@@ -180,7 +180,7 @@ impl IconBlocks {
         let pack = self.pack.as_ref()?;
         let record = self.records.get(visual.0 as usize)?;
         let key = resolve_carried_down_key(&pack.blocks, record)?;
-        // The world key's variant stands in for the block's `getVariant`.
+        // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, BlockFace::Down)
             .key
             .and_then(|world| pack.terrain.get_for_model_record(&world, record))

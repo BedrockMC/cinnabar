@@ -166,15 +166,14 @@ const LEATHER_RGB: u32 = 0x00a0_6540;
 pub(super) const PLAYER_MODEL_SCALE: f32 = 0.9375;
 /// The HUD translates its shared outer actor frame while swimming.
 pub(super) const HUD_SWIM_OFFSET: f32 = 0.8;
-/// UI rendering retains the native ModelPart origin rather than the world feet origin.
+/// UI rendering retains vanilla's model-part origin rather than the world feet origin.
 pub const PLAYER_UI_ORIGIN: f32 = client_world::MODEL_PART_ORIGIN_Y / 16.0 * PLAYER_MODEL_SCALE;
 
 /// How a UI renderer shows the player model; both face the viewer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PreviewView {
     /// `live_player_renderer`: the model turns toward the pointer, `offset` the
-    /// renderer's centre minus the pointer in GUI pixels
-    /// (`LivePlayerRenderer::_getMousePosition`).
+    /// renderer's centre minus the pointer in GUI pixels.
     Live { offset: [f32; 2] },
     /// `paper_doll_renderer`: a fixed turn (`starting_rotation`) under a camera tilt
     /// (`camera_tilt_degrees`), both in degrees.
@@ -191,7 +190,7 @@ impl Default for PreviewView {
 
 impl PreviewView {
     /// `(body yaw, head yaw, head pitch, model pitch)` in degrees. A live renderer
-    /// follows `LivePlayerRenderer::render`: body `atan(dx / 40) * 20`, head
+    /// turns the body `atan(dx / 40) * 20`, head
     /// `atan(dx / 40) * 40` and `atan(dy / 40) * -20`, the whole model tilted by
     /// `atan(dy / 40) * -20` about the eyes.
     fn angles(self) -> [f32; 4] {
@@ -212,9 +211,9 @@ impl PreviewView {
 }
 
 /// A player renderer's pose request and its raster's logical rect. A live
-/// renderer (`LivePlayerRenderer::render`) centres the eyes on the control at
+/// renderer centres the eyes on the control at
 /// `min(w, h)` pixels per block and turns toward the pointer; a paper doll
-/// (`PaperDollRenderer::_render`) centres the model at `min(w / 20, h / 39)`
+/// centres the model at `min(w / 20, h / 39)`
 /// pixels per model pixel, turned by `starting_rotation` under
 /// `camera_tilt_degrees`.
 pub fn renderer_frame(
@@ -378,7 +377,7 @@ struct Rig {
 impl Rig {
     fn new(pose: PlayerPreviewPose, view: PreviewView, bob: f32, holding: [bool; 2]) -> Self {
         let [body, head_yaw, head_pitch, model_pitch] = view.angles();
-        // PaperDollRenderer sets variable.is_paperdoll=1. The vanilla player
+        // A vanilla paper doll sets variable.is_paperdoll=1. The vanilla player
         // controller's paperdoll branch excludes holding, sneak and idle bob.
         let is_live = !matches!(view, PreviewView::Doll { .. });
         Self {

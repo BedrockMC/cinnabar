@@ -255,9 +255,9 @@ impl AttachablesRuntime {
     }
 }
 
-/// Native setupAttachableNoChecks distinguishes expression
-/// bindings from owner-name matches. Only the latter clear the authored default TRS;
-/// applyAnimations restores the former's ModelPart defaults afterward.
+/// Vanilla attachable setup distinguishes expression bindings from owner-name
+/// matches. Only the latter clear the authored default TRS; animation restores the
+/// former's bone defaults afterward.
 pub(super) fn bind_roots(bones: &mut [RuntimeBone], names: &[Box<str>], owner_names: &[Box<str>]) {
     for (bone, name) in bones.iter_mut().zip(names) {
         bone.attachable_root = if bone.parent.is_some() {
