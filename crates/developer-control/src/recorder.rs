@@ -6,6 +6,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
+    sync::{Arc, Mutex},
     thread::{self, JoinHandle},
 };
 
@@ -139,22 +140,31 @@ pub struct Summary {
     pub size: Option<[u32; 2]>,
 }
 
-/// Cloneable handle the capture path pushes frames through.
+/// Cloneable handle the capture path pushes frames through. Every clone shares one slot,
+/// so finishing the [`Recorder`] closes them all and the encoder never waits on a straggler.
 #[derive(Clone)]
-pub struct FrameSink(Sender<Frame>);
+pub struct FrameSink(Arc<Mutex<Option<Sender<Frame>>>>);
 
 impl FrameSink {
     /// Blocks while the encoder is behind, so a fixed-clock capture never drops frames.
     pub fn push(&self, frame: Frame) -> Result<(), String> {
-        self.0
+        let sender = self.0.lock().ok().and_then(|slot| slot.clone());
+        sender
+            .ok_or_else(|| "the recording has finished".to_owned())?
             .send(frame)
             .map_err(|_| "the encoder exited early; see ffmpeg's error output".to_owned())
+    }
+
+    fn close(&self) {
+        if let Ok(mut slot) = self.0.lock() {
+            slot.take();
+        }
     }
 }
 
 /// A running encode; ffmpeg starts with the first frame, whose size and layout it fixes.
 pub struct Recorder {
-    sink: Option<FrameSink>,
+    sink: FrameSink,
     writer: Option<JoinHandle<Result<Summary, String>>>,
     settings: VideoSettings,
 }
@@ -165,14 +175,26 @@ impl Recorder {
         if let Some(parent) = settings.path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
+        Self::spawn(settings, move |settings, frames| {
+            encode(&ffmpeg, settings, frames)
+        })
+    }
+
+    /// Runs `encoder` on the writer thread over every pushed frame.
+    fn spawn(
+        settings: VideoSettings,
+        encoder: impl FnOnce(&VideoSettings, &Receiver<Frame>) -> Result<Summary, String>
+        + Send
+        + 'static,
+    ) -> Result<Self, String> {
         let (sender, receiver) = crossbeam_channel::bounded(QUEUE_FRAMES);
         let thread_settings = settings.clone();
         let writer = thread::Builder::new()
             .name("developer-recorder".into())
-            .spawn(move || encode(&ffmpeg, &thread_settings, &receiver))
+            .spawn(move || encoder(&thread_settings, &receiver))
             .map_err(|error| error.to_string())?;
         Ok(Self {
-            sink: Some(FrameSink(sender)),
+            sink: FrameSink(Arc::new(Mutex::new(Some(sender)))),
             writer: Some(writer),
             settings,
         })
@@ -182,14 +204,13 @@ impl Recorder {
         &self.settings
     }
 
-    pub fn sink(&self) -> Option<FrameSink> {
+    pub fn sink(&self) -> FrameSink {
         self.sink.clone()
     }
 
-    /// Closes the stream once every [`FrameSink`] clone is gone and waits for ffmpeg; then
-    /// muxes `audio` (a WAV) in when given.
+    /// Closes every [`FrameSink`] clone and waits for ffmpeg; then muxes `audio` (a WAV) in.
     pub fn finish(mut self, audio: Option<&Path>) -> Result<Summary, String> {
-        self.sink.take();
+        self.sink.close();
         let summary = match self.writer.take() {
             Some(writer) => writer
                 .join()
@@ -220,7 +241,7 @@ impl Recorder {
 
 impl Drop for Recorder {
     fn drop(&mut self) {
-        self.sink.take();
+        self.sink.close();
         if let Some(writer) = self.writer.take() {
             let _ = writer.join();
         }
@@ -333,6 +354,36 @@ mod tests {
             write_ordered(&mut out, frames.into_iter(), [1, 1], PixelLayout::Bgra).unwrap();
         assert_eq!(written, 4);
         assert_eq!(out, [[0; 4], [1; 4], [2; 4], [3; 4]].concat());
+    }
+
+    #[test]
+    fn dropping_a_recorder_with_live_sinks_finishes_the_encode() {
+        let settings = VideoSettings {
+            path: PathBuf::from("unused.mp4"),
+            fps: 60,
+            codec: Codec::H264,
+        };
+        let recorder = Recorder::spawn(settings, |settings, frames| {
+            Ok(Summary {
+                path: settings.path.clone(),
+                frames: frames.iter().count() as u64,
+                size: None,
+            })
+        })
+        .unwrap();
+        let sink = recorder.sink();
+        let (done, finished) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            drop(recorder);
+            let _ = done.send(());
+        });
+        assert!(
+            finished
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .is_ok(),
+            "dropping the recorder deadlocked on an outstanding sink"
+        );
+        assert!(sink.push(frame(0, 0)).is_err());
     }
 
     #[test]

@@ -30,6 +30,8 @@ pub struct Server {
     control_dir: PathBuf,
     client: Option<Client>,
     controller: Option<Controller>,
+    /// Where `controller` connected, for replacing a broken connection.
+    endpoint: Option<Endpoint>,
     local_server: Option<LocalServer>,
 }
 
@@ -68,6 +70,7 @@ impl Server {
             control_dir,
             client: None,
             controller: None,
+            endpoint: None,
             local_server: None,
         }
     }
@@ -77,10 +80,11 @@ impl Server {
         let controller = Controller::connect_to(endpoint)
             .map_err(|error| format!("connect to the client's control endpoint: {error}"))?;
         self.controller = Some(controller);
+        self.endpoint = Some(endpoint.clone());
         Ok(())
     }
 
-    fn send(&mut self, command: &Command, timeout: Duration) -> Result<Value, String> {
+    pub(crate) fn send(&mut self, command: &Command, timeout: Duration) -> Result<Value, String> {
         if let Some(client) = self.client.as_mut()
             && !client.running()
         {
@@ -93,7 +97,14 @@ impl Server {
             .controller
             .as_mut()
             .ok_or("no client is running; call launch_client first")?;
-        controller.call(command, timeout)
+        let outcome = controller.call(command, timeout);
+        // A late reply would answer the next request; start a fresh connection instead.
+        if controller.is_broken()
+            && let Some(endpoint) = &self.endpoint
+        {
+            self.controller = Controller::connect_to(endpoint).ok();
+        }
+        outcome
     }
 
     fn launch(&mut self, arguments: &Value) -> Result<Value, String> {
@@ -239,6 +250,7 @@ impl Server {
     fn quit(&mut self) -> Value {
         let requested = self.send(&Command::Quit, CALL_TIMEOUT).is_ok();
         self.controller = None;
+        self.endpoint = None;
         if let Some(mut client) = self.client.take() {
             client.stop();
         }

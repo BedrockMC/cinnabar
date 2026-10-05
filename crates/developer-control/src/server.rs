@@ -29,6 +29,12 @@ pub struct Pending {
 pub struct Reply(Sender<Result<Value, String>>);
 
 impl Reply {
+    /// A reply and the receiver its outcome arrives on, for callers outside a connection.
+    pub fn channel() -> (Self, Receiver<Result<Value, String>>) {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        (Self(sender), receiver)
+    }
+
     pub fn send(self, outcome: Result<Value, String>) {
         let _ = self.0.send(outcome);
     }
