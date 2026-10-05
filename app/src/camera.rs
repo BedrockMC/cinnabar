@@ -157,7 +157,7 @@ pub(crate) fn update_look(
     ),
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
+    settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
     smoother: ResMut<look::LookSmoother>,
     view: ResMut<LocalViewPose>,
