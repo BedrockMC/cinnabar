@@ -236,6 +236,12 @@ impl WorldStream {
         self.reevaluate_chunk_retention()
     }
 
+    /// Retains terrain around the committed server position while no local physics owns the player.
+    pub fn retain_for_server_position(&mut self) -> bool {
+        self.local_player_chunk = None;
+        self.reevaluate_chunk_retention()
+    }
+
     /// Local physics advances the player grid between server corrections.
     fn player_chunk(&self) -> ChunkKey {
         if let Some(chunk) = self.local_player_chunk {
