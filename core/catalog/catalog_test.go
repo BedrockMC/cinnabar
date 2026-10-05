@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -13,8 +14,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
+	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"golang.org/x/oauth2"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -217,4 +222,35 @@ func cacheArtworkFileWithTransport(ctx context.Context, directory, rawURL string
 	cfg.Transport = transport
 	image, err := imagecache.New(directory, cfg).Fetch(ctx, rawURL)
 	return image.Path, err
+}
+
+type fixedRealmsXSTS struct{}
+
+func (fixedRealmsXSTS) Token() (*oauth2.Token, error) { return nil, io.EOF }
+
+func (fixedRealmsXSTS) XSTSToken(context.Context, string) (*xsts.Token, error) {
+	token := new(xsts.Token)
+	err := json.Unmarshal([]byte(`{"Token":"synthetic","NotAfter":"`+time.Now().Add(time.Hour).Format(time.RFC3339)+
+		`","DisplayClaims":{"xui":[{"uhs":"hash"}]}}`), token)
+	return token, err
+}
+
+// Listing Realms never joins one; the game joins only when the player picks a Realm.
+func TestRealmsListingDoesNotJoin(t *testing.T) {
+	var joins []string
+	client := realms.NewClient(fixedRealmsXSTS{}, &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"servers":[{"id":7,"name":"R","state":"OPEN"}]}`
+		if req.Method != http.MethodGet {
+			joins = append(joins, req.Method+" "+req.URL.Path)
+			body = `{"address":"1.2.3.4:19132","networkProtocol":"DEFAULT"}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})})
+	list, err := listRealms(context.Background(), client)
+	if err != nil || len(list) != 1 || list[0].Target != "realm_id/7" {
+		t.Fatalf("realms = %+v, err = %v", list, err)
+	}
+	if len(joins) != 0 {
+		t.Fatalf("listing sent %v", joins)
+	}
 }
