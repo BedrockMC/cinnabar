@@ -521,7 +521,7 @@ fn menu_and_focus_loss_preempt_secondary_inventory_dispatch() {
         app.update();
 
         let runtime = app.world().resource::<UiRuntime>();
-        assert!(!runtime.inventory_open());
+        assert_eq!(runtime.inventory_open(), !menu_visible);
         assert_eq!(
             app.world()
                 .resource::<PlayerRuntime>()
