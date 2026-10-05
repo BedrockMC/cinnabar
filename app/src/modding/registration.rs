@@ -627,6 +627,9 @@ fn clear_owned_state(world: &mut World) -> Option<ModHost> {
 }
 
 fn clear_presentation(world: &mut World) {
+    if let Some(mut cues) = world.get_resource_mut::<super::ModCueFeed>() {
+        cues.0.clear();
+    }
     if let Some(mut camera) = world.get_resource_mut::<crate::camera::CameraSettingsAuthority>() {
         camera.set_rig(None);
     }

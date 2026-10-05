@@ -89,11 +89,14 @@ impl Plugin for FlyCameraPlugin {
                     apply_runtime_camera_settings,
                     presentation::collect_fov_inputs,
                     facts::collect_screen_effect_facts,
-                    update_camera_fov,
                 )
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
+                // After camera input, so a rig committed this frame sets this frame's FOV.
+                update_camera_fov
+                    .after(FlyCameraUpdateSet)
+                    .before(ClientFrameSet::Camera),
                 (
                     update_cursor_capture,
                     update_perspective,

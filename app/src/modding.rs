@@ -192,7 +192,7 @@ fn drive_mod(
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
     watcher: Option<Res<registration::Watcher>>,
-    outputs: (
+    mut outputs: (
         Option<Res<crate::runtime::network::NetworkHandle>>,
         Option<ResMut<crate::camera::CameraSettingsAuthority>>,
         Option<ResMut<ModCueFeed>>,
@@ -208,8 +208,15 @@ fn drive_mod(
     }
     if extension.reload_on_main && extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
-        if let Err(error) = extension.host.reload_if_changed() {
-            eprintln!("Cinnabar extension reload rejected: {error:#}");
+        match extension.host.reload_if_changed() {
+            // A new instance starts without its predecessor's cues.
+            Ok(true) => {
+                if let Some(cues) = outputs.2.as_mut() {
+                    cues.0.clear();
+                }
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("Cinnabar extension reload rejected: {error:#}"),
         }
     }
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
