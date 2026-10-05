@@ -289,6 +289,10 @@ fn new_component_resets_state_and_retires_old_host_outside_world() {
     );
     messages.try_recv().unwrap();
     world.resource_mut::<ModRuntime>().host.set_panel_open(true);
+    world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
+        name: "stale".into(),
+        values: Vec::new(),
+    }]));
     install(
         &mut world,
         Update {
@@ -297,6 +301,7 @@ fn new_component_resets_state_and_retires_old_host_outside_world() {
             result: Ok(Action::Replace(candidate(&directory, false, "Other"))),
         },
     );
+    assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
     assert_eq!(world.resource::<ModRuntime>().host.label(), Some("Other"));
     assert!(!world.resource::<ModRuntime>().host.panel_open());
     assert!(matches!(
@@ -330,6 +335,10 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
         world
             .resource_mut::<UiPresentationRuntime>()
             .set_mod_panel_open(true);
+        world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
+            name: "stale".into(),
+            values: Vec::new(),
+        }]));
         install(
             &mut world,
             Update {
@@ -338,6 +347,7 @@ fn disable_and_invalid_registration_revoke_all_owned_outputs() {
                 result,
             },
         );
+        assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
         assert!(!world.contains_resource::<ModRuntime>());
         assert!(!world.contains_resource::<ModInteraction>());
         assert!(!world.contains_resource::<VisualTimeOverride>());
