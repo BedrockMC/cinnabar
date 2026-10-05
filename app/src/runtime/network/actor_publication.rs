@@ -167,13 +167,15 @@ pub(crate) fn prepare_actor_render_frame(
     );
 }
 
-/// Publishes entity-shadow casters from the actors this frame placed.
+/// Publishes entity-shadow casters for the bodies this frame drew.
 pub(crate) fn publish_entity_shadows(
     world: Res<ClientWorld>,
     player: Res<PlayerRuntime>,
     partial_tick: Res<ActorFramePartialTick>,
     local: Res<crate::local_player::LocalAvatarVisibilityCarrier>,
     camera: Query<(&Transform, &Projection), With<crate::camera::FlyCamera>>,
+    frame: Res<render::ActorRenderFrame>,
+    mut drawn: Local<Vec<u64>>,
     mut staging: Local<Vec<render_model::EntityShadow>>,
     scene: Option<ResMut<render::EntityShadowScene>>,
 ) {
@@ -203,11 +205,13 @@ pub(crate) fn publish_entity_shadows(
             camera_position: transform.translation,
             max_distance: render::MAX_ACTOR_RENDER_DISTANCE_BLOCKS,
         });
+    client_presentation::entity_shadows::drawn_bodies(&frame, &mut drawn);
     client_presentation::entity_shadows::publish_entity_shadows(
         stream,
         partial_tick.0,
         local,
         view,
+        &drawn,
         &mut staging,
         &mut scene,
     );

@@ -243,6 +243,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
                 .in_set(ClientFrameSet::ActorPublication),
         )
         .add_systems(
