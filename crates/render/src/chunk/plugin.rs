@@ -197,5 +197,6 @@ impl Plugin for ChunkRenderPlugin {
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             transparent::gamma_pass::install_graph(render_app.world_mut());
         }
+        gpu_cull::install(app);
     }
 }
