@@ -129,8 +129,28 @@ their owner and app route regressions. The following inspection build joined Hiv
 with no missing textures, missing geometry, truncated models or unevaluated
 permutations in its block overlay. User frames show readable game titles, restored
 plants and visible NPC particles, while title backgrounds remain too pale.
-The user identified the floating-text hosts as sheep with server scale zero;
-the client incorrectly replaces that scale with one. Its correction is pending.
+The user identified the floating-text hosts as sheep with server scale zero.
+The client now preserves finite scale zero and suppresses body/equipment draws
+without removing their independent name tags. Its spawn/update regression passes.
 This inspection session ended after about nine minutes with another opaque
 server kick and zero decode errors. Reconnection is not session acceptance.
 Full visual acceptance and the unresolved disconnect remain open in `plan.md`.
+
+The next local inspection build joined Hive on macOS/Metal with ordinary rendering
+at a 1280×752 logical window and 2× display scaling. A fresh frame shows the gold
+logo, readable game titles on dark panels and no floating sheep. The panel GPU
+regression verifies encoded destination blending with the production shader and
+attachment format. Enhanced/HDR/MSAA actor blending and exact cross-family order
+remain incomplete. Actor pipelines now prewarm behind the loading gate; authored
+NPC emitters survive ten minutes until their state/actor ends. Their regressions
+pass. These changes and dev integration are locally committed, not pushed; the
+running inspection remains separate from full session/performance acceptance.
+
+Current dev's GPU culling and VSync controls were then integrated and rebuilt.
+The repeated Metal pass shows the same corrected titles and hidden text hosts.
+All 889 renderer checks pass, including the encoded-panel raster and new culling
+checks. The app suite passed 1,054 checks; its remaining equipment-capacity fixture
+now passes a focused rerun after receiving distinct, valid equipment geometry.
+Cache reuse and corruption recovery preserve catalog/artwork and material inputs.
+Formatting and the architecture gate pass. The test client remains open for the
+user's gameplay check; no release performance or disconnect gate is closed.

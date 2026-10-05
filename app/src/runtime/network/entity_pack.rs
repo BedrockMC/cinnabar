@@ -430,13 +430,16 @@ mod tests {
         assert_eq!(super::vanilla_refs().as_deref(), Some(&later));
     }
 
+    const FIXTURE_MATERIAL_PATH: &str = "materials/fixture.material";
+
     fn entity_stack() -> std::sync::Arc<resource_pack::ValidatedPackStack> {
         let mut png = std::io::Cursor::new(Vec::new());
         image::RgbaImage::from_pixel(1, 1, image::Rgba([37, 59, 83, 255]))
             .write_to(&mut png, image::ImageFormat::Png)
             .unwrap();
         super::super::pack_reload_tests::stack(&[
-            ("entity/fixture.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor","geometry":{"default":"geometry.fixture"},"materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/fixture"},"render_controllers":["controller.render.fixture"]}}}"#),
+            ("entity/fixture.json", br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:actor","geometry":{"default":"geometry.fixture"},"materials":{"default":"fixture_alpha"},"textures":{"default":"textures/entity/fixture"},"render_controllers":["controller.render.fixture"]}}}"#),
+            (FIXTURE_MATERIAL_PATH, br#"{"materials":{"version":"1.0.0","fixture_alpha:entity_alphatest":{}}}"#),
             ("models/entity/fixture.json", br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":1,"texture_height":1},"bones":[{"name":"root","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#),
             ("render_controllers/fixture.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#),
             ("textures/entity/fixture.png", png.get_ref()),
@@ -464,14 +467,30 @@ mod tests {
             );
             let pack = pack.expect("the fixture defines an entity");
             let reads = view.dependencies().unwrap().snapshot();
+            // Catalog encoding excludes metadata about whether a carrier was decoded.
             (
-                format!("{:?} {:?} {:?}", pack.assets, pack.textures, pack.bindings),
+                pack.assets.encode().expect("the catalog is encodable"),
+                pack.textures.clone(),
+                pack.bindings.clone(),
                 reads,
             )
         };
         let compiled = launch();
-        assert!(!compiled.1.is_empty());
-        assert_eq!(launch(), compiled);
+        assert!(
+            compiled
+                .3
+                .contains(&resource_pack::PackDependency::Directory(
+                    "materials/".to_owned()
+                ))
+        );
+        assert!(compiled.3.iter().any(|dependency| matches!(
+            dependency,
+            resource_pack::PackDependency::File { path, .. } if path == FIXTURE_MATERIAL_PATH
+        )));
+        assert!(
+            launch() == compiled,
+            "a disk hit preserves the catalog, artwork and tracked inputs"
+        );
         assert_eq!(compiles.get(), 1, "the second launch was a disk hit");
         for entry in std::fs::read_dir(dir.path()).unwrap() {
             let path = entry.unwrap().path();
@@ -480,7 +499,10 @@ mod tests {
             bytes[middle] ^= 0xff;
             std::fs::write(path, bytes).unwrap();
         }
-        assert_eq!(launch(), compiled);
+        assert!(
+            launch() == compiled,
+            "recompilation preserves the catalog, artwork and tracked inputs"
+        );
         assert_eq!(compiles.get(), 2, "a corrupt entry is a miss");
     }
 

@@ -1,3 +1,4 @@
+use crate::chunk::transparent::liquid::transparent_liquid_phase_distance;
 use crate::chunk::*;
 
 /// World views shared by opaque and transparent chunk queues.

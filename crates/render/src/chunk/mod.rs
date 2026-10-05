@@ -254,10 +254,6 @@ pub use textures::{
 #[allow(unused_imports)]
 use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
 #[allow(unused_imports)]
-use transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws, transparent_liquid_phase_distance,
-};
-#[allow(unused_imports)]
 use transparent::model::{
     TransparentModelAddressIdentity, TransparentModelAllocationIdentity,
     TransparentModelCandidateCache, TransparentModelSortBatch, TransparentModelSortCandidate,
