@@ -9,8 +9,11 @@ const ABSOLUTE_SLACK: f32 = CULL_ABSOLUTE_SLACK;
 const BOUNDS_BIAS: i32 = 128;
 const PHASE_LATE: u32 = 1u;
 
+// Scalar origin fields keep the record free of packed vec3 storage.
 struct CullRecord {
-    origin: vec3<i32>,
+    origin_x: i32,
+    origin_y: i32,
+    origin_z: i32,
     base_vertex: i32,
     bounds_min: u32,
     bounds_max: u32,
@@ -50,6 +53,10 @@ struct CullView {
 
 var<workgroup> sums: array<vec4<u32>, WORKGROUP>;
 
+fn record_origin(record: CullRecord) -> vec3<i32> {
+    return vec3(record.origin_x, record.origin_y, record.origin_z);
+}
+
 fn slot_enabled(slot: u32) -> bool {
     return ((enabled[slot >> 5u] >> (slot & 31u)) & 1u) != 0u;
 }
@@ -87,7 +94,7 @@ fn hiz_visible(record: CullRecord) -> bool {
     }
     let low = unpack_bound(record.bounds_min) - vec3(HIZ_PADDING);
     let high = unpack_bound(record.bounds_max) + vec3(HIZ_PADDING);
-    let base = vec3<f32>(record.origin - view.camera.xyz);
+    let base = vec3<f32>(record_origin(record) - view.camera.xyz);
     var ndc_min = vec2(1.0e30);
     var ndc_max = vec2(-1.0e30);
     var nearest = 0.0;
@@ -113,11 +120,12 @@ fn hiz_visible(record: CullRecord) -> bool {
     // One extra pixel each side absorbs rasteriser rounding.
     let p0 = vec2<u32>(clamp(floor(vec2(left, top)) - vec2(1.0), vec2(0.0), limit));
     let p1 = vec2<u32>(clamp(floor(vec2(right, bottom)) + vec2(1.0), vec2(0.0), limit));
+    // The finest level where the rectangle spans at most 4x4 texels.
     var level = 0u;
     loop {
         let shift = level + 1u;
         let span = (p1 >> vec2(shift)) - (p0 >> vec2(shift));
-        if ((span.x <= 1u && span.y <= 1u) || level + 1u >= view.depth.z) {
+        if ((span.x <= 3u && span.y <= 3u) || level + 1u >= view.depth.z) {
             break;
         }
         level++;
@@ -126,10 +134,12 @@ fn hiz_visible(record: CullRecord) -> bool {
     let last = textureDimensions(hiz, level) - vec2(1u);
     let t0 = min(p0 >> vec2(shift), last);
     let t1 = min(p1 >> vec2(shift), last);
-    let farthest = min(
-        min(textureLoad(hiz, t0, i32(level)).r, textureLoad(hiz, vec2(t1.x, t0.y), i32(level)).r),
-        min(textureLoad(hiz, vec2(t0.x, t1.y), i32(level)).r, textureLoad(hiz, t1, i32(level)).r),
-    );
+    var farthest = 1.0;
+    for (var y = t0.y; y <= t1.y; y++) {
+        for (var x = t0.x; x <= t1.x; x++) {
+            farthest = min(farthest, textureLoad(hiz, vec2(x, y), i32(level)).r);
+        }
+    }
     return nearest >= farthest;
 }
 
@@ -165,7 +175,7 @@ fn solid_runs(record: CullRecord, write: bool, base: u32) -> u32 {
     if (record.cube_start == record.cube_end) {
         return 0u;
     }
-    let facing = facing_mask(record.origin);
+    let facing = facing_mask(record_origin(record));
     var runs = 0u;
     var run_start = 0u;
     var run_end = 0u;
@@ -226,12 +236,12 @@ fn unpack_draws(draws: u32) -> vec4<u32> {
 fn record_decision(slot: u32) -> u32 {
     let record = records[slot];
     let late = view.params.z == PHASE_LATE;
-    let visible = record.live != 0u && slot_enabled(slot) && in_frustum(record.origin);
+    let visible = record.live != 0u && slot_enabled(slot) && in_frustum(record_origin(record));
     var draw = false;
     if (late) {
-        let pass = visible && hiz_visible(record);
-        draw = pass && history[slot] == 0u;
-        history[slot] = u32(pass);
+        let kept = visible && hiz_visible(record);
+        draw = kept && history[slot] == 0u;
+        history[slot] = u32(kept);
     } else {
         draw = visible && history[slot] != 0u;
     }

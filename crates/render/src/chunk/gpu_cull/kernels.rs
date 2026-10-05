@@ -111,6 +111,8 @@ impl CullStorage {
 /// Reverse-Z farthest-depth pyramid over a depth target of `depth_size` pixels.
 pub struct HizPyramid {
     pub depth_size: [u32; 2],
+    #[allow(dead_code, reason = "fixture tests read the pyramid back")]
+    pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     mips: Vec<wgpu::TextureView>,
     sizes: Vec<[u32; 2]>,
@@ -135,7 +137,9 @@ impl HizPyramid {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: PYRAMID_FORMAT,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let mips = (0..sizes.len() as u32)
@@ -150,6 +154,7 @@ impl HizPyramid {
         Self {
             depth_size,
             view: texture.create_view(&Default::default()),
+            texture,
             mips,
             sizes,
         }
@@ -157,6 +162,11 @@ impl HizPyramid {
 
     pub fn mip_count(&self) -> u32 {
         self.sizes.len() as u32
+    }
+
+    #[allow(dead_code, reason = "fixture tests read the pyramid back")]
+    pub fn size(&self, level: u32) -> [u32; 2] {
+        self.sizes[level as usize]
     }
 }
 
