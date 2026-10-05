@@ -60,13 +60,19 @@ pub struct Playback {
     pub playing: bool,
     pub stopped: bool,
     pub media_id: Option<String>,
-    pub position_us: u64,
-    pub anchor_us: u64,
+    /// Unwrapped media time at `anchor_us`; looping only wraps what is shown, so loop
+    /// iterations are always `(position - loop start) / loop length`.
+    position_us: u64,
+    anchor_us: u64,
     pub loop_us: Option<[u64; 2]>,
     pub volume: u16,
     pub surface: Option<Surface>,
     pub decode_generation: u64,
     held: bool,
+    /// Loop ends crossed by elapsed playback since the last `advance`.
+    crossings: u64,
+    /// The last `advance` restarted decoding only because playback looped.
+    pub looped: bool,
     revision: u64,
     last_effective_us: Option<u64>,
     pending: VecDeque<Message>,
@@ -86,6 +92,8 @@ impl Default for Playback {
             surface: None,
             decode_generation: 0,
             held: false,
+            crossings: 0,
+            looped: false,
             revision: 0,
             last_effective_us: None,
             pending: VecDeque::new(),
@@ -142,16 +150,17 @@ impl Playback {
         Ok(())
     }
 
-    /// Applies due controls at their authored time, preserving the common timeline.
+    /// Applies due controls at their authored time, preserving the common timeline, and
+    /// restarts decoding once when elapsed playback crossed a loop end and no control did.
     pub fn advance(&mut self, server_us: u64, duration_us: u64) -> Result<()> {
+        let generation = self.decode_generation;
         while self
             .pending
             .front()
             .is_some_and(|message| message.effective_server_us <= server_us)
         {
             let message = self.pending.pop_front().expect("front checked");
-            self.position_us = self.position(message.effective_server_us, duration_us);
-            self.anchor_us = message.effective_server_us;
+            self.run_to(message.effective_server_us, duration_us);
             self.held = false;
             match message.operation {
                 Operation::Prepare { media_id } => {
@@ -179,6 +188,8 @@ impl Playback {
                         bounds_us.is_none_or(|[_, end]| end <= duration_us),
                         "loop exceeds duration"
                     );
+                    // New bounds continue from what is shown under the old ones.
+                    self.position_us = self.position(message.effective_server_us, duration_us);
                     self.loop_us = bounds_us;
                 }
                 Operation::SetVolume { per_mille } => self.volume = per_mille,
@@ -192,48 +203,31 @@ impl Playback {
                 }
             }
         }
+        self.run_to(server_us, duration_us);
+        self.looped =
+            std::mem::take(&mut self.crossings) > 0 && self.decode_generation == generation;
+        if self.looped {
+            self.reset_decode()?;
+        }
         Ok(())
     }
 
-    /// Calculates desired position with checked integer arithmetic and loop wrapping.
+    /// Shown position: the unwrapped timeline wrapped into the loop, or clamped to the end.
     pub fn position(&self, server_us: u64, duration_us: u64) -> u64 {
-        let position = self.position_us.saturating_add(if self.playing {
-            server_us.saturating_sub(self.anchor_us)
-        } else {
-            0
-        });
-        if let Some([start, end]) = self.loop_us
-            && position >= end
-        {
-            start + (position - start) % (end - start)
-        } else {
-            position.min(duration_us)
-        }
-    }
-
-    /// Loop ends crossed since the last rebase; zero without loop bounds.
-    pub fn loop_cycle(&self, server_us: u64) -> u64 {
-        let position = self.position_us.saturating_add(if self.playing {
-            server_us.saturating_sub(self.anchor_us)
-        } else {
-            0
-        });
+        let position = self.unwrapped(server_us);
         match self.loop_us {
-            Some([start, end]) if position >= end => 1 + (position - end) / (end - start),
-            _ => 0,
+            Some([start, end]) if position >= end => start + (position - start) % (end - start),
+            _ => position.min(duration_us),
         }
     }
 
     /// Keeps the timeline from advancing while the decoder rebuffers; call every starved tick.
     pub fn hold(&mut self, server_us: u64, duration_us: u64) {
-        if !self.held {
-            self.position_us = self.position(server_us, duration_us);
-            self.held = true;
-        }
-        self.anchor_us = server_us;
+        self.run_to(server_us, duration_us);
+        self.held = true;
     }
 
-    /// Lets a held timeline advance again from where it stopped.
+    /// Lets a held timeline advance again from the time it was last accounted.
     pub fn release(&mut self) {
         self.held = false;
     }
@@ -244,9 +238,32 @@ impl Playback {
         self.playing = false;
     }
 
-    /// Restarts decoding at the current position, e.g. after a loop wrapped.
-    pub fn restart_decode(&mut self) -> Result<()> {
-        self.reset_decode()
+    fn unwrapped(&self, server_us: u64) -> u64 {
+        if self.playing && !self.held {
+            self.position_us
+                .saturating_add(server_us.saturating_sub(self.anchor_us))
+        } else {
+            self.position_us
+        }
+    }
+
+    fn iteration(&self, position: u64) -> u64 {
+        self.loop_us.map_or(0, |[start, end]| {
+            position.saturating_sub(start) / (end - start)
+        })
+    }
+
+    /// Accounts elapsed playback up to `server_us`, counting the loop ends it crossed.
+    fn run_to(&mut self, server_us: u64, duration_us: u64) {
+        let mut next = self.unwrapped(server_us);
+        if self.loop_us.is_none() {
+            next = next.min(duration_us.max(self.position_us));
+        }
+        self.crossings += self
+            .iteration(next)
+            .saturating_sub(self.iteration(self.position_us));
+        self.position_us = next;
+        self.anchor_us = self.anchor_us.max(server_us);
     }
 
     /// Invalidates queued PCM, frames and range reads on discontinuity.
@@ -258,6 +275,9 @@ impl Playback {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod loop_fuzz;
 
 #[cfg(test)]
 mod tests {
