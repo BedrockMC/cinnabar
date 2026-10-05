@@ -629,7 +629,6 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
     let far = TransparentAllocationIdentity::new(SubChunkKey::new(0, 0, 0, 2), 2, 0..8, 20..24, 20);
     let key = ViewSortKey::try_new(
         [0.0; 3],
-        [0.0, 0.0, 0.0, 1.0],
         vec![near.clone(), far.clone()],
         ChunkTextureAssetIdentity::new(1, 1),
         ChunkBiomeTintIdentity::new(1, 1),
@@ -778,10 +777,12 @@ fn transparent_model_upload_batches_respect_cap_without_splitting_subchunks() {
     let mut batches = VecDeque::from([
         TransparentModelSortBatch {
             draw_range: 0..6,
+            class: FaceOrderClass::Far([0, 0, 1]),
             words: vec![[0, 0]; 3].into_boxed_slice(),
         },
         TransparentModelSortBatch {
             draw_range: 6..14,
+            class: FaceOrderClass::Far([0, 0, 1]),
             words: vec![[1, 0]; 4].into_boxed_slice(),
         },
     ]);
