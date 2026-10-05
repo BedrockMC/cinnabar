@@ -203,7 +203,7 @@ impl InstallLayout {
 
     #[must_use]
     pub fn world_assets(&self) -> PathBuf {
-        self.compiled_assets.join("vanilla-v2193.mcbea")
+        self.compiled_assets.join(assets::carriers::WORLD.output)
     }
 
     /// The local player's own skin PNG, shipped beside the other assets under `resources/assets`

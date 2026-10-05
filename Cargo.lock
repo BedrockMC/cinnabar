@@ -2607,6 +2607,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 name = "dist-local"
 version = "0.1.5"
 dependencies = [
+ "assets",
  "same-file",
  "serde",
  "serde_json",

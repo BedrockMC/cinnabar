@@ -12,7 +12,7 @@ use assets::{MAX_EQUIPMENT_CARRIER_BYTES, RuntimeEquipmentCatalog};
 
 use super::{LoadedEntityAssets, shell_quote_path};
 
-const EQUIPMENT_ASSETS_FILENAME: &str = "vanilla-v1.mcbeeqp";
+const EQUIPMENT_ASSETS_FILENAME: &str = assets::carriers::EQUIPMENT.output;
 
 pub(crate) fn equipment_asset_path(world: &Path) -> PathBuf {
     world.with_file_name(EQUIPMENT_ASSETS_FILENAME)
