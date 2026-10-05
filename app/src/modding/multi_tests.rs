@@ -32,12 +32,10 @@ fn keys_reserved_by_an_earlier_mod_are_withheld_and_panel_events_go_to_the_owner
 
 #[test]
 fn labels_join_in_load_order_within_the_plain_text_limit() {
-    let mut merged = Merged::default();
-    assert_eq!(merged.label(), None);
-    merged.labels = vec!["Lock-on".into(), "FX".into()];
-    assert_eq!(merged.label().as_deref(), Some("Lock-on | FX"));
-    merged.labels = vec!["é".repeat(mod_host::MAX_LABEL_BYTES)];
-    let label = merged.label().unwrap();
+    assert_eq!(join_labels(&[]), None);
+    let labels = ["Lock-on".to_owned(), "FX".to_owned()];
+    assert_eq!(join_labels(&labels).as_deref(), Some("Lock-on | FX"));
+    let label = join_labels(&["é".repeat(mod_host::MAX_LABEL_BYTES)]).unwrap();
     assert!(label.len() <= mod_host::MAX_LABEL_BYTES && label.chars().all(|c| c == 'é'));
 }
 
@@ -215,23 +213,23 @@ fn run(probes: &[Probe], frames: usize) -> (ModRuntime, Merged, Vec<usize>) {
 
 #[test]
 fn load_order_decides_single_valued_outputs_and_keeps_every_command() {
-    let (_, merged, failures) = run(
+    let (mut runtime, merged, failures) = run(
         &[Probe::new("A", 1000, 0.5), Probe::new("B", 6000, -0.5)],
         2,
     );
     assert!(failures.is_empty());
     assert_eq!(merged.time_override, Some(1000));
     assert_eq!(merged.rig.unwrap().offset.x, 0.5);
-    assert_eq!(merged.label().as_deref(), Some("A | B"));
+    assert_eq!(runtime.merged_label(), Some("A | B"));
     assert_eq!(merged.commands, ["/ability flash", "/ability flash"]);
 
-    let (_, merged, _) = run(
+    let (mut runtime, merged, _) = run(
         &[Probe::new("B", 6000, -0.5), Probe::new("A", 1000, 0.5)],
         2,
     );
     assert_eq!(merged.time_override, Some(6000));
     assert_eq!(merged.rig.unwrap().offset.x, -0.5);
-    assert_eq!(merged.label().as_deref(), Some("B | A"));
+    assert_eq!(runtime.merged_label(), Some("B | A"));
 }
 
 #[test]
@@ -252,7 +250,7 @@ fn a_trapping_mod_is_quarantined_without_disturbing_the_others() {
         second_frame_cues: 1,
         ..Probe::new("B", 6000, -0.5)
     };
-    let (runtime, merged, failures) = run(&[crashing, survivor], 3);
+    let (mut runtime, merged, failures) = run(&[crashing, survivor], 3);
     assert_eq!(
         failures,
         [0],
@@ -261,7 +259,7 @@ fn a_trapping_mod_is_quarantined_without_disturbing_the_others() {
     assert!(!runtime.host(0).is_active() && runtime.host(1).is_active());
     assert_eq!(merged.time_override, Some(6000));
     assert_eq!(merged.rig.unwrap().offset.x, -0.5);
-    assert_eq!(merged.label().as_deref(), Some("B"));
+    assert_eq!(runtime.merged_label(), Some("B"));
     assert_eq!(merged.commands, ["/ability flash"]);
 }
 
@@ -298,4 +296,57 @@ fn grants_stay_per_mod() {
     assert_eq!(merged.time_override, Some(6000));
     assert_eq!(merged.rig.unwrap().offset.x, -0.5);
     assert_eq!(merged.commands, ["/ability flash"]);
+}
+
+/// An oversized manifest is rejected after a bounded read, even from a source that never ends.
+#[cfg(unix)]
+#[test]
+fn oversized_set_is_rejected_without_reading_it_whole() {
+    use std::io::Write;
+    let directory = tempfile::tempdir().unwrap();
+    let fifo = directory.path().join("mods.json");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status();
+    if !made.is_ok_and(|status| status.success()) {
+        eprintln!(
+            "skipping oversized_set_is_rejected_without_reading_it_whole: mkfifo unavailable"
+        );
+        return;
+    }
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let writer_path = fifo.clone();
+    let writer = std::thread::spawn(move || {
+        let mut pipe = std::fs::OpenOptions::new()
+            .write(true)
+            .open(writer_path)
+            .unwrap();
+        let _ = pipe.write_all(&vec![b' '; MAX_SET_BYTES + 64]);
+        // Keeps the pipe open, so an unbounded reader never sees end of file.
+        let _ = held.recv();
+    });
+    let (sender, result) = std::sync::mpsc::channel();
+    std::thread::spawn(move || sender.send(read_set(&fifo)));
+    let outcome = result.recv_timeout(std::time::Duration::from_secs(10));
+    drop(release);
+    writer.join().unwrap();
+    let error = outcome
+        .expect("the manifest read was unbounded")
+        .unwrap_err();
+    assert!(error.contains("byte limit"), "{error}");
+}
+
+#[test]
+fn the_merged_label_is_rebuilt_only_when_a_mod_label_changes() {
+    let (mut runtime, _, _) = run(
+        &[Probe::new("A", 1000, 0.5), Probe::new("B", 6000, -0.5)],
+        1,
+    );
+    assert_eq!(runtime.merged_label(), Some("A | B"));
+    let built = runtime.label_rebuilds;
+    for _ in 0..3 {
+        assert_eq!(runtime.merged_label(), Some("A | B"));
+    }
+    assert_eq!(
+        runtime.label_rebuilds, built,
+        "unchanged labels must not be rejoined"
+    );
 }
