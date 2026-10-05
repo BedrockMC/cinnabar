@@ -3,6 +3,7 @@
 
 use super::ModRenderScene;
 use crate::RuntimeStage;
+use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::{
     core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::query::QueryItem,
@@ -13,14 +14,13 @@ use bevy::{
             NodeRunError, RenderGraph, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
-            AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
+            AddressMode, BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId, ColorTargetState,
-            ColorWrites, Extent3d, FilterMode, FragmentState, LoadOp, Operations, PipelineCache,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, ShaderStages, StoreOp, Texture,
-            TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-            TextureView, TextureViewDimension, TextureViewId, VertexState,
+            BufferDescriptor, BufferSize, BufferUsages, ColorTargetState, ColorWrites, Extent3d,
+            FilterMode, LoadOp, Operations, PipelineCache, RenderPassColorAttachment,
+            RenderPassDescriptor, RenderPipeline, Sampler, SamplerBindingType, SamplerDescriptor,
+            ShaderStages, StoreOp, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+            TextureSampleType, TextureUsages, TextureView, TextureViewDimension, TextureViewId,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         view::{ExtractedView, ViewDepthTexture, ViewTarget},
@@ -51,10 +51,17 @@ pub(crate) struct PassGpu {
     sampler: Sampler,
     _dummy_depth: Texture,
     dummy_depth_view: TextureView,
-    pub(crate) pipelines: HashMap<(u64, TextureFormat), CachedRenderPipelineId>,
+    /// Owned rather than in Bevy's append-only cache, so dropping an entry frees it.
+    pub(crate) pipelines: HashMap<(u64, TextureFormat), PipelineState>,
     uniforms: HashMap<(Entity, u64), Buffer>,
     /// The scene alternates between two main textures, so each pass reuses two bind groups.
     bind_groups: Mutex<HashMap<BindGroupKey, BindGroup>>,
+}
+
+pub(crate) enum PipelineState {
+    Creating(Task<Option<RenderPipeline>>),
+    Ready(RenderPipeline),
+    Failed,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,6 +70,115 @@ struct BindGroupKey {
     revision: u64,
     source: TextureViewId,
     depth: Option<TextureViewId>,
+}
+
+impl PassGpu {
+    /// Drops pipelines whose pass revision is no longer in the scene.
+    pub(crate) fn retain_pipelines(&mut self, scene: &ModRenderScene) {
+        let current = |revision: u64| scene.passes.iter().any(|p| p.revision == revision);
+        self.pipelines.retain(|(revision, _), _| current(*revision));
+    }
+
+    /// Starts compiling `pass` for `format` once, and adopts finished compiles.
+    pub(crate) fn ensure_pipeline(
+        &mut self,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        pass: &mod_render::Pass,
+        format: TextureFormat,
+    ) {
+        let state = self
+            .pipelines
+            .entry((pass.revision, format))
+            .or_insert_with(|| {
+                let layout = cache.get_bind_group_layout(&self.layouts[usize::from(pass.depth)]);
+                compile(device.clone(), layout, pass.shader.clone(), format)
+            });
+        if let PipelineState::Creating(task) = state
+            && let Some(result) = bevy::tasks::futures::check_ready(task)
+        {
+            *state = result.map_or(PipelineState::Failed, PipelineState::Ready);
+        }
+    }
+
+    pub(crate) fn pipeline(&self, revision: u64, format: TextureFormat) -> Option<&RenderPipeline> {
+        match self.pipelines.get(&(revision, format)) {
+            Some(PipelineState::Ready(pipeline)) => Some(pipeline),
+            _ => None,
+        }
+    }
+}
+
+/// Compiles off the render thread where Bevy does, and inline where it compiles inline.
+fn compile(
+    device: RenderDevice,
+    layout: BindGroupLayout,
+    shader: std::sync::Arc<str>,
+    format: TextureFormat,
+) -> PipelineState {
+    let task = async move { create_pipeline(&device, &layout, &shader, format) };
+    if cfg!(any(target_os = "macos", target_arch = "wasm32")) {
+        bevy::tasks::block_on(task).map_or(PipelineState::Failed, PipelineState::Ready)
+    } else {
+        PipelineState::Creating(AsyncComputeTaskPool::get().spawn(task))
+    }
+}
+
+/// Builds a checked pipeline; validation errors are logged rather than reaching the device.
+pub(crate) fn create_pipeline(
+    device: &RenderDevice,
+    layout: &BindGroupLayout,
+    shader: &str,
+    format: TextureFormat,
+) -> Option<RenderPipeline> {
+    let wgpu_device = device.wgpu_device();
+    wgpu_device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let module = device.create_and_validate_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("mod post pass"),
+        source: wgpu::ShaderSource::Wgsl(shader.into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("mod post pass"),
+        bind_group_layouts: &[layout],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("mod post pass"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some(VERTEX_ENTRY),
+            compilation_options: default(),
+            buffers: &[],
+        },
+        primitive: default(),
+        depth_stencil: None,
+        multisample: default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some(FRAGMENT_ENTRY),
+            compilation_options: default(),
+            targets: &[Some(color_target(format))],
+        }),
+        multiview: None,
+        cache: None,
+    });
+    match bevy::tasks::block_on(wgpu_device.pop_error_scope()) {
+        None => Some(pipeline),
+        Some(error) => {
+            warn!("mod post pass rejected by the device: {error}");
+            None
+        }
+    }
+}
+
+/// Each pass replaces the scene colour outright.
+pub(crate) fn color_target(format: TextureFormat) -> ColorTargetState {
+    ColorTargetState {
+        format,
+        blend: None,
+        write_mask: ColorWrites::ALL,
+    }
 }
 
 pub(crate) fn layout(depth: bool) -> BindGroupLayoutDescriptor {
@@ -123,7 +239,7 @@ pub(super) fn install(render_app: &mut SubApp) {
     install_graph(render_app.world_mut());
 }
 
-fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
     let dummy_depth = device.create_texture(&TextureDescriptor {
         label: Some("mod pass absent depth"),
         size: Extent3d {
@@ -154,34 +270,6 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         uniforms: HashMap::new(),
         bind_groups: Mutex::new(HashMap::new()),
     });
-}
-
-pub(crate) fn descriptor(
-    layout: BindGroupLayoutDescriptor,
-    shader: Handle<Shader>,
-    format: TextureFormat,
-) -> RenderPipelineDescriptor {
-    RenderPipelineDescriptor {
-        label: Some("mod post pass".into()),
-        layout: vec![layout],
-        vertex: VertexState {
-            shader: shader.clone(),
-            entry_point: Some(VERTEX_ENTRY.into()),
-            buffers: Vec::new(),
-            ..default()
-        },
-        fragment: Some(FragmentState {
-            shader,
-            entry_point: Some(FRAGMENT_ENTRY.into()),
-            targets: vec![Some(ColorTargetState {
-                format,
-                blend: None,
-                write_mask: ColorWrites::ALL,
-            })],
-            ..default()
-        }),
-        ..default()
-    }
 }
 
 /// Packs one pass's view and parameters into the prelude's uniform layout.
@@ -217,8 +305,8 @@ fn prepare(
         return;
     };
     let gpu = &mut *gpu;
-    let current = |revision: u64| scene.passes.iter().any(|p| p.pass.revision == revision);
-    gpu.pipelines.retain(|(revision, _), _| current(*revision));
+    let current = |revision: u64| scene.passes.iter().any(|p| p.revision == revision);
+    gpu.retain_pipelines(&scene);
     gpu.uniforms
         .retain(|(view, revision), _| views.contains(*view) && current(*revision));
     gpu.bind_groups
@@ -233,22 +321,11 @@ fn prepare(
         });
     for (entity, view, target) in &views {
         let format = target.main_texture_format();
-        for (slot, entry) in scene.passes.iter().enumerate() {
-            let (pass, Some(shader)) = (&entry.pass, &entry.shader) else {
-                continue;
-            };
+        for (slot, pass) in scene.passes.iter().enumerate() {
             if !pass.enabled {
                 continue;
             }
-            gpu.pipelines
-                .entry((pass.revision, format))
-                .or_insert_with(|| {
-                    cache.queue_render_pipeline(descriptor(
-                        gpu.layouts[usize::from(pass.depth)].clone(),
-                        shader.clone(),
-                        format,
-                    ))
-                });
+            gpu.ensure_pipeline(&device, &cache, pass, format);
             let uniform = frame_uniform(
                 view,
                 time.elapsed_secs_wrapped(),
@@ -335,13 +412,10 @@ impl ViewNode for ModPassNode {
                     && depth.texture.sample_count() == 1
             })
             .map_or(&gpu.dummy_depth_view, ViewDepthTexture::view);
-        for (slot, entry) in scene.passes.iter().enumerate() {
-            let pass = &entry.pass;
+        for (slot, pass) in scene.passes.iter().enumerate() {
             let (true, Some(pipeline), Some(uniform)) = (
                 pass.enabled,
-                gpu.pipelines
-                    .get(&(pass.revision, format))
-                    .and_then(|id| cache.get_render_pipeline(*id)),
+                gpu.pipeline(pass.revision, format),
                 gpu.uniforms.get(&(view, pass.revision)),
             ) else {
                 continue;

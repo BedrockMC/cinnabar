@@ -319,3 +319,17 @@ fn frames_may_compile_one_shader_each() {
         "re-registering unchanged source compiles nothing"
     );
 }
+
+#[test]
+fn identical_primitives_keep_their_identity_and_generation() {
+    let mut calls = Calls::new();
+    let frame = calls.draw(&[2.0], false);
+    let (_dir, mut host) = load(&calls, "", &frame, granted());
+    host.frame(false).unwrap();
+    let (output, generation) = host.render();
+    let first = std::sync::Arc::clone(&output.primitives);
+    host.frame(false).unwrap();
+    let (output, next) = host.render();
+    assert_eq!(next, generation, "an unchanged frame publishes no new generation");
+    assert!(std::sync::Arc::ptr_eq(&first, &output.primitives));
+}

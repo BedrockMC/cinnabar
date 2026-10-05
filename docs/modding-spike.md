@@ -215,9 +215,11 @@ independently of the game GUI scale; vanilla and server glyph ownership are pres
   callback may compile one shader. A rejection returns the reason to the guest. Passes
   run by `(order, name)` after post-processing and before the HUD, each reading the
   previous colour. `update-pass` retains an enable flag and 16 floats, and disabled passes
-  cost nothing. Each slot is timed as `gpu_mod_pass_N`.
+  cost nothing, and replaced or reloaded passes release their pipelines. Each slot is
+  timed as `gpu_mod_pass_N`.
 - **World primitives.** `draw` appends decals, ribbons, beams and billboards for the
-  current callback. Each successful callback replaces the drawn set. One premultiplied,
+  current callback. Each successful callback replaces the drawn set; an identical set
+  rebuilds and uploads nothing. One premultiplied,
   depth-tested draw without depth writes runs in the transparent phase, timed as
   `gpu_mod_primitives`.
 - Both commit only after a successful callback. A trap, reload, revocation or unload

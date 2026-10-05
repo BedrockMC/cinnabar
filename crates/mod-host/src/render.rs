@@ -63,7 +63,8 @@ impl RenderState {
             changed |= passes != self.committed.passes;
             self.committed.passes = passes;
         }
-        if !(primitives.is_empty() && self.committed.primitives.is_empty()) {
+        // Unchanged content keeps its identity, so the renderer rebuilds and uploads nothing.
+        if primitives != *self.committed.primitives {
             self.committed.primitives = Arc::new(primitives);
             changed = true;
         }

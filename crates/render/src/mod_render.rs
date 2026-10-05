@@ -1,5 +1,6 @@
 //! Personal-mod rendering: sandboxed post passes before the HUD and world primitives in the
-//! transparent phase. Nothing is queued or drawn while no mod renders.
+//! transparent phase. Nothing is queued or drawn while no mod renders. Pass pipelines are
+//! owned per pass revision, so replaced or reloaded passes release them.
 
 mod passes;
 mod primitives;
@@ -17,18 +18,11 @@ use std::sync::Arc;
 
 pub use passes::ModPassLabel;
 
-/// One validated pass with its compiled-shader handle once the main world has created it.
-#[derive(Clone, Debug)]
-pub(crate) struct ScenePass {
-    pub(crate) pass: mod_render::Pass,
-    pub(crate) shader: Option<Handle<Shader>>,
-}
-
 /// The current mod's render output, extracted whenever the mod commits a change.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct ModRenderScene {
     generation: u64,
-    pub(crate) passes: Vec<ScenePass>,
+    pub(crate) passes: Vec<mod_render::Pass>,
     pub(crate) vertices: Arc<[ModVertex]>,
     primitives: Arc<mod_render::Primitives>,
 }
@@ -42,24 +36,13 @@ impl ExtractResource for ModRenderScene {
 }
 
 impl ModRenderScene {
-    /// Adopts `output` unless `generation` is already applied; unchanged passes keep shaders.
+    /// Adopts `output` unless `generation` is already applied.
     pub fn apply(&mut self, output: &RenderOutput, generation: u64) {
         if generation == self.generation {
             return;
         }
         self.generation = generation;
-        let previous = std::mem::take(&mut self.passes);
-        self.passes = output
-            .passes
-            .iter()
-            .map(|pass| ScenePass {
-                pass: pass.clone(),
-                shader: previous
-                    .iter()
-                    .find(|old| old.pass.revision == pass.revision)
-                    .and_then(|old| old.shader.clone()),
-            })
-            .collect();
+        self.passes.clone_from(&output.passes);
         if !Arc::ptr_eq(&self.primitives, &output.primitives) {
             self.primitives = Arc::clone(&output.primitives);
             self.vertices = mod_render::geometry::build(&output.primitives).into();
@@ -83,26 +66,6 @@ impl ModRenderScene {
 
     pub fn vertex_count(&self) -> usize {
         self.vertices.len()
-    }
-}
-
-/// Creates checked shader assets for newly accepted passes before extraction.
-fn create_pass_shaders(mut scene: ResMut<ModRenderScene>, mut shaders: ResMut<Assets<Shader>>) {
-    if scene
-        .bypass_change_detection()
-        .passes
-        .iter()
-        .all(|pass| pass.shader.is_some())
-    {
-        return;
-    }
-    for pass in &mut scene.passes {
-        if pass.shader.is_none() {
-            pass.shader = Some(shaders.add(crate::shader_safety::from_wgsl(
-                pass.pass.shader.to_string(),
-                format!("mod-pass-{}-{}.wgsl", pass.pass.name, pass.pass.revision),
-            )));
-        }
     }
 }
 
@@ -131,8 +94,7 @@ fn install(app: &mut App) {
         passes::install_graph(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
-    app.add_plugins(ExtractResourcePlugin::<ModRenderScene>::default())
-        .add_systems(PostUpdate, create_pass_shaders);
+    app.add_plugins(ExtractResourcePlugin::<ModRenderScene>::default());
     primitives::install(app);
     app.sub_app_mut(RenderApp).insert_resource(Installed);
     passes::install(app.sub_app_mut(RenderApp));
