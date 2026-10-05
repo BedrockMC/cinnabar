@@ -32,7 +32,11 @@ fn pixel(pixels: &[u8], x: usize, y: usize) -> [u8; 4] {
 
 #[test]
 fn entering_portal_samples_and_blends_the_pack_texture_with_native_opacity() {
-    let gpu = Gpu::new().unwrap();
+    let Some(gpu) =
+        Gpu::for_fixture("entering_portal_samples_and_blends_the_pack_texture_with_native_opacity")
+    else {
+        return;
+    };
     let projection = Mat4::perspective_infinite_reverse_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1);
     let buffer = gpu.buffer(&uniform(projection.inverse()), wgpu::BufferUsages::UNIFORM);
     let texture = |pixels: &[u8]| {
@@ -119,7 +123,9 @@ fn entering_portal_samples_and_blends_the_pack_texture_with_native_opacity() {
 
 #[test]
 fn native_cube_uvs_follow_view_rotation_and_projection() {
-    let gpu = Gpu::new().unwrap();
+    let Some(gpu) = Gpu::for_fixture("native_cube_uvs_follow_view_rotation_and_projection") else {
+        return;
+    };
     let projection = Mat4::perspective_infinite_reverse_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1);
     let view_rotation = Mat4::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
     let buffer = gpu.buffer(

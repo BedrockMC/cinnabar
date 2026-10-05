@@ -307,15 +307,81 @@ fn cached_fragments_preserve_vertex_limits_and_rejected_quad_counts() {
     for tick in 0..2 {
         assert_matches_reference(&mut scene, f64::from(tick), &[], &submissions);
     }
-    assert_eq!(scene.static_rebuilds, 3701);
+    assert_eq!(scene.static_rebuilds, submissions.len());
     assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
     assert!(scene.rejected_quads() > 0);
     submissions.remove(0);
     submissions.push(portal(0));
     assert_matches_reference(&mut scene, 2.0, &[], &submissions);
-    // Every chest keeps a fragment; the clock-driven portal never does.
-    assert_eq!(scene.cached_submissions.len(), submissions.len() - 1);
+    // Portal animation changes uniforms, so its geometry stays cached with the chests.
+    assert_eq!(scene.cached_submissions.len(), submissions.len());
     assert_eq!(scene.frame.solid.len(), MAX_BLOCK_ENTITY_VERTICES);
+}
+
+#[test]
+fn cached_portal_fragment_respects_capacity_after_its_prefix_moves() {
+    assert_cached_fragment_capacity(portal(0), |builder| &mut builder.portal, 6);
+}
+
+#[test]
+fn cached_additive_fragment_respects_capacity_after_its_prefix_moves() {
+    assert_cached_fragment_capacity(
+        BlockEntitySubmission {
+            block: [0; 3],
+            light: 1.0.into(),
+            kind: BlockEntityKind::DragonDeath(DragonDeathModel {
+                center: [0.0; 3],
+                death_ticks: world::TICKS_PER_SECOND,
+                partial_tick: 0.0,
+                seed: 1,
+                duration_ticks: (world::TICKS_PER_SECOND * 2) as f32,
+            }),
+        },
+        |builder| &mut builder.additive,
+        3,
+    );
+}
+
+fn assert_cached_fragment_capacity(
+    submission: BlockEntitySubmission,
+    layer: fn(&mut MeshBuilder) -> &mut Vec<BlockEntityVertex>,
+    vertices_per_rejected_quad: u64,
+) {
+    let scene = scene();
+    let atlas = scene.atlas.as_ref().unwrap();
+    let emit = |builder: &mut MeshBuilder| {
+        emit_submission(
+            builder,
+            atlas,
+            (&scene.heads, &scene.mobs, scene.bed.as_ref()),
+            &submission,
+            SceneClock::default(),
+        );
+    };
+    let mut original = MeshBuilder::new(atlas.size());
+    emit(&mut original);
+    let fragment = CachedSubmission::capture(&submission, [0; 5], 0, &original);
+    let emitted = layer(&mut original).len();
+    assert_ne!(emitted, 0);
+    let mut fitting_prefix = MeshBuilder::new(atlas.size());
+    layer(&mut fitting_prefix).resize(
+        MAX_BLOCK_ENTITY_VERTICES - emitted,
+        BlockEntityVertex::default(),
+    );
+    assert!(fragment.matches(&submission, &fitting_prefix));
+    fragment.append_to(&mut fitting_prefix);
+    assert_eq!(layer(&mut fitting_prefix).len(), MAX_BLOCK_ENTITY_VERTICES);
+
+    assert!(
+        !fragment.matches(&submission, &fitting_prefix),
+        "a moved cached fragment cannot bypass its saturated draw-layer budget"
+    );
+    emit(&mut fitting_prefix);
+    assert_eq!(layer(&mut fitting_prefix).len(), MAX_BLOCK_ENTITY_VERTICES);
+    assert_eq!(
+        fitting_prefix.rejected_quads,
+        emitted as u64 / vertices_per_rejected_quad
+    );
 }
 
 #[test]

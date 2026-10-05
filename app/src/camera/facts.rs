@@ -68,7 +68,7 @@ pub(crate) fn collect_portal_contact(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn diagnose_portal(
-    time: Res<Time<bevy::time::Real>>,
+    time: Option<Res<Time<bevy::time::Real>>>,
     view: Res<LocalViewPose>,
     facts: Res<ScreenEffectFacts>,
     portal: Res<super::PortalProgress>,
@@ -78,6 +78,9 @@ pub(crate) fn diagnose_portal(
     client_world: Option<Res<ClientWorld>>,
     mut diagnostics: Local<client_presentation::camera::portal_diagnostics::PortalDiagnostics>,
 ) {
+    let Some(time) = time else {
+        return;
+    };
     let transfer_active = client_world
         .as_deref()
         .is_some_and(|world| world.dimension_transfer.active());

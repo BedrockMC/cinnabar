@@ -81,7 +81,10 @@ fn end_dimension_has_no_additive_base_sky_colour() {
 
 #[test]
 fn end_sky_multiplies_texture_by_resolved_fog_in_gamma_space() {
-    let gpu = Gpu::new().expect("End sky regression requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("end_sky_multiplies_texture_by_resolved_fog_in_gamma_space")
+    else {
+        return;
+    };
     let source = shader_source::standalone(include_str!("../../src/atmosphere.wgsl"), &[]);
     let view = gpu.buffer(
         &gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO),
@@ -143,7 +146,11 @@ fn end_sky_multiplies_texture_by_resolved_fog_in_gamma_space() {
 
 #[test]
 fn end_sky_repeats_the_pack_texture_on_all_six_world_aligned_faces() {
-    let gpu = Gpu::new().expect("End sky regression requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("end_sky_repeats_the_pack_texture_on_all_six_world_aligned_faces")
+    else {
+        return;
+    };
     // Cube quad corners in UV order 00,10,11,01 after its model transform.
     let faces = [
         [
