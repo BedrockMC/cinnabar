@@ -139,6 +139,9 @@ pub fn neutral_actor_geometry_uvs_are_supported(
             }
             let valid = match &cube.uv {
                 EntityGeometryUv::Box(origin) => {
+                    // Box side UVs and top/bottom U coordinates include depth. Fish
+                    // fins have negative origins in unused, degenerate faces.
+                    // Validate the faces with area, not the entire unfolded box.
                     let [x_uv, y_uv, z_uv] = [x, y, z].map(f32::trunc);
                     let [u, v] = origin.map(|value| value.get());
                     let inflate =
