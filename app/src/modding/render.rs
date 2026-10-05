@@ -22,7 +22,9 @@ pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super
     if unchanged {
         return;
     }
-    let merged = mod_host::mod_render::merge(runtime.render_outputs().map(|(output, _)| output));
+    let mut cache = std::mem::take(&mut runtime.render_merge);
+    let merged = cache.merge(runtime.render_outputs().map(|(output, _)| output));
+    runtime.render_merge = cache;
     let generation = scene.generation().wrapping_add(1);
     scene.apply(&merged, generation);
     runtime.render_sources = runtime

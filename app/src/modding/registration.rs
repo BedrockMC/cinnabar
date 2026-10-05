@@ -492,6 +492,7 @@ fn install(world: &mut World, update: Update) {
                         label_inputs: Vec::new(),
                         label_rebuilds: 0,
                         render_sources: Vec::new(),
+                        render_merge: Default::default(),
                         last_reload: Instant::now(),
                         controls: mod_host::empty_controls(),
                         reload_on_main: false,

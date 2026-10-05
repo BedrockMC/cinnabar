@@ -101,7 +101,7 @@ fn output(passes: Vec<Pass>, decals: usize) -> RenderOutput {
 fn merging_keeps_load_order_priority_within_the_single_mod_budgets() {
     let camera = output(vec![pass("shake", 5, 1), pass("grade", 0, 2)], 40);
     let effects = output(vec![pass("shake", -1, 3), pass("aura", 1, 4)], 40);
-    let merged = merge([&camera, &effects]);
+    let merged = RenderMerge::default().merge([&camera, &effects]);
     let passes: Vec<_> = merged
         .passes
         .iter()
@@ -114,7 +114,7 @@ fn merging_keeps_load_order_priority_within_the_single_mod_budgets() {
         .map(|index| pass(&format!("p{index}"), 0, index))
         .collect();
     let late = output(vec![pass("late", -9, 99)], 0);
-    let merged = merge([&output(crowded, 0), &late]);
+    let merged = RenderMerge::default().merge([&output(crowded, 0), &late]);
     assert_eq!(merged.passes.len(), mod_api::MAX_RENDER_PASSES);
     assert!(merged.passes.iter().all(|pass| pass.name != "late"));
 }
@@ -123,6 +123,30 @@ fn merging_keeps_load_order_priority_within_the_single_mod_budgets() {
 fn a_lone_drawing_mod_shares_its_primitives_so_nothing_rebuilds() {
     let drawing = output(Vec::new(), 3);
     let passes_only = output(vec![pass("grade", 0, 1)], 0);
-    let merged = merge([&passes_only, &drawing]);
+    let merged = RenderMerge::default().merge([&passes_only, &drawing]);
     assert!(Arc::ptr_eq(&merged.primitives, &drawing.primitives));
+}
+
+#[test]
+fn pass_changes_keep_the_merged_primitives_of_unchanged_mods() {
+    let mut cache = RenderMerge::default();
+    let mut camera = output(vec![pass("shake", 0, 1)], 2);
+    let effects = output(Vec::new(), 3);
+    let first = cache.merge([&camera, &effects]).primitives;
+    camera.passes[0].params[0] = 1.0;
+    let next = cache.merge([&camera, &effects]);
+    assert_eq!(next.passes[0].params[0], 1.0);
+    assert!(
+        Arc::ptr_eq(&first, &next.primitives),
+        "unchanged sets must not rebuild"
+    );
+    camera.primitives = Arc::new((*camera.primitives).clone());
+    let equal = cache.merge([&camera, &effects]).primitives;
+    assert!(
+        Arc::ptr_eq(&first, &equal),
+        "equal content keeps its identity too"
+    );
+    camera.primitives = Arc::new(Primitives::default());
+    let changed = cache.merge([&camera, &effects]).primitives;
+    assert_eq!(changed.decals.len(), 3);
 }
