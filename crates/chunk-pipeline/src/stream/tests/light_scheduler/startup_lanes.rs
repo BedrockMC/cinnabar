@@ -254,3 +254,30 @@ fn blocked_spawn_mesh_cannot_starve_ready_geometry_in_expired_polls() {
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     stream.accept_mesh_completion(completion);
 }
+
+/// Startup priority never queues ahead of an urgent live mutation, even one poll at a time.
+#[test]
+fn urgent_mutation_ingresses_before_startup_dependencies_in_expired_polls() {
+    let (mut stream, view) = stationary_lighting(true);
+    let urgent = SubChunkKey::new(1, 8, 5, 0);
+    let spawn: Vec<_> = (16..20).map(|y| SubChunkKey::new(1, 0, y, 0)).collect();
+    for key in spawn.iter().chain([&urgent]) {
+        install_current_light(&mut stream, *key, 0, 0, false);
+    }
+    stream
+        .mark_light_dirty_exact_with_priority(urgent, true)
+        .unwrap();
+    for key in &spawn {
+        stream.mark_light_dirty_exact(*key).unwrap();
+    }
+    stream
+        .lighting
+        .jobs
+        .ingress(view, Some(Instant::now()), |_, _, _| (0, true));
+    let lane = &stream.lighting.jobs.lanes[0];
+    assert_eq!(lane.ready.len() + lane.deferred.len(), 1);
+    assert_eq!(
+        lane.ready.peek().map(|candidate| candidate.key),
+        Some(urgent)
+    );
+}
