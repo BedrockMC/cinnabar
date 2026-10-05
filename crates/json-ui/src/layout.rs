@@ -245,6 +245,7 @@ fn lay_out<'a>(
             hits: Default::default(),
             emitting: true,
             taint: 0,
+            inspected: 0,
         }),
     };
     let key = child_key("", root, 0);
@@ -303,6 +304,8 @@ struct Reuse<'e> {
     emitting: bool,
     /// Context reads outside a control's inputs so far.
     taint: usize,
+    /// Enclosing edit boxes, whose input metadata reads their laid-out descendants.
+    inspected: usize,
 }
 
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
@@ -367,7 +370,8 @@ fn place_subtree<'a>(
     let free = ctx.scrolls.is_empty()
         && ctx.sliders.is_empty()
         && ctx.overrides.is_empty()
-        && ctx.hidden_names.is_empty();
+        && ctx.hidden_names.is_empty()
+        && ctx.reuse.as_ref().is_some_and(|reuse| reuse.inspected == 0);
     let parent_rect = ctx
         .ancestors
         .last()
@@ -548,6 +552,10 @@ fn place_subtree<'a>(
         (hits, reuse.emitting && shown && own_visible, parent)
     });
     let old = entry.as_ref().and_then(|(_, old, _, _)| *old);
+    let inspects = control.control_type.as_deref() == Some("edit_box");
+    if let Some(reuse) = ctx.reuse.as_mut().filter(|_| inspects) {
+        reuse.inspected += 1;
+    }
     for (child, mut child_rect) in placed {
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
@@ -644,6 +652,7 @@ fn place_subtree<'a>(
     if let (Some(reuse), Some((_, _, (hits, emitting)))) = (ctx.reuse.as_mut(), inherit_reuse) {
         reuse.hits = hits;
         reuse.emitting = emitting;
+        reuse.inspected -= usize::from(inspects);
     }
     ctx.ancestors.pop();
     ctx.overrides.truncate(overrides_len);

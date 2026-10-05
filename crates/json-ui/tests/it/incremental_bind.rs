@@ -7,11 +7,12 @@ use crate::support;
 use std::sync::Arc;
 
 use json_ui::{
-    BindState, BossBar, CachedLibrary, Catalog, CatalogLibrary, CollectionItem, Context,
-    DataSource, FactoryItem, FormRender, HUD_SCREEN, HudModel, HudSlot, HudTitle, LayoutEnv,
-    MeasureCache, ResolveCache, ResolvedControl, Scalar, Sidebar, TextMeasure, TextureMeta,
-    TextureSource, Timed, ViewState, bind_incremental, bind_stateful, hud_context, hud_data_source,
-    rebind, render_bound, render_bound_cached, resolve,
+    BindState, BossBar, ButtonInput, CachedLibrary, Catalog, CatalogLibrary, CollectionItem,
+    Components, Context, DataSource, Dispatcher, FactoryItem, FormRender, HUD_SCREEN, HudModel,
+    HudSlot, HudTitle, InputMode, LayoutEnv, MeasureCache, ResolveCache, ResolvedControl, Scalar,
+    Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState, bind_incremental,
+    bind_stateful, hud_context, hud_data_source, rebind, render_bound, render_bound_cached,
+    resolve,
 };
 use serde_json::Value;
 
@@ -426,9 +427,51 @@ const SYNTHETIC: &str = r##"{
       { "binding_type": "collection_details", "binding_collection_name": "cells" }
     ]
   },
+  "cap_cell": { "type": "label", "text": "cell", "size": [12, 9] },
+  "listed_row": { "type": "label", "text": "row", "size": ["default", 9] },
   "root": {
     "type": "panel", "size": ["100%", "100%"],
     "controls": [
+      { "cap_source": {
+          "type": "label", "text": "#cap", "size": ["default", 9], "anchor_from": "center", "anchor_to": "center",
+          "property_bag": { "#cap": 1 },
+          "bindings": [ { "binding_name": "#cap" } ]
+      } },
+      { "cap_grid": {
+          "type": "grid", "size": ["100%c", "100%c"], "anchor_from": "bottom_middle", "anchor_to": "bottom_middle",
+          "grid_item_template": "inc.cap_cell", "grid_rescaling_type": "horizontal",
+          "bindings": [
+            { "binding_type": "view", "source_control_name": "cap_source",
+              "source_property_name": "#cap", "target_property_name": "#maximum_grid_items" }
+          ]
+      } },
+      { "edit": {
+          "type": "edit_box", "size": [60, 20], "anchor_from": "left_middle", "anchor_to": "left_middle",
+          "offset": [0, 40], "max_length": 20,
+          "text_control": "edit_text", "place_holder_control": "edit_hint",
+          "button_mappings": [
+            { "from_button_id": "button.menu_select", "to_button_id": "button.edit", "mapping_type": "pressed" }
+          ],
+          "controls": [
+            { "edit_inner": {
+                "type": "panel", "size": [60, 20],
+                "controls": [
+                  { "edit_text": { "type": "label", "text": "", "size": [60, 10] } },
+                  { "edit_hint": { "type": "label", "text": "Hint", "size": [60, 10] } }
+                ]
+            } },
+            { "edit_flag": {
+                "type": "label", "text": "!", "size": [6, 9],
+                "bindings": [ { "binding_name": "#flag_on", "binding_name_override": "#visible" } ]
+            } }
+          ]
+      } },
+      { "listed": {
+          "type": "stack_panel", "orientation": "vertical", "size": ["100%cm", "100%c"],
+          "anchor_from": "bottom_right", "anchor_to": "bottom_right",
+          "collection_name": "maybe", "property_bag": { "#collection_length": 2 },
+          "factory": { "name": "listed_factory", "control_name": "inc.listed_row" }
+      } },
       { "title": {
           "type": "label", "text": "#title", "anchor_from": "top_middle", "anchor_to": "top_middle",
           "size": ["default", 10],
@@ -539,6 +582,13 @@ struct Synthetic {
     cells: Vec<String>,
     late: Option<String>,
     gate: Option<String>,
+    /// The grid capacity a view reads from another control.
+    cap: i64,
+    flag: bool,
+    /// Rows of a collection that may be absent rather than empty.
+    maybe: Option<usize>,
+    /// Edit-box component writes, as a selection leaves them.
+    components: Option<Components>,
 }
 
 impl Synthetic {
@@ -601,11 +651,19 @@ impl Synthetic {
         if let Some(gate) = &self.gate {
             data.set_global("#gate_text", Scalar::Text(gate.clone()));
         }
+        data.set_global("#cap", Scalar::Int(self.cap));
+        data.set_global("#flag_on", Scalar::Bool(self.flag));
+        if let Some(rows) = self.maybe {
+            data.set_collection("maybe", vec![CollectionItem::default(); rows]);
+        }
+        if let Some(components) = &self.components {
+            data.set_components(components.clone());
+        }
         data
     }
 
-    fn mutate(&mut self, rng: &mut Rng, now: f64) -> &'static str {
-        match rng.below(9) {
+    fn mutate(&mut self, rng: &mut Rng, now: f64, edits: &Components) -> &'static str {
+        match rng.below(13) {
             0 => {
                 self.title = rng.chance(70).then(|| format!("title {}", rng.below(5)));
                 "title"
@@ -651,21 +709,142 @@ impl Synthetic {
                 self.gate = rng.chance(60).then(|| format!("gate {}", rng.below(5)));
                 "gate"
             }
+            9 => {
+                self.cap = rng.below(4) as i64;
+                "grid capacity"
+            }
+            10 => {
+                self.flag = !self.flag;
+                "edit flag"
+            }
+            11 => {
+                self.maybe = rng.chance(60).then(|| rng.below(3));
+                "collection presence"
+            }
+            12 => {
+                self.components = self.components.take().xor(Some(edits.clone()));
+                "component writes"
+            }
             _ => "unchanged",
         }
     }
 }
 
+/// The component writes selecting the synthetic edit box leaves.
+fn selected_edit(catalog: &Catalog) -> Components {
+    let context = Context::desktop();
+    let library = CatalogLibrary {
+        catalog,
+        context: &context,
+    };
+    let root = resolve(catalog, "inc.root", &context).control.unwrap();
+    let env = LayoutEnv {
+        text: &FixedText,
+        textures: &FixedTextures,
+    };
+    let bound = json_ui::bind(&root, &Synthetic::default().data(), &library);
+    let regions = render_bound(bound, ROOT, &env, &ViewState::default()).hits;
+    let edit = regions
+        .iter()
+        .find(|region| region.widget.edit.is_some())
+        .expect("synthetic edit box");
+    let mut view = ViewState {
+        focused: Some(edit.key.clone()),
+        ..ViewState::default()
+    };
+    Dispatcher::default().button(
+        &regions,
+        &mut view,
+        ButtonInput {
+            id: "button.menu_select",
+            down: true,
+            point: Some([edit.rect.x + 1.0, edit.rect.y + 1.0]),
+            mode: InputMode::Mouse,
+            now: 0.0,
+        },
+    );
+    assert!(
+        !view.components.is_empty(),
+        "selection writes component state"
+    );
+    view.components
+}
+
+/// Settle `screen`, apply `change`, and refresh until settled again, matching
+/// full rebinds throughout.
+fn settle_then(screen: &mut Synthetic, change: impl FnOnce(&mut Synthetic), name: &str) {
+    let catalog = synthetic();
+    let mut pair = Pair::new(&catalog, "inc.root", Context::desktop());
+    for _ in 0..3 {
+        pair.refresh(screen.data(), &format!("{name}: settle"));
+    }
+    change(screen);
+    for step in 0..3 {
+        pair.refresh(screen.data(), &format!("{name}: step {step}"));
+    }
+}
+
+#[test]
+fn view_bound_grid_capacity_regrows_reused_grids() {
+    let mut screen = Synthetic {
+        cap: 1,
+        ..Synthetic::default()
+    };
+    settle_then(&mut screen, |screen| screen.cap = 3, "grid capacity");
+}
+
+#[test]
+fn removed_component_writes_restore_authored_properties() {
+    let edits = selected_edit(&synthetic());
+    let mut screen = Synthetic::default();
+    settle_then(
+        &mut screen,
+        |screen| screen.components = Some(edits),
+        "component writes added",
+    );
+    settle_then(
+        &mut screen,
+        |screen| screen.components = None,
+        "component writes removed",
+    );
+}
+
+#[test]
+fn edit_box_regions_keep_descendant_targets() {
+    let mut screen = Synthetic::default();
+    settle_then(
+        &mut screen,
+        |screen| screen.flag = true,
+        "edit sibling shown",
+    );
+}
+
+#[test]
+fn supplying_an_empty_collection_replaces_the_literal_count() {
+    let mut screen = Synthetic::default();
+    settle_then(
+        &mut screen,
+        |screen| screen.maybe = Some(0),
+        "empty collection",
+    );
+    settle_then(
+        &mut screen,
+        |screen| screen.maybe = None,
+        "absent collection",
+    );
+}
+
 #[test]
 fn random_synthetic_refreshes_match_full_rebinds() {
     let catalog = synthetic();
+    let edits = selected_edit(&catalog);
     for seed in 1..=8u64 {
         let mut pair = Pair::new(&catalog, "inc.root", Context::desktop());
         let mut screen = Synthetic::default();
         let mut rng = Rng(seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
         pair.refresh(screen.data(), "initial");
         for step in 0..150 {
-            let kind = screen.mutate(&mut rng, step as f64);
+            let kind = screen.mutate(&mut rng, step as f64, &edits);
             pair.refresh(screen.data(), &format!("seed {seed} step {step}: {kind}"));
         }
     }
@@ -705,9 +884,16 @@ fn collection_changes_rebuild_only_their_list() {
             screen.cells.push("textures/b".into())
         }),
     ];
+    // A grid whose capacity a view sets rebuilds on every refresh.
+    let settled = |paths: Vec<String>| -> Vec<String> {
+        let grid = |path: &String| {
+            path.contains("/cap_grid") || "/root/cap_grid".starts_with(&format!("{path}/"))
+        };
+        paths.into_iter().filter(|path| !grid(path)).collect()
+    };
     for (name, list, change) in cases {
         change(&mut screen);
-        let paths = pair.refresh(screen.data(), name).rebuilt;
+        let paths = settled(pair.refresh(screen.data(), name).rebuilt);
         assert!(!paths.is_empty(), "{name}: nothing rebuilt");
         for path in &paths {
             assert!(
@@ -719,12 +905,8 @@ fn collection_changes_rebuild_only_their_list() {
         for _ in 0..2 {
             pair.refresh(screen.data(), name);
         }
-        let idle = pair.refresh(screen.data(), name);
-        assert!(
-            idle.rebuilt.is_empty(),
-            "{name}: settled refresh rebuilt {:?}",
-            idle.rebuilt
-        );
+        let idle = settled(pair.refresh(screen.data(), name).rebuilt);
+        assert!(idle.is_empty(), "{name}: settled refresh rebuilt {idle:?}");
     }
 }
 
