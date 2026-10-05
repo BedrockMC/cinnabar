@@ -17,8 +17,8 @@ pub(super) struct ScriptedCamera {
     /// Game time at the first sampled frame.
     started: Option<f32>,
     elapsed: f32,
-    /// The player's own `hide_hand` setting, restored on release.
-    restore_hide_hand: Option<i32>,
+    /// The hand is hidden by an in-memory override, lifted on release.
+    hid_hand: bool,
 }
 
 /// The vanilla video option the cinematic camera borrows to hide the hand.
@@ -51,23 +51,18 @@ pub(super) fn configure(app: &mut App) {
 pub(super) fn start(world: &mut World, path: CameraPath) -> Result<Value, String> {
     path.validate()?;
     let duration = path.duration();
-    let mut restore_hide_hand = world
+    let previously_hid = world
         .remove_resource::<ScriptedCamera>()
-        .and_then(|previous| previous.restore_hide_hand);
-    if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
-        if let Some(value) = restore_hide_hand.take() {
-            menu.set_named_option(HIDE_HAND, value);
-        }
-        if path.hide_hand {
-            restore_hide_hand = Some(menu.settings_snapshot().0.value(HIDE_HAND));
-            menu.set_named_option(HIDE_HAND, 1);
-        }
+        .is_some_and(|previous| previous.hid_hand);
+    let hid_hand = path.hide_hand;
+    if previously_hid != hid_hand {
+        set_hand_hidden(world, hid_hand);
     }
     world.insert_resource(ScriptedCamera {
         path,
         started: None,
         elapsed: 0.0,
-        restore_hide_hand,
+        hid_hand,
     });
     Ok(json!({ "duration": duration }))
 }
@@ -76,13 +71,17 @@ pub(super) fn release(world: &mut World) -> Result<Value, String> {
     let Some(scripted) = world.remove_resource::<ScriptedCamera>() else {
         return Ok(json!({ "released": false }));
     };
-    if let (Some(value), Some(mut menu)) = (
-        scripted.restore_hide_hand,
-        world.get_resource_mut::<crate::menu::MenuRuntime>(),
-    ) {
-        menu.set_named_option(HIDE_HAND, value);
+    if scripted.hid_hand {
+        set_hand_hidden(world, false);
     }
     Ok(json!({ "released": true }))
+}
+
+/// Never saved: the override lives only in this process's settings snapshot.
+fn set_hand_hidden(world: &mut World, hidden: bool) {
+    if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
+        menu.set_session_option(HIDE_HAND, hidden.then_some(1));
+    }
 }
 
 /// Game time drives sampling, so a fixed-clock recording plays the path frame-exactly.

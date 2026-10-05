@@ -321,3 +321,25 @@ fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
     assert_eq!(SettingsOptions::load(&path).value("gamma"), 80);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn session_overrides_apply_in_memory_but_are_never_saved() {
+    let layout = crate::install_layout::scratch("session-overrides");
+    let settings_path = layout.server_file().with_file_name(SETTINGS_FILE);
+    let skin = crate::player_skin::LocalPlayerSkin::generated_default("Overrides");
+    let mut menu =
+        crate::menu::MenuRuntime::new_with_layout(true, Some(2), "Overrides".into(), layout, skin);
+    menu.set_session_option("hide_hud", Some(1));
+    menu.set_session_option("hide_hand", Some(1));
+    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 1);
+    // A real edit elsewhere saves the file without the overrides.
+    menu.set_option(index("main_volume") as u16, 30);
+    menu.sync_user_settings(None);
+    let saved = SettingsOptions::load(&settings_path);
+    assert_eq!(saved.value("hide_hud"), 0);
+    assert_eq!(saved.value("hide_hand"), 0);
+    assert_eq!(saved.value("main_volume"), 30);
+    menu.set_session_option("hide_hud", None);
+    assert_eq!(menu.settings_snapshot().0.value("hide_hud"), 0);
+    assert_eq!(menu.settings_snapshot().0.value("hide_hand"), 1);
+}
