@@ -36,7 +36,13 @@ struct SetEntry {
 
 /// Reads a bounded set file; its order is the load order.
 pub(super) fn read_set(path: &Path) -> Result<Vec<(PathBuf, ModGrants)>, String> {
-    let bytes = std::fs::read(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| {
+            use std::io::Read;
+            file.take(MAX_SET_BYTES as u64 + 1).read_to_end(&mut bytes)
+        })
+        .map_err(|error| format!("read {}: {error}", path.display()))?;
     if bytes.len() > MAX_SET_BYTES {
         return Err("mod set exceeds its byte limit".into());
     }
@@ -89,6 +95,27 @@ impl ModRuntime {
     }
 
     /// Every loaded mod's reserved keys, kept away from ordinary gameplay.
+    /// Every mod's label in load order, joined and cut to the plain-text limit.
+    pub(super) fn merged_label(&mut self) -> Option<&str> {
+        if self.host_count() == 1 {
+            return self.host.label();
+        }
+        let mut current = (0..self.host_count()).filter_map(|index| self.host(index).label());
+        let unchanged = self
+            .label_inputs
+            .iter()
+            .map(String::as_str)
+            .eq(&mut current);
+        if !unchanged {
+            self.label_inputs = (0..self.host_count())
+                .filter_map(|index| self.host(index).label().map(str::to_owned))
+                .collect();
+            self.label = join_labels(&self.label_inputs);
+            self.label_rebuilds += 1;
+        }
+        self.label.as_deref()
+    }
+
     pub(super) fn reserved_keys(&self) -> Vec<String> {
         let mut keys: Vec<_> = (0..self.host_count())
             .flat_map(|index| self.host(index).reserved_keys().iter().cloned())
@@ -173,7 +200,6 @@ pub(super) struct Merged {
     pub attack_pulse: bool,
     pub commands: Vec<String>,
     pub cues: Vec<ModCue>,
-    labels: Vec<String>,
 }
 
 impl Merged {
@@ -187,27 +213,24 @@ impl Merged {
         self.rig = self.rig.or(host.camera_rig());
         self.time_override = self.time_override.or(host.time_override());
         self.commands.extend(host.take_commands());
-        if let Some(label) = host.label() {
-            self.labels.push(label.to_owned());
-        }
         self.cues.extend(host.take_cues());
     }
+}
 
-    /// Labels in load order, joined and cut to the host's plain-text limit.
-    pub fn label(&self) -> Option<String> {
-        if self.labels.is_empty() {
-            return None;
-        }
-        let mut label = self.labels.join(" | ");
-        if label.len() > mod_host::MAX_LABEL_BYTES {
-            let mut end = mod_host::MAX_LABEL_BYTES;
-            while !label.is_char_boundary(end) {
-                end -= 1;
-            }
-            label.truncate(end);
-        }
-        Some(label)
+/// Joins labels with a separator, cut at a char boundary within the plain-text limit.
+fn join_labels(labels: &[String]) -> Option<String> {
+    if labels.is_empty() {
+        return None;
     }
+    let mut label = labels.join(" | ");
+    if label.len() > mod_host::MAX_LABEL_BYTES {
+        let mut end = mod_host::MAX_LABEL_BYTES;
+        while !label.is_char_boundary(end) {
+            end -= 1;
+        }
+        label.truncate(end);
+    }
+    Some(label)
 }
 
 #[cfg(test)]

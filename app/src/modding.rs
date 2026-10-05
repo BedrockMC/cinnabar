@@ -52,6 +52,10 @@ pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 struct ModRuntime {
     host: ModHost,
     companions: Vec<multi::Companion>,
+    /// Merged label of several mods, rebuilt only when one of their labels changes.
+    label: Option<String>,
+    label_inputs: Vec<String>,
+    label_rebuilds: u64,
     last_reload: Instant,
     controls: mod_host::ControlFrame,
     reload_on_main: bool,
@@ -142,6 +146,9 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
         .insert_resource(ModRuntime {
             host,
             companions,
+            label: None,
+            label_inputs: Vec::new(),
+            label_rebuilds: 0,
             last_reload: Instant::now(),
             controls: mod_host::empty_controls(),
             reload_on_main: true,
@@ -288,7 +295,6 @@ fn drive_mod(
     if let Some(delta) = merged.delta {
         gameplay.apply(delta);
     }
-    let label = merged.label();
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;
@@ -297,7 +303,7 @@ fn drive_mod(
         camera.set_rig(merged.rig.map(camera_rig));
     }
     time_override.0 = merged.time_override;
-    if let Err(error) = presentation.set_mod_label(label.as_deref()) {
+    if let Err(error) = presentation.set_mod_label(extension.merged_label()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
     }
     let owner = extension.panel_owner();

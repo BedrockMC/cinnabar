@@ -516,6 +516,9 @@ fn install(world: &mut World, update: Update) {
                     world.insert_resource(ModRuntime {
                         host: candidate.host,
                         companions: Vec::new(),
+                        label: None,
+                        label_inputs: Vec::new(),
+                        label_rebuilds: 0,
                         last_reload: Instant::now(),
                         controls: mod_host::empty_controls(),
                         reload_on_main: false,
