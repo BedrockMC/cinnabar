@@ -13,6 +13,7 @@ pub(super) struct Lane {
     /// Promoted startup revisions: attempts and the poll before which a blocked one stays deferred.
     rechecks: HashMap<SubChunkKey, Recheck>,
     polls: u64,
+    held: Vec<PendingSchedulerCandidate>, // cooldown scratch, reused across polls
 }
 
 #[derive(Clone, Copy)]
@@ -47,7 +48,6 @@ impl Lane {
         self.polls += 1;
         let ready_best = self.ready.peek().copied();
         let mut examined = false;
-        let mut held = Vec::new();
         while *budget != 0
             && (!examined || deadline.is_none_or(|deadline| Instant::now() < deadline))
         {
@@ -69,7 +69,7 @@ impl Lane {
                 .filter(|recheck| recheck.revision == candidate.revision)
                 .copied();
             if recheck.is_some_and(|recheck| self.polls < recheck.not_before) {
-                held.push(candidate);
+                self.held.push(candidate);
                 continue;
             }
             let attempts = recheck.map_or(0, |recheck| recheck.attempts);
@@ -84,7 +84,7 @@ impl Lane {
             );
             self.ready.push(candidate);
         }
-        self.deferred.extend(held);
+        self.deferred.extend(self.held.drain(..));
     }
 }
 
@@ -180,7 +180,10 @@ impl PendingJob for PendingMesh {
 /// invalidated scan and lane queues, and the jobs already dispatched.
 pub(super) struct KeyedJobs<P, J, const L: usize> {
     pub(super) pending: HashMap<SubChunkKey, P>,
+    /// Urgent records at the front, ordinary ones at the back.
     pub(super) scan: VecDeque<(SubChunkKey, u64)>,
+    /// Startup dependencies, ingressed after urgent records and before ordinary ones.
+    pub(super) startup_scan: VecDeque<(SubChunkKey, u64)>,
     pub(super) lanes: [Lane; L],
     pub(super) refresh: SchedulerRefresh<L>,
     pub(super) in_flight: HashMap<SubChunkKey, J>,
@@ -191,6 +194,7 @@ impl<P, J, const L: usize> Default for KeyedJobs<P, J, L> {
         Self {
             pending: HashMap::new(),
             scan: VecDeque::new(),
+            startup_scan: VecDeque::new(),
             lanes: std::array::from_fn(|_| Lane::default()),
             refresh: SchedulerRefresh::default(),
             in_flight: HashMap::new(),
@@ -204,9 +208,13 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         self.enqueue_prioritized(key, pending, false);
     }
 
-    /// Startup dependencies enter the scan ahead of ordinary work without becoming urgent.
+    /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.
     pub(super) fn enqueue_prioritized(&mut self, key: SubChunkKey, pending: P, startup: bool) {
-        self.rescan(key, pending.revision(), pending.urgent() || startup);
+        if startup && !pending.urgent() {
+            self.startup_scan.push_back((key, pending.revision()));
+        } else {
+            self.rescan(key, pending.revision(), pending.urgent());
+        }
         self.pending.insert(key, pending);
     }
 
@@ -222,6 +230,7 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
     pub(super) fn clear_queued(&mut self) {
         self.pending.clear();
         self.scan.clear();
+        self.startup_scan.clear();
         for lane in &mut self.lanes {
             lane.ready.clear();
             lane.deferred.clear();
@@ -246,7 +255,9 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             .refresh
             .refresh(view, &mut self.lanes, deadline, is_current);
         compact_scheduler_scan(&mut self.scan, pending.len(), is_current);
-        let ingress_budget = self.scan.len().min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
+        compact_scheduler_scan(&mut self.startup_scan, pending.len(), is_current);
+        let ingress_budget =
+            (self.scan.len() + self.startup_scan.len()).min(MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
         let mut ingressed = false;
         for index in 0..ingress_budget {
             if deadline.is_some_and(|deadline| Instant::now() >= deadline)
@@ -254,7 +265,18 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             {
                 break;
             }
-            let Some((key, queued_revision)) = self.scan.pop_front() else {
+            // Urgent records sit at the scan front; startup work follows them, then ordinary work.
+            let urgent_front = self.scan.front().is_some_and(|&(key, revision)| {
+                self.pending
+                    .get(&key)
+                    .is_some_and(|pending| pending.revision() == revision && pending.urgent())
+            });
+            let next = if urgent_front || self.startup_scan.is_empty() {
+                self.scan.pop_front()
+            } else {
+                self.startup_scan.pop_front()
+            };
+            let Some((key, queued_revision)) = next else {
                 break;
             };
             let Some(pending) = self
@@ -511,5 +533,44 @@ mod tests {
         );
         assert!(before > after);
         assert_eq!(after, needed);
+    }
+
+    /// A blocked startup job cooling down costs no allocation however many polls it waits.
+    #[test]
+    fn cooling_down_startup_job_reuses_scratch_storage() {
+        let view = SchedulerView {
+            position: [8.0, 80.0, 8.0],
+            forward: None,
+            startup_center: Some(ChunkKey::new(0, 0, 0)),
+        };
+        let spawn = PendingSchedulerCandidate::new(SubChunkKey::new(0, 0, 5, 0), 1, view, false);
+        let distant = PendingSchedulerCandidate::new(SubChunkKey::new(0, 9, 5, 0), 1, view, false);
+        let mut lane = Lane::default();
+        lane.ready.push(distant);
+        lane.deferred.push(spawn);
+        lane.rechecks.insert(
+            spawn.key,
+            Recheck {
+                revision: 1,
+                attempts: 6,
+                not_before: u64::MAX,
+            },
+        );
+        let mut budget = usize::MAX;
+        lane.prioritize_deferred(&mut budget, None, |_, _| true);
+        let before = super::super::tests::allocation_count::thread_allocations();
+        for _ in 0..64 {
+            let mut budget = usize::MAX;
+            lane.prioritize_deferred(&mut budget, None, |_, _| true);
+        }
+        assert_eq!(
+            super::super::tests::allocation_count::thread_allocations(),
+            before
+        );
+        assert_eq!(
+            lane.deferred.peek().map(|candidate| candidate.key),
+            Some(spawn.key)
+        );
+        assert_eq!(lane.ready.len(), 1);
     }
 }
