@@ -125,6 +125,8 @@ struct VisualCompiler {
     thin_templates: BTreeMap<ThinTemplateKey, u32>,
     lily_pad_templates: BTreeMap<u32, u32>,
     fire_templates: BTreeMap<[u32; 2], u32>,
+    flower_pot_templates: BTreeMap<[u32; 7], u32>,
+    flower_pot_soil: Option<u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
 }
 
@@ -173,6 +175,16 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.fire_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::flower_pot::compile_rule(
+            record,
+            inputs,
+            self.flower_pot_soil,
+            &mut self.flower_pot_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -434,6 +446,7 @@ pub(in crate::compiler) fn compile_visuals(
         vanilla_fallback_material,
         fallback,
     };
+    compiler.flower_pot_soil = super::flower_pot::soil_material(records, &inputs);
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered_records {

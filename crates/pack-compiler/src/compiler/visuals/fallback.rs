@@ -136,7 +136,10 @@ impl<'a> FallbackInventory<'a> {
     }
 
     /// Inventory hit for `record`, ignoring families that now compile to exact geometry.
-    fn entry(&self, record: &RegistryRecord) -> Option<([i16; 3], [i16; 3], u8)> {
+    pub(in crate::compiler) fn entry(
+        &self,
+        record: &RegistryRecord,
+    ) -> Option<([i16; 3], [i16; 3], u8)> {
         if has_exact_family_route(record) {
             return None;
         }

@@ -1,3 +1,11 @@
+## Flower-pot floor and lily-pad atlas tint
+
+- Flower pots now add the dirt surface four pixels above the block base, below the rim.
+- The pot body remains provisional fallback geometry; full current-version visual parity is incomplete.
+- Literal lily-pad atlas tint survives raster-only resource-pack replacement. A higher catalog can replace or clear it.
+- The current vanilla pack supplies a fixed green atlas multiplier, rather than biome tint.
+- Regression tests reproduce the missing floor and ignored pack tint. Installed Windows visual acceptance is pending.
+
 ## Java-style Tab player list
 
 - User-requested HUD extension: hold Tab for the authoritative online roster.
