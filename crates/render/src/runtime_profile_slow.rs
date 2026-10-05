@@ -215,6 +215,10 @@ impl SlowFrameRecorder {
         self.interval_nanos.store(nanos, Ordering::Relaxed);
     }
 
+    pub(super) fn interval(&self) -> Duration {
+        Duration::from_nanos(self.interval_nanos.load(Ordering::Relaxed))
+    }
+
     fn budgets(&self) -> FrameBudgets {
         FrameBudgets::for_nanos(self.interval_nanos.load(Ordering::Relaxed))
     }

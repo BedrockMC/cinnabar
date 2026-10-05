@@ -338,6 +338,8 @@ pub struct WorldStream {
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     frame_deadline: Option<Instant>,
+    /// Per-frame ingress, commit and scheduling allocation.
+    poll_budget: Duration,
     polling: bool,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,

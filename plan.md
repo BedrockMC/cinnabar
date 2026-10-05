@@ -28,9 +28,18 @@
   14.53/19.24/35.82/257.54 ms; the 871 estimate interval is 253.87–261.76 ms.
   Radius-16 metadata scan is 1.33 ms; mixed cube mesh is 0.50 ms; full light solves
   are 0.40–0.48 ms. Local Criterion data is saved as `chunks` under `target/criterion/`.
-- Incomplete native performance acceptance: socket framing, GPU preparation/uploads,
-  draws and complete Bevy frames are outside these CPU measurements. No client
-  optimisation or parity gate is claimed. Commands and boundaries are in the README.
+- Moving-FPS fixes on top of incremental cave visibility and column residency: trailing-row
+  eviction finds tracked columns one key per column, retires mesh records by key, and dirties
+  neighbours per column, so its cost follows the retired edge rather than the view. The
+  per-frame world-stream allocation is half the display interval, between 1 and 3 ms, so a
+  streaming backlog cannot halve high refresh rates. Chunk uploads merge abutting arena
+  writes into one staged write per run. The F3 overlay keeps its bindings and layout and
+  rebinds only changed lines.
+- Incomplete: no live capture of these fixes yet, and the slower streaming throughput the
+  smaller allocation allows at high refresh rates is unmeasured. Per-job light/mesh dispatch
+  snapshots, whole-frame UI rebuilds on any change, and a full cave search per camera
+  sub-chunk change remain. No parity or performance gate is claimed; commands and
+  boundaries are in the README.
 
 ## GPU terrain culling with Hi-Z occlusion
 
