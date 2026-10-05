@@ -69,16 +69,15 @@ fn spawn_browser(program: &str, args: &[String]) -> bool {
 
 #[cfg(target_os = "linux")]
 fn launch(url: &str) -> bool {
-    let desktop = default_browser().or_else(|| {
-        Command::new("xdg-settings")
-            .args(["get", "default-web-browser"])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-    });
+    let xdg_settings = Command::new("xdg-settings")
+        .args(["get", "default-web-browser"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok());
+    let desktop = default_browser(xdg_settings, mimeapps_browser);
     let programs = linux_browsers(desktop.as_deref());
     for (program, browser) in programs {
         if spawn_browser(program, &popup_args(browser, url)) {
@@ -88,9 +87,22 @@ fn launch(url: &str) -> bool {
     crate::desktop::open_with_default(url)
 }
 
-/// The browser's desktop entry as `xdg-settings get default-web-browser` reports it.
+/// `xdg-settings` knows desktop-specific settings such as XFCE's helpers, so `mimeapps.list` is
+/// read only when it is missing or reports nothing.
+#[cfg(any(target_os = "linux", test))]
+fn default_browser(
+    xdg_settings: Option<String>,
+    mimeapps: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    xdg_settings
+        .map(|entry| entry.trim().to_owned())
+        .filter(|entry| !entry.is_empty())
+        .or_else(mimeapps)
+}
+
+/// The default browser's desktop entry from the `mimeapps.list` files.
 #[cfg(target_os = "linux")]
-fn default_browser() -> Option<String> {
+fn mimeapps_browser() -> Option<String> {
     mimeapps_paths(&XdgDirs::from_env())
         .iter()
         .find_map(|path| default_browser_entry(&std::fs::read_to_string(path).ok()?))
@@ -309,6 +321,24 @@ mod tests {
         ] {
             assert_eq!(linux_browsers(Some(desktop)).first().unwrap().0, executable);
         }
+    }
+
+    #[test]
+    fn xdg_settings_wins_and_mimeapps_only_fills_in() {
+        let mimeapps = || Some("firefox.desktop".to_owned());
+        assert_eq!(
+            default_browser(Some("xfce4-web-browser.desktop\n".into()), mimeapps).as_deref(),
+            Some("xfce4-web-browser.desktop")
+        );
+        assert_eq!(
+            default_browser(Some(" \n".into()), mimeapps).as_deref(),
+            Some("firefox.desktop")
+        );
+        assert_eq!(
+            default_browser(None, mimeapps).as_deref(),
+            Some("firefox.desktop")
+        );
+        assert_eq!(default_browser(None, || None), None);
     }
 
     #[test]
