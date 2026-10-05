@@ -28,6 +28,8 @@ use launcher::menu::view::{
 #[cfg(test)]
 mod home_promo;
 
+mod feeds;
+use feeds::{CoreFeeds, catalog_round, feed_round};
 mod message_reports;
 pub(super) mod profile_worker;
 
@@ -295,16 +297,7 @@ fn poll_catalog(
                 .map(|_| snapshot.auth_generation)
         };
         if let Some(generation) = generation {
-            if let Ok(realms) = runtime.block_on(launcher_control::list_realms(socket_dir)) {
-                publish_account(shared, generation, |snapshot| {
-                    snapshot.realms = Some(realms)
-                });
-            }
-            if let Ok(friends) = runtime.block_on(launcher_control::list_friends(socket_dir)) {
-                publish_account(shared, generation, |snapshot| {
-                    snapshot.friends = Some(friends)
-                });
-            }
+            runtime.block_on(catalog_round(&CoreFeeds(socket_dir), shared, generation));
         }
         if !wait_catalog(stop, changes) {
             return;
@@ -319,25 +312,9 @@ fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Rec
     };
     let mut reported = HashSet::new();
     loop {
-        let mut failed = false;
-        let generation = auth_generation(shared);
-        let home = runtime.block_on(launcher_control::home(socket_dir));
-        if let Some(home) = settle("home", home, &mut failed) {
-            publish_account(shared, generation, |snapshot| {
-                snapshot.home = Some(home.clone())
-            });
+        let (home, failed) = runtime.block_on(feed_round(&CoreFeeds(socket_dir), shared));
+        if let Some(home) = home {
             report_impressions(&runtime, socket_dir, &home, &mut reported);
-        }
-        let featured = runtime.block_on(launcher_control::list_featured_servers(socket_dir));
-        if let Some(featured) = settle("featured servers", featured, &mut failed) {
-            publish(shared, |snapshot| snapshot.featured = Some(featured));
-        }
-        let generation = auth_generation(shared);
-        let gatherings = runtime.block_on(launcher_control::list_gatherings(socket_dir));
-        if let Some(gatherings) = settle("gatherings", gatherings, &mut failed) {
-            publish_account(shared, generation, |snapshot| {
-                snapshot.gatherings = Some(gatherings)
-            });
         }
         if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
             return;

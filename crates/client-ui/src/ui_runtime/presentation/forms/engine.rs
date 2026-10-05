@@ -18,12 +18,15 @@ use ui::{SafeArea, TextLayoutCache, TextShadow, UiNode, UiNodeId, UiVisual};
 use super::super::player_preview::PreviewView;
 use super::super::{FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect};
 
+pub(super) mod credits_renderer;
 mod fill_renderers;
 mod formatting_colors;
 pub mod hud_renderers;
 mod item_renderer;
 mod menu_renderers;
 mod pack_catalog;
+mod rounded;
+mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod host_edit;
 pub(super) mod screen_cache;
@@ -49,7 +52,7 @@ pub struct FormEngine {
     /// Where texture paths draw from, including the on-demand server atlas.
     pub(super) textures: TextureSet,
     /// The atlas page images last handed to the dynamic pages.
-    pub(super) server_pages: Vec<render::UiTexturePage>,
+    pub(super) server_pages: Vec<render_model::UiTexturePage>,
     /// The runtime pack last applied, compared by identity.
     server_source: Option<Arc<ServerUiPack>>,
     /// The last form's bound tree and laid-out output, reused while unchanged.
@@ -58,6 +61,7 @@ pub struct FormEngine {
     pub(super) passes: [usize; 2],
     /// The title splash, picked once per launch.
     splash: std::sync::OnceLock<Option<String>>,
+    credits: std::sync::OnceLock<Arc<super::credits_content::Content>>,
     screens: screen_cache::ScreenCache,
     /// Animation state of every drawn control, keyed by layout key.
     animator: std::sync::Mutex<json_ui::Animator>,
@@ -106,10 +110,12 @@ pub(super) struct EngineInputs<'a> {
 impl FormEngine {
     pub(super) fn new(assets: Arc<RuntimeUiAssets>, mut catalog: Catalog, first_page: u16) -> Self {
         super::global_resources::extend_catalog(&mut catalog);
+        super::accounts::extend_catalog(&mut catalog);
+        super::credits_screen::extend_catalog(&mut catalog);
         let vanilla = Arc::new(catalog);
         let base = Arc::new(hud_renderers::with_java_hud(&vanilla, &Default::default()));
         Self {
-            textures: TextureSet::new(first_page),
+            textures: TextureSet::new(first_page).with_carrier(Arc::clone(&assets)),
             assets,
             catalog: Arc::clone(&base),
             formatting_palette: formatting_colors::from_catalog(&base),
@@ -122,6 +128,7 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             splash: std::sync::OnceLock::new(),
+            credits: std::sync::OnceLock::new(),
             animator: std::sync::Mutex::default(),
         }
     }
@@ -150,6 +157,9 @@ impl FormEngine {
             _ => false,
         };
         self.server_source = pack.cloned();
+        if !same {
+            self.credits = std::sync::OnceLock::new();
+        }
         !same
     }
 
@@ -173,7 +183,7 @@ impl FormEngine {
     }
 
     /// The atlas page images when they changed since the last call.
-    pub(super) fn take_server_pages(&mut self) -> Option<&[render::UiTexturePage]> {
+    pub(super) fn take_server_pages(&mut self) -> Option<&[render_model::UiTexturePage]> {
         let atlas = self.textures.atlas_mut();
         if !atlas.take_dirty() {
             return None;
@@ -450,6 +460,9 @@ fn render_with<R: Borrow<FormRender>>(
             Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER => {
                 Some(tooltip::BACKGROUND_TEXTURE)
             }
+            Draw::Custom { renderer, .. } if renderer == credits_renderer::RENDERER => {
+                Some(credits_renderer::TITLE_TEXTURE)
+            }
             _ => None,
         })
         .chain(
@@ -551,6 +564,7 @@ pub(super) struct ScreenArt<'a> {
     pub(super) images: Option<&'a std::collections::HashMap<String, IconRef>>,
     pub(super) portrait: Option<IconRef>,
     pub(super) splash: Option<&'a str>,
+    pub(super) credits: Option<&'a super::credits_screen::CreditsPaint>,
     pub(super) edit: Option<host_edit::Feedback>,
 }
 
@@ -628,6 +642,14 @@ impl Painter<'_> {
             return None;
         }
         match renderer {
+            "cinnabar_vector_icon" => Some((self.vector_icon(data, dest, &alpha)?, dest)),
+            "cinnabar_rounded_rectangle" => {
+                Some((self.rounded_rectangle(data, dest, &alpha)?, dest))
+            }
+            credits_renderer::RENDERER => {
+                self.credits(dest, &alpha);
+                None
+            }
             "inventory_item_renderer" => {
                 let icon = item_renderer::icon(data, self.art.icons, self.art.id_aux)?;
                 Some((icon.visual(alpha([255; 4])), dest))
@@ -671,7 +693,7 @@ impl Painter<'_> {
         filter: json_ui::SpriteFilter,
     ) -> Option<UiVisual> {
         let Some((page, [x, y, w, h])) = self.textures.sprite(path) else {
-            // An unresolved texture draws `mce::TexturePtr`'s default white texture.
+            // An unresolved texture draws vanilla's default white texture.
             return self.textures.missing(path).then_some(UiVisual::Solid {
                 texture_page: self.solid_page,
                 color,

@@ -24,10 +24,14 @@ mod bob;
 mod easing;
 pub mod facts;
 pub mod fov;
+#[cfg(test)]
+mod freelook_tests;
 mod hurt;
 pub mod look;
 mod overlay;
 pub mod overlay_publish;
+pub mod portal_diagnostics;
+mod portal_projection;
 pub mod presentation;
 mod server_view;
 mod shake;
@@ -39,6 +43,7 @@ pub use overlay::{
     HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
     VisionEffects, compute_overlays,
 };
+pub use portal_projection::{first_person_hand_fov, update_camera_fov};
 pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 pub use server_view::{ServerCameraSkips, ServerCameraView};
 
@@ -91,7 +96,17 @@ pub struct CameraSettingsAuthority {
     horizontal_fov_degrees: f32,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
+    freelook: bool,
     feel: CameraFeelSettings,
+    rig: Option<CameraRig>,
+}
+
+/// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraRig {
+    pub offset: Vec3,
+    pub roll_radians: f32,
+    pub fov_delta_degrees: f32,
 }
 
 /// Camera feel toggles and scales mirrored from retained settings, already sanitized.
@@ -149,7 +164,9 @@ impl Default for CameraSettingsAuthority {
             horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
+            freelook: false,
             feel: CameraFeelSettings::from_settings(&settings),
+            rig: None,
         }
     }
 }
@@ -195,9 +212,28 @@ impl CameraSettingsAuthority {
         self.horizontal_fov_degrees
     }
 
+    /// A rig or held freelook presents third-person-back so the local body renders and the viewmodel hides.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        self.perspective
+        if self.rig.is_some() || self.freelook {
+            PerspectiveMode::ThirdPersonBack
+        } else {
+            self.perspective
+        }
+    }
+
+    #[must_use]
+    pub const fn rig(&self) -> Option<CameraRig> {
+        self.rig
+    }
+
+    /// Non-finite rigs are dropped; `None` restores the player's own perspective.
+    pub fn set_rig(&mut self, rig: Option<CameraRig>) {
+        self.rig = rig.filter(|rig| {
+            rig.offset.is_finite()
+                && rig.roll_radians.is_finite()
+                && rig.fov_delta_degrees.is_finite()
+        });
     }
 
     #[must_use]
@@ -212,6 +248,7 @@ impl CameraSettingsAuthority {
 
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
+        self.freelook = false;
     }
 }
 
@@ -273,11 +310,43 @@ pub fn collision_safe_perspective_pose(
     perspective: PerspectiveMode,
     world: &impl CollisionWorld,
 ) -> Transform {
-    let mut pose = perspective_pose(subject_translation, subject_rotation, perspective);
+    let pose = perspective_pose(subject_translation, subject_rotation, perspective);
     if perspective == PerspectiveMode::FirstPerson {
         return pose;
     }
+    sweep_boom(subject_translation, pose, world)
+}
 
+/// The rig's boom from the eye, keeping the eye's look direction.
+#[must_use]
+pub fn rig_pose(subject_translation: Vec3, subject_rotation: Quat, rig: CameraRig) -> Transform {
+    Transform {
+        translation: subject_translation + subject_rotation * rig.offset,
+        rotation: subject_rotation,
+        ..default()
+    }
+}
+
+/// Shortens a rig boom against collision exactly like the third-person boom.
+#[must_use]
+pub fn collision_safe_rig_pose(
+    subject_translation: Vec3,
+    subject_rotation: Quat,
+    rig: CameraRig,
+    world: &impl CollisionWorld,
+) -> Transform {
+    sweep_boom(
+        subject_translation,
+        rig_pose(subject_translation, subject_rotation, rig),
+        world,
+    )
+}
+
+fn sweep_boom(
+    subject_translation: Vec3,
+    mut pose: Transform,
+    world: &impl CollisionWorld,
+) -> Transform {
     let delta = pose.translation - subject_translation;
     let origin = SimVec3::new(
         f64::from(subject_translation.x),
@@ -451,7 +520,7 @@ pub fn look_at_target(position: Vec3, target: Vec3) -> Quat {
 
 /// Converts Bedrock's full-viewport FOV setting to Bevy's vertical radians.
 ///
-/// Native `getNormalizedViewportSize` measures viewport fractions of the full
+/// Vanilla measures viewport fractions of the full
 /// screen, not its pixel aspect. A full-window camera therefore keeps the
 /// configured vertical angle; the projection matrix applies width/height.
 #[must_use]
@@ -504,32 +573,11 @@ pub fn spawn_fly_camera(
     ));
 }
 
-pub fn update_camera_fov(
-    window: Single<&Window, With<PrimaryWindow>>,
-    settings: Res<CameraSettingsAuthority>,
-    time: Res<Time>,
-    inputs: Res<CameraFovInputs>,
-    mut fov_state: ResMut<CameraFovState>,
-    server: Res<ServerCameraView>,
-    mut cameras: Query<&mut Projection, With<FlyCamera>>,
-) {
-    let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
-    let base = settings.horizontal_fov_degrees();
-    let fov_degrees = server.fov_override_degrees(base).unwrap_or(base * modifier);
-    let vertical = projection_fov_radians(fov_degrees);
-    for mut projection in &mut cameras {
-        if let Projection::Perspective(perspective) = projection.as_mut() {
-            perspective.fov = vertical;
-            perspective.aspect_ratio = window_aspect(&window);
-        }
-    }
-}
-
 pub fn update_perspective(
     input: crate::observations::InputObservation<'_>,
     mut settings: ResMut<CameraSettingsAuthority>,
 ) {
-    if !input.phase(Action::CyclePerspective).pressed {
+    if !input.phase(Action::CyclePerspective).pressed || input.phase(Action::Freelook).held {
         return;
     }
     settings.cycle_perspective();
@@ -577,6 +625,9 @@ pub fn update_cursor_capture(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
 ) {
+    if policy.driven {
+        return;
+    }
     let (window, mut cursor) = window.into_inner();
 
     // Focus loss has priority over every capture request, including auto-fly.
@@ -625,11 +676,17 @@ pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
     input: crate::observations::InputObservation<'_>,
     auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
+    mut settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
     mut smoother: ResMut<look::LookSmoother>,
     mut view: ResMut<LocalViewPose>,
 ) {
+    let held = input.phase(Action::Freelook).held && !auto_fly.presentation_paused();
+    if settings.freelook != held {
+        smoother.reset();
+    }
+    settings.freelook = held;
+    view.set_freelook(held);
     if auto_fly.presentation_paused() {
         return;
     }
@@ -650,7 +707,7 @@ pub fn update_look(
         return;
     }
 
-    let (yaw, pitch, roll) = view.rotation().to_euler(EulerRot::YXZ);
+    let (yaw, pitch, roll) = view.camera_rotation().to_euler(EulerRot::YXZ);
     let (damping, facts) = spyglass;
     let look_delta = look::spyglass_turn_delta(
         look_delta,
@@ -662,7 +719,7 @@ pub fn update_look(
     // back into actor space. Neither operation reverses actor yaw.
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));
-    view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
+    view.set_look_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
 }
 
 pub fn update_movement(
@@ -760,3 +817,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<LocalAvatarVisibilityCarrier>();
     }
 }
+
+#[cfg(test)]
+#[path = "camera/rig_tests.rs"]
+mod rig_tests;

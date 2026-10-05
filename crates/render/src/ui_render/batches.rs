@@ -1,12 +1,12 @@
-use crate::ui::UiRenderBatch;
+use render_model::UiRenderBatch;
 
 /// Resolve the entire ordered frame before emitting any batch command.
 pub(super) fn resolved_batches<'a>(
     accepted_revision: Option<u64>,
     batches: &'a [UiRenderBatch],
-    locations: &'a [crate::UiTextureLocation],
-    buckets: &[crate::UiTextureBucket],
-) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, crate::UiTextureLocation)>> {
+    locations: &'a [render_model::UiTextureLocation],
+    buckets: &[render_model::UiTextureBucket],
+) -> Option<impl Iterator<Item = (usize, &'a UiRenderBatch, render_model::UiTextureLocation)>> {
     if accepted_revision.is_none()
         || batches.iter().any(|batch| {
             locations

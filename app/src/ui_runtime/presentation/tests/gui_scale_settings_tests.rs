@@ -33,7 +33,7 @@ fn settings_app(visible: bool, preference: Option<u8>) -> App {
     app
 }
 
-fn build_menu(app: &mut App, physical: [u32; 2], dpi: f32) -> render::UiRenderInput {
+fn build_menu(app: &mut App, physical: [u32; 2], dpi: f32) -> render_model::UiRenderInput {
     {
         let world = app.world_mut();
         let mut windows = world.query_filtered::<&mut Window, With<PrimaryWindow>>();
@@ -61,7 +61,7 @@ fn build_menu(app: &mut App, physical: [u32; 2], dpi: f32) -> render::UiRenderIn
     )
 }
 
-fn largest_font_quad_height(input: &render::UiRenderInput) -> f32 {
+fn largest_font_quad_height(input: &render_model::UiRenderInput) -> f32 {
     input
         .batches
         .iter()
@@ -313,7 +313,7 @@ fn gui_scale_video_action_relayouts_cached_engine_hud_at_the_new_scale() {
     }
 }
 
-fn assert_crosshair_size(input: &render::UiRenderInput, physical: [u32; 2], scale: u8) {
+fn assert_crosshair_size(input: &render_model::UiRenderInput, physical: [u32; 2], scale: u8) {
     let crosshair = input
         .vertices
         .chunks_exact(4)

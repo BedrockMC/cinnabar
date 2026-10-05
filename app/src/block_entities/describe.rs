@@ -232,7 +232,7 @@ pub(super) fn describe(
             open: 0.0,
         })),
         "Skull" => {
-            // Current renderSkull selects the model from the backing block type;
+            // Vanilla selects the skull model from the backing block type;
             // the unsplit legacy block still needs its retained SkullType.
             let kind = SkullKind::from_block_identifier(block_name).or_else(|| {
                 (block_name == "minecraft:skull")

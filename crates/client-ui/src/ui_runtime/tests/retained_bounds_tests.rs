@@ -244,9 +244,9 @@ fn saturated_frames_stay_inside_render_limits_and_reuse_the_layout_cache() {
         )
         .unwrap();
     assert!(!first.vertices.is_empty());
-    assert!(first.vertices.len() <= render::MAX_UI_VERTICES / 4);
-    assert!(first.indices.len() <= render::MAX_UI_INDICES / 4);
-    assert!(first.batches.len() <= render::MAX_UI_BATCHES / 4);
+    assert!(first.vertices.len() <= render_model::MAX_UI_VERTICES / 4);
+    assert!(first.indices.len() <= render_model::MAX_UI_INDICES / 4);
+    assert!(first.batches.len() <= render_model::MAX_UI_BATCHES / 4);
     assert!(
         first.vertices.len() >= 4,
         "the saturated frame draws the crosshair"

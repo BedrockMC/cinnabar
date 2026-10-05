@@ -8,7 +8,7 @@ pub const DEFAULT_TITLE_FADE_OUT_TICKS: u32 = 20;
 
 /// A server toast's slide in, time on screen (the notification-duration
 /// option's default, slide-in included) and slide out, from 26.30's
-/// `ToastMessage` defaults and `ToastManager`.
+/// toast defaults.
 pub const TOAST_SLIDE_IN_MILLIS: u64 = 500;
 pub const TOAST_DISPLAY_MILLIS: u64 = 3_000;
 pub const TOAST_SLIDE_OUT_MILLIS: u64 = 400;

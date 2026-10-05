@@ -1,9 +1,10 @@
 //! Repeatable HUD bind/layout costs against the owner's local vanilla templates.
 
-#[path = "support/frame_stats.rs"]
+#[path = "it/support/frame_stats.rs"]
 mod frame_stats;
-#[path = "support/java_pack.rs"]
+#[path = "it/support/java_pack.rs"]
 mod java_pack;
+#[path = "it/support/mod.rs"]
 mod support;
 
 #[global_allocator]

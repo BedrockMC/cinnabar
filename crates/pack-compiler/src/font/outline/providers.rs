@@ -20,7 +20,7 @@ struct Selected {
     metrics: Option<fontdue::Metrics>,
 }
 
-/// Monocraft-compatible primary artwork plus a bounded, secondary CJK provider.
+/// Primary outline artwork plus a bounded, secondary CJK provider.
 /// All selected alpha/metadata buffers are admitted before the first raster call.
 pub fn compile_outline_font_with_fallback(
     primary_path: &Path,
@@ -207,7 +207,7 @@ pub fn compile_outline_font_with_fallback(
     }
     glyphs.sort_unstable_by_key(|glyph| glyph.codepoint);
     let source_bytes = pages.iter().map(|p| u64::from(p.source_bytes)).sum();
-    let decoded_bytes = pages.iter().map(|p| p.rgba8.len() as u64).sum();
+    let decoded_bytes = pages.iter().map(|p| p.pixels.bytes().len() as u64).sum();
     let bytes = encode_font_catalog(manifest, &glyphs, &pages)?;
     let carrier_sha256 = bytes[bytes.len() - 32..]
         .try_into()
@@ -286,7 +286,7 @@ fn page(
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: side,
         height: side,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     })
 }
 

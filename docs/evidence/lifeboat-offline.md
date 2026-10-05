@@ -1,88 +1,67 @@
-# Lifeboat offline terrain investigation
+# Lifeboat session block palette
 
-The owner supplied two screenshots and a client log tail. Both screenshots show
-working HUD controls and a black first-person hand. Geometry is being published:
-the recorded ready snapshot has 1,949 rendered and visible sub-chunks. The tail
-attributes 467,150 of 467,200 diagnostic quads to sequential ID 15844, labelled
-`minecraft:mushroom_stem` by the checkout's registry.
-
-## What the installed artifacts prove
-
-The optional `installed_lifeboat_carriers_reject_stale_diagnostic_geometry` test
-reads installed carriers through this worktree's `.local` symlink. It skips when
-those files are absent and never writes them.
-
-At ID 15844, the current pinned world carrier contains an exact cube with a
-non-diagnostic material. The older installed `vanilla-v2168.mcbea` contains a
-diagnostic visual, identified by inspecting its legacy envelope records. Its
-historical registry identifies this slot as a reserved
-placeholder, rather than the current registry's mushroom stem. Interpreting that
-older carrier through the newer attribution registry can therefore produce the
-observed label under the wrong visual. The current decoder rejects the older
-carrier schema before startup can bind it; the provenance gate also prevents
-foreign registries from reaching gameplay.
-
-This is an offline reproduction of the diagnostic identity mismatch, not a
-replay of the server's terrain. No StartGame, chunk payload or session carrier
-identity was captured in the supplied tail. A stale carrier/build is a supported
-explanation; the exact session cause remains unconfirmed. Do not infer a palette
-translation rule from this one runtime ID.
-
-## Packs and lighting
-
-All eleven verified Lifeboat cache archives contain encrypted content metadata.
-The cache intentionally stores archive bytes without content keys or download
-URLs (`core/packcache/cache.go`). Their decrypted catalogs cannot be reconstructed
-offline from those entries. No credentials were read.
-
-Vanilla terrain overrides change material texture references, not vanilla visual
-kind or support. They skip diagnostic material zero and failed texture decodes
-(`block_overlay.rs`, `override_vanilla_materials`). Such failures do not explain
-the diagnostic classification of the known vanilla ID.
-
-The first-person hand samples solved light at the authoritative eye position
-(`actor_publication.rs`). Incorrect opaque blocks can consequently darken both
-terrain and the hand. The screenshots alone do not establish an atmosphere or
-lightmap defect; no speculative lighting adjustment was made.
+The gray terrain and blocked movement reproduce with freshly compiled, coherent
+carriers. Lifeboat supplies 17 custom definitions and no vanilla data-driven
+definitions. Cinnabar admitted every state in its complete carrier anyway, so
+wire air resolved to an opaque mushroom stem. Framing and chunk decoding reported
+no errors because the incorrect internal ID was valid.
 
 ## Vanilla rules
 
 | Rule | Behaviour |
 | --- | --- |
-| Unknown runtime ID | Sequential and hashed lookup resolve to default air with a palette-disagreement diagnostic. Cinnabar retains these lenient semantics. |
-| In-range runtime ID | Index the palette directly. |
-| Palette insertion | Assign the sequential network index. |
-| Hash mode | The world retains the block-network-ID hash mode. |
-| Brightness | Sample spatial brightness and compose sky/block light. |
+| Remote baseline | Register built-in vanilla blocks. Admit vanilla data-driven blocks only from the server's definitions. |
+| Name order | Sort all admitted block types by unsigned FNV-1 64 name hash, then name. |
+| State order | Preserve each admitted type's canonical permutation order. |
+| Carrier identity | Keep complete carrier IDs stable; translate the session's sequential IDs in both directions. |
+| Unknown wire ID | Resolve to air, count and log the disagreement. |
+| Hashed mode | Preserve all hash bits; sequential admission does not renumber hashes. |
+| Inventory identity | Retain raw stack descriptors for protocol roundtrips; resolve wire IDs when selecting visuals or predicting placement. |
 
-- The installed vanilla pack's `blocks.json`, entry `mushroom_stem`, names six
-  terrain face keys. `textures/terrain_texture.json:5210-5261` supplies their
-  texture routes. Pack content is read at runtime and is not committed here.
+The pinned `behavior_pack/blocks` contains 98 data-driven vanilla definitions,
+covering 1,417 canonical states. Omitting them removes 1,181 states before air.
+The metadata is bound to the complete registry digest, including definitions
+whose carrier visuals are reserved. Its generator and reproduction command are
+documented in `tools/registrygen/cmd/serverdefined/README.md`.
 
-## Changes and next-session evidence
+Captured remote terrain agrees with the admitted palette:
 
-The proven log flood is fixed: `DIAGNOSTIC_GEOMETRY` emits immediately, then at
-most every five seconds, retaining the newest pending snapshot. Metrics still
-update on every changed resident attribution, and a pending snapshot is emitted
-even if geometry stops changing.
+| Wire ID | Resolved block |
+| --- | --- |
+| 15844 | `minecraft:air` |
+| 3219 | `minecraft:stone` |
+| 9650 | `minecraft:polished_blackstone_bricks` |
+| 19595 | `minecraft:brown_terracotta` |
+| 17951 | `minecraft:gray_concrete` |
 
-The following diagnostics are bounded:
+The custom names sort after the vanilla names, so their sort algorithm was not
+the source of this shift. No lighting constants or server movement checks need
+changing to repair these identities.
 
-- `START_GAME_BLOCK_IDS`: hash mode, raw block-property count, parsed custom
-  block/state counts and skipped definitions, once per prepared session.
-- `SESSION_BLOCK_PALETTE`: mode, air ID, visual count, custom internal range,
-  whether sequential IDs are remapped, and carrier registry provenance.
-- `BLOCK_PALETTE_SAMPLE`: the first sixteen distinct wire IDs per stream,
-  their internal IDs, known status, visual support and light properties.
-  `UNRESOLVED_BLOCK_ID` names the first eight unresolved wire IDs and air fallback.
-- `PACK_TERRAIN_FAILURE`: at most eight failures per compiled stack, with a
-  bounded key/path and the catalog, lookup, raster or texture-set failure reason.
-- `WORLD_LIGHTING`: every five seconds while a stream exists, immediately after
-  session/dimension changes. It prints the eye position and optional solved light,
-  dimension/medium, daylight, brightness/effects, fog/sky profile and colors,
-  and the darkest/full-light lightmap entries.
+## Validation
 
-If a wire ID resolves to an unexpected known opaque block, the mode, remap and
-carrier hash distinguish that from a missing ID. If the palette is coherent,
-terrain failures and eye/lightmap/fog state separate pack and lighting failures.
-No public-server connection or visual parity gate was completed by this work.
+Focused regressions cover remote admission, partial and complete definition
+sets, session replacement, interleaved custom blocks, inverse interaction IDs,
+unknown-ID bounds, and raw descriptor preservation in presentation. The original
+admission regression failed with air resolving to mushroom stem before the fix.
+The metadata reproduces byte for byte from the pinned public inputs.
+
+A fresh macOS/Metal run of build `04d6e1e0` stayed connected for the complete
+300-second acceptance window and sent 6,323 movement samples, with zero decode
+errors, outbound drops or authority stalls. Walking advanced 16.5 blocks down
+the lobby steps; strafing advanced another 8.7 blocks and jumping was exercised.
+Rendered frames show the lobby terrain, signs and actors instead of gray air.
+The window used 1280x720 logical content size (2560x1440 physical, scale 2). Lifeboat reported
+PocketMine-MP 4.23.3+dev and the connection resolved to `135.148.32.47:19132`.
+
+A second join opened the compass Navigator and selected the Mini Game Selector,
+confirming both request and form-response paths. `/transfer sm3` completed the
+server's fast-transfer path: Survival Mode terrain and its HUD appeared, a
+three-second walk/jump advanced 10 blocks and climbed two blocks, and the held
+book opened the Survival Mode menu. The second connection resolved to
+`15.204.237.170:19132`. No server disconnect or decoding failure occurred.
+
+The supplied native lobby screenshot is a near-version visual witness, not an
+identical-version parity or performance qualification. Some carrier blocks
+still use diagnostic art; this repair does not close those separate visual
+support gates.

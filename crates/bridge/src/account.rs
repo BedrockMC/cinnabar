@@ -139,7 +139,7 @@ pub struct Profile {
     pub achievements: Option<ProfileAchievements>,
 }
 
-/// The four Xbox title statistics requested by vanilla's PlayerStatisticsFacet.
+/// The four Xbox title statistics vanilla requests for a player profile.
 /// Numeric strings preserve the service's precision; absent values are unavailable.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct ProfileStatistics {

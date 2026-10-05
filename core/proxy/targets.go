@@ -36,6 +36,14 @@ const (
 	realmCodePrefix    = "realm/"
 )
 
+// remoteMaxMTU caps RakNet probes to addressed servers. A 1492-byte probe over a smaller
+// path is fragmented, and anycast fronts can answer the fragments from a backend that never
+// answers Request 2, stalling the dial until the next probe rung, about 2 s later.
+const remoteMaxMTU = 1400
+
+// remoteRakNet is the network for a server named by host:port rather than found on the LAN.
+func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMaxMTU} }
+
 type resolvedUpstreamTarget struct {
 	address    string
 	network    minecraft.Network
@@ -80,7 +88,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
 		}
-		return &resolvedUpstreamTarget{address: address, network: minecraft.RakNet{}}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteRakNet()}, nil
 	}
 
 	resolveContext, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -96,7 +104,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
-		return &resolvedUpstreamTarget{address: address, network: minecraft.RakNet{}}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteRakNet()}, nil
 	}
 }
 
@@ -137,7 +145,7 @@ func lookupRealmTarget(ctx context.Context, address string, account *authcache.A
 	}
 	protocol := realms.ParseNetworkProtocol(string(realmAddress.NetworkProtocol))
 	if protocol == realms.NetworkProtocolDefault || protocol == "" {
-		return &resolvedUpstreamTarget{address: realmAddress.Address, network: minecraft.RakNet{}}, nil
+		return &resolvedUpstreamTarget{address: realmAddress.Address, network: remoteRakNet()}, nil
 	}
 	connectionType, ok := realmConnectionType(protocol)
 	if !ok {
@@ -269,7 +277,7 @@ func isRawNetherNetAddress(address string) bool {
 }
 
 // scopedNetherNetNetwork dials through gophertunnel's NetherNet so authenticated dials present
-// the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
+// the Login's multiplayer token and key as the SDP identity, as vanilla does.
 type scopedNetherNetNetwork struct {
 	signal minecraft.DialSignalingFunc // fresh signaling per dial; the transport owns and closes it
 	logger *slog.Logger
@@ -286,7 +294,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType
 	return scopedNetherNetNetwork{signal: signal, logger: logger}
 }
 
-// transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
+// transport accepts identityless answers as vanilla does, while
 // go-nethernet still verifies a server identity that is present.
 func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
 	return minecraft.NetherNet{

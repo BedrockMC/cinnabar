@@ -55,6 +55,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		if ext, err = startClientParts(cfg, logger); err != nil {
 			return err
 		}
+		if cfg.extensionMedia != "" {
+			media, err := startMedia(cfg, logger)
+			if err != nil {
+				return err
+			}
+			defer media.Close()
+		}
 	} else if err := extension.RemoveMarkerPack(cfg.resourcesDir()); err != nil {
 		return err
 	}
@@ -110,6 +117,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if ext != nil {
 		deliverClientPartEvents(ext, srv.Player, host, logger)
 	}
+	registerChatCommands()
 	srv.Listen()
 	accepting := make(chan struct{})
 	go func() {

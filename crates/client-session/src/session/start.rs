@@ -6,7 +6,8 @@ pub fn spawn_network<P: Send + 'static>(
     prepare_presentation: impl FnOnce(
         &PackPreparation,
         &protocol::GameData,
-    ) -> Result<P, crate::RequiredPackRejected>
+        &(dyn Fn() -> bool + Sync),
+    ) -> Option<Result<P, crate::RequiredPackRejected>>
     + Send
     + 'static,
     observation: SessionTrace,
@@ -47,6 +48,7 @@ pub fn spawn_network<P: Send + 'static>(
                         &config.display_name,
                         config.client_blob_cache.clone(),
                         Some(config.player_skin),
+                        config.resource_pack_store,
                     ),
                     &mut shutdown_rx,
                 )
@@ -74,8 +76,9 @@ pub fn spawn_network<P: Send + 'static>(
                     move || {
                         let preparation = crate::prepare_session_packs(handoff, &game_data);
                         let packs = unless_cancelled(&cancelled, || {
-                            prepare_presentation(&preparation, &game_data)
-                        });
+                            prepare_presentation(&preparation, &game_data, &|| *cancelled.borrow())
+                        })
+                        .flatten();
                         (preparation, game_data, packs)
                     },
                     &mut shutdown_rx,

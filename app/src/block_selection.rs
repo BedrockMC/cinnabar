@@ -52,7 +52,7 @@ fn publish(context: SelectionContext, mut frame: ResMut<BlockSelectionFrame>) {
 }
 
 /// Resolves reviewed visual bounds from the same shapes that admitted the pick.
-/// StairBlock::getOutline deliberately returns a full
+/// Vanilla stairs deliberately outline a full
 /// unit box: unioning its slab/step/inner collision pieces preserves that native
 /// wire outline. Model highlighting below uses the separate actual surface.
 fn target(
@@ -92,6 +92,13 @@ fn target(
     let hit = world
         .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
         .ok()??;
+    if !context.collisions.selection_overlay_visible(
+        stream.network_id_mode(),
+        hit.runtime_id,
+        player_runtime.facts.player_game_mode(),
+    ) {
+        return None;
+    }
     let shapes = registry.selection_shapes(hit.runtime_id)?;
     let first = shapes.first()?;
     let mut min = first.min;

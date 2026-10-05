@@ -14,7 +14,7 @@ networking.
 
 ## Download
 
-Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
+Daily builds of `dev` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
 Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
 the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
 
@@ -128,6 +128,48 @@ plan is in `docs/architecture/`.
 | `packcache` | On-disk cache of server packs. |
 | `update` | Signed update checks. |
 
+## Headless chunk benchmarks
+
+Criterion covers palette/column decode, full light solves, cube meshing, biome records,
+bounded streaming bursts, settled polling and metadata-only cohort scans. Fixtures are
+synthetic and require no carriers, server, window or GPU.
+
+```sh
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench chunk_costs -- --test
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench chunk_costs -- --save-baseline chunks
+```
+
+Use the repository-pinned toolchain and the shared build-slot limiter described in
+[the workflow](docs/agents/multi-agent-workflow.md). Run measurements without competing
+builds or gameplay. Append a name filter, such as `stored_sections/871`, to select a
+workload; subsequent runs can use `--baseline chunks` for comparison. Results stay
+under the ignored `target/criterion/`.
+
+The 871 fixture means **stored sections**, packed into 218 columns, not 871 columns.
+Streaming setup preloads an implicit-air boundary through ordinary ingress, excluding
+absent-neighbour grace waits from timing. Timed work includes bounded byte submission,
+decode/commit, lighting, meshing, worker waits and CPU publication acknowledgements;
+stream construction, boundary setup and teardown are excluded. Polling is unpaced.
+Preflight CPU-step percentiles are not game-frame percentiles. Metadata scans have
+no terrain. Resident-slot and stale-work counters include boundary setup; production
+logs remain enabled. Decode and meshing timings include output destruction.
+
+`flight_costs` streams procedurally generated terrain (dirt over ore-flecked stone with
+sealed caves) into a settled radius-10 or radius-16 view while the camera flies along +X.
+Each 240 Hz frame submits the server's position, view centre and new columns, polls, and
+acknowledges meshes. The flight cases report main-thread stream time per frame, and the
+preflight line prints its p50, p99 and maximum. Eviction cases time only the server
+position update that retires the trailing row. Cave cases time one full
+connectivity search from the surface and from a sealed pocket.
+
+```sh
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench flight_costs
+```
+
+These are CPU baselines, not join-time or FPS evidence. They omit socket framing,
+real server terrain, GPU preparation/uploads/draws and the rest of the Bevy frame.
+Native performance acceptance still follows [live testing](docs/agents/live-testing.md).
+
 ## JSON-UI editor
 
 [bedrock-mc.github.io/cinnabar](https://bedrock-mc.github.io/cinnabar/) previews and edits pack UI
@@ -140,7 +182,7 @@ stdio MCP server:
 ```json
 { "mcpServers": { "jsonui": {
   "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
-  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-cinnangles-sans-v1.mcbefont"]
 } } }
 ```
 
@@ -153,5 +195,6 @@ line. Before pushing, check only what your change affects:
 cargo run -p devtool --locked -- verify-affected --base origin/dev
 ```
 
-It runs fmt, the architecture gate, clippy and tests for the affected crates. Contributor and
+It runs fmt, the architecture gate, clippy and tests for the affected crates, `go test` and
+`go vet` for changed Go modules, and the packaging tests when `packaging/` changes. Contributor and
 agent rules live in `AGENTS.md` and `docs/agents/`.

@@ -5,7 +5,7 @@
 //! used by Java/Bedrock renderers without treating the inventory icon as a
 //! flat HUD quad.
 
-use render::UiRenderTextureArray;
+use render_model::UiRenderTextureArray;
 
 use super::IconRef;
 

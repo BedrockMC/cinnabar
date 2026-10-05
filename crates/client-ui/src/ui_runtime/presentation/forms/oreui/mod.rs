@@ -23,7 +23,7 @@ mod world_settings;
 
 use std::sync::Arc;
 
-use render::{UiRenderTextureArray, UiTexturePage};
+use render_model::{UiRenderTextureArray, UiTexturePage};
 use ui::{UiNode, UiPoint, UiRect};
 
 pub use bedtime::BedHit;

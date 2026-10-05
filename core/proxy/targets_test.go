@@ -259,3 +259,43 @@ func TestConnectAppliesTheJoinedSessionClientData(t *testing.T) {
 		t.Fatalf("dialer nonce = %q, want the joined session's", nonce)
 	}
 }
+
+// MTU probes to an addressed server or a transfer hop fit the capped path, so none is fragmented.
+func TestAddressedRakNetProbesFitTheCappedPath(t *testing.T) {
+	server, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	address := server.LocalAddr().String()
+	addressed, err := resolveUpstreamTarget(context.Background(), address, nil, slog.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	networks := map[string]minecraft.Network{
+		"addressed":    addressed.network,
+		"transfer hop": networkForAddress(&resolvedUpstreamTarget{address: "entry.example:19132"}, address),
+	}
+	for name, network := range networks {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		dialed := make(chan struct{})
+		go func() {
+			defer close(dialed)
+			if conn, err := network.DialContext(ctx, address); err == nil {
+				_ = conn.Close()
+			}
+		}()
+		buffer := make([]byte, 2048)
+		_ = server.SetReadDeadline(time.Now().Add(time.Second))
+		n, _, err := server.ReadFrom(buffer)
+		cancel()
+		<-dialed
+		if err != nil {
+			t.Fatalf("%s: no MTU probe arrived: %v", name, err)
+		}
+		const openConnectionRequest1 = 0x05
+		if buffer[0] != openConnectionRequest1 || n > remoteMaxMTU-28 {
+			t.Fatalf("%s: first probe id %#x carries %d bytes, want an Open Connection Request 1 of at most %d", name, buffer[0], n, remoteMaxMTU-28)
+		}
+	}
+}

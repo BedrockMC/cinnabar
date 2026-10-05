@@ -4,7 +4,7 @@ pub(super) fn apply(
     rig: &client_world::ActorRigSnapshot<'_>,
     cache: &mut SkinRigCache,
     mut equipment: Option<&mut EquipmentRuntime>,
-    pending: &mut Vec<render::ActorRigGeometry>,
+    pending: &mut Vec<render_model::ActorRigGeometry>,
     local: &mut render::ActorRigSubmission,
     animated: render::ActorRigSubmission,
 ) {

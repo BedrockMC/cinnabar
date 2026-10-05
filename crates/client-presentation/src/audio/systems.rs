@@ -48,6 +48,14 @@ pub fn block_lookup<'a>(
     }
 }
 
+fn network_block_lookup<'a>(
+    collisions: Option<&'a dyn PhysicsCollisionRegistries>,
+    stream: &'a chunk_pipeline::WorldStream,
+) -> impl Fn(u32) -> Option<String> + 'a {
+    let lookup = block_lookup(collisions, stream.network_id_mode());
+    move |wire_id| lookup(stream.resolve_block_network_id(wire_id))
+}
+
 pub fn identifier_at(
     world: &PaletteWorld<'_>,
     collisions: &dyn PhysicsCollisionRegistries,
@@ -127,14 +135,24 @@ impl IngestState {
         self.start_record(level.position, request, engine);
     }
 
-    /// Whether `event` belongs to the bound session and current dimension, in order.
-    fn admits(&mut self, event: &SequencedAudioEvent, dimension: i32) -> bool {
+    /// Admits ordinary transport order and released sounds from live actor lifetimes.
+    fn admits(
+        &mut self,
+        event: &SequencedAudioEvent,
+        dimension: i32,
+        synchronized_actor_alive: bool,
+    ) -> bool {
         let fresh = event.origin_stream_session_id == self.stream
             && event.dimension == dimension
             && event.dimension_epoch == self.epoch
-            && event.sequence > self.last_sequence;
+            && if event.actor_synchronization.is_some() {
+                synchronized_actor_alive
+                    && matches!(&event.event, protocol::AudioEvent::Level(level) if level.fire_at_position.is_some())
+            } else {
+                event.sequence > self.last_sequence
+            };
         if fresh {
-            self.last_sequence = event.sequence;
+            self.last_sequence = self.last_sequence.max(event.sequence);
         }
         fresh
     }
@@ -185,10 +203,17 @@ pub fn ingest_audio_events(
         stream.form_dimension_epoch(),
         &mut engine,
     );
-    let dimension = stream.current_dimension();
-    let lookup = block_lookup(collisions, stream.network_id_mode());
+    let lookup = network_block_lookup(collisions, stream);
     for event in messages.read() {
-        if !state.admits(event, dimension) {
+        let synchronized_actor_alive = event.actor_synchronization.is_some_and(|owner| {
+            owner.session_id == stream.authority().actor_session_id()
+                && owner.dimension == stream.current_dimension()
+                && stream
+                    .authority()
+                    .actor(owner.runtime_id)
+                    .is_some_and(|actor| actor.spawn_revision == owner.spawn_revision)
+        });
+        if !state.admits(event, stream.current_dimension(), synchronized_actor_alive) {
             engine.stats.stale += 1;
             continue;
         }
@@ -401,6 +426,7 @@ pub fn drive_ambience(
     collisions: Option<&dyn crate::observations::CollisionLookup>,
     view: Res<LocalViewPose>,
     player_runtime: Option<&player_state::PlayerState>,
+    credits_active: bool,
     mut engine: ResMut<AudioEngine>,
     mut state: Local<AmbientState>,
 ) {
@@ -482,21 +508,8 @@ pub fn drive_ambience(
         engine.enqueue(SoundRequest::new(format!("{prefix}.additions")));
     }
 
-    let key = music_key(stream.is_some(), dimension, creative);
-    let entry = engine
-        .bank()
-        .and_then(|bank| bank.music(key))
-        .map(|entry| (entry.event_name.clone(), (entry.min_delay, entry.max_delay)));
-    if let Some((event_name, delay)) = entry {
-        let playing = engine.is_playing_category(AudioCategory::Music);
-        let mut rolls = [engine.unit(), engine.unit()].into_iter();
-        let start = state
-            .music
-            .update(key, delay, playing, dt, || rolls.next().unwrap_or(0.5));
-        if start {
-            engine.enqueue(SoundRequest::new(&*event_name));
-        }
-    }
+    let key = music_key(stream.is_some(), dimension, creative, credits_active);
+    super::music::drive_music(&mut engine, &mut state.music, key, dt);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -638,8 +651,73 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    #[derive(Default)]
+    struct BlockMaterials(sim::CollisionRegistry);
+
+    impl PhysicsCollisionRegistries for BlockMaterials {
+        fn registry(&self, _: assets::NetworkIdMode) -> &sim::CollisionRegistry {
+            &self.0
+        }
+
+        fn block_canonical_state(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
+            None
+        }
+
+        fn block_identifier(&self, _: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
+            match runtime_id {
+                1 => Some("minecraft:dirt"),
+                7 | 0x8000_0007 => Some("minecraft:stone"),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn server_block_sounds_use_the_session_palette_and_preserve_high_bit_hashes() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"block_sounds": {
+                "stone": {"events": {"break": "dig.stone"}},
+                "gravel": {"events": {"break": "dig.gravel"}}
+            }}),
+            &serde_json::json!({"stone": "stone", "dirt": "gravel"}),
+        );
+        let collisions = BlockMaterials::default();
+        for (hashes, wire) in [(false, 1), (true, 0x8000_0007_u32)] {
+            let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: hashes,
+            });
+            stream.set_sequential_id_remap(assets::SequentialIdRemap::from_palette(vec![0, 7], 8));
+            let event = protocol::LevelAudioEvent {
+                sound_event: Arc::from("break"),
+                position: [1.5, 64.5, 2.5],
+                data: i32::from_ne_bytes(wire.to_ne_bytes()),
+                actor_identifier: Arc::from(""),
+                is_baby: false,
+                is_global: false,
+                actor_unique_id: -1,
+                fire_at_position: None,
+            };
+            let lookup = network_block_lookup(Some(&collisions), &stream);
+            let request = route::level_sound_request(&tables, &event, &lookup).unwrap();
+            assert_eq!(request.name.as_ref(), "dig.stone");
+            assert_eq!(request.position, Some(event.position));
+            assert_eq!(u32::from_ne_bytes(event.data.to_ne_bytes()), wire);
+            assert_eq!(
+                block_lookup(Some(&collisions), assets::NetworkIdMode::Sequential)(7),
+                Some("minecraft:stone".to_owned()),
+            );
+        }
+    }
+
     fn event(sequence: u64, dimension: i32, dimension_epoch: u64) -> SequencedAudioEvent {
         SequencedAudioEvent {
+            actor_synchronization: None,
             origin_stream_session_id: 1,
             sequence,
             dimension,
@@ -723,11 +801,50 @@ mod tests {
         let mut state = IngestState::default();
         state.bind(1, 4, &mut engine);
         state.records.insert([0, 64, 0]);
-        assert!(!state.admits(&event(10, 0, 2), 0));
-        assert!(state.admits(&event(11, 0, 4), 0));
+        assert!(!state.admits(&event(10, 0, 2), 0, false));
+        assert!(state.admits(&event(11, 0, 4), 0, false));
         state.bind(1, 9, &mut engine);
         assert!(state.records.is_empty(), "dimension-owned records reset");
-        assert!(!state.admits(&event(12, 0, 4), 0));
-        assert!(state.admits(&event(13, 0, 9), 0));
+        assert!(!state.admits(&event(12, 0, 4), 0, false));
+        assert!(state.admits(&event(13, 0, 9), 0, false));
+    }
+
+    #[test]
+    fn synchronized_actor_audio_retains_lifetime_and_epoch_fences_after_newer_packets() {
+        let mut state = IngestState::default();
+        state.bind(1, 4, &mut AudioEngine::default());
+        assert!(state.admits(&event(20, 0, 4), 0, false));
+        let mut delayed = event(2, 0, 4);
+        delayed.actor_synchronization = Some(client_world::ActorLifetimeId {
+            session_id: 1,
+            dimension: 0,
+            runtime_id: 7,
+            spawn_revision: 1,
+        });
+        delayed.event = protocol::AudioEvent::Level(protocol::LevelAudioEvent {
+            sound_event: "death".into(),
+            position: [1.0, 2.0, 3.0],
+            data: -1,
+            actor_identifier: "minecraft:ender_dragon".into(),
+            is_baby: false,
+            is_global: false,
+            actor_unique_id: 17,
+            fire_at_position: Some([1.0, 2.0, 3.0]),
+        });
+        assert!(state.admits(&delayed, 0, true));
+        assert_eq!(
+            state.last_sequence, 20,
+            "delayed delivery preserves transport order"
+        );
+        assert!(
+            !state.admits(&delayed, 0, false),
+            "the actor was removed or replaced"
+        );
+        assert!(!state.admits(&delayed, 1, true), "the dimension changed");
+        state.bind(1, 9, &mut AudioEngine::default());
+        assert!(
+            !state.admits(&delayed, 0, true),
+            "a return visit has a new epoch"
+        );
     }
 }

@@ -46,7 +46,7 @@ impl MeshLightHalo {
         ]
     }
 
-    /// Vanilla `BlockSource` reads an absent chunk at the dimension's default brightness
+    /// Vanilla reads an absent chunk at the dimension's default brightness
     /// (block 0, sky 15); Nether and End store no sky light, so only the Overworld is sky-lit.
     fn absent_light(&self) -> [u8; 2] {
         match self.center {
@@ -78,7 +78,10 @@ pub(in crate::stream) fn pack_biome_record(
 
 impl MeshSnapshot {
     pub(in crate::stream) fn neighbourhood(&self) -> MeshNeighbourhood<'_> {
-        let mut neighbourhood = MeshNeighbourhood::new(&self.center);
+        let origin = self.light_halo.center.map_or([0; 3], |key| {
+            [key.x, key.y, key.z].map(|value| value.wrapping_mul(world::SUB_CHUNK_SIDE as i32))
+        });
+        let mut neighbourhood = MeshNeighbourhood::new(&self.center).with_block_origin(origin);
         for offset in MeshNeighbourhood::adjacent_offsets() {
             if let Some(sub_chunk) = self.adjacent[mesh_offset_index(offset)].as_deref() {
                 let inserted = neighbourhood.insert(offset, sub_chunk);

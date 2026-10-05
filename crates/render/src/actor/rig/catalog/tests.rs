@@ -201,8 +201,8 @@ fn empty_pack_ranges_preserve_pages_and_populated_ranges_are_removed() {
         assert!(Arc::ptr_eq(old, new));
     }
 
-    let pack = crate::pack_rig_id(0);
-    let equipment = crate::pack_equipment_rig_id(0);
+    let pack = render_model::pack_rig_id(0);
+    let equipment = render_model::pack_equipment_rig_id(0);
     builder
         .replace_pack_geometries(vec![geometry(pack.0, 6)])
         .unwrap();

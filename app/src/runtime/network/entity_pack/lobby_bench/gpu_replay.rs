@@ -115,9 +115,12 @@ fn publish_ui(
             ui::DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    let stats = app.world().resource::<render::UiRenderStats>().clone();
+    let stats = app
+        .world()
+        .resource::<render::UiRenderStatsResource>()
+        .clone();
     app.world_mut()
-        .resource_mut::<render::UiRenderScene>()
+        .resource_mut::<render::UiRenderSceneResource>()
         .publish(input, &stats)
         .unwrap();
 }
@@ -130,7 +133,7 @@ fn enhanced_lobby_replay_on_native_gpu() {
     let capture = std::env::var_os("CINNABAR_LOBBY_CAPTURE").expect("offline capture path");
     let pack = std::env::var_os("CINNABAR_RENDER_PACK").expect("offline pack path");
     let capture = read_capture(Path::new(&capture));
-    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), false);
+    let (mut world, rest, mut replay) = build_world(&capture, Some(Path::new(&pack)), false);
     let camera = *world
         .query_filtered::<&Transform, With<crate::camera::FlyCamera>>()
         .single(&world)
@@ -206,13 +209,13 @@ fn enhanced_lobby_replay_on_native_gpu() {
                 })
                 .collect();
             app.world_mut()
-                .insert_resource(nametags::build_nametag_scene(
+                .insert_resource(render::NametagSceneResource(nametags::build_nametag_scene(
                     &anchors,
                     &font,
                     &mut layouts,
                     &mut atlas,
                     &|page| nametag_atlas::font_page(&font, page),
-                ));
+                )));
         }
         app.update();
         app.sub_app(RenderApp)

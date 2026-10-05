@@ -88,7 +88,7 @@ fn indexed_archive_is_verified_before_any_runtime_exists() {
     assert_eq!(bundle.file("poster.txt"), Some(b"fixture".as_slice()));
     assert!(bundle.component().is_none());
     assert_eq!(bundle.expanded_bytes(), 7);
-    assert!(bundle.into_runtime().0.is_none());
+    assert!(bundle.into_component().is_none());
     assert!(
         bundle::VerifiedBundle::read(&bytes, &deployment.packages[0], &deployment.scope, 1,)
             .is_err()
@@ -105,7 +105,7 @@ fn verified_component_transfers_to_the_helper_without_copying() {
         BTreeSet::new(),
         Some("guest.wasm"),
     );
-    let bundle = bundle::VerifiedBundle::read(
+    let mut bundle = bundle::VerifiedBundle::read(
         &bytes,
         &deployment.packages[0],
         &deployment.scope,
@@ -113,8 +113,8 @@ fn verified_component_transfers_to_the_helper_without_copying() {
     )
     .unwrap();
     let original = bundle.component().unwrap().as_ptr();
-    let (component, files) = bundle.into_runtime();
-    let component = component.unwrap();
+    let files = bundle.take_screen_files();
+    let component = bundle.take_component().unwrap();
     assert!(files.templates.is_empty() && files.textures.is_empty());
     assert_eq!(component, payload);
     assert_eq!(component.as_ptr(), original);
@@ -379,6 +379,7 @@ fn media_grant_binds_the_exact_signed_archive_revision() {
         1,
         1000,
         Arc::new(AtomicU64::new(0)),
+        std::path::PathBuf::from("/nonexistent/mod-host"),
     )
     .unwrap();
     let result = media::service::Player::prepare(
@@ -388,6 +389,7 @@ fn media_grant_binds_the_exact_signed_archive_revision() {
         1,
         1000,
         Arc::new(AtomicU64::new(0)),
+        std::path::PathBuf::from("/nonexistent/mod-host"),
     );
     assert!(result.err().unwrap().to_string().contains("foreign bundle"));
 }
@@ -403,6 +405,7 @@ fn delayed_probes_survive_polling_and_unsolicited_replies() {
         1,
         1000,
         Arc::new(AtomicU64::new(0)),
+        std::path::PathBuf::from("/nonexistent/mod-host"),
     )
     .unwrap();
     let (id, c0) = player.ping(1_000_000).unwrap();
@@ -451,7 +454,7 @@ fn screen_bundle(assets: &[(&str, &[u8])]) -> anyhow::Result<bundle::VerifiedBun
 #[test]
 fn screen_files_are_bounded_and_templates_own_the_bundle_namespace() {
     let terminal = br#"{"namespace": "example_cinema", "terminal@common.base_screen": {}}"#;
-    let bundle = screen_bundle(&[
+    let mut bundle = screen_bundle(&[
         ("ui/terminal.json", terminal),
         ("textures/panel.png", b"png"),
     ])
@@ -460,7 +463,7 @@ fn screen_files_are_bounded_and_templates_own_the_bundle_namespace() {
         bundle.manifest.templates,
         BTreeSet::from(["ui/terminal.json".to_owned()])
     );
-    let (_, files) = bundle.into_runtime();
+    let files = bundle.take_screen_files();
     assert_eq!(files.namespace, "example_cinema");
     assert_eq!(files.templates["ui/terminal.json"], terminal);
     assert_eq!(
@@ -475,4 +478,40 @@ fn screen_files_are_bounded_and_templates_own_the_bundle_namespace() {
     assert!(screen_bundle(&[("textures/panel.jpg", b"jpg")]).is_err());
     let huge = vec![0; policy::MAX_TEXTURE_BYTES + 1];
     assert!(screen_bundle(&[("textures/panel.png", &huge)]).is_err());
+}
+
+// A media descriptor's poster may be a texture, so a bundle that holds `media` keeps its
+// textures after the presenter takes its screen files; one without moves them out.
+#[test]
+fn media_bundles_keep_their_textures_for_posters() {
+    let terminal = br#"{"namespace": "example_cinema", "terminal@common.base_screen": {}}"#;
+    for (permissions, kept) in [
+        (vec![manifest::Permission::ModalUi], false),
+        (
+            vec![manifest::Permission::ModalUi, manifest::Permission::Media],
+            true,
+        ),
+    ] {
+        let (bytes, deployment) = archive_files_with_permissions(
+            &[
+                ("ui/terminal.json", terminal),
+                ("textures/poster.png", b"png"),
+            ],
+            false,
+            CompressionMethod::Stored,
+            BTreeSet::from_iter(permissions),
+            None,
+        );
+        let mut bundle = bundle::VerifiedBundle::read(
+            &bytes,
+            &deployment.packages[0],
+            &deployment.scope,
+            policy::MAX_EXPANDED_BYTES,
+        )
+        .unwrap();
+        let files = bundle.take_screen_files();
+        assert_eq!(files.textures.len(), 1);
+        assert!(bundle.file("ui/terminal.json").is_none());
+        assert_eq!(bundle.file("textures/poster.png").is_some(), kept);
+    }
 }

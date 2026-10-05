@@ -90,8 +90,11 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             synthetic_local_uuid: None,
+            synthetic_local_skin: None,
+            synthetic_local_skin_pending: false,
             synthetic_local_revision: 0,
             local_first_person: false,
+            local_view_dirty: false,
             local_view_bobbing: true,
             local_hands: [None, None],
             camera_rotation: [0.0; 2],
@@ -101,6 +104,8 @@ impl ActorStore {
             property_registry: Default::default(),
             local_knockback: None,
             status_notices: Vec::new(),
+            particle_effects: Default::default(),
+            synchronized_audio: Default::default(),
         }
     }
 
@@ -130,6 +135,7 @@ impl ActorStore {
         if runtime_id == 0 {
             return;
         }
+        self.local_view_dirty |= self.local_first_person != feed.first_person;
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
@@ -154,6 +160,7 @@ impl ActorStore {
                 *current_username = username;
             }
             actor.received_pose = pose;
+            actor.status.movement_interpolation = Default::default();
             actor.velocity = feed.velocity;
             actor.status.native_velocity = feed.velocity;
             actor.on_ground = Some(feed.on_ground);
@@ -179,9 +186,8 @@ impl ActorStore {
                 .insert(self.session_id, self.dimension, actor);
         }
     }
-    /// Resolves the local player's `(uuid, username)` for skin lookup. A real player-list echo
-    /// wins and any prior synthetic profile is dropped; otherwise a synthetic profile carrying the
-    /// fed skin is upserted (only when missing or changed) so `player_profile` resolves by uuid.
+    /// A retained server appearance wins; otherwise only changed client skin feeds replace the
+    /// synthetic profile, preserving server skin updates between pose samples.
     fn resolve_local_identity(
         &mut self,
         unique_id: i64,
@@ -191,6 +197,7 @@ impl ActorStore {
         if let Some((uuid, username)) = self
             .players
             .iter()
+            .chain(self.unlisted_players.iter())
             .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
             .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
         {
@@ -199,10 +206,22 @@ impl ActorStore {
             {
                 self.remove_profile(&stale);
             }
+            self.synthetic_local_skin = None;
+            self.synthetic_local_skin_pending = false;
             return (uuid, username);
         }
-        let stale = match self.players.get(&feed.uuid) {
-            Some(profile) => profile.unique_id != unique_id || profile.skin != feed.skin,
+        let skin_fingerprint = super::profiles::skin_fingerprint(&feed.skin);
+        let stale = match self
+            .players
+            .get(&feed.uuid)
+            .or_else(|| self.unlisted_players.get(&feed.uuid))
+        {
+            Some(profile) => {
+                profile.unique_id != unique_id
+                    || synthetic != Some(feed.uuid)
+                    || self.synthetic_local_skin != Some(skin_fingerprint)
+                    || self.synthetic_local_skin_pending
+            }
             None => true,
         };
         if stale {
@@ -215,8 +234,14 @@ impl ActorStore {
                     skin: feed.skin.clone(),
                 },
             );
+            self.synthetic_local_skin_pending = self
+                .players
+                .get(&feed.uuid)
+                .or_else(|| self.unlisted_players.get(&feed.uuid))
+                .is_none_or(|profile| profile.skin != feed.skin);
         }
         self.synthetic_local_uuid = Some(feed.uuid);
+        self.synthetic_local_skin = Some(skin_fingerprint);
         (feed.uuid, std::sync::Arc::clone(&feed.username))
     }
 
@@ -231,11 +256,15 @@ impl ActorStore {
         self.players.clear();
         self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
+        self.synthetic_local_skin = None;
+        self.synthetic_local_skin_pending = false;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
         self.items.clear();
         self.actions.clear();
         self.status_notices.clear();
+        self.particle_effects.clear();
+        self.synchronized_audio.clear();
     }
     pub(crate) fn reset_dimension(
         &mut self,
@@ -256,11 +285,15 @@ impl ActorStore {
         if let Some(uuid) = self.synthetic_local_uuid.take() {
             self.remove_profile(&uuid);
         }
+        self.synthetic_local_skin = None;
+        self.synthetic_local_skin_pending = false;
         self.prune_unlisted_players();
         self.animation.clear();
         self.items.clear_actor_state();
         self.actions.clear();
         self.status_notices.clear();
+        self.particle_effects.clear();
+        self.synchronized_audio.clear();
         ActorApplyResult::Reset
     }
     pub(crate) fn apply(
@@ -288,7 +321,21 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
-                let mut received = actor.received_pose;
+                let Some(duration) =
+                    super::movement_interpolation::duration(movement.interpolation)
+                else {
+                    let previous = self.ignored_movement_components;
+                    self.ignored_movement_components = previous.saturating_add(1);
+                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
+                        eprintln!(
+                            "ignored unsupported actor movement duration (total {})",
+                            self.ignored_movement_components
+                        );
+                    }
+                    return ActorApplyResult::Updated;
+                };
+                let previous_received = actor.last_received_pose();
+                let mut received = previous_received;
                 let network_position_offset =
                     if movement.position_origin == ActorPositionOrigin::NetworkOffset {
                         actor.network_position_offset()
@@ -349,7 +396,7 @@ impl ActorStore {
                     [0.0; 3]
                 } else {
                     std::array::from_fn(|axis| {
-                        (received.position[axis] - actor.received_pose.position[axis])
+                        (received.position[axis] - previous_received.position[axis])
                             / elapsed_seconds
                     })
                 };
@@ -361,14 +408,12 @@ impl ActorStore {
                         [0.0; 3]
                     };
                 }
-                actor.received_pose = received;
-                if movement.teleported {
-                    actor.previous_pose = received;
-                    actor.set_current_pose(received);
-                    actor.interpolation_ticks_remaining = 0;
-                } else {
-                    actor.interpolation_ticks_remaining = ACTOR_INTERPOLATION_TICKS;
-                }
+                actor.start_movement_interpolation(
+                    received,
+                    duration,
+                    movement.interpolation.force_completion,
+                    movement.teleported,
+                );
                 actor.movement_revision = sequence;
                 actor.teleported = movement.teleported;
                 actor.player_mode = movement.player_mode;
@@ -477,7 +522,7 @@ impl ActorStore {
         dimension: i32,
         movement: MovePlayerEvent,
     ) -> ActorApplyResult {
-        // `Player::handleMovePlayerPacket`: Reset sets the position directly and
+        // As in vanilla, Reset sets the position directly and
         // Rotation turns the player without any position request.
         let rotation_only = movement.mode == protocol::MovePlayerMode::Rotation;
         self.apply(
@@ -499,6 +544,7 @@ impl ActorStore {
                 teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),
+                interpolation: Default::default(),
             }),
         )
     }
@@ -529,6 +575,7 @@ impl ActorStore {
         let links = std::sync::Arc::clone(&spawn.links);
         let mut replaced = false;
         if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
+            self.synchronized_audio.remove_runtime(previous.runtime_id);
             let lifetime = self.lifetime_for(&previous);
             self.unique_to_runtime.remove(&previous.unique_id);
             self.animation.remove_runtime(previous.runtime_id);
@@ -539,6 +586,7 @@ impl ActorStore {
         }
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
             if let Some(previous) = self.actors.remove(&previous_runtime) {
+                self.synchronized_audio.remove_runtime(previous.runtime_id);
                 let lifetime = self.lifetime_for(&previous);
                 self.items.remove(lifetime);
                 self.actions.remove(lifetime);
@@ -579,6 +627,7 @@ impl ActorStore {
             return ActorApplyResult::MissingActor;
         };
         if let Some(actor) = self.actors.remove(&runtime_id) {
+            self.synchronized_audio.remove_runtime(runtime_id);
             let lifetime = self.lifetime_for(&actor);
             self.items.remove(lifetime);
             self.actions.remove(lifetime);
@@ -829,7 +878,7 @@ impl ActorStore {
             .map(|actor| self.lifetime_for(actor))
     }
 
-    const fn lifetime_for(&self, actor: &ActorSnapshot) -> ActorLifetimeId {
+    pub(super) const fn lifetime_for(&self, actor: &ActorSnapshot) -> ActorLifetimeId {
         ActorLifetimeId {
             session_id: self.session_id,
             dimension: self.dimension,

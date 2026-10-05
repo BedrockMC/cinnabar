@@ -593,7 +593,7 @@ pub(crate) fn record_metrics(
     }
     if client_world.stream.is_some() && visibility_snapshot.frame_generation != 0 {
         let cohort = render_metrics.frame_poll.cohort;
-        let count = |digest: Option<render::VisibilityKeyDigest>| {
+        let count = |digest: Option<render_model::VisibilityKeyDigest>| {
             digest
                 .and_then(|digest| usize::try_from(digest.count).ok())
                 .unwrap_or(0)
@@ -828,6 +828,16 @@ pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStagePro
             sample.count,
             sample.total.as_secs_f64() * 1_000.0,
             sample.maximum.as_secs_f64() * 1_000.0,
+        );
+    }
+    if let Some(slow) = profiler
+        .as_deref()
+        .and_then(RuntimeStageProfiler::slow_frame_counts)
+    {
+        let _ = write!(
+            line,
+            " slow_frames={},{},{}",
+            slow.slow, slow.hitches, slow.hard_hitches
         );
     }
     eprintln!("{line}");

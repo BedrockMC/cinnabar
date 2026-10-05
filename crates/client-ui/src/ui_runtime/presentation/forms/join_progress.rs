@@ -7,9 +7,9 @@ use json_ui::{DataSource, Scalar};
 use super::menu_screens::{Translate, flags, text, translated};
 use crate::menu::{JoinKind, JoinProgress, JoinStage};
 
-/// `SceneFactory::createNetworkProgressScreen`'s screen.
+/// Vanilla's world join progress screen.
 const WORLD_SCREEN: &str = "progress.world_loading_progress_screen";
-/// `SceneFactory::createRealmNetworkProgressScreen`'s screen.
+/// Vanilla's Realm join progress screen.
 const REALM_SCREEN: &str = "progress.realms_stories_loading_progress_screen";
 
 const MIB: u64 = 1 << 20;
@@ -119,7 +119,7 @@ fn connect_title(kind: JoinKind, tr: &impl Fn(&str, &str) -> String) -> String {
     }
 }
 
-/// `Util::getFilesizeString`: MB to two places under 1 MiB and one above, GB from 1 GiB.
+/// Vanilla file sizes: MB to two places under 1 MiB and one above, GB from 1 GiB.
 fn file_size(bytes: u64, tr: &impl Fn(&str, &str) -> String) -> String {
     let megabytes = || tr("playscreen.fileSize.MB", "MB");
     if bytes < MIB {

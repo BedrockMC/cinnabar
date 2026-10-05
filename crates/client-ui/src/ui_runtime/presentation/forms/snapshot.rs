@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use image::{Rgba, RgbaImage};
-use render::{UI_BLEND_INVERT, UiRenderInput, UiRenderVertex};
+use render_model::{UI_BLEND_INVERT, UiRenderInput, UiRenderVertex};
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
 
@@ -155,6 +155,7 @@ mod tests {
             style_flags: 0,
             alpha_cutoff: -1.0,
             model_light: 1.0,
+            overlay_color: [0.0; 4],
         }
     }
 

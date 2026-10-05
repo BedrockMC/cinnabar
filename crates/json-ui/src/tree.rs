@@ -12,7 +12,7 @@ mod properties;
 pub use properties::Properties;
 
 /// A fully qualified `namespace.name` handle for a control definition.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ControlRef {
     pub namespace: String,
     pub name: String,
@@ -27,13 +27,14 @@ impl ControlRef {
     }
 
     /// Split a reference against a default namespace, dropping any leading `@`.
-    /// `common.foo` keeps its namespace; a bare `foo` adopts `default_ns`.
+    /// `common.foo` keeps its namespace; `foo` and `.foo` adopt `default_ns`.
     /// A `name@ns.base` factory entry names its base after the `@`.
     pub fn parse(reference: &str, default_ns: &str) -> Self {
         let reference = reference
             .rsplit_once('@')
             .map_or(reference, |(_, base)| base);
         match reference.split_once('.') {
+            Some(("", name)) => Self::new(default_ns, name),
             Some((namespace, name)) => Self::new(namespace, name),
             None => Self::new(default_ns, reference),
         }

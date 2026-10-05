@@ -6,6 +6,8 @@ pub use bridge::{
     FeaturedGame, FeaturedServer, Friend, Gathering, Home, Inbox, LiveEvent, Message,
     MessageButton, MessageEvent, MessageImage, Profile, ProfileAchievement, ProfileAchievements,
     ProfileStatistics, Realm, ServerDisconnect, ServerPing, TransferPending, account_status,
-    connect_target, home, list_featured_servers, list_friends, list_gatherings, list_realms,
-    ping_servers, poll_events, profile, report_message_event, sign_out,
+    connect_target, control_endpoint_path, home, list_featured_servers, list_friends,
+    list_gatherings, list_realms, ping_servers, poll_events, profile, report_message_event,
+    sign_out,
 };
+pub use bridge::{PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay};

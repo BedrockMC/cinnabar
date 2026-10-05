@@ -3,13 +3,13 @@
 //! presentation root to honor the production line budget.
 
 use assets::{HudTextureRole, RuntimeFontCatalog, RuntimeHudCatalog, RuntimeIconCatalog};
-use render::{MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTexturePage, UiTexturePlan};
+use render_model::{MAX_UI_TEXTURE_LAYERS, UiRenderTextureArray, UiTexturePage, UiTexturePlan};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use super::UiPresentationError;
 
-use render::UI_DYNAMIC_PAGE_SIDE as VANILLA_HUD_ATLAS_SIDE;
+use render_model::UI_DYNAMIC_PAGE_SIDE as VANILLA_HUD_ATLAS_SIDE;
 const HUD_ATLAS_GUTTER: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -345,14 +345,23 @@ pub(super) fn font_texture_array_with_hud_and_icons(
     let dynamic_start = pages.len();
     let blank = UiTexturePage::owned([width, height], vec![0; layer_bytes].into())
         .map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    pages.extend(std::iter::repeat_n(blank, render::MAX_UI_DYNAMIC_PAGES));
-    let art_side = render::UI_ART_PAGE_SIDE;
+    pages.extend((0..render_model::MAX_UI_DYNAMIC_PAGES).map(|offset| {
+        if offset == render_model::UI_LOCAL_FONT_PAGE_OFFSET {
+            super::mod_panel_font::blank_page()
+        } else {
+            blank.clone()
+        }
+    }));
+    let art_side = render_model::UI_ART_PAGE_SIDE;
     let blank_art = UiTexturePage::owned(
         [art_side, art_side],
         vec![0; art_side as usize * art_side as usize * 4].into(),
     )
     .map_err(|_| UiPresentationError::InvalidFontTexture)?;
-    pages.extend(std::iter::repeat_n(blank_art, render::MAX_UI_ART_PAGES));
+    pages.extend(std::iter::repeat_n(
+        blank_art,
+        render_model::MAX_UI_ART_PAGES,
+    ));
     let mut source = Sha256::new();
     source.update(b"ui-source-catalog-v1");
     source.update(font.identity().carrier_sha256);

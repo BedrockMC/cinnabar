@@ -12,6 +12,21 @@ fn send_use(
     })
 }
 
+/// A rejected throw of the last item leaves the slot for the ledger untouched.
+#[test]
+fn a_rejected_last_throw_reports_no_emptied_slot() {
+    let (full, _open) = AdmissionQueue::with_command_capacity(1);
+    let (ready, _open) = AdmissionQueue::with_command_capacity(2);
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    let last = item_frame(100, false, stack(4, SNOWBALL, 1), "minecraft:snowball");
+    runtime.observe_press(true);
+    send_use(&mut runtime, &mut swings, &last, &full);
+    assert_eq!(runtime.take_emptied_slot(), None);
+    send_use(&mut runtime, &mut swings, &last, &ready);
+    assert_eq!(runtime.take_emptied_slot(), Some((4, 1)));
+}
+
 #[test]
 fn a_throw_never_queues_its_swing_without_its_transaction() {
     let (full, _open) = AdmissionQueue::with_command_capacity(1);

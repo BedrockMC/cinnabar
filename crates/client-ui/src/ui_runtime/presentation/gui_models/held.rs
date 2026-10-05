@@ -6,7 +6,7 @@ use assets::{
     EquipmentCategory, ItemDisplayScalar, ItemVisualDefinitionRoute, ItemVisualKey,
     RuntimeEntityAssets, RuntimeEquipmentCatalog, RuntimeIconCatalog,
 };
-use render::{RenderBoneTransform, held_sprite_vertices, textured_cube_vertices};
+use render_model::{RenderBoneTransform, held_sprite_vertices, textured_cube_vertices};
 
 use super::{IconRef, UiPresentationError, atlas, player_preview};
 use player_preview::{PreviewHeldModel, PreviewHeldPlacement};
@@ -48,7 +48,7 @@ pub(super) fn prepare(
                     hand_pivots,
                     vertices: vertices.into(),
                     placements: [PreviewHeldPlacement::Sprite {
-                        hand_equipped: render::equipment::is_hand_equipped(&entry.identifier),
+                        hand_equipped: render_model::equipment::is_hand_equipped(&entry.identifier),
                     }; 2],
                 })
             }
@@ -94,8 +94,8 @@ fn player_hands(entities: &RuntimeEntityAssets) -> Option<[[f32; 3]; 2]> {
         .rig_geometries()
         .get(binding.first_geometry as usize)?
         .geometry as usize;
-    let names = render::geometry_bone_names(entities, geometry)?;
-    let pivots = render::geometry_bone_pivots(entities, geometry)?;
+    let names = render_model::geometry_bone_names(entities, geometry)?;
+    let pivots = render_model::geometry_bone_pivots(entities, geometry)?;
     let hand = |name: &str| {
         let index = names
             .iter()
@@ -130,7 +130,7 @@ fn authored(
     binding: &assets::EquipmentBinding,
     hand_pivots: [[f32; 3]; 2],
 ) -> Result<Option<PreviewHeldModel>, UiPresentationError> {
-    use render::equipment::{BoneChannels, attach};
+    use render_model::equipment::{BoneChannels, attach};
     let channels = |off_hand: bool| -> Option<BoneChannels> {
         match binding.category {
             EquipmentCategory::Held => {
@@ -173,9 +173,12 @@ fn authored(
     let Some(texture) = equipment.texture(&binding.texture.identifier) else {
         return Ok(None);
     };
-    let Ok(geometry) =
-        render::attachable_geometry(entities, index, render::item_mesh_rig_id(0), texture)
-    else {
+    let Ok(geometry) = render_model::attachable_geometry(
+        entities,
+        index,
+        render_model::item_mesh_rig_id(0),
+        texture,
+    ) else {
         return Ok(None);
     };
     let [pivot] = &*geometry.bone_pivots else {
@@ -184,7 +187,7 @@ fn authored(
     let identity = RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let (Some(main), Some(off)) = (
         attach(identity, *pivot, main),

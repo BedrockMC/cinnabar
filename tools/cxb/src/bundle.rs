@@ -109,8 +109,14 @@ pub struct Bundle {
     pub manifest: SignedDocument,
 }
 
-/// Signs the manifest and packs it with the component and the screen files.
-pub fn build(source: Source, wasm: &[u8], publisher: &Ed25519KeyPair) -> Result<Bundle> {
+/// Signs the manifest and packs it with the component, the screen files and the `(path, bytes)`
+/// assets.
+pub fn build(
+    source: Source,
+    wasm: &[u8],
+    assets: &[(String, Vec<u8>)],
+    publisher: &Ed25519KeyPair,
+) -> Result<Bundle> {
     let component = componentize(wasm)?;
     let mut entries: Vec<(&str, &[u8])> = vec![(COMPONENT_PATH, &component)];
     for path in source.templates.iter().chain(&source.textures) {
@@ -121,6 +127,13 @@ pub fn build(source: Source, wasm: &[u8], publisher: &Ed25519KeyPair) -> Result<
         ensure!(
             source.templates.contains(path) || path.starts_with(TEXTURE_DIR),
             "{path}: textures live under {TEXTURE_DIR}"
+        );
+        entries.push((path, bytes));
+    }
+    for (path, bytes) in assets {
+        ensure!(
+            path != MANIFEST_PATH && !entries.iter().any(|(listed, _)| listed == path),
+            "asset {path} would replace a bundle file"
         );
         entries.push((path, bytes));
     }
@@ -217,4 +230,37 @@ fn archive(entries: &[(&str, &[u8])]) -> Result<Vec<u8>> {
         bytes[offset] = 0;
     }
     Ok(bytes)
+}
+
+/// Reads every regular file under `dir` as an asset at its `/`-separated relative path, sorted.
+pub fn read_assets(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
+    let mut assets = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        for entry in
+            std::fs::read_dir(&next).with_context(|| format!("reading {}", next.display()))?
+        {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            ensure!(
+                kind.is_file(),
+                "{}: assets must be regular files",
+                entry.path().display()
+            );
+            let relative = entry.path().strip_prefix(dir)?.to_owned();
+            let path = relative
+                .components()
+                .map(|part| part.as_os_str().to_str())
+                .collect::<Option<Vec<_>>>()
+                .with_context(|| format!("{}: not UTF-8", relative.display()))?
+                .join("/");
+            assets.push((path, std::fs::read(entry.path())?));
+        }
+    }
+    assets.sort();
+    Ok(assets)
 }

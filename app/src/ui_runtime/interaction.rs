@@ -24,7 +24,9 @@ use bevy::{
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
 
-use crate::menu::settings_options::{binding_gamepad, binding_key, binding_mouse, binding_pressed};
+use crate::menu::settings_options::{
+    binding_gamepad, binding_key, binding_mouse, binding_pressed, hotbar_control_slot,
+};
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
 use client_ui::ui_runtime::inventory_ledger::DropSource;
@@ -34,9 +36,9 @@ use client_ui::ui_runtime::presentation::{
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 
 use client_ui::ui_runtime::interaction::{
-    ChatFlushError, dispatch_chat_ui_action, dispatch_inventory_key, flush_chat_sends,
-    flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut, paste_chat_shortcut,
-    restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
+    ChatFlushError, dispatch_chat_ui_action, dispatch_inventory_hotbar, dispatch_inventory_key,
+    flush_chat_sends, flush_inventory_send, gamepad_chat_action, is_chat_edit_shortcut,
+    paste_chat_shortcut, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
     suppress_gameplay_input_for_inventory,
 };
 
@@ -157,7 +159,7 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.server_forms().owns_input() {
+    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
         return;
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
@@ -180,6 +182,13 @@ pub(crate) fn drive_inventory_ui_actions(
     let primary_released = mouse_buttons.just_released(MouseButton::Left) || raw_primary_release;
     let secondary_released =
         mouse_buttons.just_released(MouseButton::Right) || raw_secondary_release;
+    let mouse_hotbar = mouse_buttons.get_just_pressed().find_map(|button| {
+        let code = crate::semantic_controls::physical::mouse_button_code(*button)?;
+        hotbar_control_slot(
+            menu.as_deref(),
+            semantic_input::PhysicalControl::MouseButton(code),
+        )
+    });
     // The inventory owns pointer buttons while open. Preserve the edges long
     // enough to resolve their cell, then clear every button before gameplay
     // systems can observe this frame.
@@ -232,7 +241,25 @@ pub(crate) fn drive_inventory_ui_actions(
         scroll_container(&mut runtime, frame, gui, &notches);
     }
     for key in presses {
-        let _ = dispatch_inventory_key(&mut player_runtime, runtime.as_mut(), hit, key, control);
+        let slot = crate::semantic_controls::keyboard_usage(key).and_then(|code| {
+            hotbar_control_slot(
+                menu.as_deref(),
+                semantic_input::PhysicalControl::KeyboardUsage(code),
+            )
+        });
+        let drop = binding_key(menu.as_deref(), "key.drop", key);
+        let _ = dispatch_inventory_key(
+            &mut player_runtime,
+            runtime.as_mut(),
+            hit,
+            key,
+            control,
+            slot,
+            drop,
+        );
+    }
+    if let Some(slot) = mouse_hotbar {
+        let _ = dispatch_inventory_hotbar(&mut player_runtime, runtime.as_mut(), hit, slot);
     }
     let frame = super::inventory_drag::PointerFrame {
         primary_pressed,
@@ -380,6 +407,65 @@ pub(crate) fn drive_chat_keyboard_input(
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    if runtime.credits().owns_input() {
+        let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let finished = runtime.credits().active().is_some_and(|active| {
+            presentation
+                .as_ref()
+                .is_some_and(|view| view.credits_finished(runtime.session_id(), active.sequence))
+        });
+        runtime.credits_mut().observe(now, finished);
+        if window.focused {
+            let cancel = keys.just_pressed(KeyCode::Escape)
+                || gamepads
+                    .iter()
+                    .any(|pad| pad.just_pressed(GamepadButton::East));
+            let select = keys.just_pressed(KeyCode::Enter)
+                || keys.just_pressed(KeyCode::Space)
+                || gamepads
+                    .iter()
+                    .any(|pad| pad.just_pressed(GamepadButton::South));
+            if mouse_buttons.just_pressed(MouseButton::Left) {
+                let skip_hit = runtime.credits().active().is_some_and(|active| {
+                    active.skip_visible(now)
+                        && window.cursor_position().is_some_and(|point| {
+                            presentation.as_ref().is_some_and(|view| {
+                                view.credits_skip_contains(
+                                    runtime.session_id(),
+                                    active.sequence,
+                                    point.to_array(),
+                                )
+                            })
+                        })
+                });
+                if skip_hit {
+                    runtime.credits_mut().skip(now);
+                } else {
+                    runtime.credits_mut().select(now, false);
+                }
+            } else if cancel || select {
+                runtime.credits_mut().select(now, cancel);
+            }
+        }
+        modifiers.reset_all();
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        mouse_motion.delta = Vec2::ZERO;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+        return;
+    }
+    if !window.focused {
+        modifiers.reset_all();
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        mouse_motion.delta = Vec2::ZERO;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+        return;
+    }
     if runtime.server_forms().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
@@ -401,18 +487,6 @@ pub(crate) fn drive_chat_keyboard_input(
         cursor.visible = true;
         return;
     }
-    if !window.focused {
-        modifiers.reset_all();
-        keyboard_messages.clear();
-        if runtime.chat_focused() {
-            runtime.close_chat();
-        }
-        if runtime.inventory_open() {
-            runtime.close_inventory(&mut player_runtime);
-        }
-        return;
-    }
-
     // An already-open inventory owns this frame's pointer edge. Keyboard
     // transitions below may close it or open a new UI, so both sides of the
     // transition are checked before preserving that edge for the inventory
@@ -488,10 +562,6 @@ pub(crate) fn drive_chat_keyboard_input(
                     runtime.close_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                 }
-                key if binding_key(menu.as_deref(), "key.drop", key) => {
-                    runtime.inventory_keys_mut().press(KeyCode::KeyQ)
-                }
-                KeyCode::KeyQ => {}
                 key => runtime.inventory_keys_mut().press(key),
             }
             continue;

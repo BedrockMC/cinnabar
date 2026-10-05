@@ -69,7 +69,8 @@ impl MenuRuntime {
                 .push(crate::global_resources::Action::CloseSettings);
             return;
         }
-        if self.dialog.take().is_some() {
+        if self.dialog.is_some() {
+            self.dismiss_accounts();
             return;
         }
         if self.local_screen_open() {

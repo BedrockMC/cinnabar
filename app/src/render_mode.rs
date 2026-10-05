@@ -16,7 +16,8 @@ use bevy::{
     prelude::*,
     render::{render_resource::TextureUsages, view::Hdr},
 };
-use render::{ENHANCED_RENDERING_ENABLED, EnhancedRenderPlugin, EnhancedRendering};
+use render::{EnhancedRenderPlugin, EnhancedRendering};
+use render_model::ENHANCED_RENDERING_ENABLED;
 use serde::{Deserialize, Serialize};
 use ui::RenderMode;
 

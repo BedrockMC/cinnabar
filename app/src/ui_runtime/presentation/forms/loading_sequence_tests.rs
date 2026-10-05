@@ -42,7 +42,7 @@ fn frame(
     player_runtime: &crate::player_runtime::PlayerRuntime,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
-) -> render::UiRenderInput {
+) -> render_model::UiRenderInput {
     presentation
         .build(
             player_runtime,

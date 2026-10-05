@@ -97,7 +97,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc, cat Catalog) (*Client
 	return client, entitlementsServer
 }
 
-// Authored to the reference client's inventory parser; not a captured payload.
+// Authored to vanilla's store inventory format; not a captured payload.
 const inventoryFixture = `{"result":{"inventory":{"entitlements":[{"id":"AAAAAAAA-0000-0000-0000-000000000001"},
 {"id":"bbbbbbbb-0000-0000-0000-000000000002"},{"id":"aaaaaaaa-0000-0000-0000-000000000001"},{"id":"bad id"}]},"receipt":"e30="}}`
 
@@ -125,7 +125,7 @@ func TestEntitlementsAreDedupedAndPaged(t *testing.T) {
 	}
 }
 
-// Authored to the reference client's page parser; rows carry queries, not offers.
+// Authored to vanilla's store page format; rows carry queries, not offers.
 const pageFixture = `{"result":{"pageId":"page-1","layout":[{"sectionName":"New","rows":[
 {"telemetryId":"r1","controlId":"StoreRow","components":[{"type":"itemListComp"}],"queries":[{"queryContentTypes":["Durable"],"orTags":["new"],"itemLimit":10}]},
 {"telemetryId":"r2","queries":[{"rarityFilters":["epic"]}]}]}]}}`

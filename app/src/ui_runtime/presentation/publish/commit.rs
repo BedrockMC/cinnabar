@@ -8,11 +8,11 @@ pub(crate) fn publish_ui_runtime(
     mut runtime: ResMut<UiRuntime>,
     mut prepared: ResMut<PreparedUiPublication>,
     mut presentation: ResMut<UiPresentationRuntime>,
-    mut scene: ResMut<UiRenderScene>,
-    stats: Res<UiRenderStats>,
+    mut scene: ResMut<render::UiRenderSceneResource>,
+    stats: Res<render::UiRenderStatsResource>,
     mut client_world: ResMut<ClientWorld>,
     hand_rig: Res<render::HandRigScene>,
-    nametag_scene: Option<ResMut<render::NametagScene>>,
+    nametag_scene: Option<ResMut<render::NametagSceneResource>>,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
     profiler: Option<Res<render::RuntimeStageProfiler>>,
 ) {
@@ -36,7 +36,7 @@ pub(crate) fn publish_ui_runtime(
         }
     };
     if let Some(mut scene) = nametag_scene {
-        *scene = presentation.nametag_scene();
+        scene.0 = presentation.nametag_scene();
     }
     if !hand_rig.is_active() {
         hand.bind_cpu_fallback(

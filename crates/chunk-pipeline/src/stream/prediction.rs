@@ -15,6 +15,11 @@ impl DeferredPredictions {
 }
 
 impl WorldStream {
+    /// Encodes a store identity for the server's block palette.
+    pub fn block_network_id(&self, internal_id: u32) -> Option<u32> {
+        self.authority.block_network_id(internal_id)
+    }
+
     /// The store id a wire block runtime id decodes to.
     pub fn resolve_block_network_id(&self, network_id: u32) -> u32 {
         BlockIds::resolve(

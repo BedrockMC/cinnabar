@@ -25,7 +25,7 @@ pub const DESTROY_DELAY_TICKS: u8 = 5;
 /// independent measurement.
 const COMPLETION_THRESHOLD: f64 = 0.99999;
 /// Below this speed (blocks/s) a held Creative destroy waits out the delay;
-/// above it, it destroys once per block travelled (`GameMode::continueDestroyBlock`).
+/// above it, it destroys once per block travelled.
 const CREATIVE_SLOW_SPEED: f32 = 0.5;
 const CREATIVE_TRAVEL_PER_DESTROY: f32 = 1.0;
 
@@ -54,6 +54,8 @@ pub struct DestroyTarget {
     pub position: [i32; 3],
     pub face: u8,
     pub runtime_id: u32,
+    /// Session wire identity frozen with the observed block.
+    pub wire_runtime_id: u32,
     pub relative_hit: [f32; 3],
     pub block: Option<BlockDestroyInfo>,
     /// Everything except `on_ground`, which is taken from each stepped tick.
@@ -123,7 +125,7 @@ impl SurvivalTickPayload {
                 selected_item: target.selection.item,
                 player_position,
                 relative_hit: target.relative_hit,
-                block_runtime_id: u64::from(target.runtime_id),
+                block_runtime_id: u64::from(target.wire_runtime_id),
             })
         });
         let interactions = PlayerAuthInputInteractions {
@@ -226,7 +228,7 @@ impl DestroyMachine {
             }
             DestroyInput::Released | DestroyInput::Held(None) => {
                 if input == DestroyInput::Released {
-                    // stopDestroyBlock clears the destroy delay.
+                    // Releasing clears the destroy delay, as in vanilla.
                     self.delay = 0;
                 }
                 if let Some(destroying) = self.destroying.take() {
@@ -548,7 +550,7 @@ pub fn exempt_from_airborne_penalty(mode: Option<sim::MovementMode>) -> bool {
 }
 
 /// Whether Unbreaking at `level` lets a `roll` in `0..100` damage the item:
-/// `ItemStackBase::hurtAndBreak` keeps damage below `Item::getDamageChance`.
+/// the item takes damage only when the roll is below 100 / (level + 1).
 pub fn unbreaking_keeps_damage(level: u8, roll: u32) -> bool {
     level == 0 || roll < 100 / (u32::from(level) + 1)
 }

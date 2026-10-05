@@ -49,6 +49,7 @@ pub enum MenuServerTab {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuDialog {
+    Accounts,
     Exit,
     RemoveSaved(usize),
     StorageDelete,
@@ -70,6 +71,9 @@ pub enum MenuField {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
+    OpenAccounts,
+    AddAccount,
+    SwitchAccount(usize),
     Inbox(inbox::Action),
     Navigate(MenuScreen),
     OpenExitDialog,

@@ -75,7 +75,7 @@ pub(super) fn compile(
     let routes = parse_block_item_routes()?;
     let bindings = item_bindings::reviewed()?;
     let legacy = legacy_icons::reviewed()?;
-    // Vanilla draws an item as its block only when it is that block's own BlockItem: an item
+    // Vanilla draws an item as its block only when it is that block's own block item: an item
     // the retail client gives a legacy icon, or one placing a differently named block, keeps
     // its sprite.
     let sprite_first = legacy
@@ -86,8 +86,12 @@ pub(super) fn compile(
         })
         .chain(routes.placers.iter().cloned())
         .collect::<BTreeSet<_>>();
-    let block_wins =
-        |key: &ItemVisualKey| routes.routes.contains_key(key) && !sprite_first.contains(key);
+    // Beds select their atlas sprite by dye aux even though all dyes place the same block.
+    let block_wins = |key: &ItemVisualKey| {
+        routes.routes.contains_key(key)
+            && !sprite_first.contains(key)
+            && key.identifier.as_ref() != "minecraft:bed"
+    };
     let binding_source = *source_indices
         .get(item_bindings::SOURCE_PATH)
         .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;
@@ -338,7 +342,7 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
 }
 
 /// Retail items named after a registry block the reviewed table omits (saplings, mushrooms,
-/// torchflower) are that block's `BlockItem`, drawn from its first canonical state.
+/// torchflower) are that block's block item, drawn from its first canonical state.
 fn add_retail_block_items(
     routes: &mut BTreeMap<ItemVisualKey, BlockVisualId>,
     reviewed_blocks: &BTreeSet<Box<str>>,

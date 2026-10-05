@@ -14,7 +14,7 @@ fn build(
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     now: u64,
-) -> render::UiRenderInput {
+) -> render_model::UiRenderInput {
     presentation
         .build(
             player_runtime,

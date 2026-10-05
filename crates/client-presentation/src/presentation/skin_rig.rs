@@ -1,10 +1,10 @@
 //! Player skins' own models registered as actor rig geometry, shared by model digest.
 use assets::SkinGeometry;
-use render::{ActorRigGeometry, EntityRigId, skin_geometry, skin_rig_id};
+use render_model::{ActorRigGeometry, EntityRigId, skin_geometry, skin_rig_id};
 
 /// Body and animated skin models for every selected player, plus the local first-person hand.
 pub const MAX_SKIN_RIGS: usize =
-    render::MAX_RENDERED_PLAYERS * (1 + protocol::MAX_SKIN_ANIMATION_LAYERS) + 1;
+    render_model::MAX_RENDERED_PLAYERS * (1 + protocol::MAX_SKIN_ANIMATION_LAYERS) + 1;
 /// Models that failed to build, remembered so they are not rebuilt every frame.
 const MAX_REJECTED_SKIN_RIGS: usize = 64;
 

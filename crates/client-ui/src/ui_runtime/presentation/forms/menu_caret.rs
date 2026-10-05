@@ -1,4 +1,4 @@
-//! The launcher text boxes' caret, after vanilla's `TextEditComponent` as the
+//! The launcher text boxes' caret, after vanilla's text edit component as the
 //! engine models it (`json_ui` `component/edit.rs` and `emit.rs`): the
 //! `CARET_GLYPH` at the caret, toggled every `CARET_BLINK_SECONDS` and shown
 //! again after each edit. A press inside a box places the caret at the

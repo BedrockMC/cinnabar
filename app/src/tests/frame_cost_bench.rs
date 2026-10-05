@@ -1,11 +1,13 @@
 //! Main-thread cost of per-frame paths, old shape against new, at crowded-server loads.
-//! Run: `cargo test -p bedrock-client --lib frame_cost_bench -- --ignored --nocapture`.
+//! Run: `cargo test -p bedrock-client --features reports --lib frame_cost_bench -- --ignored --nocapture`.
 
 use std::time::{Duration, Instant};
 
 use render::{
-    ActorRigFrameBuilder, ActorRigGeometry, ActorRigVertex, ActorSkinPixels, BlockEntityKind,
-    BlockEntityScene, BlockEntitySubmission, SceneClock, normalize_actor_skin,
+    ActorRigFrameBuilder, BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
+};
+use render_model::{
+    ActorRigGeometry, ActorRigVertex, ActorSkinPixels, normalize_actor_skin,
     normalize_actor_skin_cached, skin_rig_id,
 };
 
@@ -58,7 +60,7 @@ fn frame_cost_bench_geometry_registration_30_models() {
         ActorRigGeometry::new(id, vec![ActorRigVertex::default(); 500], vec![[0.0; 3]; 4]).unwrap()
     };
     let catalog = || {
-        ActorRigFrameBuilder::new((0..224).map(|index| geometry(render::EntityRigId(index))))
+        ActorRigFrameBuilder::new((0..224).map(|index| geometry(render_model::EntityRigId(index))))
             .unwrap()
     };
     let models = || {
@@ -157,63 +159,4 @@ fn frame_cost_bench_sound_decode() {
             new.as_secs_f64() * 1e3
         );
     }
-}
-
-#[test]
-#[ignore = "benchmark"]
-fn frame_cost_bench_skin_packing_128_players() {
-    let skins: Vec<protocol::SkinRgba8> = (0..128)
-        .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
-        .collect();
-    let mut previous: std::sync::Arc<[u8]> = std::sync::Arc::from([]);
-    let old = per_frame(FRAMES, |_| {
-        let mut bytes = Vec::new();
-        for skin in &skins {
-            bytes.extend_from_slice(skin);
-        }
-        let packed: std::sync::Arc<[u8]> = bytes.into();
-        std::hint::black_box(packed != previous);
-        previous = packed;
-    });
-    let mut pack = crate::presentation::actors::SkinLayerPack::default();
-    let new = per_frame(FRAMES, |_| {
-        let packed = pack.pack(skins.clone());
-        std::hint::black_box(packed != previous);
-        previous = packed;
-    });
-    report("skin_packing_128_players", old, new);
-}
-
-/// Isolate warm production packing without the benchmark's own full-payload comparison.
-#[test]
-#[ignore = "benchmark"]
-fn frame_cost_bench_skin_packing_shared_layers() {
-    let skins: Vec<protocol::SkinRgba8> = (0..render::MAX_RENDERED_PLAYERS)
-        .map(|player| vec![player as u8; render::STANDARD_SKIN_BYTES].into())
-        .collect();
-    let mut pack = crate::presentation::actors::SkinLayerPack::default();
-    let started = Instant::now();
-    let packed = pack.pack(skins.clone());
-    let cold = started.elapsed();
-    let mut times = Vec::with_capacity(FRAMES as usize);
-    let mut allocations = Vec::with_capacity(FRAMES as usize);
-    for _ in 0..FRAMES {
-        let before = super::alloc_count::thread_allocations();
-        let started = Instant::now();
-        let next = std::hint::black_box(pack.pack(std::hint::black_box(skins.clone())));
-        let elapsed = started.elapsed();
-        allocations.push(super::alloc_count::thread_allocations() - before);
-        times.push(elapsed);
-        assert!(std::sync::Arc::ptr_eq(&packed, &next));
-    }
-    times.sort_unstable();
-    allocations.sort_unstable();
-    eprintln!(
-        "SKIN_PACK_SHARED bytes={} cold_ms={:.3} median_ms={:.3} p99_ms={:.3} allocs={}",
-        packed.len(),
-        cold.as_secs_f64() * 1e3,
-        times[times.len() / 2].as_secs_f64() * 1e3,
-        times[times.len() * 99 / 100].as_secs_f64() * 1e3,
-        allocations[allocations.len() / 2],
-    );
 }

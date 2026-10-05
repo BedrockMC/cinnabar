@@ -14,7 +14,7 @@ use bevy::{
 
 pub use client_presentation::camera::{
     AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
-    CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin,
+    CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin, CameraRig,
     CameraSettingsAuthority, CameraSettingsError, FirstPersonHandMotion, FlyCamera,
     FlyCameraUpdateSet, HandSwayState, HeadMedium, LocalHurtEvent, OverlayKind, OverlayLayer,
     PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
@@ -89,11 +89,14 @@ impl Plugin for FlyCameraPlugin {
                     apply_runtime_camera_settings,
                     presentation::collect_fov_inputs,
                     facts::collect_screen_effect_facts,
-                    update_camera_fov,
                 )
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
+                // After camera input, so a rig committed this frame sets this frame's FOV.
+                update_camera_fov
+                    .after(FlyCameraUpdateSet)
+                    .before(ClientFrameSet::Camera),
                 (
                     update_cursor_capture,
                     update_perspective,
@@ -103,10 +106,12 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .in_set(FlyCameraUpdateSet),
                 (
+                    facts::collect_portal_contact,
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
-                    overlay_publish::publish_screen_overlays,
                     presentation::apply_camera_presentation,
+                    overlay_publish::publish_screen_overlays,
+                    facts::diagnose_portal,
                 )
                     .chain()
                     .after(resolve_camera_pose)
@@ -155,7 +160,7 @@ pub(crate) fn update_look(
     ),
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
+    settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
     smoother: ResMut<look::LookSmoother>,
     view: ResMut<LocalViewPose>,
@@ -203,6 +208,15 @@ pub(crate) fn update_movement(
         view,
     );
 }
+/// Present while a developer controller drives input; the window then counts as focused and
+/// captured without touching the OS cursor.
+#[derive(Resource, Debug, Default)]
+#[cfg_attr(
+    not(feature = "developer-control"),
+    allow(dead_code, reason = "inserted only by the developer control endpoint")
+)]
+pub(crate) struct DrivenInput;
+
 /// Samples UI cursor authority immediately before presentation updates capture.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
@@ -216,8 +230,10 @@ pub(crate) fn update_cursor_capture(
     menu: Option<Res<crate::menu::MenuRuntime>>,
     presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
+    driven: Option<Res<DrivenInput>>,
 ) {
     let policy = client_presentation::observations::CursorPolicy {
+        driven: driven.is_some(),
         consent: consent.is_some_and(|consent| consent.0),
         absorbs_input: crate::screen_policy::absorbs_input(
             &player_runtime,

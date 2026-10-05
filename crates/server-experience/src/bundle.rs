@@ -162,30 +162,59 @@ impl VerifiedBundle {
             .and_then(|path| self.file(path))
     }
 
-    /// Moves the verified component to its helper and the modal's templates and textures to
-    /// the presenter, without copying a payload.
-    pub fn into_runtime(mut self) -> (Option<Vec<u8>>, crate::screen::Files) {
-        let component = self
-            .manifest
+    /// Moves the verified component to its helper without copying the payload.
+    pub fn into_component(mut self) -> Option<Vec<u8>> {
+        self.take_component()
+    }
+
+    /// Moves the component out while keeping the other assets, such as media descriptors.
+    pub fn take_component(&mut self) -> Option<Vec<u8>> {
+        self.manifest
             .component
             .as_deref()
-            .and_then(|path| self.files.remove(path));
+            .and_then(|path| self.files.remove(path))
+    }
+
+    /// Moves the modal's templates and textures to the presenter. A bundle that holds `media`
+    /// keeps a copy of its textures, since a media descriptor's poster may be one of them.
+    pub fn take_screen_files(&mut self) -> crate::screen::Files {
         let templates = self
             .manifest
             .templates
             .iter()
             .filter_map(|path| Some((path.clone(), self.files.remove(path)?)))
             .collect();
-        let textures = std::mem::take(&mut self.files)
-            .into_iter()
-            .filter(|(path, _)| path.starts_with(crate::manifest::TEXTURE_DIR))
-            .collect();
-        let files = crate::screen::Files {
+        let is_texture = |path: &String| path.starts_with(crate::manifest::TEXTURE_DIR);
+        let textures = if self
+            .manifest
+            .permissions
+            .contains(&crate::manifest::Permission::Media)
+        {
+            self.files
+                .iter()
+                .filter(|(path, _)| is_texture(path))
+                .map(|(path, bytes)| (path.clone(), bytes.clone()))
+                .collect()
+        } else {
+            let paths: Vec<String> = self
+                .files
+                .keys()
+                .filter(|path| is_texture(path))
+                .cloned()
+                .collect();
+            paths
+                .into_iter()
+                .filter_map(|path| {
+                    let bytes = self.files.remove(&path)?;
+                    Some((path, bytes))
+                })
+                .collect()
+        };
+        crate::screen::Files {
             namespace: crate::manifest::template_namespace(&self.manifest.id),
             templates,
             textures,
-        };
-        (component, files)
+        }
     }
 
     /// Counts actual retained file bytes for the aggregate session budget.

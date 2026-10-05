@@ -249,16 +249,16 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
 
 fn long_form_source(data: &mut DataSource, form: &ActionForm) {
     data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
+    data.set_creation_value("#form_text", Scalar::Text(form.body.clone()));
     data.set_global("#title_text", Scalar::Text(form.title.clone()));
     data.set_global("#form_text", Scalar::Text(form.body.clone()));
     let length = Scalar::Num(form.elements.len() as f64);
-    data.set_global("#form_button_contents", length.clone());
     data.set_global("#form_button_length", length);
     data.set_global("#submit_button_visible", Scalar::Bool(true));
     let text_item = |role: &str, text: &str| {
         CollectionItem::new(role).with("#form_button_text", Scalar::Text(text.to_owned()))
     };
-    let items = form
+    let items: Vec<_> = form
         .elements
         .iter()
         .map(|element| match element {
@@ -281,6 +281,18 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
             ActionElement::Divider => CollectionItem::new("divider"),
         })
         .collect();
+    let contents = items
+        .iter()
+        .map(|item| {
+            item.role
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String)
+        })
+        .collect();
+    data.set_global(
+        "#form_button_contents",
+        Scalar::Json(serde_json::Value::Array(contents)),
+    );
     data.set_collection("form_buttons", items);
 }
 
@@ -427,10 +439,25 @@ impl ControlLibrary for CatalogLibrary<'_> {
 
 /// Factory and grid resolutions kept across binds of one catalog and context,
 /// so a screen re-bound for changed data reuses its created controls' trees.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ResolveCache {
-    memo:
-        std::sync::Mutex<std::collections::BTreeMap<(ControlRef, String), Option<ResolvedControl>>>,
+    memo: std::sync::Mutex<Option<ResolveMemo>>,
+}
+
+/// Recent resolutions and the catalog-and-context root scope they resolve in.
+struct ResolveMemo {
+    trees: crate::lru::Lru<(ControlRef, String), Option<Arc<ResolvedControl>>>,
+    root: crate::env::Env,
+}
+
+/// Distinct factory resolutions kept; text-carrying `$vars` (titles, the action
+/// bar) make one per message.
+const RESOLUTIONS: usize = 512;
+
+impl std::fmt::Debug for ResolveCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResolveCache").finish_non_exhaustive()
+    }
 }
 
 /// A [`CatalogLibrary`] answering from a [`ResolveCache`] first.
@@ -450,20 +477,45 @@ impl ControlLibrary for CachedLibrary<'_> {
         key: &str,
         vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Option<ResolvedControl> {
+        self.resolve_shared(reference, key, vars)
+            .map(Arc::unwrap_or_clone)
+    }
+
+    fn resolve_shared(
+        &self,
+        reference: &ControlRef,
+        key: &str,
+        vars: &dyn Fn() -> std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Option<Arc<ResolvedControl>> {
         let cache_key = (reference.clone(), key.to_owned());
-        if let Some(resolved) = self
-            .cache
-            .memo
-            .lock()
-            .ok()
-            .and_then(|memo| memo.get(&cache_key).cloned())
-        {
-            return resolved;
+        let Ok(mut memo) = self.cache.memo.lock() else {
+            return self
+                .library
+                .resolve_with(reference, key, vars)
+                .map(Arc::new);
+        };
+        let memo = memo.get_or_insert_with(|| ResolveMemo {
+            trees: crate::lru::Lru::new(RESOLUTIONS),
+            root: self.library.context.root_env(self.library.catalog),
+        });
+        if let Some(resolved) = memo.trees.get(&cache_key) {
+            return resolved.clone();
         }
-        let resolved = self.library.resolve_with(reference, key, vars);
-        if let Ok(mut memo) = self.cache.memo.lock() {
-            memo.insert(cache_key, resolved.clone());
+        let vars = vars();
+        let name = format!("{}.{}", reference.namespace, reference.name);
+        // A null `$var` reads as unset rather than masking a global, which a
+        // scope over the shared root cannot express.
+        let resolved = if vars.values().any(serde_json::Value::is_null) {
+            self.library.resolve_with(reference, key, &|| vars.clone())
+        } else {
+            let mut root = memo.root.child();
+            for (name, value) in vars {
+                root.set(name.trim_start_matches('$'), value);
+            }
+            crate::resolve_in(self.library.catalog, &name, &root.settle()).control
         }
+        .map(Arc::new);
+        memo.trees.insert(cache_key, resolved.clone());
         resolved
     }
 }
@@ -598,15 +650,28 @@ fn lay_out_and_emit(
     gated: Option<(&mut MeasureCache, bool)>,
 ) -> FormRender {
     let (nodes, hits, report, cancel_target, root_panel) = {
-        let gate = gated.as_ref().is_some_and(|(_, gate)| *gate);
-        let (laid, report) = match gated {
-            Some((measures, true)) => {
-                crate::layout::layout_culled(&bound, root_size, env, state, measures)
-            }
+        let (laid, report, gate) = match gated {
             Some((measures, false)) => {
-                crate::layout::layout_cached(&bound, root_size, env, state, measures)
+                let (output, report) =
+                    crate::layout::layout_reusing(&bound, root_size, env, state, measures);
+                return FormRender {
+                    bound,
+                    nodes: output.nodes,
+                    hits: output.hits.into(),
+                    report,
+                    cancel_target: output.cancel,
+                    root_panel: output.root_panel,
+                };
             }
-            None => layout_with(&bound, root_size, env, state),
+            Some((measures, true)) => {
+                let (laid, report) =
+                    crate::layout::layout_culled(&bound, root_size, env, state, measures);
+                (laid, report, true)
+            }
+            None => {
+                let (laid, report) = layout_with(&bound, root_size, env, state);
+                (laid, report, false)
+            }
         };
         (
             if gate {

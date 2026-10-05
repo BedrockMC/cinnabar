@@ -292,12 +292,13 @@ fn fallback_buttons_show_every_label_line() {
 fn server_pack_install_and_removal_keep_the_renderer_accepting_frames() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    use render::{UiRenderScene, UiRenderStats};
+    use render_model::{UiRenderScene, UiRenderStats};
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(16, 8, image::Rgba([9, 8, 7, 255]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
     let pack = super::ServerUiPack {
+        screen_settings: None,
         catalog: None,
         ui_layers: vec![vec![(
             "ui/server_form.json".to_owned(),

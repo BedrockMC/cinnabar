@@ -124,7 +124,7 @@ impl UiRuntime {
 
     /// Refreshes the selected-item identity clock. Runs before presentation so
     /// the label timer starts when the selection or item identity changes.
-    /// Bedrock's GuiData tick notices slot changes even between identical items.
+    /// Bedrock's HUD tick notices slot changes even between identical items.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn observe_selected_item_identity(
         &mut self,

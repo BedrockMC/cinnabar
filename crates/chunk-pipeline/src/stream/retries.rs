@@ -14,6 +14,10 @@ impl WorldStream {
         }
         if !collision_authoritative {
             self.requests.collision_failures.insert(chunk);
+            // Vanilla leaves an unfilled slot empty, and an empty slot lights as air.
+            if self.authority.terrain().sub_chunk(key).is_none() && self.record_known_air(key) {
+                self.mark_changed(key, Instant::now());
+            }
         }
         let (removed, completed) =
             self.requests

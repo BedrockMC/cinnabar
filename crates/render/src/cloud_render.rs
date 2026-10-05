@@ -126,6 +126,10 @@ pub(crate) fn prepare_cloud_records(
     views: Query<(Entity, &ExtractedView), With<Camera3d>>,
     mut gpu: ResMut<CloudGpu>,
 ) {
+    if !atmosphere.sky_kind().has_clouds() {
+        gpu.views.clear();
+        return;
+    }
     let Some(runtime) = requested.runtime() else {
         gpu.views.clear();
         return;
@@ -288,7 +292,7 @@ impl FromWorld for CloudPipeline {
                 buffers: Vec::new(),
                 ..default()
             },
-            // Native cloud PassState cull1 translates to BGFX CULL_CW:
+            // Vanilla's cloud material culls clockwise faces:
             // preserve the outward counter-clockwise texel faces.
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
@@ -422,7 +426,7 @@ fn queue_clouds(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if !visibility.0 {
+    if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawCloudCommands>();
@@ -485,7 +489,10 @@ fn cloud_bounds_center(viewport: CloudViewport, scroll_blocks: f32) -> [f32; 3] 
     ]
 }
 
-type DrawCloudCommands = (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds);
+type DrawCloudCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuSky as usize },
+    (SetItemPipeline, SetCloudBindGroup<0>, DrawClouds),
+>;
 
 struct SetCloudBindGroup<const I: usize>;
 

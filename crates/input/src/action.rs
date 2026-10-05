@@ -38,10 +38,12 @@ pub enum Action {
     UiCancel,
     UiTabNext,
     UiTabPrevious,
+    PlayerList,
+    Freelook,
 }
 
 impl Action {
-    pub const COUNT: usize = 35;
+    pub const COUNT: usize = 37;
 
     pub(crate) const ALL: [Self; Self::COUNT] = [
         Self::MoveForward,
@@ -79,6 +81,8 @@ impl Action {
         Self::UiCancel,
         Self::UiTabNext,
         Self::UiTabPrevious,
+        Self::PlayerList,
+        Self::Freelook,
     ];
 
     pub(crate) const fn is_ui_preview(self) -> bool {

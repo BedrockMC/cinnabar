@@ -1,6 +1,57 @@
 use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
+#[test]
+fn existing_f_binding_survives_freelook_default() {
+    let settings =
+        SettingsOptions::decode(br#"{"keys":{"key.drop":9,"key.inventory":12}}"#).unwrap();
+    assert_eq!(
+        settings.named_key_control("key.drop"),
+        Some(PhysicalControl::KeyboardUsage(9))
+    );
+    assert_eq!(
+        settings.named_key_control("key.inventory"),
+        Some(PhysicalControl::KeyboardUsage(12))
+    );
+    assert_eq!(settings.named_key_control("key.freelook"), None);
+    let controls = settings.controls().unwrap();
+    assert!(
+        !controls
+            .bindings()
+            .iter()
+            .any(|binding| binding.action == semantic_input::Action::Freelook)
+    );
+}
+
+#[test]
+fn freelook_defaults_to_f_and_remaps_to_mouse_across_reload() {
+    let mut settings = SettingsOptions::default();
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == semantic_input::Action::Freelook)
+        .unwrap();
+    assert_eq!(
+        settings.key_control(row),
+        Some(PhysicalControl::KeyboardUsage(0x09))
+    );
+    assert!(settings.remap(row, PhysicalControl::MouseButton(4)));
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    let controls = loaded.controls().unwrap();
+    let mut router = semantic_input::SemanticInputRouter::default();
+    router.replace_bindings(controls).unwrap();
+    router
+        .route(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                activity_sequence: 1,
+                mouse_buttons: vec![4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(router.finalize().unwrap().phases[semantic_input::Action::Freelook as usize].held);
+}
+
 /// Finds an option through the same stable controller identifier used on disk.
 fn index(name: &str) -> usize {
     SETTINGS_OPTIONS
@@ -219,4 +270,27 @@ fn loaded_supplemental_bindings_cannot_conflict_with_gameplay_controls() {
         loaded.named_key_control("key.inventory"),
         SettingsOptions::default().named_key_control("key.inventory")
     );
+}
+
+#[test]
+fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.user_settings().gameplay.always_sprint);
+    settings.set(index("always_sprint"), 1);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.user_settings().gameplay.always_sprint);
+    let legacy =
+        SettingsOptions::decode(br#"{"values":{"keyboard_mouse_sensitivity":75}}"#).unwrap();
+    assert!(!legacy.user_settings().gameplay.always_sprint);
+}
+
+#[test]
+fn vsync_defaults_on_and_persists_into_runtime_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(settings.user_settings().video.vsync);
+    settings.set(index("vsync"), 0);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(!loaded.user_settings().video.vsync);
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(legacy.user_settings().video.vsync);
 }

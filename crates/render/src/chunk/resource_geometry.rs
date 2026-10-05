@@ -11,6 +11,7 @@ impl ChunkRenderInstance {
     ) -> Self {
         self.biome = biome;
         self.tint_identity = tint_identity;
+        self.cube_layout = mesh.cube_layout();
         let (cubes, cube_light, models, model_light, draws, transparent, liquids, liquid_light) =
             mesh.into_streams();
         self.cube_quads = cubes.into();

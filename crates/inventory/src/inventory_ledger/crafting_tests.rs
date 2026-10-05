@@ -468,7 +468,7 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
     assert!(!ledger.resync_required());
 }
 
-/// Native _makeCreateItemScopeCreative declares
+/// Vanilla's creative create-item scope declares
 /// the catalog prototype, not the full-stack prediction used for the transfer.
 #[test]
 fn creative_take_declares_the_catalog_item_metadata_and_user_data() {

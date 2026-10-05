@@ -8,7 +8,8 @@ use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldBootstrap, WorldEvent,
 };
-use render::{ActorArtworkPages, EntityRigId};
+use render::ActorArtworkPages;
+use render_model::EntityRigId;
 use std::sync::Arc;
 
 const COUNTER: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
@@ -388,7 +389,7 @@ fn each_render_controller_draws_its_own_geometry() {
         0.5,
         None,
         layered.submissions.clone(),
-        Arc::from([]),
+        &[],
         &layered.artwork,
     );
     assert_eq!(frame.rig.instances.len(), 2, "{:?}", frame.rig.rejects);

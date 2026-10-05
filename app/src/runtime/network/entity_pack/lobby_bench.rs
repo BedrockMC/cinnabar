@@ -1,7 +1,7 @@
 //! Env-gated lobby frame benchmark: replays a captured server session into a world stream and
 //! times the real actor publication system per frame.
 //! Run: `CINNABAR_LOBBY_CAPTURE=<raw.bin> CINNABAR_RENDER_PACK=<uuid_version.zip> cargo test -p
-//! bedrock-client --lib lobby_frame_bench -- --ignored --nocapture`.
+//! bedrock-client --features reports --lib lobby_frame_bench -- --ignored --nocapture`.
 
 use std::{
     path::{Path, PathBuf},
@@ -248,7 +248,7 @@ fn entity_centroid(stream: &WorldStream) -> Option<Vec3> {
 
 fn build_world(
     capture: &Capture,
-    pack_path: &Path,
+    pack_path: Option<&Path>,
     away: bool,
 ) -> (World, Vec<(u32, Vec<u8>)>, Replay) {
     let compiled = PathBuf::from(
@@ -260,9 +260,11 @@ fn build_world(
     })
     .unwrap();
     let entity_runtime = Arc::clone(loaded.entities.runtime());
-    let artwork =
-        crate::asset_startup::require_actor_artwork(&loaded.selected_path, &loaded.entities)
-            .unwrap();
+    let artwork = crate::asset_startup::actor_artwork(
+        &crate::asset_startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
+            .unwrap(),
+        &entity_runtime,
+    );
     let icons = crate::asset_startup::require_icon_assets(
         &loaded.selected_path,
         crate::asset_startup::vanilla_source_manifest_json(),
@@ -278,7 +280,7 @@ fn build_world(
             equipment_catalog,
             Arc::clone(icons.runtime()),
             Some(Arc::clone(&loaded.runtime)),
-            crate::asset_startup::load_optional_block_entity_assets(&loaded.selected_path),
+            crate::block_entities::load_block_entity_carrier(&loaded.selected_path),
             artwork,
         );
     let mut scene = render::ActorRenderScene::with_runtime_entity_assets_and_equipment(
@@ -294,9 +296,12 @@ fn build_world(
     {
         super::set_vanilla_refs(refs);
     }
-    let view = super::super::local_pack::local_pack_view_at(pack_path).unwrap();
-    let pack =
-        super::compile(&view, super::vanilla_refs().as_deref()).expect("the pack defines entities");
+    let pack = pack_path.map(|path| {
+        let view = super::super::local_pack::local_pack_view_at(path).unwrap();
+        let pack = super::compile(&view, super::vanilla_refs().as_deref())
+            .expect("the pack defines entities");
+        (pack, super::pack_property_defaults(&view))
+    });
 
     let mut stream = WorldStream::new_with_asset_sets(
         capture.bootstrap,
@@ -305,14 +310,16 @@ fn build_world(
         capture.bootstrap.player_position,
         None,
     );
-    stream.set_pack_entities(Some((
-        Arc::clone(&pack.assets),
-        pack.bindings
-            .iter()
-            .map(|binding| binding.geometry_candidate)
-            .collect(),
-    )));
-    stream.seed_property_defaults(&super::pack_property_defaults(&view));
+    if let Some((pack, defaults)) = &pack {
+        stream.set_pack_entities(Some((
+            Arc::clone(&pack.assets),
+            pack.bindings
+                .iter()
+                .map(|binding| binding.geometry_candidate)
+                .collect(),
+        )));
+        stream.seed_property_defaults(defaults);
+    }
     let mut replay = Replay {
         session: BedrockSession { shield_item_id: 0 },
         sequence: 0,
@@ -335,7 +342,7 @@ fn build_world(
         Arc::clone(&loaded.runtime),
         entity_runtime,
     );
-    client_world.pack_entities = Some(pack);
+    client_world.pack_entities = pack.map(|(pack, _)| pack);
     client_world.stream = Some(stream);
     let mut world = crate::tests::actor_frame_allocations::actor_frame_world(
         client_world,
@@ -374,7 +381,6 @@ fn gpu_draws(frame: &ActorRenderFrame) -> (usize, u64) {
 fn frame_digest(frame: &ActorRenderFrame) -> u64 {
     use std::hash::{Hash, Hasher};
     let rig = &frame.rig;
-    let skin = render::STANDARD_SKIN_BYTES;
     let mut records: Vec<(u64, u8, u64)> = rig
         .instances
         .iter()
@@ -391,10 +397,9 @@ fn frame_digest(frame: &ActorRenderFrame) -> u64 {
             bits(&instance.uv_anim, &mut hasher);
             // Skin slots and skin rig ids are allocation order; their pixels are what draws.
             if *page == 0 {
-                let layer = instance.texture_layer as usize;
                 frame
-                    .skins_rgba8
-                    .get(layer * skin..(layer + 1) * skin)
+                    .player_skin(instance.texture_layer)
+                    .map(|skin| &**skin)
                     .hash(&mut hasher);
             } else {
                 (page, instance.texture_layer).hash(&mut hasher);
@@ -500,7 +505,7 @@ fn lobby_frame_bench() {
     let away = std::env::var_os("CINNABAR_LOBBY_LOOK_AWAY").is_some();
     let digest = std::env::var_os("CINNABAR_LOBBY_DIGEST").is_some();
     let capture = read_capture(Path::new(&capture));
-    let (mut world, rest, mut replay) = build_world(&capture, Path::new(&pack), away);
+    let (mut world, rest, mut replay) = build_world(&capture, Some(Path::new(&pack)), away);
 
     let started = Instant::now();
     let mut clock = started;

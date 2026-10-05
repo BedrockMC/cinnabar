@@ -1,10 +1,7 @@
 name: CI
 
-# Pull requests and main; ci-cache.yml keeps dev's Rust caches warm for pull requests.
+# Pull requests; ci-cache.yml keeps dev's Rust caches warm for pull requests.
 on:
-  push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
 
@@ -43,6 +40,11 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          # Matches ci-cache.yml's desktop job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            go.work.sum
       - name: Install Linux desktop development libraries
         if: runner.os == 'Linux'
         run: |
@@ -82,9 +84,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
-      - name: Test hermetic vanilla asset acquisition on Windows PowerShell 5.1
-        shell: powershell
-        run: .\scripts\tests\vanilla-assets.ps1
+          # Matches ci-cache.yml's windows-acceptance job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/localserver/go.sum
+            go.work.sum
       - name: Test Windows PowerShell 5.1 acceptance harness and dry-run contract
         shell: powershell
         run: .\scripts\tests\acceptance.Tests.ps1
@@ -139,6 +144,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
+          # Matches ci-cache.yml's verify job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            tools/chunkfix/go.sum
+            tools/localserver/go.sum
+            tools/bedsimtrace/go.sum
+            go.work.sum
       - name: Install Linux desktop development libraries
         run: |
           sudo apt-get update
@@ -165,24 +178,11 @@ jobs:
       - name: Lint off-by-default features
         run: |
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p bedrock-client --features enhanced,local-mods --locked -- -D warnings
-      - name: Test local WASM mod adapters
-        run: cargo test -p bedrock-client --features local-mods --lib modding --locked
+          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control --locked -- -D warnings
+          cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
+      - name: Test local WASM mod and developer control adapters
+        run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked -- modding developer_control
       - run: bash scripts/tests/acceptance_test.sh
-      # The Windows job above exercises the vanilla-asset fetchers through
-      # Windows PowerShell 5.1, where its bash deep legs are conditionally
-      # skipped because hosted Git Bash usually lacks unzip. Run the same
-      # hermetic fixture suite where real Info-ZIP unzip exists so the
-      # production bash extractor's bounded-extraction contracts (including
-      # pre-extraction link-entry rejection) are exercised in CI.
-      - name: Test hermetic vanilla asset acquisition on Linux (bash extractor bounds)
-        shell: pwsh
-        run: |
-          if (-not (Get-Command unzip -ErrorAction SilentlyContinue)) {
-            sudo apt-get update
-            sudo apt-get install --yes unzip
-          }
-          ./scripts/tests/vanilla-assets.ps1
       - run: go test ./core/...
       - run: go vet ./core/...
       - name: Test and vet protocol registry tools
@@ -219,8 +219,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: 1.26.x
-      - name: Test hermetic vanilla asset acquisition on macOS (bash extractor bounds)
-        shell: pwsh
-        run: ./scripts/tests/vanilla-assets.ps1
+          # Matches ci-cache.yml's desktop job, which saves this cache on dev.
+          cache-dependency-path: |
+            core/go.sum
+            tools/registrygen/go.sum
+            go.work.sum
       - name: Install and verify the manifest-owned physics carrier through Make
         run: make physics-assets

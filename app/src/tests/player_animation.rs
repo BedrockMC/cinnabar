@@ -9,9 +9,8 @@ use protocol::{
     MovePlayerEvent, MovePlayerMode, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
     SkinGeometrySource, StandardSkin, WorldBootstrap, WorldEvent,
 };
-use render::{
-    ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute, STANDARD_SKIN_BYTES,
-};
+use render::{ACTOR_LAYER_BODY, ActorRenderScene, ActorRigRejects, ActorRigRoute};
+use render_model::STANDARD_SKIN_BYTES;
 use std::{fs, path::PathBuf, sync::Arc};
 
 const ENTITY: &str = r#"{"format_version":"1.26.0","minecraft:client_entity":{"description":{
@@ -425,8 +424,8 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
                     height: 32,
                     rgba8: vec![cape; 64 * 32 * 4].into(),
                 }),
-                width: render::STANDARD_SKIN_SIDE as u32,
-                height: render::STANDARD_SKIN_SIDE as u32,
+                width: render_model::STANDARD_SKIN_SIDE as u32,
+                height: render_model::STANDARD_SKIN_SIDE as u32,
                 rgba8: vec![skin; STANDARD_SKIN_BYTES].into(),
             }),
         }]),
@@ -462,25 +461,33 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
         |runtime_id| world.authority().actor_rig(runtime_id),
         |runtime_id| world.authority().actor_player_profile(runtime_id),
     );
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     let layers = frame
         .rig
         .manifest
         .iter()
         .zip(frame.rig.instances.iter())
-        .map(|(entry, instance)| (entry.identity.layer, entry.route, instance.texture_layer))
+        .map(|(entry, instance)| {
+            let pixels = frame
+                .player_skin(instance.texture_layer)
+                .expect("resident skin");
+            assert_eq!(pixels.len(), STANDARD_SKIN_BYTES);
+            (
+                entry.identity.layer,
+                entry.route,
+                pixels[0],
+                pixels.iter().all(|byte| *byte == pixels[0]),
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         layers,
         [
-            (ACTOR_LAYER_BODY, ActorRigRoute::Compiled, 0),
-            (cape::ACTOR_LAYER_CAPE, ActorRigRoute::Compiled, 1),
+            (ACTOR_LAYER_BODY, ActorRigRoute::Compiled, 200, true),
+            (cape::ACTOR_LAYER_CAPE, ActorRigRoute::Compiled, 90, true),
         ]
     );
-    let (skin, cape) = frame.skins_rgba8.split_at(STANDARD_SKIN_BYTES);
-    assert!(skin.iter().all(|byte| *byte == 200));
-    assert!(cape.len() == STANDARD_SKIN_BYTES && cape.iter().all(|byte| *byte == 90));
 }
 
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
@@ -669,7 +676,7 @@ fn skin_geometry_replaces_the_default_model_and_keeps_the_player_animations() {
     );
     presentation.submission.input.rig = id;
     let batch = actors::select_actor_presentations(1, false, None, [presentation]);
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     assert_eq!(frame.rig.manifest[0].rig, id);
     assert_eq!(frame.rig.manifest[0].bone_count, 4);
@@ -773,8 +780,8 @@ fn vanilla_skin_geometry() -> Option<PlayerSkin> {
             geometry_data: geometry_data.into(),
         })),
         cape: None,
-        width: render::STANDARD_SKIN_SIDE as u32,
-        height: render::STANDARD_SKIN_SIDE as u32,
+        width: render_model::STANDARD_SKIN_SIDE as u32,
+        height: render_model::STANDARD_SKIN_SIDE as u32,
         rgba8: vec![128; STANDARD_SKIN_BYTES].into(),
     }))
 }
@@ -983,7 +990,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
         layer.world_from_actor,
         batch.submissions[0].world_from_actor
     );
-    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch, &mut Default::default());
+    let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
     assert_eq!(frame.rig.manifest.len(), 2);
     assert_eq!(

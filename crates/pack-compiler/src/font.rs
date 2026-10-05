@@ -6,9 +6,9 @@ use std::{
 };
 
 use assets::{
-    FONT_CARRIER_SCHEMA, FontCatalogError, FontTexturePage, GlyphMetrics, MAX_FONT_GLYPHS,
-    MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES,
-    encode_font_catalog,
+    FONT_CARRIER_SCHEMA, FontCatalogError, FontPixels, FontTexturePage, GlyphMetrics,
+    MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES, MAX_FONT_PATH_BYTES,
+    MAX_FONT_SOURCE_BYTES, encode_font_catalog,
 };
 use image::{ImageFormat, ImageReader, Limits};
 use serde::Deserialize;
@@ -237,7 +237,7 @@ pub fn compile_fonts(root: &Path) -> Result<CompiledFontCarrier, FontCompileErro
             pixels_sha256: Sha256::digest(&rgba8).into(),
             width: dimensions.0,
             height: dimensions.1,
-            rgba8,
+            pixels: FontPixels::Rgba8(rgba8),
         });
     }
     pages.sort_by(|left, right| {

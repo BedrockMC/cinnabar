@@ -10,6 +10,8 @@ import (
 
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
+
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
 )
 
 const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
@@ -23,6 +25,9 @@ type settings struct {
 	// extensionKey, extensionAudience and extensionCXB offer client parts: the server key seed
 	// file, the host:port players join by and the directory of .cxb bundles; empty for none.
 	extensionKey, extensionAudience, extensionCXB string
+	// extensionMedia is a directory served over loopback HTTPS at extensionMediaAddr for client
+	// part media; empty for none.
+	extensionMedia, extensionMediaAddr string
 }
 
 func parseSettings(args []string, stderr io.Writer) (settings, error) {
@@ -39,6 +44,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
 	flags.StringVar(&s.extensionAudience, "extension-audience", "", "host:port that players join by, as the client canonicalizes it")
 	flags.StringVar(&s.extensionCXB, "extension-cxb", "", "directory of client part bundles (.cxb) to offer")
+	flags.StringVar(&s.extensionMedia, "extension-media", "", "directory of client part media served over loopback HTTPS; needs the -extension flags")
+	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
 	}
@@ -60,7 +67,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	return s, nil
 }
 
-// checkExtensionFlags requires the -extension flags together or not at all.
+// checkExtensionFlags requires the -extension flags together or not at all, and -extension-media
+// only with them.
 func (s settings) checkExtensionFlags() error {
 	flags := []struct{ name, value string }{
 		{"-extension-key", s.extensionKey},
@@ -77,6 +85,14 @@ func (s settings) checkExtensionFlags() error {
 	}
 	if len(set) > 0 && len(missing) > 0 {
 		return fmt.Errorf("%s also needs %s", strings.Join(set, " and "), strings.Join(missing, " and "))
+	}
+	if s.extensionMedia != "" {
+		if len(set) == 0 {
+			return errors.New("-extension-media also needs -extension-key, -extension-audience and -extension-cxb")
+		}
+		if _, err := extension.MediaOrigin(s.extensionMediaAddr); err != nil {
+			return err
+		}
 	}
 	return nil
 }

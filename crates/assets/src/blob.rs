@@ -15,7 +15,7 @@ use crate::{
     MATERIAL_FLAG_ALPHA_CUTOUT, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS, MAX_MATERIALS,
     MAX_MODEL_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_LAYERS, MAX_TEXTURE_PAGES, MIP_COUNT,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
     MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_ANIMATION, NO_MODEL_TEMPLATE, TILE_SIZE, TextureRef,
@@ -400,10 +400,31 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         }
         if visual.model_template != NO_MODEL_TEMPLATE {
             let template_flags = compiled.model_templates[visual.model_template as usize].flags;
+            if template_flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL {
+                if visual.kind != VisualKind::Model
+                    || !matches!(
+                        visual.variant,
+                        0 | crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    )
+                {
+                    return Err(invalid("portal visual has invalid kind or transform"));
+                }
+                if visual.variant == crate::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN
+                    && compiled
+                        .model_templates
+                        .get(visual.model_template as usize + 1)
+                        .is_none_or(|next| next.flags != crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL)
+                {
+                    return Err(invalid(
+                        "unknown-axis portal has no alternate-axis template",
+                    ));
+                }
+            }
             let connected_flag = template_flags
                 & (MODEL_TEMPLATE_FLAG_PANE
                     | MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
+                    | MODEL_TEMPLATE_FLAG_FENCE_NETHER
+                    | MODEL_TEMPLATE_FLAG_FIRE);
             if connected_flag != 0 {
                 let Some(base_index) = connected_bases.iter().position(|&(base, flag)| {
                     base == visual.model_template as usize && flag == connected_flag
@@ -458,6 +479,8 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             || (template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_SNOW_LAYER && template.quad_count != 6)
             || (template.flags == MODEL_TEMPLATE_FLAG_LILY_PAD && template.quad_count != 2)
+            || (template.flags == crate::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                && template.quad_count != 6)
         {
             return Err(invalid("model template spans are not canonical"));
         }
@@ -641,6 +664,19 @@ fn compiled_connected_bases(
             }
             bases.push((index, flag));
             index += 17;
+        } else if flag == MODEL_TEMPLATE_FLAG_FIRE {
+            let Some(group) = templates.get(index..index + crate::FIRE_TEMPLATE_COUNT as usize)
+            else {
+                return Err(invalid("fire template group is truncated"));
+            };
+            if group.iter().enumerate().any(|(offset, template)| {
+                template.flags != flag
+                    || template.quad_count != crate::fire_template_quad_count(offset as u32)
+            }) {
+                return Err(invalid("fire template group is noncanonical"));
+            }
+            bases.push((index, flag));
+            index += crate::FIRE_TEMPLATE_COUNT as usize;
         } else {
             index += 1;
         }

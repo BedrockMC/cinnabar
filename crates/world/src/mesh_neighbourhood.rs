@@ -1,7 +1,7 @@
 use crate::SubChunk;
 
 const WIDTH: usize = 3;
-const SUB_CHUNK_SIDE: i32 = 16;
+const SUB_CHUNK_SIDE: i32 = crate::SUB_CHUNK_SIDE as i32;
 const ENTRY_COUNT: usize = WIDTH * WIDTH * WIDTH;
 const ADJACENT_OFFSETS: [[i8; 3]; 26] = [
     [-1, -1, -1],
@@ -106,6 +106,7 @@ impl MeshDependencyMask {
 /// beyond that bounded 3x3x3 snapshot is explicit open space.
 #[derive(Debug, Clone)]
 pub struct MeshNeighbourhood<'a> {
+    block_origin: [i32; 3],
     sub_chunks: [Option<&'a SubChunk>; ENTRY_COUNT],
     column_above: Vec<(i32, &'a SubChunk)>,
 }
@@ -119,9 +120,22 @@ impl<'a> MeshNeighbourhood<'a> {
         let mut sub_chunks = [None; ENTRY_COUNT];
         sub_chunks[index([0, 0, 0]).expect("center offset is bounded")] = Some(center);
         Self {
+            block_origin: [0; 3],
             sub_chunks,
             column_above: Vec::new(),
         }
+    }
+
+    /// World-space origin of the center sub-chunk, for native positional art.
+    #[must_use]
+    pub fn with_block_origin(mut self, origin: [i32; 3]) -> Self {
+        self.block_origin = origin;
+        self
+    }
+
+    #[must_use]
+    pub const fn block_origin(&self) -> [i32; 3] {
+        self.block_origin
     }
 
     /// Inserts one of the 26 adjacent sub-chunks. Returns false for an

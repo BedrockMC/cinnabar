@@ -16,5 +16,5 @@ mod tests;
 
 pub use display::FirstPersonHand;
 pub use input::{local_input, remote_input};
-pub use runtime::{ActorEquipmentInput, HeldKind, WornItem};
+pub use runtime::{ActorEquipmentInput, EquipmentPresentation, HeldKind, WornItem};
 pub use runtime::{EquipmentRuntime, FirstPersonArms, FirstPersonItem, StagedSessionIcons};

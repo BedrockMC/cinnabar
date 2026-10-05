@@ -18,7 +18,7 @@ import (
 const (
 	cacheVersion   = 1
 	listTTL        = 5 * time.Minute
-	homeTTL        = 15 * time.Minute // vanilla GatheringManager re-queues its /config/public refresh every 15 min
+	homeTTL        = 15 * time.Minute // vanilla refreshes gatherings /config/public every 15 min
 	refreshTimeout = 2 * time.Minute
 )
 
