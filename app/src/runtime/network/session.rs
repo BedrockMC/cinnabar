@@ -26,12 +26,24 @@ pub struct NetworkConfig {
 
 /// A Bevy resource retaining the domain's exact command and event queues.
 #[derive(Resource, Deref, DerefMut)]
-pub struct NetworkHandle(client_session::NetworkHandle<PackApplication>);
+pub struct NetworkHandle(
+    #[deref] client_session::NetworkHandle<PackApplication>,
+    Option<PathBuf>,
+);
 
 impl NetworkHandle {
+    pub(crate) fn core_socket_dir(&self) -> Option<&std::path::Path> {
+        self.1.as_deref()
+    }
+
+    pub fn shutdown(&mut self) {
+        self.1 = None;
+        self.0.shutdown();
+    }
+
     /// Supplies an idle session until the launcher starts a join.
     pub(crate) fn disconnected() -> Self {
-        Self(client_session::NetworkHandle::disconnected())
+        Self(client_session::NetworkHandle::disconnected(), None)
     }
 
     /// Couples the gameplay outbox epoch to the session's socket-write cancellation fence.
@@ -43,14 +55,14 @@ impl NetworkHandle {
     #[cfg(test)]
     pub(crate) fn stub() -> (Self, tokio::sync::watch::Receiver<u64>) {
         let (handle, epoch) = client_session::NetworkHandle::stub();
-        (Self(handle), epoch)
+        (Self(handle, None), epoch)
     }
 
     /// Keeps a bounded test queue open until the caller drops its guard.
     #[cfg(test)]
     pub(crate) fn with_command_capacity(capacity: usize) -> (Self, Box<dyn std::any::Any>) {
         let (handle, guard) = client_session::NetworkHandle::with_command_capacity(capacity);
-        (Self(handle), guard)
+        (Self(handle, None), guard)
     }
 
     /// Lets an app adapter test publish terminal or bootstrap controls.
@@ -58,19 +70,20 @@ impl NetworkHandle {
     pub(crate) fn stub_with_control_sender()
     -> (Self, tokio::sync::mpsc::Sender<NetworkControlEvent>) {
         let (handle, sender) = client_session::NetworkHandle::stub_with_control_sender();
-        (Self(handle), sender)
+        (Self(handle, None), sender)
     }
 
     /// Captures outbound packets through the domain's production FIFO.
     #[cfg(test)]
     pub(crate) fn stub_capturing_packets() -> (Self, client_session::CapturedPackets) {
         let (handle, packets) = client_session::NetworkHandle::stub_capturing_packets();
-        (Self(handle), packets)
+        (Self(handle, None), packets)
     }
 }
 
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
 pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Error> {
+    let socket_dir = config.socket_dir.clone();
     let actor_artwork = config.actor_artwork;
     let ui_catalog = config.ui_catalog;
     client_session::spawn_network(
@@ -100,7 +113,7 @@ pub fn spawn_network(config: NetworkConfig) -> Result<NetworkHandle, std::io::Er
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
     )
-    .map(NetworkHandle)
+    .map(|handle| NetworkHandle(handle, Some(socket_dir)))
 }
 
 /// Attaches the acceptance-owned marker to the transport's serialized observation.

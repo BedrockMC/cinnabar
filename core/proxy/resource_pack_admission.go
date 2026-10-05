@@ -396,6 +396,7 @@ func (stack *selectedResourcePackStack) release() {
 // downstream connection. close is idempotent so cancellation and listener
 // shutdown cannot double-close an upstream session or target.
 type preparedConnection struct {
+	packetDelay   *PacketDelay
 	downstream    packetSession // attached when Accept transfers the prepared session
 	upstream      upstreamSession
 	releaseTarget func() error
@@ -779,7 +780,7 @@ func (connections *preparedConnections) shutdown() error {
 func servePreparedConnection(ctx context.Context, downstream downstreamSession, prepared *preparedConnection) (err error) {
 	prepared.downstream = downstream
 	defer func() { err = errors.Join(err, prepared.close()) }()
-	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() })
+	return relayPackets(ctx, downstream, prepared.upstream, func() { _ = prepared.close() }, prepared.packetDelay)
 }
 
 // finish stops progress once the dial has returned.
