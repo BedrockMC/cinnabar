@@ -24,7 +24,7 @@ func TestSessionChecksAccountBeforeEveryCachedOperation(t *testing.T) {
 	}
 	allowed = false
 	calls := []func() error{
-		func() error { _, err := session.Home(context.Background(), "store"); return err },
+		func() error { _, err := session.Home(context.Background(), "home"); return err },
 		func() error { _, err := session.Search(context.Background(), SearchQuery{}); return err },
 		func() error { _, err := session.Offer(context.Background(), ""); return err },
 		func() error { _, err := session.Balances(context.Background()); return err },
