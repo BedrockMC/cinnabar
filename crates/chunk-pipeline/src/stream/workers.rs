@@ -55,8 +55,17 @@ struct Queues {
 }
 
 impl Queues {
-    fn take(&mut self, background: bool) -> Option<Job> {
-        let now = Instant::now();
+    fn push(&mut self, lane: Lane, queued_at: Instant, job: Job) {
+        let queue = match lane {
+            Lane::Mesh => &mut self.mesh,
+            Lane::Decode => &mut self.decode,
+            Lane::Light => &mut self.light,
+        };
+        queue.push_back((queued_at, job));
+    }
+
+    /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
+    fn take(&mut self, background: bool, now: Instant) -> Option<Job> {
         let overdue = |queue: &Queue, limit| {
             queue
                 .front()
@@ -126,14 +135,7 @@ impl WorldPool {
     }
 
     pub(super) fn spawn(&self, lane: Lane, job: impl FnOnce() + Send + 'static) {
-        let mut queues = self.shared.lock();
-        let queue = match lane {
-            Lane::Mesh => &mut queues.mesh,
-            Lane::Decode => &mut queues.decode,
-            Lane::Light => &mut queues.light,
-        };
-        queue.push_back((Instant::now(), Box::new(job)));
-        drop(queues);
+        self.shared.lock().push(lane, Instant::now(), Box::new(job));
         // A foreground waiter cannot take light, so light wakes everyone.
         if lane == Lane::Light {
             self.shared.ready.notify_all();
@@ -159,7 +161,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
         if queues.shutdown {
             return;
         }
-        let Some(job) = queues.take(background) else {
+        let Some(job) = queues.take(background, Instant::now()) else {
             queues = shared
                 .ready
                 .wait(queues)
@@ -241,50 +243,58 @@ mod tests {
         assert!(completed, "lighting blocked another worker lane");
     }
 
-    /// Runs `queued` behind a gate job on a one-thread pool and returns their run order.
-    fn run_order(size: PoolSize, queued: &[Lane], hold: Duration) -> Vec<Lane> {
-        let pool = WorldPool::new(size);
-        let (gate_tx, gate_rx) = crossbeam_channel::unbounded::<()>();
-        let (started_tx, started_rx) = crossbeam_channel::unbounded();
+    /// Pushes `queued` lanes at `queued_at` and drains them at `now` in worker order.
+    fn take_order(
+        background: bool,
+        queued: &[Lane],
+        queued_at: Instant,
+        now: Instant,
+    ) -> Vec<Lane> {
+        let mut queues = Queues::default();
         let (order_tx, order_rx) = crossbeam_channel::unbounded();
-        pool.spawn(Lane::Mesh, move || {
-            started_tx.send(()).unwrap();
-            gate_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        });
-        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         for &lane in queued {
             let order = order_tx.clone();
-            pool.spawn(lane, move || order.send(lane).unwrap());
+            queues.push(lane, queued_at, Box::new(move || order.send(lane).unwrap()));
         }
-        std::thread::sleep(hold);
-        gate_tx.send(()).unwrap();
-        (0..queued.len())
-            .map(|_| order_rx.recv_timeout(Duration::from_secs(2)).unwrap())
-            .collect()
+        while let Some(job) = queues.take(background, now) {
+            job();
+        }
+        order_rx.try_iter().collect()
     }
 
-    /// A free worker takes queued mesh before earlier decode work.
+    /// Fresh work runs mesh, then decode, then light; foreground workers never take light.
     #[test]
-    fn queued_mesh_runs_before_earlier_decode() {
-        let size = PoolSize {
-            foreground: 1,
-            background: 0,
-        };
-        let order = run_order(size, &[Lane::Decode, Lane::Mesh], Duration::ZERO);
-        assert_eq!(order, [Lane::Mesh, Lane::Decode]);
+    fn fresh_work_follows_lane_priority() {
+        let queued = [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh];
+        let at = Instant::now();
+        assert_eq!(
+            take_order(true, &queued, at, at),
+            [Lane::Mesh, Lane::Mesh, Lane::Decode, Lane::Light]
+        );
+        assert_eq!(
+            take_order(false, &queued, at, at),
+            [Lane::Mesh, Lane::Mesh, Lane::Decode]
+        );
     }
 
-    /// Fresh work keeps priority order; overdue light and decode jump a mesh flood.
+    /// Overdue light and decode jump a mesh flood; overdue light still never runs foreground.
     #[test]
     fn overdue_lower_lanes_jump_a_mesh_flood() {
-        let size = PoolSize {
-            foreground: 0,
-            background: 1,
-        };
         let queued = [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh];
-        let fresh = run_order(size, &queued, Duration::ZERO);
-        assert_eq!(fresh, [Lane::Mesh, Lane::Mesh, Lane::Decode, Lane::Light]);
-        let overdue = run_order(size, &queued, LIGHT_MAX_WAIT * 2);
-        assert_eq!(overdue, [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh]);
+        let at = Instant::now();
+        let decode_late = at + DECODE_MAX_WAIT;
+        assert_eq!(
+            take_order(true, &queued, at, decode_late),
+            [Lane::Decode, Lane::Mesh, Lane::Mesh, Lane::Light]
+        );
+        let light_late = at + LIGHT_MAX_WAIT;
+        assert_eq!(
+            take_order(true, &queued, at, light_late),
+            [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh]
+        );
+        assert_eq!(
+            take_order(false, &queued, at, light_late),
+            [Lane::Decode, Lane::Mesh, Lane::Mesh]
+        );
     }
 }
