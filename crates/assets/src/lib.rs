@@ -8,6 +8,7 @@ mod biome;
 mod blob;
 mod block_entity;
 mod block_names;
+pub mod carriers;
 mod compiled;
 mod encoding;
 mod entity;
