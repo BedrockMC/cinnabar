@@ -39,6 +39,7 @@ pub struct MediaAudio {
     ratio: AtomicU64,         // f64 bits; drift-correction playback rate
     skip_until_us: AtomicU64, // drop queued audio before this PTS; 0 when idle
     hold_frames: AtomicU64,   // device frames of silence before resuming
+    device_rate: u32,
     audible_us: AtomicU64,
     underruns: AtomicU64,
 }
@@ -144,7 +145,7 @@ impl MediaAudio {
                 if target > audible_us {
                     self.skip_until_us.store(target, Ordering::Release);
                 } else {
-                    let frames = (audible_us - target) * u64::from(SAMPLE_RATE) / 1_000_000;
+                    let frames = (audible_us - target) * u64::from(self.device_rate) / 1_000_000;
                     self.hold_frames.store(frames.max(1), Ordering::Release);
                 }
             }
@@ -279,6 +280,7 @@ impl Drop for MediaSource {
 
 /// Builds the shared control and its source without touching a device.
 fn source(generation: u64, device_rate: u32) -> (Arc<MediaAudio>, MediaSource) {
+    let device_rate = device_rate.max(1);
     let control = Arc::new(MediaAudio {
         queue: ArrayQueue::new(MAX_PCM_FRAMES),
         generation: AtomicU64::new(generation),
@@ -290,6 +292,7 @@ fn source(generation: u64, device_rate: u32) -> (Arc<MediaAudio>, MediaSource) {
         ratio: AtomicU64::new(1.0f64.to_bits()),
         skip_until_us: AtomicU64::new(0),
         hold_frames: AtomicU64::new(0),
+        device_rate,
         audible_us: AtomicU64::new(NO_POSITION),
         underruns: AtomicU64::new(0),
     });
@@ -300,7 +303,7 @@ fn source(generation: u64, device_rate: u32) -> (Arc<MediaAudio>, MediaSource) {
     };
     let source = MediaSource {
         control: Arc::clone(&control),
-        device_rate: device_rate.max(1),
+        device_rate,
         right: None,
         previous: silent,
         next: silent,
@@ -387,6 +390,21 @@ mod tests {
         let held: Vec<f32> = (&mut source).take(2 * 2400).collect();
         assert!(held.iter().all(|sample| *sample == 0.0));
         assert_eq!(control.audible_position_us(), Some(before));
+    }
+
+    #[test]
+    fn early_audio_holds_for_the_requested_time_at_any_device_rate() {
+        let (control, mut source) = source(1, 96_000);
+        audible(&control);
+        control.push(&block(1, 0, 9600, 0.2)).unwrap();
+        (&mut source).take(2 * 9600).for_each(drop);
+        let before = control.audible_position_us().unwrap();
+        control.correct(Correction::Seek(before - 50_000), before);
+        let held: Vec<f32> = (&mut source).take(2 * 4800).collect();
+        assert!(held.iter().all(|sample| *sample == 0.0), "50 ms at 96 kHz");
+        assert_eq!(control.audible_position_us(), Some(before));
+        let resumed: Vec<f32> = (&mut source).take(4).collect();
+        assert!(resumed.iter().any(|sample| *sample != 0.0));
     }
 
     #[test]

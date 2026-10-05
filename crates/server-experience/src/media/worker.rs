@@ -27,7 +27,22 @@ pub const HELPER_COMMAND: &str = "media-helper";
 const OUTPUT_DEPTH: usize = 2;
 static DECODER_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-struct DecoderLease;
+pub(super) struct DecoderLease(());
+
+impl DecoderLease {
+    /// Claims the process-wide decoder slot; None while an earlier decoder still holds it.
+    pub(super) fn acquire() -> Option<Self> {
+        DECODER_ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            .then_some(Self(()))
+    }
+
+    /// Whether a new decoder could start now.
+    pub(super) fn free() -> bool {
+        !DECODER_ACTIVE.load(Ordering::Acquire)
+    }
+}
 
 impl Drop for DecoderLease {
     /// Holds the process-wide decoder slot until the IPC thread really exits.
@@ -105,13 +120,8 @@ impl Worker {
         start_us: u64,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Self> {
-        ensure!(
-            DECODER_ACTIVE
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok(),
-            "media decoder already active"
-        );
-        let lease = DecoderLease;
+        let lease = DecoderLease::acquire()
+            .ok_or_else(|| anyhow::anyhow!("media decoder already active"))?;
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

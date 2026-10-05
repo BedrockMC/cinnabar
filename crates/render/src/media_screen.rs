@@ -116,7 +116,15 @@ struct ScreenState {
     record: Option<[f32; 12]>,
     record_buffer: Buffer,
     bind_group: Option<BindGroup>,
-    bound: Option<(BufferId, bool)>,
+    bound: Option<(BufferId, Option<u64>)>,
+}
+
+impl ScreenState {
+    /// What the bind group was built from; a change means it samples a stale texture.
+    fn bind_key(&self, view_buffer: BufferId) -> (BufferId, Option<u64>) {
+        let textured = self.texture.is_some() && self.uploaded;
+        (view_buffer, textured.then_some(self.texture_generation))
+    }
 }
 
 #[derive(Resource)]
@@ -237,13 +245,19 @@ fn prepare_media_screens(
             {
                 state.texture = None;
                 state.uploaded = false;
-                state.texture_generation += 1;
+                let generation = state.texture_generation + 1;
                 state.texture = MediaTexture::new(
                     &device,
                     size,
-                    state.texture_generation,
+                    generation,
                     scene.gpu_budget_bytes.saturating_sub(others),
                 );
+                if state.texture.is_some() {
+                    state.texture_generation = generation;
+                } else {
+                    // Denied by the shared budget: retry this frame once others free memory.
+                    state.serial = None;
+                }
             }
             if let Some(texture) = &state.texture {
                 state.uploaded |=
@@ -257,7 +271,7 @@ fn prepare_media_screens(
             state.record = Some(record);
         }
         if let Some((view_binding, view_buffer)) = view.clone()
-            && state.bound != Some((view_buffer, textured))
+            && state.bound != Some(state.bind_key(view_buffer))
         {
             let texture_view = state
                 .texture
@@ -287,7 +301,7 @@ fn prepare_media_screens(
                     },
                 ],
             ));
-            state.bound = Some((view_buffer, textured));
+            state.bound = Some(state.bind_key(view_buffer));
         }
         gpu.draws.push(Some(screen.id));
     }
@@ -620,6 +634,91 @@ mod tests {
             .unwrap();
         let gpu = app.world().resource::<MediaScreenGpu>();
         assert!(!gpu.screens.contains_key(&8));
+    }
+
+    /// Prepares `screens` once in a fresh fixture with a 16-byte budget.
+    fn prepared(app: &mut App, screens: Vec<MediaScreen>) {
+        {
+            let mut scene = app.world_mut().resource_mut::<MediaScreenScene>();
+            scene.gpu_budget_bytes = 16;
+            scene.screens = screens;
+        }
+        app.world_mut()
+            .run_system_once(prepare_media_screens)
+            .unwrap();
+    }
+
+    fn budget_app() -> App {
+        let (mut app, _) = fixture::app();
+        app.init_resource::<MediaScreenScene>()
+            .init_resource::<MediaScreenPipeline>()
+            .init_resource::<ViewUniforms>();
+        app.world_mut()
+            .run_system_once(init_media_screen_gpu)
+            .unwrap();
+        app
+    }
+
+    fn frame(serial: u64, width: u32) -> MediaFrame {
+        MediaFrame {
+            serial,
+            width,
+            height: 2,
+            rgba: Arc::from(vec![255; width as usize * 8]),
+        }
+    }
+
+    #[test]
+    fn a_screen_denied_its_texture_gets_one_when_budget_frees() {
+        let mut app = budget_app();
+        let with = |id| MediaScreen {
+            frame: Some(frame(1, 2)),
+            ..screen(id, 0.0)
+        };
+        prepared(&mut app, vec![with(7), with(8)]);
+        assert!(
+            app.world().resource::<MediaScreenGpu>().screens[&8]
+                .texture
+                .is_none()
+        );
+        prepared(&mut app, vec![with(8)]);
+        assert!(
+            app.world().resource::<MediaScreenGpu>().screens[&8]
+                .texture
+                .is_some(),
+            "a paused frame keeps its serial, so the retry cannot wait for a new one"
+        );
+    }
+
+    #[test]
+    fn a_replaced_texture_invalidates_the_bind_group() {
+        let mut app = budget_app();
+        let view = app
+            .world()
+            .resource::<RenderDevice>()
+            .create_buffer(&BufferDescriptor {
+                label: None,
+                size: 16,
+                usage: BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            })
+            .id();
+        let with = |frame| MediaScreen {
+            frame: Some(frame),
+            ..screen(7, 0.0)
+        };
+        prepared(&mut app, vec![with(frame(1, 2))]);
+        let before = app.world().resource::<MediaScreenGpu>().screens[&7].bind_key(view);
+        app.world_mut()
+            .resource_mut::<MediaScreenScene>()
+            .gpu_budget_bytes = 64;
+        app.world_mut().resource_mut::<MediaScreenScene>().screens = vec![with(frame(2, 4))];
+        app.world_mut()
+            .run_system_once(prepare_media_screens)
+            .unwrap();
+        let state = &app.world().resource::<MediaScreenGpu>().screens[&7];
+        assert_eq!(state.texture.as_ref().map(MediaTexture::size), Some([4, 2]));
+        assert_ne!(state.bind_key(view), before);
     }
 
     #[test]
