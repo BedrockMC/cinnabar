@@ -1,7 +1,7 @@
 //! Publishes this frame's entity-shadow casters for the renderer.
 use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
-use render::{ActorCullView, EntityShadowScene};
+use render::{ACTOR_LAYER_BODY, ActorCullView, ActorRenderFrame, EntityShadowScene};
 use render_model::EntityShadow;
 
 use crate::presentation::actors::within_actor_candidate_cube;
@@ -14,13 +14,29 @@ pub struct LocalShadowSource {
     pub spectator: bool,
 }
 
+/// Sorted runtime ids of the bodies `frame` drew, excluding capacity overflow and undrawable rigs.
+pub fn drawn_bodies(frame: &ActorRenderFrame, out: &mut Vec<u64>) {
+    out.clear();
+    out.extend(
+        frame
+            .rig
+            .manifest
+            .iter()
+            .filter(|entry| entry.identity.layer == ACTOR_LAYER_BODY)
+            .map(|entry| entry.identity.runtime_id),
+    );
+    out.sort_unstable();
+}
+
 /// Rebuilds the caster list into `staging` and publishes it; an unchanged list keeps the scene's
-/// revision. Casters are admitted as actors are, then culled by their volume.
+/// revision. A remote casts only if `drawn_bodies` (sorted) holds its body; the local player and
+/// dropped items, drawn outside the rig frame, are admitted as actors are and culled by volume.
 pub fn publish_entity_shadows(
     stream: Option<&WorldStream>,
     partial_tick: f32,
     local: Option<LocalShadowSource>,
     view: Option<ActorCullView>,
+    drawn_bodies: &[u64],
     staging: &mut Vec<EntityShadow>,
     scene: &mut EntityShadowScene,
 ) {
@@ -36,11 +52,18 @@ pub fn publish_entity_shadows(
                 feet,
                 radius: caster.radius,
             };
-            let player = stream
-                .authority()
-                .actor(caster.runtime_id)
-                .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }));
-            if view.is_none_or(|view| volume_may_be_visible(&shadow, player, view)) {
+            let actor = stream.authority().actor(caster.runtime_id);
+            let item = actor.is_some_and(|actor| {
+                matches!(&actor.kind, protocol::ActorKind::Entity { identifier }
+                    if identifier.as_ref() == "minecraft:item")
+            });
+            let admitted = if local.is_some() || item {
+                let player = local.is_some();
+                view.is_none_or(|view| volume_may_be_visible(&shadow, player, view))
+            } else {
+                drawn_bodies.binary_search(&caster.runtime_id).is_ok()
+            };
+            if admitted {
                 staging.push(shadow);
             }
         }
