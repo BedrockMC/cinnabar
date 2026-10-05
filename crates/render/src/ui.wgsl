@@ -4,8 +4,8 @@ struct UiViewport {
     glint_strength: f32,
 };
 
-// Vertex style bits (`ui::UI_STYLE_GLINT`, `UI_STYLE_GRAYSCALE`, `UI_STYLE_BILINEAR`).
-const STYLE_GLINT: u32 = 2u;
+// Vertex style bits (the UI crate's glint, grayscale and bilinear flags).
+const STYLE_GLINT: u32 = UI_STYLE_GLINT;
 const STYLE_GRAYSCALE: u32 = 4u;
 const STYLE_BILINEAR: u32 = 8u;
 // Injected from the renderer's single Rust style-bit definition.

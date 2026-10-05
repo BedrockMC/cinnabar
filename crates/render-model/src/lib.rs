@@ -41,8 +41,9 @@ pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS,
     MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES, UI_BLEND_ALPHA, UI_BLEND_INVERT, UI_STYLE_ALPHA_TEST,
-    UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene,
-    UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
+    UI_STYLE_GLINT, UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason,
+    UiRenderScene, UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex,
+    UiScissor,
 };
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_TEXTURE_BUCKETS,
