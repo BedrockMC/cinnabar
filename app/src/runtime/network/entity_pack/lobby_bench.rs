@@ -376,7 +376,6 @@ fn gpu_draws(frame: &ActorRenderFrame) -> (usize, u64) {
 fn frame_digest(frame: &ActorRenderFrame) -> u64 {
     use std::hash::{Hash, Hasher};
     let rig = &frame.rig;
-    let skin = render_model::STANDARD_SKIN_BYTES;
     let mut records: Vec<(u64, u8, u64)> = rig
         .instances
         .iter()
@@ -393,10 +392,9 @@ fn frame_digest(frame: &ActorRenderFrame) -> u64 {
             bits(&instance.uv_anim, &mut hasher);
             // Skin slots and skin rig ids are allocation order; their pixels are what draws.
             if *page == 0 {
-                let layer = instance.texture_layer as usize;
                 frame
-                    .skins_rgba8
-                    .get(layer * skin..(layer + 1) * skin)
+                    .player_skin(instance.texture_layer)
+                    .map(|skin| &**skin)
                     .hash(&mut hasher);
             } else {
                 (page, instance.texture_layer).hash(&mut hasher);
