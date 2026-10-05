@@ -29,7 +29,6 @@ pub(super) mod menu_caret;
 pub mod menu_latency;
 pub mod menu_screens;
 pub mod menus;
-pub mod mod_ghost;
 pub mod mod_hud;
 pub mod mod_panel;
 pub mod model;
@@ -124,7 +123,6 @@ pub(super) struct FormPresentation {
     /// The engine HUD's cached screens; carried across the per-frame reset.
     hud: hud::HudScreens,
     mod_hud: Option<mod_hud::ModHud>,
-    mod_ghost: Option<mod_ghost::ModGhost>,
     player_list: Option<player_list::PlayerList>,
     mod_panel: Option<mod_panel::ModPanel>,
     experience: Option<experience::ExperienceChrome>,
@@ -450,7 +448,6 @@ impl UiPresentationRuntime {
             logged: state.logged,
             hud: state.hud,
             mod_hud: state.mod_hud,
-            mod_ghost: state.mod_ghost,
             player_list: state.player_list,
             mod_panel: state.mod_panel,
             experience: state.experience,
