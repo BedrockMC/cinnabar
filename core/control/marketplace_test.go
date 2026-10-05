@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/store"
@@ -138,4 +140,47 @@ func TestFitPageKeepsResponsesInsideOneFrame(t *testing.T) {
 	if !fitted.Truncated || encodedLen(fitted) > frameBudget || len(fitted.Rows) == 0 {
 		t.Fatalf("truncated=%v len=%d rows=%d", fitted.Truncated, encodedLen(fitted), len(fitted.Rows))
 	}
+}
+
+// Store failures were never logged, so a Marketplace that could not open left no trace in the core log.
+func TestStoreFailuresAreLoggedRedacted(t *testing.T) {
+	dir := t.TempDir()
+	server, err := Start(dir, NewStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	var logged strings.Builder
+	server.SetLogger(slog.New(slog.NewTextHandler(&lockedWriter{w: &logged}, nil)))
+	m := &stubMarket{err: errors.New("store: resolve entitlements service: token=eyJhbGciOi.eyJzdWIi.c2ln")}
+	server.SetMarketplace(m)
+	if reply := rpc(t, dir, methodStoreHome, ""); reply.Error == nil || reply.Error.Code != codeServiceFailed {
+		t.Fatalf("error = %+v", reply.Error)
+	}
+	out := logged.String()
+	if !strings.Contains(out, "method=store_home.v1") || !strings.Contains(out, "resolve entitlements service") {
+		t.Fatalf("store failure not logged: %q", out)
+	}
+	if strings.Contains(out, "eyJ") {
+		t.Fatalf("token leaked into the log: %q", out)
+	}
+	logged.Reset()
+	m.err = ErrSignedOut
+	if reply := rpc(t, dir, methodStoreBalance, ""); reply.Error == nil || reply.Error.Code != codeSignedOut {
+		t.Fatalf("error = %+v", reply.Error)
+	}
+	if logged.Len() != 0 {
+		t.Fatalf("signed out is not a service failure: %q", logged.String())
+	}
+}
+
+type lockedWriter struct {
+	mu sync.Mutex
+	w  *strings.Builder
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }

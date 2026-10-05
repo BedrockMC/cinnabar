@@ -16,12 +16,14 @@ needs one live capture against a sandbox account before it is relied on.
 | PlayFab entity token (`X-EntityToken`, `master_player_account`) | PlayFab Catalog calls |
 | MCToken (`Authorization`) + `Session-Id` header | every store-service call below |
 
-The store base URI is discovery `serviceEnvironments.store.prod.serviceUri`. ref. Protocol code lives in
-gophertunnel `minecraft/service/marketplace`, which keeps every request (and redirect) on that origin.
+The store base URI is discovery `serviceEnvironments.store.prod.serviceUri` (ref); inventory, balances and purchases go to
+`serviceEnvironments.entitlements.prod.serviceUri`. Opening the store needs both. Protocol code lives in gophertunnel
+`minecraft/service/marketplace`, which keeps each request (and redirect) on its service's origin. The core logs every
+failed `store_*` call except images as `launcher service failed`, redacted.
 
 ## Service calls
 
-Store-service paths are relative to the store base URI. Every answer is wrapped as `{"result": ...}`; errors are
+Paths are relative to the owning service's base URI. Every answer is wrapped as `{"result": ...}`; errors are
 `{namespace, code, message, customData}`.
 
 | Function | Call | Notes |
