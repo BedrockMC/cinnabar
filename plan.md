@@ -1,3 +1,14 @@
+## GPU terrain culling with Hi-Z occlusion
+
+- On Vulkan/DX12 with native multi-draw-indirect-count, opaque terrain (solid runs, cutout,
+  models, depth-writing liquid) is culled by a compute pass over persistent per-slot records:
+  frustum, cave visibility, facing runs and a two-phase depth-pyramid test, drawn from
+  compacted slot-ordered args. Metal, GL and probe frames keep the CPU path.
+- Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
+  against rendered ids, and the CPU path's pixels from a stale history.
+- Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
+  as is a GPU pass-time measurement once per-pass timestamps land.
+
 ## Menu frame passes and retained memory
 
 - The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.

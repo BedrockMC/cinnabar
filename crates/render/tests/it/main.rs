@@ -27,6 +27,7 @@ mod cloud_config;
 mod cloud_render;
 mod dragon_death_rays;
 mod end_sky;
+mod gpu_culling;
 mod item_particle_lighting;
 mod leaf_colour;
 mod leaf_metadata;

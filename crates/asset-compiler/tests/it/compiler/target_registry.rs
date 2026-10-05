@@ -1,6 +1,11 @@
-use super::{farmland::*, support::*};
+use super::{
+    cactus::write_cactus_pack, cake::write_cake_pack, farmland::*,
+    inventory::write_selector_alias_cube_pack, mineral_cubes::write_mineral_pack,
+    resin_clump::write_resin_clump_pack, special_cubes::*, support::*,
+};
 
-fn target_farmland_records() -> Vec<RegistryRecord> {
+/// Records named `names` from the registry the bedrock target pins.
+fn target_records(names: &[&str]) -> Vec<RegistryRecord> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(root.join("assets/bedrock-target.json")).expect("read target manifest"),
@@ -8,14 +13,15 @@ fn target_farmland_records() -> Vec<RegistryRecord> {
     .expect("decode target manifest");
     let bytes = fs::read(root.join(target["artifacts"]["block_registry"].as_str().unwrap()))
         .expect("read target registry");
-    let mut records = assets::read_registry_for_protocol(
-        &bytes,
-        target["wire_protocol"].as_u64().unwrap() as u32,
-    )
-    .expect("decode target registry")
-    .into_iter()
-    .filter(|record| record.name.as_ref() == "minecraft:farmland")
-    .collect::<Vec<_>>();
+    assets::read_registry_for_protocol(&bytes, target["wire_protocol"].as_u64().unwrap() as u32)
+        .expect("decode target registry")
+        .into_iter()
+        .filter(|record| names.contains(&record.name.as_ref()))
+        .collect()
+}
+
+fn target_farmland_records() -> Vec<RegistryRecord> {
+    let mut records = target_records(&["minecraft:farmland"]);
     records.sort_unstable_by_key(|record| record.model_state.get(ModelStateField::Growth).unwrap());
     assert_eq!(records.len(), 8);
     records
@@ -102,4 +108,61 @@ fn compiler_farmland_rejects_duplicate_network_identities() {
         compile_pack(directory.path(), &duplicate_hash),
         Err(AssetError::DuplicateNetworkHash(_))
     ));
+}
+
+/// Exact block families must not depend on another registry version's sequential IDs.
+#[test]
+fn exact_families_compile_from_target_registry() {
+    let families: [(&[&str], fn(&Path)); 7] = [
+        (
+            &[
+                "minecraft:bone_block",
+                "minecraft:chiseled_quartz_block",
+                "minecraft:hay_block",
+                "minecraft:purpur_block",
+                "minecraft:quartz_block",
+                "minecraft:smooth_quartz",
+                "minecraft:tnt",
+            ],
+            |root| {
+                write_selector_alias_cube_pack(
+                    root,
+                    r#"{"down":"hayblock_top","side":"hayblock_side","up":"hayblock_top"}"#,
+                );
+            },
+        ),
+        (&["minecraft:cactus"], write_cactus_pack),
+        (&["minecraft:cake"], write_cake_pack),
+        (&["minecraft:resin_clump"], |root| {
+            write_resin_clump_pack(root);
+        }),
+        (&["minecraft:chiseled_bookshelf"], |root| {
+            write_chiseled_bookshelf_pack(root, None);
+        }),
+        (
+            &["minecraft:bee_nest", "minecraft:beehive"],
+            write_bee_housing_pack,
+        ),
+        (
+            &["minecraft:cinnabar", "minecraft:sulfur"],
+            write_mineral_pack,
+        ),
+    ];
+    for (names, write) in families {
+        let directory = tempfile::tempdir().expect("family fixture");
+        write(directory.path());
+        let records = target_records(names);
+        assert!(!records.is_empty(), "{names:?} absent from target registry");
+        let compiled = compile_pack(directory.path(), &records).expect("compile target family");
+        for record in &records {
+            let visual = compiled.visuals[record.sequential_id as usize];
+            assert_ne!(
+                visual.kind,
+                VisualKind::Diagnostic,
+                "{} {}",
+                record.name,
+                record.canonical_state
+            );
+        }
+    }
 }
