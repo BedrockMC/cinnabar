@@ -2,7 +2,10 @@ use super::model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullStream, args_region, args_words,
     reference_args, slot_enabled,
 };
+use super::slots::{CullSlots, cull_record, quad_bounds};
 use super::*;
+
+const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
 
 fn allocation(layout: CubeQuadLayout, metadata_index: u32) -> GpuChunkAllocation {
     GpuChunkAllocation {
