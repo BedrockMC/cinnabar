@@ -7,6 +7,8 @@ import (
 	"flag"
 	"io"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -472,5 +474,27 @@ func assertTextInOrder(t *testing.T, text string, parts ...string) {
 			t.Fatalf("output missing %q after byte %d:\n%s", part, position, text)
 		}
 		position += next + len(part)
+	}
+}
+
+// Runtime limits apply by default and never override an explicit environment choice.
+func TestConfigureRuntimeRespectsEnvironmentOverrides(t *testing.T) {
+	procs, limit := runtime.GOMAXPROCS(0), debug.SetMemoryLimit(-1)
+	t.Cleanup(func() {
+		runtime.GOMAXPROCS(procs)
+		debug.SetMemoryLimit(limit)
+	})
+	configureRuntime(func(string) string { return "" })
+	if got, want := runtime.GOMAXPROCS(0), min(coreMaxProcs, runtime.NumCPU()); got != want {
+		t.Fatalf("GOMAXPROCS = %d, want %d", got, want)
+	}
+	if got := debug.SetMemoryLimit(-1); got != coreMemoryLimit {
+		t.Fatalf("memory limit = %d, want %d", got, coreMemoryLimit)
+	}
+	runtime.GOMAXPROCS(procs)
+	debug.SetMemoryLimit(limit)
+	configureRuntime(func(string) string { return "set" })
+	if runtime.GOMAXPROCS(0) != procs || debug.SetMemoryLimit(-1) != limit {
+		t.Fatal("explicit GOMAXPROCS/GOMEMLIMIT were overridden")
 	}
 }

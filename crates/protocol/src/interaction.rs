@@ -272,7 +272,7 @@ fn held_item_parts(request: &HeldItemRequest) -> Result<(i32, Vec3), BlockUsePac
     Ok((i32::from(request.selected_slot), Vec3 { x, y, z }))
 }
 
-/// Builds the click-air transaction vanilla's `GameMode::baseUseItem` sends: zero block and
+/// Builds the click-air transaction vanilla sends on an air use: zero block and
 /// click positions, face 255, unset trigger and a failure prediction. A `change` becomes the
 /// inventory action and legacy set-slot request vanilla records while the use runs.
 pub fn click_air_packet(
@@ -285,7 +285,7 @@ pub fn click_air_packet(
     let mut legacy_set_item_slots = None;
     let mut actions = Vec::new();
     if let Some(change) = change {
-        // `setPlayerContainer` stamps and records only a non-empty result.
+        // Vanilla stamps and records only a non-empty result.
         if !change.to.is_empty() && change.legacy_request_id < 0 {
             legacy_request_id = change.legacy_request_id;
             legacy_set_item_slots = Some(vec![LegacySetSlot {
@@ -335,7 +335,7 @@ pub fn click_air_packet(
     .into())
 }
 
-/// Builds the release-item transaction `GameMode::releaseUsingItem` sends when the use button
+/// Builds the release-item transaction vanilla sends when the use button
 /// goes up; a use that runs out completes without a packet from the client.
 pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
     let (slot, from_position) = held_item_parts(&request)?;
@@ -432,14 +432,15 @@ pub enum SwingSource {
 }
 
 impl SwingSource {
-    // Vanilla binds the capitalised names; gophertunnel writes lowercase and reads either.
+    // The vanilla client sends the lowercase name; servers that match it exactly drop the
+    // connection on any other casing.
     const fn wire_name(self) -> &'static str {
         match self {
-            Self::Build => "Build",
-            Self::Mine => "Mine",
-            Self::Interact => "Interact",
-            Self::Attack => "Attack",
-            Self::ThrowItem => "ThrowItem",
+            Self::Build => "build",
+            Self::Mine => "mine",
+            Self::Interact => "interact",
+            Self::Attack => "attack",
+            Self::ThrowItem => "throwitem",
         }
     }
 }

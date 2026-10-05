@@ -67,7 +67,7 @@ impl WorldStream {
                 .decode_jobs_dispatched
                 .saturating_add(1);
             let tx = self.decode_tx.clone();
-            workers::WORKERS.decode.spawn(move || {
+            workers::WORKERS.spawn(workers::Lane::Decode, move || {
                 let completion = job.run(queued_at);
                 let _ = tx.send(completion);
             });

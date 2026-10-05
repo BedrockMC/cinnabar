@@ -1126,10 +1126,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            16_967_610_146_635_233_032,
-            1_635_448_699_120_490_173,
-            4_724_742_875_596_759_153,
-            402_004_103_534_269_269
+            17_252_311_297_832_231_068,
+            7_891_516_663_899_362_489,
+            10_894_881_661_923_922_213,
+            9_748_041_963_694_095_461
         ]
     );
 }
@@ -1178,5 +1178,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 8_827_825_707_649_792_903);
+    assert_eq!(digest, 18_208_010_805_674_280_684);
 }

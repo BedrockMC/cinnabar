@@ -1,5 +1,5 @@
-//! Walk view-bob and first-person hand sway, expressed as view-space effects, following the
-//! 26.30 reference's bobView and hand spring.
+//! Walk view-bob and first-person hand sway, expressed as view-space effects, following
+//! vanilla's view bob and hand spring.
 
 use std::f32::consts::PI;
 

@@ -145,7 +145,7 @@ fn blended_biome_tint(
         return tint_domain_colour(safe_biome_tint(uniform_tint), tint_kind, material_flags, coordinate + vec3<i32>(world_origin));
     }
     // Native seasonal foliage samples the block's biome directly, rather than
-    // interpolating the ordinary foliage lattice (FoliageTessellationPolicy).
+    // interpolating the ordinary foliage lattice.
     if ((material_flags & MATERIAL_SEASONAL_FOLIAGE) != 0u) {
         let tint = safe_biome_tint(packed_biome_tint_index(record, coordinate));
         if ((tint.flags & BIOME_SEASONAL_FOLIAGE) != 0u) {

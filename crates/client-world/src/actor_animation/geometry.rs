@@ -145,7 +145,7 @@ pub(super) fn resolve_binding(
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         equipped_main: None,
         equipped_off: None,
-        // ItemInHandRenderer's constructor starts both offhand observations at zero.
+        // Vanilla starts both offhand observations at zero.
         off_hand_animation: [ItemAnimationState {
             attack_time: 0.0,
             arm_height: 0.0,

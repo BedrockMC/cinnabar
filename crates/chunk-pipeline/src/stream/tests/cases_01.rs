@@ -302,6 +302,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });
@@ -336,6 +337,7 @@ fn definition_replacement_supersedes_queued_and_in_flight_old_tints() {
         dependency_mask: MeshDependencyMask::default(),
         light_halo: Default::default(),
         queue_wait: Duration::ZERO,
+        dispatch_wait: Duration::ZERO,
         duration: Duration::ZERO,
         urgent: false,
     });

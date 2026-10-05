@@ -76,7 +76,7 @@ fn current_portal_states_compile_to_animated_blended_native_cuboids() {
         let visual = runtime.resolve(assets::NetworkIdMode::Sequential, record.sequential_id);
         assert_eq!(visual.kind(), VisualKind::Model);
         assert_eq!(visual.support(), VisualSupport::Exact);
-        // Current final PortalBlock registration supplies light, without opacity.
+        // Vanilla nether portals emit light without opacity.
         assert_eq!(visual.light_properties().emission(), 11);
         assert_eq!(visual.light_properties().filter(), 0);
         assert!(

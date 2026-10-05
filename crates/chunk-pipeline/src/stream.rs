@@ -25,7 +25,6 @@ use client_world::ingestion::{
     SyncedBlockUpdateEvent, WorldBootstrap, WorldEvent, request_sub_chunk_column,
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
-use hashbrown::HashMap as FastHashMap;
 use thiserror::Error;
 use world::{
     BiomeStorage, BlockEntityKey, BlockIds, BlockPos, BlockUpdate, BoundaryLightSample, ChunkKey,
@@ -127,24 +126,19 @@ pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;
 const INITIAL_LIGHT_BACKLOG_THRESHOLD: usize = 256;
-fn light_job_cap_for_threads(worker_threads: usize) -> usize {
-    MAX_IN_FLIGHT_LIGHT_JOBS.min(
-        worker_threads
-            .saturating_div(4)
-            .max(MIN_EFFECTIVE_LIGHT_JOB_CAP),
-    )
+/// Quiet relighting admits half the light workers' width.
+fn light_job_cap_for_threads(light_workers: usize) -> usize {
+    (light_workers / 2).clamp(MIN_EFFECTIVE_LIGHT_JOB_CAP, MAX_IN_FLIGHT_LIGHT_JOBS)
 }
 fn effective_light_job_cap() -> usize {
-    // Quiet relighting uses fewer admissions; its workers have a separate queue.
-    light_job_cap_for_threads(rayon::current_num_threads())
+    light_job_cap_for_threads(workers::WORKERS.size().background)
 }
 fn initial_light_job_cap() -> usize {
-    // Initial lighting fills a larger bounded wave because it gates ready geometry.
-    MAX_IN_FLIGHT_LIGHT_JOBS.min(
-        rayon::current_num_threads()
-            .saturating_div(2)
-            .max(MIN_EFFECTIVE_LIGHT_JOB_CAP),
-    )
+    // Initial lighting fills every light worker because it gates ready geometry.
+    workers::WORKERS
+        .size()
+        .background
+        .clamp(MIN_EFFECTIVE_LIGHT_JOB_CAP, MAX_IN_FLIGHT_LIGHT_JOBS)
 }
 pub const LIGHT_DISPATCH_BUDGET_PER_POLL: usize = MAX_IN_FLIGHT_LIGHT_JOBS;
 const LIGHT_RESULT_CAPACITY: usize = MAX_IN_FLIGHT_LIGHT_JOBS * MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS;
@@ -303,7 +297,7 @@ pub struct WorldStream {
     resident: BTreeSet<SubChunkKey>,
     known_air: BTreeSet<SubChunkKey>,
     loaded_columns: BTreeSet<ChunkKey>,
-    connectivity: FastHashMap<SubChunkKey, FaceConnectivity>,
+    connectivity: crate::culling::ConnectivityGrid,
     connectivity_generation: u64,
     requests: requests::SubChunkRequests,
     unsent_column_deadlines: HashMap<ChunkKey, Instant>,

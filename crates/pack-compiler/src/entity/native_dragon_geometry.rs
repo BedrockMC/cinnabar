@@ -73,7 +73,7 @@ fn expand(geometry: &mut PendingGeometry) {
             bone.rotation = Some(rotation);
         }
     }
-    // These parts use parent-relative pivots with ModelPart's Y origin.
+    // These parts use parent-relative pivots with the model part's Y origin.
     // Keep cube coordinates relative to their pivot while converting to model space.
     for (child, parent) in RELATIVE_PARTS {
         let parent_pivot = bones

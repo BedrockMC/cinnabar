@@ -140,8 +140,8 @@ pub(super) fn contains_liquid(
                 });
                 // The raised exit probe asks whether its sampled block cells
                 // carry liquid, not whether the liquid surface reaches it.
-                // Current BlockSource::containsAnyLiquid (0x031a7a20)
-                // reads getBlock's primary material, without secondary layers.
+                // Vanilla reads only the primary block's material here,
+                // without secondary layers.
                 let flags = sample.primary().flags;
                 contains |= flags.contains(BlockPhysicsFlags::WATER)
                     || flags.contains(BlockPhysicsFlags::LAVA);

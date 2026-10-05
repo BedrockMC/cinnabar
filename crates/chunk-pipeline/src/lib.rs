@@ -3,7 +3,7 @@
 mod culling;
 mod stream;
 
-pub use culling::CaveVisibilityScratch;
+pub use culling::{CaveVisibilityScratch, CaveVisibleSet};
 
 pub use stream::{
     ActiveBlockCrack, ActorBlockSyncFence, BlockCrackSnapshot, BlockCrackStatus,

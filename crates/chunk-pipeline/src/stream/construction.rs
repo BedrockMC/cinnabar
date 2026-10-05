@@ -120,7 +120,7 @@ impl WorldStream {
             resident: BTreeSet::new(),
             known_air: BTreeSet::new(),
             loaded_columns: BTreeSet::new(),
-            connectivity: FastHashMap::new(),
+            connectivity: crate::culling::ConnectivityGrid::default(),
             connectivity_generation: 0,
             requests: Default::default(),
             unsent_column_deadlines: HashMap::new(),

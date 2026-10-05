@@ -6,8 +6,8 @@ use world::{ChunkKey, SUB_CHUNK_SIDE as SIDE, SubChunkKey};
 // Vanilla loading offsets remain available for transfer diagnostics.
 const TRANSFER_RADIUS_BLOCKS: f32 = SIDE as f32;
 
-// Vanilla selects ticking columns within a 9x9 square and
-// Manhattan distance five, independently of the server's simulation radius.
+// Vanilla's 57 client ticking chunk offsets, used independently of the
+// server's simulation radius.
 pub(super) const CLIENT_TICKING_OFFSETS: &[[i32; 2]] = &[
     [-1, -4],
     [0, -4],

@@ -27,7 +27,7 @@ use crate::{
 };
 use client_ui::ui_runtime::UiRuntime;
 
-pub(crate) const BLOCK_ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeben";
+const BLOCK_ENTITY_ASSETS_FILENAME: &str = assets::carriers::BLOCK_ENTITY.output;
 /// Block entities farther than this from the eye are not drawn.
 const SCAN_RADIUS_BLOCKS: f32 = 64.0;
 const MAX_SUBMISSIONS: usize = 4_096;
@@ -40,11 +40,12 @@ mod crystal_beams;
 mod dragon_death;
 mod portals;
 
-/// Reads the optional block-entity carrier next to the world carrier; on absence or
-/// corruption logs once and returns a scene that draws nothing.
-pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntityScene {
+/// Reads the optional block-entity carrier next to the world carrier, which the block-entity
+/// scene and worn heads share; on absence or corruption logs once and returns `None`.
+pub(crate) fn load_block_entity_carrier(
+    world_asset_path: &Path,
+) -> Option<Arc<RuntimeBlockEntityAssets>> {
     let path = world_asset_path.with_file_name(BLOCK_ENTITY_ASSETS_FILENAME);
-    let mut scene = BlockEntityScene::default();
     let bytes = match diagnostics::bounded_file::read(
         &path,
         assets::MAX_BLOCK_ENTITY_CARRIER_BYTES as u64,
@@ -52,10 +53,10 @@ pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntitySce
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!(
-                "block-entity carrier {} unavailable ({error}); block-entity models, sign text and break cracks are not drawn; rebuild with: make block-entity-assets",
+                "block-entity carrier {} unavailable ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
-            return scene;
+            return None;
         }
     };
     match RuntimeBlockEntityAssets::decode(&bytes) {
@@ -66,12 +67,23 @@ pub(crate) fn load_block_entity_scene(world_asset_path: &Path) -> BlockEntitySce
                 assets.placements().len(),
                 assets.atlas_size()
             );
-            scene.install_assets(&assets);
+            Some(Arc::new(assets))
         }
-        Err(error) => eprintln!(
-            "block-entity carrier {} is invalid ({error}); block-entity models, sign text and break cracks are not drawn; rebuild with: make block-entity-assets",
-            path.display()
-        ),
+        Err(error) => {
+            eprintln!(
+                "block-entity carrier {} is invalid ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// A scene drawing `assets`, or nothing without them.
+pub(crate) fn block_entity_scene(assets: Option<&RuntimeBlockEntityAssets>) -> BlockEntityScene {
+    let mut scene = BlockEntityScene::default();
+    if let Some(assets) = assets {
+        scene.install_assets(assets);
     }
     scene
 }
@@ -201,8 +213,8 @@ fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
 }
 
 fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
-    // Current SkullBlockRenderer supplies BlockSource light at
-    // the skull's BlockPos to mob_head's ordinary entity material.
+    // Vanilla lights a skull with the world light at its block position,
+    // through mob_head's ordinary entity material.
     if matches!(kind, BlockEntityKind::Skull(_)) {
         BlockEntityLight::Actor { block, sky }
     } else {

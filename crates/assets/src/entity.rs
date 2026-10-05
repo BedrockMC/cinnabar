@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 use crate::item::{ItemVisualAlias, ItemVisualDefinition};
@@ -172,7 +171,7 @@ pub struct EntityGeometryCube {
 
 impl EntityGeometryCube {
     /// Native Geometry cube rotations use the uninflated box center when no pivot is authored.
-    /// Geometry::_parseBones and the geometry 1.21 schema agree.
+    /// Vanilla bone parsing and the geometry 1.21 schema agree.
     #[must_use]
     pub fn default_rotation_pivot(
         origin: [EntityGeometryScalar; 3],
@@ -317,6 +316,7 @@ struct EntityCatalogPayload {
 
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
+    carrier_identity: Option<[u8; 32]>, // SHA-256 of the decoded carrier file
     source_manifest_sha256: [u8; 32],
     block_visual_count: u32,
     sources: Arc<[EntityAssetSource]>,
@@ -384,9 +384,8 @@ impl RuntimeEntityAssets {
             return Err(invalid("noncanonical MCBEENT4 section layout"));
         }
         let payload_end = HEADER_BYTES + payload_bytes;
-        if Sha256::digest(&bytes[..payload_end]).as_slice() != &bytes[payload_end..] {
-            return Err(invalid("MCBEENT4 envelope hash mismatch"));
-        }
+        let identity = crate::encoding::sealed_identity(bytes, payload_end)
+            .ok_or_else(|| invalid("MCBEENT4 envelope hash mismatch"))?;
         let payload_counts = v4::payload_counts(&bytes[HEADER_BYTES..payload_end])
             .map_err(|_| invalid("invalid MCBEENT4 catalog count preflight"))?;
         if payload_counts
@@ -436,13 +435,17 @@ impl RuntimeEntityAssets {
             item_visual_aliases: payload.item_visual_aliases,
             render: payload.render,
         };
-        Self::from_compiled(compiled)
+        Ok(Self {
+            carrier_identity: Some(identity),
+            ..Self::from_compiled(compiled)?
+        })
     }
 
     /// Validates a compiled catalog and wraps it without a blob round trip.
     pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
         let geometry_parents = validate_compiled(&compiled)?;
         Ok(Self {
+            carrier_identity: None,
             source_manifest_sha256: compiled.source_manifest_sha256,
             block_visual_count: compiled.block_visual_count,
             sources: Arc::from(compiled.sources),
@@ -469,6 +472,12 @@ impl RuntimeEntityAssets {
             item_visual_aliases: Arc::from(compiled.item_visual_aliases),
             render: Arc::new(compiled.render),
         })
+    }
+
+    /// The SHA-256 of the carrier this was decoded from; `None` when built from a compiled catalog.
+    #[must_use]
+    pub const fn carrier_identity(&self) -> Option<[u8; 32]> {
+        self.carrier_identity
     }
 
     #[must_use]
