@@ -704,3 +704,99 @@ fn queued_model_job_revalidates_groups_an_in_flight_result_overwrites() {
         );
     }
 }
+
+/// Runs model-sort frames, handing each worker result to the next frame, until `key` commits.
+fn run_model_sorts_until_committed(app: &mut App, key: &TransparentModelSortKey) -> bool {
+    for _ in 0..6 {
+        app.world_mut()
+            .run_system_once(prepare_transparent_model_sorts)
+            .unwrap();
+        let runtime = app.world().resource::<TransparentModelSortRuntime>();
+        if runtime.committed.as_ref() == Some(key) {
+            return true;
+        }
+        if runtime.gate.in_flight_generation().is_some() {
+            let result = runtime.result_receiver.lock().unwrap().recv().unwrap();
+            runtime.result_sender.send(result).unwrap();
+        }
+    }
+    false
+}
+
+/// The witness ceiling limits CPU order copies, never which allocations re-sort.
+#[test]
+fn unwitnessed_model_order_resorts_when_its_class_changes() {
+    let group = SubChunkKey::new(0, 3, 0, 0);
+    let (mut app, view, identities) = model_groups_app(&[(group, 2)]);
+    let identity = identities[0].clone();
+    // A resident witness holding every allowed ref leaves no room for the group's copy.
+    let filler = TransparentModelAllocationIdentity {
+        entity: app.world_mut().spawn_empty().id(),
+        key: SubChunkKey::new(0, 40, 0, 0),
+        generation: 1,
+        model_range: 0..4,
+        draw_range: 0..2 * MAX_TRANSPARENT_DRAW_REFS as u32,
+    };
+    let mut filler_allocation =
+        app.world().resource::<ChunkGpuArena>().allocations[&identity.entity].clone();
+    filler_allocation.gpu.key = filler.key;
+    filler_allocation.gpu.model_range = Some(filler.model_range.clone());
+    filler_allocation.gpu.transparent_model_draw_range = Some(filler.draw_range.clone());
+    app.world_mut()
+        .resource_mut::<ChunkGpuArena>()
+        .allocations
+        .insert(filler.entity, filler_allocation);
+    let asset_identity = app.world().resource::<ChunkTextureAssets>().identity();
+    let address = TransparentModelAddressIdentity {
+        asset_identity,
+        allocations: Arc::from([identity.clone()]),
+    };
+    {
+        let mut runtime = app
+            .world_mut()
+            .resource_mut::<TransparentModelSortRuntime>();
+        runtime.draw_orders.publish(
+            &TransparentModelAddressIdentity {
+                asset_identity,
+                allocations: Arc::from([filler.clone()]),
+            },
+            TransparentModelSortBatch {
+                draw_range: filler.draw_range.clone(),
+                class: FaceOrderClass::Far([1, 0, 0]),
+                words: vec![[0, 0]; MAX_TRANSPARENT_DRAW_REFS].into_boxed_slice(),
+            },
+        );
+        runtime.candidate_cache = Some(TransparentModelCandidateCache {
+            address: address.clone(),
+            candidates: (0..2)
+                .map(|quad| TransparentModelSortCandidate {
+                    entity: identity.entity,
+                    key: group,
+                    draw_range: identity.draw_range.clone(),
+                    stable_index: quad,
+                    centroid: Vec3::new(48.0 + quad as f32 * 4.0 + 1.0, 1.0, 1.0),
+                    words: [0, quad],
+                })
+                .collect(),
+        });
+    }
+    for camera in [Vec3::new(8.0, 8.0, 8.0), Vec3::new(90.0, 8.0, 8.0)] {
+        app.world_mut()
+            .get_mut::<ExtractedView>(view)
+            .unwrap()
+            .world_from_view = GlobalTransform::from_translation(camera);
+        let metric = TransparentFaceMetric::new(camera);
+        let key = TransparentModelSortKey {
+            view_entity: view,
+            order_camera: metric.order_camera([group]),
+            address: address.clone(),
+        };
+        assert!(run_model_sorts_until_committed(&mut app, &key));
+        let orders = &app
+            .world()
+            .resource::<TransparentModelSortRuntime>()
+            .draw_orders;
+        assert!(orders.get(&identity).is_none(), "the group has no CPU copy");
+        assert_eq!(orders.class(&identity), Some(metric.class(group)));
+    }
+}
