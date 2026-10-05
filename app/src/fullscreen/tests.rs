@@ -8,10 +8,7 @@ use crate::menu::MenuAction;
 use crate::present_mode::{PresentModeRuntime, apply_runtime_vsync_setting};
 
 fn app(visible: bool) -> (App, Entity) {
-    let mut menu = MenuRuntime::new(visible, 2, "Steve".to_owned());
-    // These runtime tests start windowed regardless of the host's saved setting.
-    menu.sync_fullscreen(false);
-    let _ = menu.take_fullscreen_change();
+    let menu = MenuRuntime::new(visible, 2, "Steve".to_owned());
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_message::<KeyboardInput>()
