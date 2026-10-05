@@ -24,6 +24,8 @@ mod bob;
 mod easing;
 pub mod facts;
 pub mod fov;
+#[cfg(test)]
+mod freelook_tests;
 mod hurt;
 pub mod look;
 mod overlay;
@@ -94,6 +96,7 @@ pub struct CameraSettingsAuthority {
     horizontal_fov_degrees: f32,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
+    freelook: bool,
     feel: CameraFeelSettings,
 }
 
@@ -152,6 +155,7 @@ impl Default for CameraSettingsAuthority {
             horizontal_fov_degrees: settings.video.horizontal_fov_degrees,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
+            freelook: false,
             feel: CameraFeelSettings::from_settings(&settings),
         }
     }
@@ -200,7 +204,11 @@ impl CameraSettingsAuthority {
 
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        self.perspective
+        if self.freelook {
+            PerspectiveMode::ThirdPersonBack
+        } else {
+            self.perspective
+        }
     }
 
     #[must_use]
@@ -215,6 +223,7 @@ impl CameraSettingsAuthority {
 
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
+        self.freelook = false;
     }
 }
 
@@ -511,7 +520,7 @@ pub fn update_perspective(
     input: crate::observations::InputObservation<'_>,
     mut settings: ResMut<CameraSettingsAuthority>,
 ) {
-    if !input.phase(Action::CyclePerspective).pressed {
+    if !input.phase(Action::CyclePerspective).pressed || input.phase(Action::Freelook).held {
         return;
     }
     settings.cycle_perspective();
@@ -607,11 +616,17 @@ pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
     input: crate::observations::InputObservation<'_>,
     auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
+    mut settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
     mut smoother: ResMut<look::LookSmoother>,
     mut view: ResMut<LocalViewPose>,
 ) {
+    let held = input.phase(Action::Freelook).held && !auto_fly.presentation_paused();
+    if settings.freelook != held {
+        smoother.reset();
+    }
+    settings.freelook = held;
+    view.set_freelook(held);
     if auto_fly.presentation_paused() {
         return;
     }
@@ -632,7 +647,7 @@ pub fn update_look(
         return;
     }
 
-    let (yaw, pitch, roll) = view.rotation().to_euler(EulerRot::YXZ);
+    let (yaw, pitch, roll) = view.camera_rotation().to_euler(EulerRot::YXZ);
     let (damping, facts) = spyglass;
     let look_delta = look::spyglass_turn_delta(
         look_delta,
@@ -644,7 +659,7 @@ pub fn update_look(
     // back into actor space. Neither operation reverses actor yaw.
     let scale = look::radians_per_routed_unit(settings.feel().look_multiplier(mode));
     let (yaw, pitch) = look_angles(yaw, pitch, look_delta, Vec2::splat(scale));
-    view.set_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
+    view.set_look_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll));
 }
 
 pub fn update_movement(
