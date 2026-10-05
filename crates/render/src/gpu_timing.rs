@@ -109,7 +109,7 @@ fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
         nodes.push((Node3d::Upscaling.intern(), RuntimeStage::GpuBlit));
     }
     #[cfg(feature = "enhanced")]
-    nodes.extend(crate::enhanced::timed_nodes());
+    nodes.extend(crate::enhanced::graph::timed_nodes());
     nodes
 }
 
