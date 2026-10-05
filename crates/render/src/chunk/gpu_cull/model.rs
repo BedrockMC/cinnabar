@@ -24,6 +24,11 @@ pub const FRUSTUM_ABSOLUTE_SLACK: f32 = 1.0e-3;
 const SIDE: i32 = world::SUB_CHUNK_SIDE as i32;
 const BOUNDS_BIAS: i32 = 128;
 
+/// DX12 count draws in wgpu do not carry the base vertex/instance shader constants.
+pub fn count_draw_offsets_supported(backend: wgpu::Backend) -> bool {
+    !matches!(backend, wgpu::Backend::Dx12 | wgpu::Backend::Metal)
+}
+
 /// Compacted draw streams, in the order the opaque pass draws them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CullStream {
