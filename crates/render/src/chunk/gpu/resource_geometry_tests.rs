@@ -1,6 +1,5 @@
 use super::super::resource_sorts::ResourceView;
 use super::*;
-use crate::chunk::transparent::model::camera_position_bits;
 use bevy::render::renderer::WgpuWrapper;
 
 /// A single transparent face exercises address preparation without external carriers.
@@ -149,7 +148,7 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
     .unwrap();
     candidate.models.committed = Some(TransparentModelSortKey {
         view_entity: view,
-        camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
+        order_camera: TransparentFaceMetric::new(Vec3::ZERO).order_camera([instance.key]),
         address: TransparentModelAddressIdentity {
             asset_identity: ChunkTextureAssets::default().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
@@ -316,7 +315,7 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
         .view_entity = Some(view);
     let key = TransparentModelSortKey {
         view_entity: view,
-        camera_position_bits: camera_position_bits(Vec3::ZERO).unwrap(),
+        order_camera: TransparentFaceMetric::new(Vec3::ZERO).order_camera([instance.key]),
         address: TransparentModelAddressIdentity {
             asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
@@ -347,6 +346,7 @@ fn review_render_model_result_survives_camera_rotation() {
                 key: key.clone(),
                 batches: vec![TransparentModelSortBatch {
                     draw_range: 4..6,
+                    class: FaceOrderClass::Far([0, 0, 1]),
                     words: Box::new([[0, 0]]),
                 }],
             })
@@ -402,6 +402,7 @@ fn review_render_model_staged_upload_survives_camera_rotation() {
         key: key.clone(),
         batches: VecDeque::from([TransparentModelSortBatch {
             draw_range: 4..6,
+            class: FaceOrderClass::Far([0, 0, 1]),
             words: Box::new([[0, 0]]),
         }]),
     });
@@ -438,4 +439,71 @@ fn review_render_model_view_loss_clears_abandoned_request() {
             .requested
             .is_none()
     );
+}
+
+/// A far model order already uploaded for its class commits without a sort or upload.
+#[test]
+fn far_model_order_in_its_class_commits_without_a_sort_job() {
+    let (mut app, view, key) = model_sort_app();
+    let identity = key.address.allocations[0].clone();
+    let gpu = app
+        .world()
+        .get::<GpuChunkAllocation>(identity.entity)
+        .unwrap()
+        .clone();
+    app.world_mut()
+        .resource_mut::<ChunkGpuArena>()
+        .allocations
+        .insert(
+            identity.entity,
+            ArenaAllocation {
+                generation: gpu.generation,
+                tint_identity: gpu.tint_identity,
+                cube_range: None,
+                cube_lighting_range: None,
+                model_range: gpu.model_range.clone(),
+                model_lighting_range: gpu.model_lighting_range.clone(),
+                model_draw_range: None,
+                transparent_model_draw_range: gpu.transparent_model_draw_range.clone(),
+                liquid_range: None,
+                liquid_lighting_range: None,
+                quad_capacity: 0,
+                geometry_stream_range: Some(0..8),
+                geometry_stream_capacity: 8,
+                biome_range: 0..0,
+                biome_capacity: 0,
+                gpu,
+            },
+        );
+    let camera = Vec3::new(200.0, 0.0, 0.0);
+    app.world_mut()
+        .get_mut::<ExtractedView>(view)
+        .unwrap()
+        .world_from_view = GlobalTransform::from_translation(camera);
+    let class = TransparentFaceMetric::new(camera).class(identity.key);
+    app.world_mut()
+        .resource_mut::<TransparentModelSortRuntime>()
+        .draw_orders
+        .publish(
+            &key.address,
+            TransparentModelSortBatch {
+                draw_range: identity.draw_range.clone(),
+                class,
+                words: Box::new([[0, 0]]),
+            },
+        );
+    for step in 0..3 {
+        app.world_mut()
+            .get_mut::<ExtractedView>(view)
+            .unwrap()
+            .world_from_view =
+            GlobalTransform::from_translation(camera + Vec3::splat(step as f32 * 0.4));
+        app.world_mut()
+            .run_system_once(prepare_transparent_model_sorts)
+            .unwrap();
+        let runtime = app.world().resource::<TransparentModelSortRuntime>();
+        assert!(runtime.committed.is_some());
+        assert!(runtime.requested.is_none());
+        assert_eq!(runtime.next_generation, 0, "no sort job was submitted");
+    }
 }

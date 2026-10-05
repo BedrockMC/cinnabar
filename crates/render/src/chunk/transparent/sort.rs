@@ -21,87 +21,6 @@ pub struct TransparentDrawArgs {
     pub first_instance: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct TransparentSortCandidate {
-    pub(in crate::chunk) key: SubChunkKey,
-    pub(in crate::chunk) local_quad_index: u32,
-    pub(in crate::chunk) liquid_record_index: u32,
-    pub(in crate::chunk) metadata_index: u32,
-    pub(in crate::chunk) subchunk_center: [f32; 3],
-    pub(in crate::chunk) quad_centroid: [f32; 3],
-}
-
-impl TransparentSortCandidate {
-    #[must_use]
-    pub const fn new(
-        key: SubChunkKey,
-        local_quad_index: u32,
-        liquid_record_index: u32,
-        metadata_index: u32,
-        subchunk_center: [f32; 3],
-        quad_centroid: [f32; 3],
-    ) -> Self {
-        Self {
-            key,
-            local_quad_index,
-            liquid_record_index,
-            metadata_index,
-            subchunk_center,
-            quad_centroid,
-        }
-    }
-}
-
-pub(in crate::chunk) fn sort_transparent_candidates(
-    view_from_world: Mat4,
-    candidates: Arc<[TransparentSortCandidate]>,
-) -> Vec<PackedTransparentDrawRef> {
-    let metric = super::face_metric::TransparentFaceMetric::new(
-        view_from_world.inverse().transform_point3(Vec3::ZERO),
-    );
-    let quad_depths = candidates
-        .iter()
-        .map(|candidate| metric.distance(candidate.key, Vec3::from_array(candidate.quad_centroid)))
-        .collect::<Vec<_>>();
-    let mut grouped = BTreeMap::<SubChunkKey, Vec<usize>>::new();
-    for (index, candidate) in candidates.iter().enumerate() {
-        grouped.entry(candidate.key).or_default().push(index);
-    }
-    let mut groups = grouped
-        .into_iter()
-        .map(|(key, indices)| {
-            let center = Vec3::from_array(candidates[indices[0]].subchunk_center);
-            let depth = view_from_world.transform_point3(center).z;
-            (depth, key, indices)
-        })
-        .collect::<Vec<_>>();
-    groups.sort_by(|(left_depth, left_key, _), (right_depth, right_key, _)| {
-        left_depth
-            .total_cmp(right_depth)
-            .then_with(|| left_key.cmp(right_key))
-    });
-    let mut refs = Vec::with_capacity(candidates.len());
-    for (_depth, _key, mut group) in groups {
-        group.sort_by(|&left, &right| {
-            let left_candidate = &candidates[left];
-            let right_candidate = &candidates[right];
-            quad_depths[right]
-                .total_cmp(&quad_depths[left])
-                .then_with(|| left_candidate.key.cmp(&right_candidate.key))
-                .then_with(|| {
-                    left_candidate
-                        .local_quad_index
-                        .cmp(&right_candidate.local_quad_index)
-                })
-        });
-        refs.extend(group.into_iter().map(|index| {
-            let candidate = &candidates[index];
-            PackedTransparentDrawRef::new(candidate.liquid_record_index, candidate.metadata_index)
-        }));
-    }
-    refs
-}
-
 pub(in crate::chunk) fn transparent_draw_args(
     buffer_slot: u8,
     ref_count: usize,
@@ -140,7 +59,7 @@ pub(in crate::chunk) struct TransparentLiquidPhaseGroup {
 pub(in crate::chunk) fn transparent_liquid_phase_groups(
     snapshot: &TransparentOrderedSnapshot,
 ) -> Option<Vec<TransparentLiquidPhaseGroup>> {
-    let mut identities = BTreeMap::new();
+    let mut identities = HashMap::with_capacity(snapshot.key.visible_allocations.len());
     for identity in snapshot.key.visible_allocations.iter() {
         if !identity.liquid_range.start.is_multiple_of(4)
             || !identity.liquid_range.end.is_multiple_of(4)
@@ -154,26 +73,28 @@ pub(in crate::chunk) fn transparent_liquid_phase_groups(
 
     let mut groups = Vec::<TransparentLiquidPhaseGroup>::new();
     let mut closed_metadata = HashSet::new();
-    for (index, draw_ref) in snapshot.refs().iter().copied().enumerate() {
-        let identity = identities.get(&draw_ref.metadata_index())?;
+    let refs = snapshot.refs();
+    let mut start = 0;
+    while start < refs.len() {
+        let metadata = refs[start].metadata_index();
+        let run = refs[start..]
+            .iter()
+            .position(|draw_ref| draw_ref.metadata_index() != metadata)
+            .map_or(refs.len(), |length| start + length);
+        let identity = identities.get(&metadata)?;
         let record_range = identity.liquid_range.start / 4..identity.liquid_range.end / 4;
-        if !record_range.contains(&draw_ref.liquid_record_index()) {
-            return None;
-        }
-        let index = u32::try_from(index).ok()?;
-        if let Some(group) = groups.last_mut()
-            && group.key == identity.key
+        if !closed_metadata.insert(metadata)
+            || !refs[start..run]
+                .iter()
+                .all(|draw_ref| record_range.contains(&draw_ref.liquid_record_index()))
         {
-            group.ref_range.end = index.checked_add(1)?;
-            continue;
-        }
-        if !closed_metadata.insert(identity.metadata_index) {
             return None;
         }
         groups.push(TransparentLiquidPhaseGroup {
             key: identity.key,
-            ref_range: index..index.checked_add(1)?,
+            ref_range: u32::try_from(start).ok()?..u32::try_from(run).ok()?,
         });
+        start = run;
     }
     Some(groups)
 }
@@ -224,17 +145,20 @@ impl PackedTransparentDrawRef {
 
 pub(in crate::chunk) const _: () = assert!(std::mem::size_of::<PackedTransparentDrawRef>() == 8);
 
+mod groups;
 mod prepare;
 mod state;
 
+pub(in crate::chunk) use groups::{
+    TransparentGroupInput, TransparentGroupOrder, build_transparent_group, distinct_tint_count,
+    sort_transparent_groups, spawn_transparent_sort,
+};
 pub(in crate::chunk) use prepare::{
-    build_transparent_candidates, prepare_transparent_sorts, quantized_camera_orientation,
-    quantized_camera_position, transparent_snapshot_addresses_are_resident,
+    prepare_transparent_sorts, transparent_snapshot_addresses_are_resident,
 };
 pub(in crate::chunk) use state::{
-    TransparentAddressIdentity, TransparentCandidateCache, TransparentSortRequest,
-    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
-    TransparentWorkerResult,
+    TransparentAddressIdentity, TransparentCandidateCache, TransparentSortRuntime,
+    TransparentSortWork, TransparentStagedSnapshot, TransparentWorkerResult, changed_ref_spans,
 };
 pub use state::{
     TransparentAllocationIdentity, TransparentOrderedSnapshot, TransparentSortError,

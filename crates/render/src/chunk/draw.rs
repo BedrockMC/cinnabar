@@ -534,9 +534,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         if let Some(snapshot) = runtime.state.committed()
             && let Ok(water_pipeline_id) = pipeline.liquid_variants.specialize(&pipeline_cache, key)
         {
-            if let Some(groups) = transparent_liquid_phase_groups(snapshot) {
-                let (_, _, camera) = view.world_from_view.to_scale_rotation_translation();
-                for group in groups {
+            if let Some(groups) = snapshot.phase_groups() {
+                let camera = view.world_from_view.translation();
+                for group in groups.iter() {
                     // Native deferred water uses layer 2, not ordinary blend layer 3.
                     if enhanced.is_none()
                         && let Some(model_pipeline_id) = model_pipeline_id
@@ -552,7 +552,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                             &model_runtime,
                             &texture_assets,
                             snapshot,
-                            &group,
+                            group,
                             water_pipeline_id,
                             model_pipeline_id,
                         )
@@ -579,7 +579,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                         distance: transparent_liquid_phase_distance(&rangefinder, group.key),
                         batch_range: 0..1,
                         extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
-                            range: group.ref_range,
+                            range: group.ref_range.clone(),
                             batch_set_index: None,
                         },
                         indexed: true,
