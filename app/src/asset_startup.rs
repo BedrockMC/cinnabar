@@ -27,32 +27,22 @@ mod world_provenance;
 pub use world_provenance::pinned_world_provenance;
 pub(crate) use world_provenance::{active_content_registry_protocol, pinned_block_registry_bytes};
 
-pub const ATMOSPHERE_FILENAME: &str = "vanilla-v1.mcbeatm";
+pub const ATMOSPHERE_FILENAME: &str = assets::carriers::ATMOSPHERE.output;
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
-pub const ENTITY_ASSETS_FILENAME: &str = "vanilla-v1.mcbeent";
+pub const ENTITY_ASSETS_FILENAME: &str = assets::carriers::ENTITY.output;
 pub const ENTITY_ASSETS_COMPILE_COMMAND: &str = "make entity-assets";
-pub const FONT_ASSETS_FILENAME: &str = "ui-cinnangles-sans-v1.mcbefont";
+pub const FONT_ASSETS_FILENAME: &str = assets::carriers::FONT.output;
 pub const FONT_ASSETS_COMPILE_COMMAND: &str = "make font-assets";
 pub const LOCAL_FONT_ASSETS_FILENAME: &str = "vanilla-v1.mcbefont";
 pub const LOCAL_FONT_ASSETS_COMPILE_COMMAND: &str =
     "make font-assets-local FONT_PACK_DIR=<reviewed-font-pack>";
-pub const HUD_ASSETS_FILENAME: &str = "vanilla-v1.mcbehud";
-pub const HUD_ASSETS_REPORT_FILENAME: &str = "hud-assets.json";
+pub const HUD_ASSETS_FILENAME: &str = assets::carriers::HUD.output;
+pub const HUD_ASSETS_REPORT_FILENAME: &str = assets::carriers::HUD.report.unwrap();
 pub const HUD_ASSETS_COMPILE_COMMAND: &str = "make hud-assets";
-pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
+pub const AUDIO_ASSETS_FILENAME: &str = assets::carriers::AUDIO.output;
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 pub const FETCH_COMMAND: &str = "make vanilla-assets";
-pub static COMPILE_COMMAND: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    format!(
-        "cargo run -p asset-compiler --bin assetc -- compile --pack {} \
-         --source-manifest assets/vanilla-source.json \
-         --registry crates/assets/data/block-registry-v2193.bin \
-         --light-registry crates/assets/data/block-light-registry-v2193.bin \
-         --biome-registry crates/assets/data/biome-registry-v2193.bin \
-         --out .local/assets/compiled/vanilla-v2193.mcbea",
-        assets::vanilla_source().resource_pack_dir()
-    )
-});
+pub const COMPILE_COMMAND: &str = "make world-assets";
 
 const VANILLA_SOURCE_JSON: &str = assets::VANILLA_SOURCE_MANIFEST;
 const FONT_SOURCE_JSON: &str = include_str!("../../assets/cinnangles-sans-source.json");
@@ -703,7 +693,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
             RuntimeAssets::decode(&bytes).map_err(|source| AssetStartupError::Decode {
                 path: selection.path.clone(),
                 source: Box::new(source),
-                rebuild_command: COMPILE_COMMAND.as_str(),
+                rebuild_command: COMPILE_COMMAND,
             })?,
         );
     if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
@@ -751,7 +741,7 @@ fn diagnostic_assets(
         "compiled vanilla assets were not found at {}; using the programmatic diagnostic texture\n\
          Fetch and compile the local vanilla pack explicitly (the app never downloads it):\n  {FETCH_COMMAND}\n  {}",
         selection.path.display(),
-        COMPILE_COMMAND.as_str()
+        COMPILE_COMMAND
     );
     LoadedAssets {
         runtime,

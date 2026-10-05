@@ -108,7 +108,10 @@ fn a_changed_input_rebuilds_its_carrier_and_the_carriers_reading_it() {
     build_all(dir.path());
     let root = Sources::Checkout(dir.path().to_path_buf());
     let registry = context(dir.path()).files(&WORLD)[0].clone();
-    assert_eq!(registry, root.resolve("crates/assets/data/block-registry-v2193.bin"));
+    assert_eq!(
+        registry,
+        root.resolve("crates/assets/data/block-registry-v2193.bin")
+    );
     fs::write(registry, b"changed").unwrap();
     assert_eq!(stale(dir.path(), COMPILER), [WORLD.name, ICON.name]);
 }
@@ -203,7 +206,10 @@ fn a_reader_waits_for_the_carrier_it_reads() {
     let mut built = queue(&jobs[..1], &[(&WORLD, true)]);
     assert_eq!(take_ready(&mut built, &jobs[..1]), Some((0, None)));
     let mut failed = queue(&jobs[..1], &[(&WORLD, false)]);
-    assert_eq!(take_ready(&mut failed, &jobs[..1]), Some((0, Some(WORLD.name))));
+    assert_eq!(
+        take_ready(&mut failed, &jobs[..1]),
+        Some((0, Some(WORLD.name)))
+    );
     // A current dependency outside the run never blocks its reader.
     let mut current = queue(&jobs[..1], &[]);
     assert_eq!(take_ready(&mut current, &jobs[..1]), Some((0, None)));

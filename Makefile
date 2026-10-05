@@ -34,7 +34,6 @@ else
 VANILLA_CACHE_DIR := $(shell sed -n 's/^[[:space:]]*"cache_dir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' $(VANILLA_SOURCE_MANIFEST))
 endif
 PACK_DIR ?= $(VANILLA_CACHE_DIR)/resource_pack
-BEHAVIOR_PACK_DIR ?= $(patsubst %/resource_pack,%/behavior_pack,$(PACK_DIR))
 PACK_SENTINEL ?= $(PACK_DIR)/blocks.json
 FONT_PACK_DIR ?= .local/assets/font-source
 HUD_PACK_DIR ?= $(PACK_DIR)

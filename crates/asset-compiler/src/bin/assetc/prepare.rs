@@ -176,7 +176,10 @@ fn next_job(
 }
 
 /// The first pending job whose planned dependencies have finished, and a dependency that failed.
-fn take_ready(queue: &mut Queue, jobs: &[&'static Carrier]) -> Option<(usize, Option<&'static str>)> {
+fn take_ready(
+    queue: &mut Queue,
+    jobs: &[&'static Carrier],
+) -> Option<(usize, Option<&'static str>)> {
     let planned = |recipe: Recipe| jobs.iter().any(|carrier| carrier.recipe == recipe);
     let position = queue.pending.iter().position(|&index| {
         jobs[index]
@@ -237,7 +240,11 @@ fn build(carrier: &Carrier, context: &Context) -> Result<(), String> {
 pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, Box<dyn Error>> {
     let pack = context.resource_pack();
     let out = context.out.join(carrier.output);
-    let report = || context.out.join(carrier.report.expect("recipe writes a report"));
+    let report = || {
+        context
+            .out
+            .join(carrier.report.expect("recipe writes a report"))
+    };
     let manifest = || context.manifest(carrier);
     let read = |recipe| context.out.join(carriers::by_recipe(recipe).output);
     Ok(match carrier.recipe {

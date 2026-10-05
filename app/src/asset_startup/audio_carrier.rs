@@ -21,7 +21,7 @@ use super::{
     format_sha256,
 };
 
-pub const AUDIO_ASSETS_FILENAME: &str = "vanilla-v1.mcbeaud";
+pub const AUDIO_ASSETS_FILENAME: &str = assets::carriers::AUDIO.output;
 pub const AUDIO_ASSETS_COMPILE_COMMAND: &str = "make audio-assets";
 const AUDIO_ASSETS_REPORT_FILENAME: &str = "audio-assets.json";
 const MAX_AUDIO_ASSET_BLOB_BYTES: u64 = assets::MAX_AUDIO_CARRIER_BYTES as u64;
