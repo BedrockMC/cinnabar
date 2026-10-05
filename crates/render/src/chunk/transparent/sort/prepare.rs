@@ -4,8 +4,8 @@ use super::state::{
     TransparentSortResult, TransparentSortRuntime, TransparentSortWork, ViewSortKey,
 };
 use super::{
-    MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, TRANSPARENT_REF_SLOT_BYTES,
-    transparent_indirect_args,
+    MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef, ensure_transparent_ref_capacity,
+    transparent_indirect_args, transparent_ref_offset,
 };
 use crate::chunk::*;
 use std::cell::RefCell;
@@ -68,11 +68,9 @@ fn write_transparent_refs(
     first_ref: usize,
     refs: &[PackedTransparentDrawRef],
 ) -> u64 {
-    let offset = buffer_slot as usize * TRANSPARENT_REF_SLOT_BYTES
-        + first_ref * std::mem::size_of::<PackedTransparentDrawRef>();
     render_queue.write_buffer(
         &arena.transparent_ref_buffer,
-        offset as u64,
+        transparent_ref_offset(buffer_slot, arena.transparent_slot_refs, first_ref),
         bytemuck::cast_slice(refs),
     );
     std::mem::size_of_val(refs) as u64
@@ -86,8 +84,8 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     allocations: Query<&GpuChunkAllocation>,
     texture_assets: Res<ChunkTextureAssets>,
     biome_tints: Res<ChunkBiomeTints>,
-    render_queue: Res<RenderQueue>,
-    arena: Res<ChunkGpuArena>,
+    (render_device, render_queue): (Res<RenderDevice>, Res<RenderQueue>),
+    mut arena: ResMut<ChunkGpuArena>,
     mut runtime: ResMut<TransparentSortRuntime>,
     metrics: Res<TransparentSortMetrics>,
     witness_request: Res<TransparentWitnessRequest>,
@@ -437,6 +435,16 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     }
 
     let mut uploaded_bytes = 0_u64;
+    let staged_refs = runtime.state.staged_ref_count();
+    if ensure_transparent_ref_capacity(
+        &mut arena,
+        &render_device,
+        &render_queue,
+        staged_refs,
+        &runtime.state,
+    ) {
+        runtime.last_indirect_identity = None;
+    }
     if let Some(batch) = runtime.state.next_upload_batch() {
         if !upload_budget.consume(batch.refs().len()) {
             bevy::log::error!(
@@ -490,7 +498,7 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
     if let Some((identity, command)) = runtime.state.committed().and_then(|snapshot| {
         Some((
             (snapshot.buffer_slot(), snapshot.refs().len()),
-            transparent_indirect_args(snapshot)?,
+            transparent_indirect_args(snapshot, arena.transparent_slot_refs)?,
         ))
     }) && runtime.last_indirect_identity != Some(identity)
     {

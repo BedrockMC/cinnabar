@@ -388,7 +388,7 @@ fn sidebar(data: &mut DataSource, sidebar: Option<&Sidebar>) {
     );
 }
 
-/// A `#rrggbb` tint as the `[r, g, b, a]` array `bindColor` answers; other
+/// A `#rrggbb` tint as the `[r, g, b, a]` array a colour binding answers; other
 /// text stays text.
 fn color_array(color: &str) -> Scalar {
     match crate::emit::color_value(&Value::String(color.to_owned())) {

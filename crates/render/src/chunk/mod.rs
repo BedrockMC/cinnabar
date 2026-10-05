@@ -288,14 +288,15 @@ pub use transparent::sort::{
 };
 #[allow(unused_imports)]
 use transparent::sort::{
-    MAX_TRANSPARENT_RETIRED_ALLOCATIONS, MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity,
-    TransparentCandidateCache, TransparentGroupInput, TransparentGroupOrder,
-    TransparentLiquidPhaseGroup, TransparentSortRuntime, TransparentSortWork,
-    TransparentStagedSnapshot, TransparentWorkerResult, build_transparent_group, changed_ref_spans,
-    distinct_tint_count, prepare_transparent_sorts, sort_transparent_groups,
+    INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
+    MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
+    TransparentGroupInput, TransparentGroupOrder, TransparentLiquidPhaseGroup,
+    TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
+    TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
+    ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
     spawn_transparent_sort, transparent_draw_args, transparent_draw_range_args,
-    transparent_indirect_args, transparent_liquid_phase_groups,
-    transparent_snapshot_addresses_are_resident,
+    transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
+    transparent_ref_offset, transparent_snapshot_addresses_are_resident,
 };
 
 #[cfg(test)]

@@ -22,9 +22,24 @@ pub(super) fn prepare(
         .iter(world)
         .map(|(entity, instance)| (entity, instance.clone()))
         .collect();
+    // Liquid quads bound the sort's refs, so the fresh arena grows once before borrowing.
+    let liquid_refs = instances
+        .iter()
+        .map(|(_, instance)| instance.liquid_quads.len())
+        .sum::<usize>();
+    let (device, queue) = (
+        world.resource::<RenderDevice>().clone(),
+        world.resource::<RenderQueue>().clone(),
+    );
+    ensure_transparent_ref_capacity(
+        &mut world.resource_mut::<ChunkGpuArena>(),
+        &device,
+        &queue,
+        liquid_refs,
+        &liquids.state,
+    );
     let arena = world.resource::<ChunkGpuArena>();
     let assets = world.resource::<ChunkTextureAssets>();
-    let queue = world.resource::<RenderQueue>();
     let tints = world.resource::<ChunkBiomeTints>();
     let (mut manifest, mut model_candidates, mut model_manifest) =
         (Vec::new(), Vec::new(), Vec::new());
@@ -109,11 +124,14 @@ pub(super) fn prepare(
         .complete(TransparentSortResult::new(generation, key, refs).ok()?)
         .ok()?;
     while let Some(batch) = liquids.state.next_upload_batch() {
-        let offset = batch.buffer_slot() as usize * TRANSPARENT_REF_SLOT_BYTES
-            + batch.ref_range().start * std::mem::size_of::<PackedTransparentDrawRef>();
+        let offset = transparent_ref_offset(
+            batch.buffer_slot(),
+            arena.transparent_slot_refs,
+            batch.ref_range().start,
+        );
         queue.write_buffer(
             &arena.transparent_ref_buffer,
-            offset as u64,
+            offset,
             bytemuck::cast_slice(batch.refs()),
         );
         liquids.state.acknowledge_upload();
@@ -122,7 +140,10 @@ pub(super) fn prepare(
     queue.write_buffer(
         &arena.transparent_indirect_buffer,
         0,
-        bytemuck::bytes_of(&transparent_indirect_args(snapshot)?),
+        bytemuck::bytes_of(&transparent_indirect_args(
+            snapshot,
+            arena.transparent_slot_refs,
+        )?),
     );
     liquids.last_indirect_identity = Some((snapshot.buffer_slot(), snapshot.refs().len()));
     model_manifest.sort_by_key(|entry| (entry.key, entry.draw_range.start));
@@ -133,7 +154,7 @@ pub(super) fn prepare(
     for batch in sort_transparent_model_candidates(translation, model_candidates.into()) {
         write_geometry_stream_words(
             arena,
-            queue,
+            &queue,
             u64::from(batch.draw_range.start) * GEOMETRY_STREAM_WORD_BYTES,
             bytemuck::cast_slice(&batch.words),
         );

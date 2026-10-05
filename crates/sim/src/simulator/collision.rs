@@ -28,7 +28,7 @@ pub(super) fn resolve_motion(
     let on_ground = was_on_ground || (normal_y_collision && velocity.y < 0.0);
 
     let (resolved_box, resolved, stepped) = if on_ground && normal_horizontal_collision {
-        // Like `AutoStepSystem::getMaxCollisionVolume`, cover the raised path too.
+        // As vanilla's step-up collision volume does, cover the raised path too.
         let envelope = bounded_collision_boxes(
             world,
             start.swept(Vec3::new(velocity.x, STEP_HEIGHT, velocity.z)),

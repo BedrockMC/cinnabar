@@ -18,7 +18,7 @@ fn degrees(value: f32) -> f32 {
     value.to_radians()
 }
 
-/// `ItemInHandRenderer::_applyDefaultItemTransforms` for a flat sprite in hand: the 1.5 scale
+/// Vanilla's default in-hand transform for a flat sprite: the 1.5 scale
 /// and tilt that seat vanilla's held-sprite mesh (`held_sprite_vertices`) in the grip.
 fn item_default() -> Mat4 {
     sprite_item_transform()
@@ -54,7 +54,7 @@ impl From<client_world::ItemAnimationState> for FirstPersonHand {
     }
 }
 
-/// Camera-space placement of the first-person held item, from `renderFirstPerson`'s own item
+/// Camera-space placement of the first-person held item, from vanilla's first-person item
 /// transforms: the swing offset (or the eat/drink raise), the equip dip, the swing turns and
 /// the 0.4 hand scale, then the item's default transforms.
 pub(super) fn first_person_display(shape: FirstPersonShape, hand: FirstPersonHand) -> ItemDisplay {
@@ -128,7 +128,7 @@ pub(super) fn head_block_display() -> ItemDisplay {
     }
 }
 
-/// Items whose icon vanilla turns half a revolution in first person (`isMirroredArt`).
+/// Items whose icon vanilla turns half a revolution in first person.
 pub(super) fn is_mirrored_art(identifier: &str) -> bool {
     matches!(
         identifier.strip_prefix("minecraft:").unwrap_or(identifier),

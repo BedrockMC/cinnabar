@@ -51,7 +51,7 @@ pub(super) const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
 const CHAT_BACKGROUND_OPACITY: f64 = 0.5;
 /// Newest chat lines the controller keeps alive.
 const MAX_CHAT_LINES: usize = 50;
-/// Java sidebar background opacities (`getBackgroundColor(0.3)` / `(0.4)`).
+/// Java sidebar background opacities: 0.3 for rows, 0.4 for the title.
 const SIDEBAR_OPACITY: f64 = 0.3;
 const SIDEBAR_TITLE_OPACITY: f64 = 0.4;
 /// The selected-item label shows for two seconds after the selection changes.

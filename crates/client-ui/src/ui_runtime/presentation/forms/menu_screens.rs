@@ -12,8 +12,7 @@ use serde_json::Value;
 use super::{menu_caret::with_caret, play_screen};
 use crate::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 
-/// Settings selector index vars as 1.26.50's `SettingsScreenController`
-/// assigns them.
+/// Settings selector index vars as 1.26.50's settings screen assigns them.
 pub(super) const SETTINGS_SECTIONS: &[(&str, u8)] = &[
     ("server_forced_index", 1),
     ("accessibility_forced_index", 2),
@@ -73,7 +72,7 @@ pub(super) fn retail_context() -> Context {
     Context::retail(cfg!(target_os = "macos"))
 }
 
-/// `StartMenuScreenController::addStaticScreenVars` for a full-game, non-edu
+/// Vanilla start screen variables for a full-game, non-edu
 /// account: demo, edu and unlock controls stay ignored.
 fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
@@ -381,8 +380,7 @@ fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>
     }
 }
 
-/// The pause store button on a third-party server, as `PauseScreenController`
-/// names it: "%s Store" with the server's store name, else the generic "Server".
+/// The pause store button on a third-party server, as vanilla names it: "%s Store" with the server's store name, else the generic "Server".
 fn server_store_text(translate: Translate<'_>) -> String {
     let server = translated(translate, "menu.serverGenericName", "Server");
     translated(translate, "menu.serverStore", "%s Store").replacen("%s", &server, 1)
@@ -593,7 +591,7 @@ fn base_context() -> Context {
     )
 }
 
-/// The static vars `SettingsScreenController` sets for the global settings a
+/// The static vars vanilla's settings screen sets for the global settings a
 /// desktop client opens from the start screen: no world, realm or creation state.
 fn settings_context(context: Context) -> Context {
     let flags: &[(&str, bool)] = &[

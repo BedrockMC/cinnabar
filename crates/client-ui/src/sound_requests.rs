@@ -18,7 +18,7 @@ static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
 const MAX_PENDING_UI_SOUNDS: usize = 16;
 
 /// Plays a pressed launcher control's sound, holding back a repeat inside its
-/// `min_seconds_between_plays` (`SoundComponent`).
+/// `min_seconds_between_plays`, as vanilla's sound component does.
 pub fn ui_control_sound(sound: &json_ui::ControlSound) {
     static LAST_PLAYED: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
         std::sync::Mutex::new(Vec::new());

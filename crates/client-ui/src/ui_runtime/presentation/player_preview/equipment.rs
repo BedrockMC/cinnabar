@@ -80,7 +80,7 @@ pub enum PreviewHeldPlacement {
 }
 
 impl PreviewHeldPlacement {
-    /// `setupAttachableNoChecks` preserves expression-bound ModelPart defaults:
+    /// Vanilla attachable setup preserves expression-bound model-part defaults:
     /// its root origin is authored pivot Y minus the shared model-part height.
     /// Keep the mesh's original bind pivot: it is still subtracted during skinning.
     pub fn authored(
