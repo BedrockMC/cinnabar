@@ -52,6 +52,7 @@ impl FromWorld for ChunkPipeline {
             },
             fragment: Some(FragmentState {
                 shader: CHUNK_SHADER_HANDLE,
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: None,
