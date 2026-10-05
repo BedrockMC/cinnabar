@@ -14,6 +14,7 @@ stage=
 launcher_stage=
 desktop_stage=
 icon_stage=
+lock_link=
 
 fail() { printf 'Cinnabar: %s\n' "$*" >&2; exit 1; }
 usage() {
@@ -81,6 +82,7 @@ cleanup() {
     [ -z "$launcher_stage" ] || rm -f "$launcher_stage"
     [ -z "$desktop_stage" ] || rm -f "$desktop_stage"
     [ -z "$icon_stage" ] || rm -f "$icon_stage"
+    [ -z "$lock_link" ] || rm -f "$lock_link"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -152,12 +154,40 @@ done
 # The digest keeps a rebuilt tag (nightly) from reusing an older unpacked build.
 build="$version-$(printf '%s' "$expected" | awk '{ print substr($0, 1, 12) }')"
 stage=$(mktemp -d "$app_dir/.install.XXXXXX")
+# Serializes installs from here through pruning, so an overlapping run never prunes the
+# build another run just published.
+lock_install() {
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>> "$app_dir/.lock"
+        flock 9 && return
+    fi
+    # Without flock, a symlink naming the owner's pid is created atomically with its content.
+    waiting=
+    until ln -s "$$" "$app_dir/.lock.pid" 2>/dev/null; do
+        owner=$(readlink "$app_dir/.lock.pid" 2>/dev/null) || owner=
+        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null &&
+            mv "$app_dir/.lock.pid" "$stage/stale-lock" 2>/dev/null; then
+            # Restore a live lock taken over between the check and the move.
+            if [ "$(readlink "$stage/stale-lock")" != "$owner" ] && [ ! -e "$app_dir/.lock.pid" ] &&
+                [ ! -L "$app_dir/.lock.pid" ]; then
+                mv "$stage/stale-lock" "$app_dir/.lock.pid" 2>/dev/null || true
+            fi
+            rm -f "$stage/stale-lock"
+            continue
+        fi
+        [ -n "$waiting" ] || printf 'Waiting for another Cinnabar install to finish...\n'
+        waiting=1
+        sleep 1
+    done
+    lock_link="$app_dir/.lock.pid"
+}
+lock_install
 # Written last during an unpack, so a build without it is partial or damaged.
 marker=.cinnabar-complete
-complete() {
+build_complete() {
     [ -x "$1/AppRun" ] && [ -f "$1/cinnabar.png" ] && [ -f "$1/$marker" ]
 }
-if ! complete "$app_dir/$build"; then
+if ! build_complete "$app_dir/$build"; then
     # Unpack on the data filesystem, so a noexec or small /tmp never runs or holds the image.
     cp "$work/$asset" "$stage/Cinnabar.AppImage"
     chmod 755 "$stage/Cinnabar.AppImage"
@@ -175,7 +205,7 @@ read_pointer() {
     [ ! -f "$app_dir/$1" ] || IFS= read -r value < "$app_dir/$1" || true
     printf '%s' "$value"
 }
-# Reinstalling the current build keeps the recorded previous build, which may still be running.
+# Read under the lock. Reinstalling the current build keeps the recorded previous build, which may still be running.
 previous=$(read_pointer current)
 [ "$previous" != "$build" ] || previous=$(read_pointer previous)
 quote_shell() { printf "'"; printf '%s' "$1" | sed "s/'/'\\\\''/g"; printf "'"; }
