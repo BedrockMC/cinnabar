@@ -10,7 +10,7 @@ use crate::{app::ClientFrameSet, menu::MenuRuntime, runtime::network::NetworkHan
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
 #[derive(Resource)]
-struct ExperienceService {
+pub(super) struct ExperienceService {
     settings_path: PathBuf,
     cache_root: PathBuf,
     settings: Option<Settings>,
@@ -37,7 +37,7 @@ pub(crate) fn configure(app: &mut App) {
     })
     .add_systems(
         Update,
-        (drive, super::input::consume)
+        (drive, super::input::consume, present_media)
             .chain()
             .before(ClientFrameSet::SemanticSample)
             .after(ClientFrameSet::RawInput)
@@ -213,6 +213,42 @@ fn drive(
     }
 }
 
+/// Advances media players on the monotonic clock and publishes their screens and audio.
+fn present_media(
+    mut service: ResMut<ExperienceService>,
+    time: Res<Time<Real>>,
+    scene: Option<ResMut<render::MediaScreenScene>>,
+    device: Option<NonSendMut<client_presentation::named_audio::AudioDevice>>,
+    audio_settings: Option<Res<client_presentation::audio::settings::AudioSettings>>,
+) {
+    let local_us = u64::try_from(time.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let muted = service
+        .settings
+        .as_ref()
+        .is_some_and(|settings| settings.media_muted);
+    let mut screens = (Vec::new(), 0);
+    if let Some(live) = &mut service.live {
+        // Consent already covers playback here; the autoplay preference awaits a settings UI.
+        live.media_mut()
+            .service(super::unix_seconds(), local_us, true);
+        let defaults = client_presentation::audio::settings::AudioSettings::default();
+        let settings = audio_settings.as_deref().unwrap_or(&defaults);
+        live.media_mut().pump_audio(
+            device.map(NonSendMut::into_inner),
+            settings,
+            muted,
+            local_us,
+        );
+        screens = (live.screens(), live.gpu_budget_bytes());
+    }
+    if let Some(mut scene) = scene
+        && (!screens.0.is_empty() || !scene.screens.is_empty())
+    {
+        scene.screens = screens.0;
+        scene.gpu_budget_bytes = screens.1;
+    }
+}
+
 /// Rolls back unsaved in-memory approval as well as revoking its pending handshake.
 fn persist_trust(
     service: &mut ExperienceService,
@@ -266,13 +302,14 @@ fn advance_runtime(
         .and_then(|download| download.poll())
     {
         service.download = None;
-        let executable = mod_host::helper::developer_executable(&std::env::current_exe()?);
+        let client = std::env::current_exe()?;
         service.live = Some(super::live::Live::start(
             grant.clone(),
             result?,
             extension.epoch,
             now_ms,
-            &executable,
+            &mod_host::helper::developer_executable(&client),
+            &mod_host::helper::media_executable(&client),
         )?);
         extension.active = true;
     }

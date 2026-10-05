@@ -328,8 +328,15 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
     service.generation = 1;
     service.attempted = true;
     service.live = Some(
-        super::super::live::Live::start(grant, Vec::new(), old_epoch, 0, PathBuf::new().as_path())
-            .unwrap(),
+        super::super::live::Live::start(
+            grant,
+            Vec::new(),
+            old_epoch,
+            0,
+            PathBuf::new().as_path(),
+            PathBuf::new().as_path(),
+        )
+        .unwrap(),
     );
     app.update();
     let extension = &app.world().resource::<UiRuntime>().experiences;
