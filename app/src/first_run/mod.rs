@@ -1,15 +1,13 @@
 //! First-run preparation of the Mojang-derived asset carriers, which installers never ship.
 //!
-//! Runs before the game window: consent, a download of the pinned public pack, then `assetc`. A
-//! setup window in a child process shows it; without one, native dialogs do. Progress is mirrored
-//! to `logs/first-run-status.json`.
+//! Runs before the game window: consent, a download of the pinned public pack, then one
+//! `assetc prepare`. A setup window in a child process shows it; without one, native dialogs do.
+//! Progress is mirrored to `logs/first-run-status.json`.
 
 mod download;
-mod plan;
 mod prepare;
 mod runner;
 mod screen;
-mod stamp;
 mod status;
 #[cfg(test)]
 mod test_support;
@@ -61,7 +59,7 @@ pub(crate) fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
 /// An unreadable kit counts as needing preparation, which then reports it.
 fn needs_preparation(layout: &InstallLayout) -> bool {
     layout.is_installed()
-        && !prepare::selection(layout).is_ok_and(|(_, selection)| selection.is_current())
+        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
 }
 
 /// An earlier set exists, so this run updates rather than sets up.

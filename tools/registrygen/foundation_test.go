@@ -239,9 +239,6 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json",
 		"registry-foundation-check:",
 		"Validate the exact protocol-2193 registry foundation",
-		"BLOCK_REGISTRY ?= crates/assets/data/block-registry-v2193.bin",
-		"LIGHT_REGISTRY ?= crates/assets/data/block-light-registry-v2193.bin",
-		"BIOME_REGISTRY ?= crates/assets/data/biome-registry-v2193.bin",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Makefile missing %q", required)

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const ACTOR_ASSETS_FILENAME: &str = "vanilla-v1.mcbeact";
+pub const ACTOR_ASSETS_FILENAME: &str = assets::carriers::ACTOR.output;
 pub fn actor_asset_path(world: &Path) -> PathBuf {
     world.with_file_name(ACTOR_ASSETS_FILENAME)
 }

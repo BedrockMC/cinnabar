@@ -432,14 +432,15 @@ pub enum SwingSource {
 }
 
 impl SwingSource {
-    // Vanilla binds the capitalised names; gophertunnel writes lowercase and reads either.
+    // The vanilla client sends the lowercase name; servers that match it exactly drop the
+    // connection on any other casing.
     const fn wire_name(self) -> &'static str {
         match self {
-            Self::Build => "Build",
-            Self::Mine => "Mine",
-            Self::Interact => "Interact",
-            Self::Attack => "Attack",
-            Self::ThrowItem => "ThrowItem",
+            Self::Build => "build",
+            Self::Mine => "mine",
+            Self::Interact => "interact",
+            Self::Attack => "attack",
+            Self::ThrowItem => "throwitem",
         }
     }
 }

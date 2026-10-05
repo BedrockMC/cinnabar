@@ -1,7 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use super::*;
@@ -143,15 +143,24 @@ fn no_consent_surface_fails_visibly_instead_of_quitting() {
     assert!(!consent_marker(&layout).exists());
 }
 
+/// The bundled compiler stands in as a script whose check reports a stale pack carrier.
+#[cfg(unix)]
 #[test]
 fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
+    use std::os::unix::fs::PermissionsExt;
+
     let data = Dir::new("failing-step");
     let mut layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
     layout.resource_root = data.path().join("resources");
     let kit = layout.prep_kit();
-    fs::create_dir_all(kit.join("bin")).unwrap();
-    fs::create_dir_all(kit.join("data")).unwrap();
-    fs::write(kit.join("bin").join(runner::assetc_name()), b"compiler").unwrap();
+    let compiler = assets::carriers::kit_compiler(&kit);
+    fs::create_dir_all(compiler.parent().unwrap()).unwrap();
+    fs::write(
+        &compiler,
+        "#!/bin/sh\necho '{\"current\":false,\"stale\":[\"world\"],\"needs_pack\":true}'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&compiler, fs::Permissions::from_mode(0o755)).unwrap();
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     zip.start_file("../escape.txt", zip::write::SimpleFileOptions::default())
         .unwrap();
@@ -159,11 +168,6 @@ fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
     let archive = zip.finish().unwrap().into_inner();
     let sha = format!("{:x}", Sha256::digest(&archive));
     write_vanilla_manifest(&kit, "https://example.invalid/pack.zip", &sha, "pack.zip");
-    fs::write(
-        kit.join("assets/cinnangles-sans-source.json"),
-        r#"{"font_file":"Font.ttf"}"#,
-    )
-    .unwrap();
     // A verified download is reused, so the run reaches the unpack step offline.
     let downloads = layout
         .prepare_workspace()
@@ -185,4 +189,29 @@ fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
         "{alert}"
     );
     assert!(alert.contains("first-run.log"), "{alert}");
+}
+
+/// Startup fails closed without these, so setup must refuse to finish without them too.
+#[test]
+fn every_carrier_startup_requires_is_required_by_the_carrier_table() {
+    use crate::asset_startup::{
+        atmosphere_asset_path, entity_asset_path, hud_asset_path, icon_asset_path, lang_asset_path,
+    };
+    let world = Path::new("compiled").join(assets::carriers::WORLD.output);
+    let startup = [
+        atmosphere_asset_path(&world),
+        entity_asset_path(&world),
+        hud_asset_path(&world),
+        icon_asset_path(&world),
+        lang_asset_path(&world),
+        client_ui::ui_runtime::json_ui_assets::ui_asset_path(&world),
+    ];
+    for path in startup {
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let carrier = assets::carriers::CARRIERS
+            .iter()
+            .find(|carrier| carrier.output == name)
+            .unwrap_or_else(|| panic!("{name} is missing from the carrier table"));
+        assert!(carrier.required, "{name} must be a required carrier");
+    }
 }

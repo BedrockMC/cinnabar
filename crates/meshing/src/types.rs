@@ -541,6 +541,12 @@ impl FaceConnectivity {
         self.0
     }
 
+    /// Inverse of `bits`; bits outside the 6x6 matrix are dropped.
+    #[must_use]
+    pub const fn from_bits(bits: u64) -> Self {
+        Self(bits & CONNECTIVITY_MASK)
+    }
+
     #[must_use]
     pub const fn is_connected(self, from: Face, to: Face) -> bool {
         self.0 & (1_u64 << (from.index() * Face::ALL.len() + to.index())) != 0

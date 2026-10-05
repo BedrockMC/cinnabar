@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -27,12 +29,17 @@ import (
 )
 
 const (
+	// The core relays one session beside a game client that owns the remaining cores.
+	coreMaxProcs = 2
+	// Soft heap target; GC works harder near it instead of growing past it.
+	coreMemoryLimit = 512 << 20
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second
 	parentPollInterval = 250 * time.Millisecond
 )
 
 func main() {
+	configureRuntime(os.Getenv)
 	args := os.Args[1:]
 	var stdin io.Reader
 	if bindsStdin(args) {
@@ -51,6 +58,17 @@ func main() {
 	stop()
 	if exitCode != 0 {
 		os.Exit(exitCode)
+	}
+}
+
+// configureRuntime caps scheduler threads and sets a soft memory limit unless GOMAXPROCS or
+// GOMEMLIMIT already chose them.
+func configureRuntime(getenv func(string) string) {
+	if getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(min(coreMaxProcs, runtime.NumCPU()))
+	}
+	if getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(coreMemoryLimit)
 	}
 }
 
