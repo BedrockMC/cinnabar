@@ -26,6 +26,7 @@ mod item_renderer;
 mod menu_renderers;
 mod pack_catalog;
 mod rounded;
+mod vector_icons;
 pub(super) use pack_catalog::layer_pack_catalog;
 pub(super) mod host_edit;
 pub(super) mod screen_cache;
@@ -624,6 +625,7 @@ impl Painter<'_> {
             return None;
         }
         match renderer {
+            "cinnabar_vector_icon" => Some((self.vector_icon(data, dest, &alpha)?, dest)),
             "cinnabar_rounded_rectangle" => {
                 Some((self.rounded_rectangle(data, dest, &alpha)?, dest))
             }
