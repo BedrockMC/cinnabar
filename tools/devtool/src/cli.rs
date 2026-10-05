@@ -1,4 +1,7 @@
-use std::process::{Command, Stdio};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use crate::{
     CommandSpec, DevtoolError, Selection, TestRunner, extra_commands, go_modules,
@@ -59,15 +62,7 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
         "--locked",
     ]))?;
     let packages = packages_from_metadata(&metadata)?;
-    let go_mod_paths = nul_paths(&capture(CommandSpec::new(
-        "git",
-        vec![
-            "ls-files".into(),
-            "-z".into(),
-            "--".into(),
-            ":(glob)**/go.mod".into(),
-        ],
-    ))?);
+    let go_mod_paths = go_manifests(Path::new("."))?;
     let go_work = std::fs::read_to_string("go.work").ok();
     let go_modules = go_modules(
         &go_mod_paths.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -129,6 +124,27 @@ pub fn run(options: &Options) -> Result<(), DevtoolError> {
         }
     }
     Ok(())
+}
+
+/// Returns tracked and non-ignored untracked `go.mod` paths under `root`, sorted.
+fn go_manifests(root: &Path) -> Result<Vec<String>, DevtoolError> {
+    let mut paths = nul_paths(&capture(CommandSpec::new(
+        "git",
+        vec![
+            "-C".into(),
+            root.to_string_lossy().into_owned(),
+            "ls-files".into(),
+            "-z".into(),
+            "--cached".into(),
+            "--others".into(),
+            "--exclude-standard".into(),
+            "--".into(),
+            ":(glob)**/go.mod".into(),
+        ],
+    ))?);
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
 }
 
 fn detect_test_runner() -> TestRunner {
@@ -196,7 +212,34 @@ fn execute(command: CommandSpec) -> Result<(), DevtoolError> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use std::{fs, process::Command};
+
+    use super::{go_manifests, parse_args};
+
+    #[test]
+    fn go_manifests_include_untracked_modules_but_not_ignored_ones() {
+        let root =
+            std::env::temp_dir().join(format!("devtool-go-manifests-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for dir in ["core", "tools/new", "ignored"] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+            fs::write(root.join(dir).join("go.mod"), "module example\n").unwrap();
+        }
+        fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+        let git = |args: &[&str]| {
+            let status = Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?}");
+        };
+        git(&["init", "--quiet"]);
+        git(&["add", "core/go.mod"]);
+        let manifests = go_manifests(&root);
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(manifests.unwrap(), ["core/go.mod", "tools/new/go.mod"]);
+    }
 
     #[test]
     fn command_line_requires_an_explicit_base_and_supports_dry_run() {
