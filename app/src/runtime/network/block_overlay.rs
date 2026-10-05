@@ -75,7 +75,7 @@ pub(super) fn compile_block_overlay(
         .filter(|identifier| !identifier.starts_with("minecraft:"))
         .collect::<HashSet<_>>();
     let mut builder = Builder {
-        catalog: TextureCatalog::new(view),
+        catalog: TextureCatalog::new(view, vanilla_keys),
         geometries: geometry_catalog(view, &wanted),
         overlay: BlockOverlay::default(),
         sources: Vec::new(),

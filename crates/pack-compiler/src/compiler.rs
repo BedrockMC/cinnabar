@@ -466,6 +466,7 @@ fn compile_pack_inner(
     let lily_pad_textures::Installed {
         pages: texture_pages,
         material_keys: lily_pad_keys,
+        fixed_tints: lily_pad_tints,
     } = lily_pad_textures::install(
         lily_pad_textures::Inputs {
             pack: &pack,
@@ -508,7 +509,8 @@ fn compile_pack_inner(
                     .filter_map(move |&(id, key)| (id == original).then_some((copy, key)))
             })),
     )
-    .with_aliases(material_keys.aliases());
+    .with_aliases(material_keys.aliases())
+    .with_fixed_tints(lily_pad_tints);
     if light_properties.len() != visuals.len() {
         return Err(AssetError::InvalidCompiledAssets {
             detail: "light-property count does not match sequential visual span".into(),

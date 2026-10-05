@@ -38,13 +38,19 @@ fn view() -> LayeredPackView {
 
 /// Builds the normal overlay fixture with an alternate geometry document.
 fn view_with_geometry(geometry: &[u8]) -> LayeredPackView {
+    view_with_catalog(
+        geometry,
+        r#"{"texture_data": {
+        "lucky": {"textures": "textures/blocks/lucky"},
+        "gen": {"textures": ["textures/blocks/gen"]}}}"#,
+    )
+}
+
+fn view_with_catalog(geometry: &[u8], terrain: &str) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000001";
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
     );
-    let terrain = r#"{"texture_data": {
-        "lucky": {"textures": "textures/blocks/lucky"},
-        "gen": {"textures": ["textures/blocks/gen"]}}}"#;
     let flipbook = r#"[{"flipbook_texture": "textures/blocks/gen", "atlas_tile": "gen",
         "frames": [1, 0], "ticks_per_frame": 15}]"#;
     let lucky = png(16, 16, |x, _| [x as u8 * 16, 200, 0, 255]);
@@ -78,6 +84,36 @@ fn view_with_geometry(geometry: &[u8]) -> LayeredPackView {
     LayeredPackView::new(resource_pack::validate_handoff(
         protocol::ResourcePackHandoff::from_archives(vec![archive]),
     ))
+}
+
+#[test]
+fn terrain_replacement_applies_literal_atlas_tint_once_and_keeps_alpha() {
+    let view = view_with_catalog(
+        GEOMETRY.as_bytes(),
+        r##"{"texture_data":{"lucky":{"textures":[{"path":"textures/blocks/lucky","tint_color":"#ff80ff"}]}}}"##,
+    );
+    let catalog = super::textures::TextureCatalog::new(&view, None);
+    let image = catalog.decode("lucky").unwrap();
+    assert_eq!(&image.rgba8[..4], &[0, 100, 0, 255]);
+}
+
+#[test]
+fn raster_only_replacement_retains_the_base_lily_tint() {
+    let view = view_with_catalog(GEOMETRY.as_bytes(), r#"{"texture_data":{}}"#);
+    let keys = assets::MaterialKeys::from_entries([(1, "pad")])
+        .with_aliases([("pad", "textures/blocks/lucky")])
+        .with_fixed_tints([("pad", [32, 128, 48])]);
+    let catalog = super::textures::TextureCatalog::new(&view, Some(&keys));
+    let image = catalog.decode("pad").unwrap();
+    assert_eq!(&image.rgba8[..4], &[0, 100, 0, 255]);
+    let compiled =
+        compile_block_overlay(&view, &CustomBlocks::default(), false, Some(&keys)).unwrap();
+    assert_eq!(compiled.overlay.material_overrides.len(), 1);
+    let texture = compiled.overlay.material_overrides[0].texture;
+    let page = compiled.overlay.texture.as_ref().unwrap();
+    let mip = &page.mips[0];
+    let start = texture.layer() as usize * (mip.size * mip.size * 4) as usize;
+    assert_eq!(&mip.rgba8[start..start + 4], &[0, 100, 0, 255]);
 }
 
 fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
