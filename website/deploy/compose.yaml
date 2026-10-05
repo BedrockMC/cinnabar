@@ -1,0 +1,20 @@
+services:
+  cinnabar-site:
+    image: nginx:1.29-alpine
+    container_name: cinnabar-site
+    restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 64m
+    memswap_limit: 64m
+    pids_limit: 32
+    volumes:
+      - /home/cinnabar/site:/srv/site:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
+    ports:
+      - '127.0.0.1:18083:80'
+    networks:
+      - forwardme
+networks:
+  forwardme:
+    external: true
+    name: vaultwarden_default
