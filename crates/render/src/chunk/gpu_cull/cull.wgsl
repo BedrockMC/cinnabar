@@ -1,5 +1,6 @@
 // Terrain cull: frustum, enabled bit, two-phase Hi-Z and facing runs into compacted,
 // slot-ordered indirect args. `count` decides, `scan` offsets workgroups, `emit` writes.
+// `cull_occlusion` instead writes one occluded bit per slot for CPU readback.
 
 const WORKGROUP: u32 = CULL_WORKGROUP;
 const SIDE: i32 = CULL_SIDE;
@@ -8,6 +9,7 @@ const RELATIVE_SLACK: f32 = CULL_RELATIVE_SLACK;
 const ABSOLUTE_SLACK: f32 = CULL_ABSOLUTE_SLACK;
 const BOUNDS_BIAS: i32 = 128;
 const PHASE_LATE: u32 = 1u;
+const OCCLUSION_WORDS: u32 = WORKGROUP / 32u;
 
 // Scalar origin fields keep the record free of packed vec3 storage.
 struct CullRecord {
@@ -50,8 +52,10 @@ struct CullView {
 @group(0) @binding(6) var<storage, read_write> args: array<u32>;
 @group(0) @binding(7) var<storage, read_write> draw_counts: array<u32>;
 @group(0) @binding(8) var hiz: texture_2d<f32>;
+@group(0) @binding(9) var<storage, read_write> occluded: array<u32>;
 
 var<workgroup> sums: array<vec4<u32>, WORKGROUP>;
+var<workgroup> occluded_bits: array<atomic<u32>, OCCLUSION_WORDS>;
 
 fn record_origin(record: CullRecord) -> vec3<i32> {
     return vec3(record.origin_x, record.origin_y, record.origin_z);
@@ -88,7 +92,8 @@ fn unpack_bound(word: u32) -> vec3<f32> {
 }
 
 // Visible unless every point of the padded box lies behind the farthest pyramid depth it covers.
-fn hiz_visible(record: CullRecord) -> bool {
+// `strict` also keeps a box reaching past the viewport, whose hidden part this depth never saw.
+fn hiz_test(record: CullRecord, strict: bool) -> bool {
     if (view.depth.w == 0u) {
         return true;
     }
@@ -108,6 +113,9 @@ fn hiz_visible(record: CullRecord) -> bool {
         ndc_min = min(ndc_min, ndc.xy);
         ndc_max = max(ndc_max, ndc.xy);
         nearest = max(nearest, ndc.z);
+    }
+    if (strict && (any(ndc_min < vec2(-1.0)) || any(ndc_max > vec2(1.0)))) {
+        return true;
     }
     let lo = clamp(ndc_min, vec2(-1.0), vec2(1.0));
     let hi = clamp(ndc_max, vec2(-1.0), vec2(1.0));
@@ -141,6 +149,10 @@ fn hiz_visible(record: CullRecord) -> bool {
         }
     }
     return nearest >= farthest;
+}
+
+fn hiz_visible(record: CullRecord) -> bool {
+    return hiz_test(record, false);
 }
 
 fn facing_mask(origin: vec3<i32>) -> u32 {
@@ -350,5 +362,29 @@ fn cull_emit(
     }
     if (mine.w != 0u) {
         write_args(offset.w, 3u, record, record.liquid_start, record.liquid_count);
+    }
+}
+
+// Bit `slot` set when the live record is wholly on screen and behind this frame's pyramid.
+@compute @workgroup_size(WORKGROUP)
+fn cull_occlusion(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_index) lid: u32,
+    @builtin(workgroup_id) wid: vec3<u32>,
+) {
+    if (lid < OCCLUSION_WORDS) {
+        atomicStore(&occluded_bits[lid], 0u);
+    }
+    workgroupBarrier();
+    if (gid.x < view.params.x) {
+        let record = records[gid.x];
+        if (record.live != 0u && !hiz_test(record, true)) {
+            atomicOr(&occluded_bits[lid / 32u], 1u << (lid % 32u));
+        }
+    }
+    workgroupBarrier();
+    let word = wid.x * OCCLUSION_WORDS + lid;
+    if (lid < OCCLUSION_WORDS && word < arrayLength(&occluded)) {
+        occluded[word] = atomicLoad(&occluded_bits[lid]);
     }
 }
