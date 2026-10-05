@@ -9,6 +9,7 @@ pub struct ChunkRenderInstance {
     pub(in crate::chunk) key: SubChunkKey,
     pub(in crate::chunk) cube_quads: Arc<[PackedQuad]>,
     pub(in crate::chunk) cube_lighting: Arc<[PackedQuadLighting]>,
+    pub(in crate::chunk) cube_layout: CubeQuadLayout,
     pub(in crate::chunk) model_refs: Arc<[PackedModelRef]>,
     pub(in crate::chunk) model_lighting: Arc<[PackedQuadLighting]>,
     pub(in crate::chunk) model_draw_refs: Arc<[PackedModelDrawRef]>,

@@ -823,6 +823,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         }
 
         let origin = chunk_origin(key);
+        let cube_layout = pending.mesh.cube_layout();
         let (
             cube_quads,
             cube_lighting,
@@ -851,6 +852,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             key,
             cube_quads: Arc::from(cube_quads),
             cube_lighting: Arc::from(cube_lighting),
+            cube_layout,
             model_refs: Arc::from(model_refs),
             model_lighting: Arc::from(model_lighting),
             model_draw_refs: Arc::from(model_draw_refs),

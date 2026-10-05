@@ -456,6 +456,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             generation: instance.generation,
             tint_identity: instance.tint_identity,
             quad_range,
+            cube_layout: instance
+                .cube_layout
+                .checked(&instance.cube_quads, texture_assets.assets().materials()),
             cube_lighting_range: cube_lighting_range.clone(),
             model_range,
             model_lighting_range,

@@ -60,7 +60,7 @@ use bevy::{
         },
     },
 };
-use meshing::{ChunkBiomeTintIdentity, Face, chunk_publication_byte_len};
+use meshing::{ChunkBiomeTintIdentity, CubeQuadLayout, Face, chunk_publication_byte_len};
 use render_api::{PublicationPermit, PublicationPermitStage, PublicationServiceConfig};
 use world::SubChunkKey;
 
@@ -175,14 +175,14 @@ use gpu::types::{
     LEGACY_FIXED_MODEL_QUADS_PER_REF, MODEL_INDEX_COUNT, QueueFrameProbeParams,
     RetiredArenaAllocation, StreamAddresses, absolutize_liquid_lighting_indices,
     adapter_metadata_field, cube_lighting_record_address, cube_stream_addresses_valid,
-    depth_liquid_direct_draw_command, depth_liquid_draw_command, depth_liquid_mdi_draw_command,
-    diagnostic_draw_mode, direct_stream_addresses, extracted_camera_identity, gpu_chunk_origin,
-    indexed_indirect_command, mdi_stream_addresses, metadata_base_vertex,
-    model_direct_draw_command, model_draw_command, model_mdi_draw_command,
+    cube_stream_drawable, cutout_indirect_command, depth_liquid_direct_draw_command,
+    depth_liquid_draw_command, depth_liquid_mdi_draw_command, diagnostic_draw_mode,
+    direct_stream_addresses, extracted_camera_identity, gpu_chunk_origin, mdi_stream_addresses,
+    metadata_base_vertex, model_direct_draw_command, model_draw_command, model_mdi_draw_command,
     model_ref_count_for_witness, opaque_allocation_is_drawable, publish_graphics_runtime_metadata,
     resolve_surface_present_mode, select_chunk_draw_mode, shared_stream_ranges_disjoint,
-    summarize_model_workload, surface_present_mode_name, transparent_model_direct_draw_command,
-    window_present_mode_name,
+    solid_indirect_commands, summarize_model_workload, surface_present_mode_name,
+    transparent_model_direct_draw_command, window_present_mode_name,
 };
 #[allow(unused_imports)]
 use gpu::upload::{

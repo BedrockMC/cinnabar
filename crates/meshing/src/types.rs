@@ -457,13 +457,9 @@ impl PackedQuad {
     const POSITION_MASK: u32 = 0x1f;
     const EXTENT_MASK: u32 = 0x0f;
 
-    pub(crate) fn new(
-        origin: [u8; 3],
-        face: Face,
-        width: u8,
-        height: u8,
-        material_id: u32,
-    ) -> Self {
+    /// Origin coordinates must lie inside the sub-chunk and extents in `1..=16`.
+    #[must_use]
+    pub fn new(origin: [u8; 3], face: Face, width: u8, height: u8, material_id: u32) -> Self {
         debug_assert!(origin.into_iter().all(|coordinate| coordinate < SIDE as u8));
         debug_assert!((1..=SIDE as u8).contains(&width));
         debug_assert!((1..=SIDE as u8).contains(&height));
