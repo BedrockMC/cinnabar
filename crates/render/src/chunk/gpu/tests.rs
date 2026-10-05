@@ -663,7 +663,11 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
             > transparent_liquid_phase_distance(&rangefinder, groups[1].key)
     );
     assert_eq!(
-        transparent_draw_range_args(snapshot.buffer_slot(), groups[0].ref_range.clone()),
+        transparent_draw_range_args(
+            snapshot.buffer_slot(),
+            INITIAL_TRANSPARENT_SLOT_REFS,
+            groups[0].ref_range.clone()
+        ),
         Some(TransparentDrawArgs {
             index_count: 6,
             instance_count: 2,
@@ -680,7 +684,19 @@ fn transparent_liquid_groups_share_the_model_subchunk_distance_contract() {
         PackedTransparentDrawRef::new(1, far.metadata_index),
     ]);
     assert!(transparent_liquid_phase_groups(&non_contiguous).is_none());
-    assert!(transparent_draw_range_args(0, 0..MAX_TRANSPARENT_DRAW_REFS as u32 + 1).is_none());
+    assert!(
+        transparent_draw_range_args(
+            0,
+            MAX_TRANSPARENT_DRAW_REFS,
+            0..MAX_TRANSPARENT_DRAW_REFS as u32 + 1
+        )
+        .is_none()
+    );
+    assert!(transparent_draw_range_args(0, 4, 0..5).is_none());
+    assert_eq!(
+        transparent_draw_range_args(1, 4, 1..3).map(|args| args.first_instance),
+        Some(5)
+    );
 }
 
 #[test]

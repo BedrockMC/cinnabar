@@ -104,9 +104,11 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
                     );
                 }
                 MixedStream::Water => {
-                    let Some(args) =
-                        transparent_draw_range_args(draw.water_slot, segment.range.clone())
-                    else {
+                    let Some(args) = transparent_draw_range_args(
+                        draw.water_slot,
+                        arena.transparent_slot_refs,
+                        segment.range.clone(),
+                    ) else {
                         return RenderCommandResult::Skip;
                     };
                     pass.set_render_pipeline(water_pipeline);
