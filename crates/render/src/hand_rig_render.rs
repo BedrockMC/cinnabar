@@ -206,7 +206,8 @@ fn install(app: &mut App) {
         HAND_RIG_SHADER,
         "hand_rig.wgsl",
         crate::shader_safety::from_actor_wgsl,
-        crate::actor::ACTOR_GPU_INSTANCE_WORDS
+        crate::actor::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS
     );
     let render_app = app.sub_app_mut(RenderApp);
     render_app
