@@ -50,6 +50,7 @@ pub(super) struct Recording {
     audio: Option<AudioCapture>,
     stopping: Option<(Reply, Instant)>,
     previous_pacing: Option<WinitSettings>,
+    previous_max_delta: Duration,
 }
 
 impl Recording {
@@ -78,9 +79,18 @@ pub(super) fn configure(app: &mut App) {
     );
 }
 
-fn step_fixed_clock(clock: Option<ResMut<FixedClock>>, mut strategy: ResMut<TimeUpdateStrategy>) {
+fn step_fixed_clock(
+    clock: Option<ResMut<FixedClock>>,
+    mut strategy: ResMut<TimeUpdateStrategy>,
+    mut virtual_time: ResMut<Time<Virtual>>,
+) {
     if let Some(mut clock) = clock {
-        *strategy = TimeUpdateStrategy::ManualDuration(clock.0.step());
+        let step = clock.0.step();
+        // Below 4 fps a frame outlasts the virtual clock's 250 ms clamp; `finish` restores it.
+        if virtual_time.max_delta() < step {
+            virtual_time.set_max_delta(step);
+        }
+        *strategy = TimeUpdateStrategy::ManualDuration(step);
     }
 }
 
@@ -155,6 +165,7 @@ pub(super) fn start(world: &mut World, settings: &RecordSettings) -> Result<Valu
         audio,
         stopping: None,
         previous_pacing,
+        previous_max_delta: world.resource::<Time<Virtual>>().max_delta(),
     });
     Ok(summary)
 }
@@ -267,6 +278,9 @@ fn pull_audio(audio: &mut AudioCapture, fps: u32, copies: u64) {
 fn finish(world: &mut World, mut recording: Recording) {
     world.remove_resource::<FixedClock>();
     world.insert_resource(TimeUpdateStrategy::Automatic);
+    world
+        .resource_mut::<Time<Virtual>>()
+        .set_max_delta(recording.previous_max_delta);
     if let Some(pacing) = recording.previous_pacing.take() {
         world.insert_resource(pacing);
     }
@@ -372,6 +386,20 @@ mod tests {
             assert!(std::path::Path::new(saved["path"].as_str().unwrap()).is_file());
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn low_fixed_rates_are_not_clamped_by_the_virtual_clock() {
+        let mut app = App::new();
+        app.add_plugins(TimePlugin)
+            .insert_resource(FixedClock(FixedStepClock::new(2).unwrap()))
+            .add_systems(Last, step_fixed_clock);
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world().resource::<Time>().delta(),
+            Duration::from_millis(500)
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Tool definitions and dispatch.
 
 use std::{
+    env::consts::EXE_SUFFIX,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -112,7 +113,7 @@ impl Server {
             return Err("a client is already running; call quit first".into());
         }
         let binary = arguments.get("binary").and_then(Value::as_str).map_or_else(
-            || self.repo.join(CLIENT_BINARY),
+            || executable(&self.repo, CLIENT_BINARY, EXE_SUFFIX),
             |path| resolve(&self.repo, path),
         );
         let size = match arguments.get("size") {
@@ -205,7 +206,10 @@ impl Server {
                 .and_then(Value::as_str)
                 .map_or(default, |path| resolve(&self.repo, path))
         };
-        let binary = path("binary", self.repo.join(LOCAL_SERVER_BINARY));
+        let binary = path(
+            "binary",
+            executable(&self.repo, LOCAL_SERVER_BINARY, EXE_SUFFIX),
+        );
         let world = path("world_dir", self.control_dir.join(SHOWCASE_WORLD));
         let extra: Vec<String> = match options.get("args") {
             Some(value) => serde_json::from_value(value.clone())
@@ -257,6 +261,11 @@ impl Server {
         let server_stopped = self.local_server.take().is_some();
         json!({ "quit_requested": requested, "local_server_stopped": server_stopped })
     }
+}
+
+/// `relative` under the checkout with the platform's executable `suffix`.
+pub(crate) fn executable(repo: &Path, relative: &str, suffix: &str) -> PathBuf {
+    repo.join(format!("{relative}{suffix}"))
 }
 
 /// The saved PNG, downscaled to at most `max_width` for inline content.

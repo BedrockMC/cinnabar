@@ -209,3 +209,16 @@ fn a_timed_out_reply_does_not_desynchronise_later_calls() {
     assert!(reply["for"].as_str().unwrap().contains("after"), "{reply}");
     game_loop.join().unwrap();
 }
+
+#[test]
+fn default_binaries_carry_the_platform_executable_suffix() {
+    let repo = Path::new("/repo");
+    assert_eq!(
+        crate::tools::executable(repo, "target/debug/bedrock-client", ".exe"),
+        repo.join("target/debug/bedrock-client.exe")
+    );
+    assert_eq!(
+        crate::tools::executable(repo, "target/debug/bedrock-client", ""),
+        repo.join("target/debug/bedrock-client")
+    );
+}
