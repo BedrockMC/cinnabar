@@ -20,6 +20,8 @@ pub use artwork::{
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
 pub(crate) mod material;
+mod pipeline_readiness;
+pub use pipeline_readiness::ActorPipelineReadiness;
 #[path = "actor/rig.rs"]
 mod rig;
 #[path = "actor/witness.rs"]

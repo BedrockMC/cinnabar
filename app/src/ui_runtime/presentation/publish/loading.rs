@@ -15,6 +15,7 @@ pub(super) struct LoadingObservation {
     pub visible_rendered: usize,
     pub cohort: Option<chunk_pipeline::ViewCohortStatus>,
     pub render_work_drained: bool,
+    pub actor_pipelines_ready: bool,
     pub now: Duration,
 }
 
@@ -101,6 +102,7 @@ pub(super) fn prepare_loading(
             stream_work_drained,
             render_work_drained: observation.render_work_drained,
             world_entry_held: runtime.experiences.holds_world_entry()
+                || !observation.actor_pipelines_ready
                 || client_world.dimension_transfer.waiting_for_switch()
                 || (client_world.dimension_transfer.active() && !local_terrain_ready),
         },

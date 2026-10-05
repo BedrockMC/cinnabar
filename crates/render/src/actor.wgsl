@@ -230,5 +230,10 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), material == ACTOR_MATERIAL_DRAGON);
     let lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
-    return tint_to_linear(vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a));
+    let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a);
+#ifdef ACTOR_GAMMA_BLEND
+    return fogged_gamma;
+#else
+    return tint_to_linear(fogged_gamma);
+#endif
 }

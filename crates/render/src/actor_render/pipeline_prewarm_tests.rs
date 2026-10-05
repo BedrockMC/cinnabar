@@ -2,11 +2,36 @@ use std::collections::HashSet;
 
 use assets::{EntityRenderMaterial, EntityRenderMaterialState};
 use bevy::{
+    ecs::system::RunSystemOnce,
     prelude::{Msaa, Mut},
     render::{render_resource::PipelineCache, view::ExtractedView},
 };
 
 use super::super::ActorPipeline;
+
+#[test]
+fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pending_work() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<crate::ActorPipelineReadiness>();
+    world
+        .run_system_once(super::super::prepare_actor_pipelines)
+        .unwrap();
+    let (&msaa, view) = world
+        .query::<(&Msaa, &ExtractedView)>()
+        .single(world)
+        .unwrap();
+    let pipeline = world.resource::<ActorPipeline>();
+    let cache = world.resource::<PipelineCache>();
+    assert!(
+        pipeline
+            .draw_variant(msaa, view.hdr, false, EntityRenderMaterial::Default as u32)
+            .is_some()
+    );
+    assert!(!pipeline.ready(cache, msaa, view.hdr, false));
+    assert!(!world.resource::<crate::ActorPipelineReadiness>().is_ready());
+}
 
 #[test]
 fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
@@ -29,7 +54,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
     world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
         let cache = world.resource::<PipelineCache>();
         pipeline
-            .prepare_draw_variants(cache, msaa, hdr, std::iter::empty())
+            .prewarm(cache, msaa, hdr, false)
             .expect("an empty view prepares actor pipelines");
         let mut descriptors = HashSet::new();
         for kind in [
@@ -48,9 +73,11 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                                 blend,
                                 depth_write,
                             }));
-                            descriptors.insert(pipeline.draw_variant(msaa, hdr, material).expect(
-                                "authored raster states are requested before an actor exists",
-                            ));
+                            descriptors.insert(
+                                pipeline.draw_variant(msaa, hdr, false, material).expect(
+                                    "authored raster states are requested before an actor exists",
+                                ),
+                            );
                         }
                     }
                 }
@@ -86,12 +113,10 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
     );
     world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
         let cache = world.resource::<PipelineCache>();
-        pipeline
-            .prepare_draw_variants(cache, msaa, hdr, [normal, dragon].into_iter())
-            .unwrap();
+        pipeline.prewarm(cache, msaa, hdr, false).unwrap();
         assert_eq!(
-            pipeline.draw_variant(msaa, hdr, normal).unwrap(),
-            pipeline.draw_variant(msaa, hdr, dragon).unwrap(),
+            pipeline.draw_variant(msaa, hdr, false, normal).unwrap(),
+            pipeline.draw_variant(msaa, hdr, false, dragon).unwrap(),
             "identical raster contracts share one compiled pipeline",
         );
     });

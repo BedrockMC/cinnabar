@@ -100,7 +100,7 @@ pub use instance::ChunkRenderInstance;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
-mod transparent;
+pub(crate) mod transparent;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,

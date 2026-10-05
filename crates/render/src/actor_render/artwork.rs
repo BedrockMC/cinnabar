@@ -104,8 +104,7 @@ impl GpuArtwork {
     }
 }
 
-/// One draw per run of instances sharing a texture page and geometry, each with that geometry's
-/// own vertex count.
+/// Opaque instances share runs; blended instances retain individual sort positions.
 pub(super) fn draw_spans(
     pages: &[ActorArtworkPageId],
     instances: &[crate::actor::ActorGpuInstance],
@@ -116,6 +115,8 @@ pub(super) fn draw_spans(
     for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
+                && !crate::actor::material::state(instance.material)
+                    .is_some_and(|state| state.blend)
                 && last_geometry == Some(instance.geometry_id)
                 && span.material == instance.material
         }) {
@@ -139,6 +140,37 @@ pub(super) fn draw_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blended_instances_keep_separate_sortable_spans_while_opaque_instances_batch() {
+        let material = |blend| {
+            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+                blend,
+                ..Default::default()
+            }))
+        };
+        let instances = [false, false, true, true].map(|blend| crate::actor::ActorGpuInstance {
+            material: material(blend),
+            ..Default::default()
+        });
+        let spans = draw_spans(
+            &[1; 4],
+            &instances,
+            &[crate::actor::ActorRigGeometrySpan {
+                first_vertex: 0,
+                vertex_count: 36,
+            }],
+        );
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| (span.first, span.count))
+                .collect::<Vec<_>>(),
+            [(0, 2), (2, 1), (3, 1)]
+        );
+        assert!(spans.iter().all(|span| span.vertex_count == 36));
+    }
+
     #[test]
     fn high_artwork_page_ids_survive_paged_build_and_draw_spans() {
         use crate::actor::{
