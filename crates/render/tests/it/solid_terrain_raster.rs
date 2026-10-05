@@ -110,8 +110,7 @@ fn pattern_texture(gpu: &Gpu) -> wgpu::TextureView {
 
 #[test]
 fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
-    let Some(gpu) = Gpu::try_native() else {
-        eprintln!("skipping solid terrain raster: no native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("solid terrain raster") else {
         return;
     };
     let (quads, layout) = fixture_quads();
