@@ -11,6 +11,51 @@ fn opened() -> UiPresentationRuntime {
 }
 
 #[test]
+fn pointer_cancellation_preserves_number_and_dropdown_edits() {
+    let mut presentation = opened();
+    let number = point(&presentation, "mod.edit:1", 0.5);
+    presentation.mod_panel_events(number, true, true);
+    presentation.mod_panel_key("Digit4", Some("42"));
+    presentation.cancel_mod_panel_pointer_input();
+    assert!(presentation.mod_panel_open() && presentation.mod_panel_editing());
+    assert_eq!(
+        presentation.mod_panel_key("Enter", None),
+        vec![Event {
+            id: "strength".into(),
+            value: 42.0
+        }]
+    );
+    frame(&mut presentation, [1280, 720]);
+    let choice = point(&presentation, "mod.control:2", 0.5);
+    presentation.mod_panel_events(choice, true, true);
+    presentation.mod_panel_key("ArrowDown", None);
+    presentation.cancel_mod_panel_pointer_input();
+    assert!(presentation.mod_panel_open() && presentation.mod_panel_editing());
+    assert_eq!(
+        presentation.mod_panel_key("Enter", None),
+        vec![Event {
+            id: "mode".into(),
+            value: 1.0
+        }]
+    );
+}
+
+#[test]
+fn pointer_cancellation_prevents_a_previous_slider_drag_from_resuming() {
+    let mut presentation = opened();
+    let initial = point(&presentation, "mod.control:1", 0.25);
+    assert!(
+        !presentation
+            .mod_panel_events(initial, true, true)
+            .is_empty()
+    );
+    presentation.cancel_mod_panel_pointer_input();
+    let later = point(&presentation, "mod.control:1", 0.9);
+    assert!(presentation.mod_panel_events(later, false, true).is_empty());
+    assert!(presentation.mod_panel_open());
+}
+
+#[test]
 fn dropdown_exposes_each_option_and_dismisses_without_changing_value() {
     let mut presentation = opened();
     let choice = point(&presentation, "mod.control:2", 0.5);

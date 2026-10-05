@@ -8,6 +8,8 @@ pub const MAX_GAMEPLAY_PLAYERS: usize = 128;
 pub const MAX_CAMERA_DELTA_RADIANS: f32 = 0.25;
 /// Personal attack overrides never extend actor selection beyond this local bound.
 pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
+/// Maximum opt-in delay of post-login application packets in either direction.
+pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
 /// Bounded control and settings payloads for personal components.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
 pub const MAX_CONTROL_KEYS: usize = 64;

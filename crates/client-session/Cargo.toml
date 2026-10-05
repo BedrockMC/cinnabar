@@ -27,3 +27,4 @@ world = { path = "../world" }
 tempfile = "3"
 sim = { path = "../sim" }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
+uuid.workspace = true

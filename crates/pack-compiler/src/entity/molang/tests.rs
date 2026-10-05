@@ -60,6 +60,15 @@ fn precedence_matches_the_vanilla_table() {
     assert_eq!(constant("2.5f * 2"), 5.0);
 }
 
+// Molang literals are all floats, unlike JSON-UI's integer-prefix typing.
+#[test]
+fn leading_zero_decimals_and_division_are_float() {
+    assert_eq!(constant("0.01 * 300"), 0.01_f32 * 300.0);
+    assert_eq!(constant("0.5 + .25"), 0.75);
+    assert_eq!(constant("-0.5 * 2"), -1.0);
+    assert_eq!(constant("7 / 2"), 3.5);
+}
+
 #[test]
 fn identifiers_are_case_insensitive_and_short_namespaces_expand() {
     assert!(compiles(

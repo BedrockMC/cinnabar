@@ -385,6 +385,7 @@ pub(crate) fn receive_network_events(
                     );
                 }
                 stream.begin_frame_work();
+                stream.set_startup_priority(true);
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);

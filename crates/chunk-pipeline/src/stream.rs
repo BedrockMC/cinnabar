@@ -43,11 +43,14 @@ use client_world::{
 
 mod actor_block_sync;
 pub use actor_block_sync::ActorBlockSyncFence;
+#[cfg(feature = "benchmark-support")]
+pub mod benchmark_support;
 mod block_cracks;
 mod block_entities;
 mod block_events;
 mod cave_visibility;
 mod cohort;
+mod column_set;
 mod commit_budget;
 mod connectivity;
 mod construction;
@@ -85,6 +88,7 @@ use client_world::ingestion::{
     BlockMutationBatch, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds, DecodeJob,
     PreparedSubChunkResult, PreparedWorldEvent, QueuedDecodeJob, dimension_slots,
 };
+use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
 use meshing::types::*;
@@ -150,6 +154,7 @@ const LIGHT_COLUMN_SOLVE_LIMITS: SolverLimits = SolverLimits::new(
 #[derive(Debug, Clone, Copy)]
 struct PendingSchedulerCandidate {
     distance_squared: f32,
+    startup_class: u8,
     key: SubChunkKey,
     revision: u64,
     urgent: bool,
@@ -160,11 +165,17 @@ impl PendingSchedulerCandidate {
     fn new(key: SubChunkKey, revision: u64, view: SchedulerView, urgent: bool) -> Self {
         Self {
             distance_squared: view.rank(key),
+            startup_class: view.startup_class(key),
             key,
             revision,
             urgent,
             transfer: false,
         }
+    }
+
+    fn refresh_rank(&mut self, view: SchedulerView) {
+        self.distance_squared = view.rank(self.key);
+        self.startup_class = view.startup_class(self.key);
     }
 }
 
@@ -172,6 +183,7 @@ impl PartialEq for PendingSchedulerCandidate {
     fn eq(&self, other: &Self) -> bool {
         self.transfer == other.transfer
             && self.urgent == other.urgent
+            && self.startup_class == other.startup_class
             && self
                 .distance_squared
                 .total_cmp(&other.distance_squared)
@@ -194,6 +206,7 @@ impl Ord for PendingSchedulerCandidate {
         self.transfer
             .cmp(&other.transfer)
             .then_with(|| self.urgent.cmp(&other.urgent))
+            .then_with(|| other.startup_class.cmp(&self.startup_class))
             .then_with(|| {
                 other
                     .distance_squared
@@ -210,9 +223,29 @@ impl Ord for PendingSchedulerCandidate {
 struct SchedulerView {
     position: [f32; 3],
     forward: Option<[f32; 3]>,
+    /// Spawn column while startup priority holds; `None` orders by the camera alone.
+    startup_center: Option<ChunkKey>,
 }
 
 impl SchedulerView {
+    /// 0 for the spawn columns, 1 for their light halo, 2 for everything else.
+    fn startup_class(self, key: SubChunkKey) -> u8 {
+        let Some(center) = self
+            .startup_center
+            .filter(|center| center.dimension == key.dimension)
+        else {
+            return 2;
+        };
+        let distance = key.x.abs_diff(center.x).max(key.z.abs_diff(center.z));
+        if distance <= cohort::STARTUP_RADIUS as u32 {
+            0
+        } else if distance <= (cohort::STARTUP_RADIUS + 1) as u32 {
+            1
+        } else {
+            2
+        }
+    }
+
     /// Squared distance, quadrupled (twice the distance) behind the view plane.
     fn rank(self, key: SubChunkKey) -> f32 {
         let distance = distance_squared(key, self.position);
@@ -286,6 +319,8 @@ pub struct WorldStream {
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
+    /// Orders the spawn columns and their light halo first until local terrain is ready.
+    startup_priority: bool,
     dimension_transfer_priority: Option<transfer_priority::DimensionTransferPriority>,
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
@@ -293,8 +328,8 @@ pub struct WorldStream {
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,
-    resident: BTreeSet<SubChunkKey>,
-    known_air: BTreeSet<SubChunkKey>,
+    resident: ColumnSubChunkSet,
+    known_air: ColumnSubChunkSet,
     loaded_columns: BTreeSet<ChunkKey>,
     connectivity: crate::culling::ConnectivityGrid,
     connectivity_generation: u64,
@@ -310,6 +345,7 @@ pub struct WorldStream {
     chunk_radius: Option<i32>,
     last_retention_center: Option<ChunkKey>,
     last_retention_radius: Option<i32>,
+    local_player_chunk: Option<ChunkKey>,
     stats: WorldStreamStats,
 }
 

@@ -16,6 +16,7 @@ mod ui_shader;
 mod actor_colour;
 mod actor_rig;
 mod actor_sidedness;
+mod actor_skin_classes;
 mod atmosphere;
 mod biome_shader;
 mod biome_tint_bounds;
