@@ -176,15 +176,41 @@ impl TextureSource for NoTextures {
     }
 }
 
+const ENV: LayoutEnv<'static> = LayoutEnv {
+    text: &DiagnosticFont,
+    textures: &NoTextures,
+};
+
 fn render(lines: DebugLines, viewport: [f64; 2]) -> FormRender {
-    debug_overlay::render(
-        &lines,
-        viewport,
-        &LayoutEnv {
-            text: &DiagnosticFont,
-            textures: &NoTextures,
-        },
-    )
+    let mut cache = debug_overlay::OverlayCache::default();
+    debug_overlay::render(&mut cache, &lines, (viewport, 1.0), &ENV);
+    cache.into_render().expect("rendered once")
+}
+
+/// Lines changing frame to frame rebind only the changed rows, yet draw exactly what a
+/// fresh bind would.
+#[test]
+fn cached_overlay_matches_a_fresh_render_as_lines_change() {
+    let frames = [
+        (["FPS 360", "XYZ 1 2 3"], ["GPU", "Display"]),
+        (["FPS 359", "XYZ 1 2 3"], ["GPU", "Display"]),
+        (["FPS 359", "XYZ 1 2 3"], ["GPU", "Display"]),
+        (["FPS 160 while streaming", ""], ["GPU", "Display 2"]),
+    ];
+    let mut cache = debug_overlay::OverlayCache::default();
+    for (index, (left, right)) in frames.into_iter().enumerate() {
+        let lines = DebugLines {
+            left: left.map(String::from).to_vec(),
+            right: right.map(String::from).to_vec(),
+        };
+        let passes = cache.passes;
+        let nodes = debug_overlay::render(&mut cache, &lines, ([640.0, 360.0], 1.0), &ENV)
+            .nodes
+            .clone();
+        assert_eq!(nodes, render(lines, [640.0, 360.0]).nodes);
+        let rebound = cache.passes != passes;
+        assert_eq!(rebound, index != 2, "only changed lines rebind, frame {index}");
+    }
 }
 
 fn text<'a>(nodes: &'a [DrawNode], wanted: &str) -> &'a DrawNode {

@@ -23,6 +23,8 @@ impl UiPresentationRuntime {
             return Ok(());
         }
         let metrics = debug_overlay::fitted_metrics(metrics, content[1]);
+        let scale = metrics.scale.get();
+        let cache = &mut self.debug_overlay;
         let inputs = EngineInputs {
             layouts: &mut self.layouts,
             font: &self.font,
@@ -39,7 +41,7 @@ impl UiPresentationRuntime {
             overlay: &[],
         };
         engine.draw(ScreenArt::default(), inputs, out, |env, root| {
-            Some(debug_overlay::render(lines, root, env))
+            Some(debug_overlay::render(cache, lines, (root, scale), env))
         })?;
         Ok(())
     }
