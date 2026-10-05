@@ -14,8 +14,8 @@ use std::{
 use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
-    self, Account, AuthState as CoreAuth, BridgeError, ConnectProgress, ConnectStage,
-    FeaturedServer, Friend, Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
+    self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
+    Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
@@ -28,6 +28,8 @@ use launcher::menu::view::{
 #[cfg(test)]
 mod home_promo;
 
+mod feeds;
+use feeds::{CoreFeeds, catalog_round, feed_round};
 mod message_reports;
 pub(super) mod profile_worker;
 
@@ -317,74 +319,6 @@ fn poll_feeds(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, stop: &Rec
         if !wait(stop, if failed { FEED_RETRY } else { FEED_INTERVAL }) {
             return;
         }
-    }
-}
-
-/// The launcher requests the menu workers make: the core in production, fakes in tests.
-trait FeedSource {
-    async fn home(&self) -> Result<Home, BridgeError>;
-    async fn featured(&self) -> Result<Vec<FeaturedServer>, BridgeError>;
-    async fn gatherings(&self) -> Result<Vec<Gathering>, BridgeError>;
-    async fn realms(&self) -> Result<Vec<Realm>, BridgeError>;
-    async fn friends(&self) -> Result<Vec<Friend>, BridgeError>;
-}
-
-struct CoreFeeds<'a>(&'a std::path::Path);
-
-impl FeedSource for CoreFeeds<'_> {
-    async fn home(&self) -> Result<Home, BridgeError> {
-        launcher_control::home(self.0).await
-    }
-    async fn featured(&self) -> Result<Vec<FeaturedServer>, BridgeError> {
-        launcher_control::list_featured_servers(self.0).await
-    }
-    async fn gatherings(&self) -> Result<Vec<Gathering>, BridgeError> {
-        launcher_control::list_gatherings(self.0).await
-    }
-    async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
-        launcher_control::list_realms(self.0).await
-    }
-    async fn friends(&self) -> Result<Vec<Friend>, BridgeError> {
-        launcher_control::list_friends(self.0).await
-    }
-}
-
-/// Requests Home, featured servers and gatherings together and publishes each that arrives.
-/// Returns Home for impression reporting and whether any feed failed.
-async fn feed_round(source: &impl FeedSource, shared: &Mutex<Snapshot>) -> (Option<Home>, bool) {
-    let generation = auth_generation(shared);
-    let (home, featured, gatherings) =
-        tokio::join!(source.home(), source.featured(), source.gatherings());
-    let mut failed = false;
-    let home = settle("home", home, &mut failed);
-    if let Some(home) = &home {
-        publish_account(shared, generation, |snapshot| {
-            snapshot.home = Some(home.clone())
-        });
-    }
-    if let Some(featured) = settle("featured servers", featured, &mut failed) {
-        publish(shared, |snapshot| snapshot.featured = Some(featured));
-    }
-    if let Some(gatherings) = settle("gatherings", gatherings, &mut failed) {
-        publish_account(shared, generation, |snapshot| {
-            snapshot.gatherings = Some(gatherings)
-        });
-    }
-    (home, failed)
-}
-
-/// Requests the account's Realms and friends together; a failed list keeps its last value.
-async fn catalog_round(source: &impl FeedSource, shared: &Mutex<Snapshot>, generation: u64) {
-    let (realms, friends) = tokio::join!(source.realms(), source.friends());
-    if let Ok(realms) = realms {
-        publish_account(shared, generation, |snapshot| {
-            snapshot.realms = Some(realms)
-        });
-    }
-    if let Ok(friends) = friends {
-        publish_account(shared, generation, |snapshot| {
-            snapshot.friends = Some(friends)
-        });
     }
 }
 
@@ -789,68 +723,6 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Every request answers after the same delay, failing when `fail` is set.
-    struct DelayedFeeds {
-        delay: Duration,
-        fail: bool,
-    }
-
-    impl DelayedFeeds {
-        async fn answer<T: Default>(&self) -> Result<T, BridgeError> {
-            tokio::time::sleep(self.delay).await;
-            if self.fail {
-                Err(BridgeError::ControlClosed)
-            } else {
-                Ok(T::default())
-            }
-        }
-    }
-
-    impl FeedSource for DelayedFeeds {
-        async fn home(&self) -> Result<Home, BridgeError> {
-            self.answer().await
-        }
-        async fn featured(&self) -> Result<Vec<FeaturedServer>, BridgeError> {
-            self.answer().await
-        }
-        async fn gatherings(&self) -> Result<Vec<Gathering>, BridgeError> {
-            self.answer().await
-        }
-        async fn realms(&self) -> Result<Vec<Realm>, BridgeError> {
-            self.answer().await
-        }
-        async fn friends(&self) -> Result<Vec<Friend>, BridgeError> {
-            self.answer().await
-        }
-    }
-
-    #[test]
-    fn feeds_are_requested_concurrently_and_each_publishes_or_fails_alone() {
-        let runtime = runtime().unwrap();
-        let delay = Duration::from_millis(300);
-        let shared = Mutex::new(Snapshot::default());
-        let feeds = DelayedFeeds { delay, fail: false };
-        // Concurrent rounds take about one delay; serial requests would take one per feed.
-        let start = Instant::now();
-        let (home, failed) = runtime.block_on(feed_round(&feeds, &shared));
-        assert!(start.elapsed() < delay * 2, "{:?}", start.elapsed());
-        let start = Instant::now();
-        runtime.block_on(catalog_round(&feeds, &shared, 0));
-        assert!(start.elapsed() < delay * 3 / 2, "{:?}", start.elapsed());
-        assert!(home.is_some() && !failed);
-        {
-            let snapshot = shared.lock().unwrap();
-            assert!(snapshot.home.is_some() && snapshot.featured.is_some());
-            assert!(snapshot.gatherings.is_some() && snapshot.realms.is_some());
-            assert!(snapshot.friends.is_some());
-        }
-        let shared = Mutex::new(Snapshot::default());
-        let failing = DelayedFeeds { delay, fail: true };
-        let (home, failed) = runtime.block_on(feed_round(&failing, &shared));
-        assert!(home.is_none() && failed);
-        assert!(shared.lock().unwrap().featured.is_none());
-    }
 
     #[test]
     fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {

@@ -142,9 +142,11 @@ fn join_preparation_timing() {
                 source: crate::asset_startup::AssetPathSource::CommandLine,
             })
             .unwrap();
-        let artwork =
-            crate::asset_startup::require_actor_artwork(&loaded.selected_path, &loaded.entities)
-                .unwrap();
+        let artwork = crate::asset_startup::actor_artwork(
+            &crate::asset_startup::require_actor_assets(&loaded.selected_path, &loaded.entities)
+                .unwrap(),
+            loaded.entities.runtime(),
+        );
         super::super::set_base_actor_artwork(artwork, Arc::clone(loaded.entities.runtime()));
     }
     if let Some(dir) = std::env::var_os("CINNABAR_JOIN_CACHE") {
