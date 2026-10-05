@@ -265,3 +265,14 @@ fn a_required_failure_starts_nothing_that_reads_it() {
     assert!(result.unwrap_err().starts_with(WORLD.label));
     assert!(stamp.carriers.is_empty());
 }
+
+#[test]
+fn deleting_the_extracted_pack_rebuilds_nothing() {
+    let dir = checkout();
+    let pack = context(dir.path()).pack.cache;
+    fs::create_dir_all(pack.join("behavior_pack/items")).unwrap();
+    fs::create_dir_all(pack.join("resource_pack")).unwrap();
+    build_all(dir.path());
+    fs::remove_dir_all(&pack).unwrap();
+    assert!(stale(dir.path(), COMPILER).is_empty());
+}
