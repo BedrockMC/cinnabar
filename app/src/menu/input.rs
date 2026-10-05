@@ -208,7 +208,7 @@ impl MenuRuntime {
     }
 
     /// Apply `edit` to the focused field; every edit or caret move restarts the blink,
-    /// as vanilla's `TextEditComponent` shows its caret again after typing.
+    /// as vanilla's text edit box shows its caret again after typing.
     fn edit_field(&mut self, edit: impl FnOnce(&mut ChatEditor)) {
         let Some(field) = self.field else {
             return;
@@ -406,7 +406,7 @@ pub(crate) fn drive_menu_input(
             .as_ref()
             .is_none_or(|runtime| !runtime.ui_focused(&player_runtime))
     {
-        // VanillaClientInputMappingFactory uses fixed F1/F8 shortcuts.
+        // Vanilla desktop input uses fixed F1/F8 shortcuts.
         for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
             if keys.just_pressed(key) {
                 let value = 1 - menu.settings_options.value(option);

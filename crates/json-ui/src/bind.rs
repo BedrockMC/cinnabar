@@ -1,4 +1,4 @@
-//! Data binding as the client's `DataBindingComponent` runs it: each control's
+//! Data binding as the vanilla client runs it: each control's
 //! property bag starts from its `property_bag` literals, its bindings write
 //! controller values into it on the schedule their `binding_condition` sets,
 //! `view` bindings observe other controls' bags, and every written target
@@ -464,7 +464,7 @@ impl<'a> Binder<'a> {
         } else if let Some(items) = self.feed(control) {
             Some(self.expand_feed(control, items, scope))
         } else {
-            // `SliderComponent::_createSteps` through the slider's own factory.
+            // A step slider creates its step marks through its own factory.
             crate::component::slider_step_marks(control, &node.own)
                 .map(|items| self.expand_feed(control, &items, scope))
         };

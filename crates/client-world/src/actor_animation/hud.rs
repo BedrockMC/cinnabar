@@ -21,8 +21,8 @@ impl UiAnimationState {
 }
 
 /// Evaluates the UI animation component and retains it independently of world rendering.
-/// Vanilla selects that separate component in Actor; the HUD forces
-/// third person before drawing the same actor in HudPlayerRenderer.
+/// Vanilla selects that separate component per actor; the HUD forces
+/// third person before drawing the same actor in the paper doll.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn evaluate(
     assets: &RuntimeEntityAssets,

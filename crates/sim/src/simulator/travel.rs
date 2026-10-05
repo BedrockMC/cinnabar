@@ -1,6 +1,6 @@
 //! Non-walking locomotion: ability flight, pose-swimming and elytra gliding.
 //!
-//! Flight controls and liquid movement follow the current mcsrc client systems.
+//! Flight controls and liquid movement follow the current vanilla client.
 //! The glide equations remain provisional; see the locomotion gate in plan.md.
 
 use crate::{

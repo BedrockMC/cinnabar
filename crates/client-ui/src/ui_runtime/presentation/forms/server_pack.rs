@@ -398,7 +398,7 @@ impl ServerAtlas {
     }
 
     /// The pack's sidecar for `key`, which overrides a lower layer's whether or
-    /// not the pack also replaces the image (`UITextureInfo::_loadNineslice`).
+    /// not the pack also replaces the image, as in vanilla.
     pub(super) fn sidecar(&self, key: &str) -> Option<TextureMeta> {
         self.sidecars
             .get(key)

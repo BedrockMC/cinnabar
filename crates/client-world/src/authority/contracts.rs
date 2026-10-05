@@ -113,7 +113,7 @@ pub enum CommittedControlEvent {
         sequence: u64,
         dimension: i32,
         current: f64,
-        /// Total/current factor for the identified native sprint modifier.
+        /// Total/current factor for the vanilla sprint modifier.
         sprint_modifier: Option<f32>,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,

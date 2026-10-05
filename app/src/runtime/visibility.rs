@@ -68,8 +68,8 @@ impl CaveVisibilityCache {
         }
     }
 
-    /// Whether the culler hides the box from `low` to `high` in `dimension`: as vanilla's
-    /// `isAABBVisible`, only when the cache matches graph `generation` and every sub-chunk the
+    /// Whether the culler hides the box from `low` to `high` in `dimension`: as in vanilla,
+    /// only when the cache matches graph `generation` and every sub-chunk the
     /// box overlaps is `known` to that graph without being visible.
     pub(crate) fn hides_box(
         &self,

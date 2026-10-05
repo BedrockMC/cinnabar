@@ -20,8 +20,8 @@ fn light_colour(sample: u32) -> vec3<f32> {
     return world_lightmap[sample & 255u].rgb;
 }
 
-// Current classic builder stores Color::toABGR, which
-// truncates RGB to bytes before LightTexture::getColorForUV reads them.
+// The vanilla classic light texture stores RGB truncated to bytes before
+// lookups read it.
 fn native_light_texel(sample: u32) -> vec3<f32> {
     return floor(clamp(light_colour(sample), vec3(0.0), vec3(1.0)) * 255.0) / 255.0;
 }
