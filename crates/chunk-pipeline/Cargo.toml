@@ -7,6 +7,7 @@ publish = false
 
 [features]
 publication-test-support = []
+benchmark-support = []
 
 [dependencies]
 render-api = { path = "../render-api" }
@@ -30,3 +31,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [dev-dependencies]
 protocol = { path = "../protocol" }
+criterion.workspace = true
+
+[[bench]]
+name = "chunk_costs"
+harness = false
+required-features = ["benchmark-support"]
