@@ -421,7 +421,7 @@ fn stale_model_entities(
         .allocations
         .iter()
         .filter(|identity| {
-            if identity.draw_range.is_empty() || orders.is_unwitnessed(identity) {
+            if identity.draw_range.is_empty() {
                 return false;
             }
             let pending = pending.and_then(|staged| {
@@ -430,10 +430,7 @@ fn stale_model_entities(
                     .iter()
                     .find(|batch| batch.draw_range == identity.draw_range)
             });
-            let class = pending.map_or_else(
-                || orders.get(identity).and_then(|order| order.class),
-                |batch| Some(batch.class),
-            );
+            let class = pending.map_or_else(|| orders.class(identity), |batch| Some(batch.class));
             class != Some(key.order_camera.class(identity.key))
         })
         .map(|identity| identity.entity)
