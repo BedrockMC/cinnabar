@@ -1,5 +1,5 @@
 // Package proxy joins a local gophertunnel listener session to an upstream
-// Bedrock server and relays packets between them, decoding only those it inspects.
+// Bedrock server and relays decoded packet values between them.
 package proxy
 
 import (
@@ -471,9 +471,7 @@ func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
 }
 
 type packetSession interface {
-	// ReadBatchRaw returns one network batch encoded, decoding only the packets decode selects.
-	ReadBatchRaw(decode func(id uint32) bool) ([]minecraft.RawPacket, error)
-	WritePacketRaw([]byte) error // forwards encoded bytes; both legs share one protocol
+	ReadBatch() ([]packet.Packet, error)
 	WritePacket(packet.Packet) error
 	WritePacketImmediate(...packet.Packet) error // only the final Disconnect, which bypasses deferral
 	Flush() error
@@ -601,11 +599,7 @@ func pumpPackets(
 			upstreamIdentity = identitySession.IdentityData()
 		}
 	}
-	var inspect func(uint32) bool
-	if upstreamIdentity.DisplayName != "" {
-		inspect = isText
-	}
-	reader := newPacketReader(source, destination, !fromDownstream, relayIdleFlush, inspect)
+	reader := newPacketReader(source, destination, !fromDownstream, relayIdleFlush)
 	defer reader.Close()
 	// Packets buffered before the relay began leave as their own batch.
 	if err := reader.Flush(); err != nil {
@@ -617,8 +611,11 @@ func pumpPackets(
 		if err != nil {
 			return err
 		}
-		for _, raw := range batch {
-			if err := forwardPacket(destination, raw, upstreamIdentity); err != nil {
+		for _, value := range batch {
+			if fromDownstream {
+				value = normalizeUpstreamChatIdentity(value, upstreamIdentity)
+			}
+			if err := destination.WritePacket(value); err != nil {
 				return attributeRelayError(err, fromDownstream)
 			}
 		}
@@ -628,31 +625,12 @@ func pumpPackets(
 	}
 }
 
-func isText(id uint32) bool { return id == packet.IDText }
-
-// forwardPacket writes raw's received bytes unless the proxy rewrote one of its decoded packets.
-func forwardPacket(destination packetSession, raw minecraft.RawPacket, identity login.IdentityData) error {
-	rewritten := len(raw.Decoded) > 1
-	for _, value := range raw.Decoded {
-		rewritten = rewritten || normalizeUpstreamChatIdentity(value, identity) != value
-	}
-	if !rewritten {
-		return destination.WritePacketRaw(raw.Data)
-	}
-	for _, value := range raw.Decoded {
-		if err := destination.WritePacket(normalizeUpstreamChatIdentity(value, identity)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // relayIdleFlush bounds how long a packet written outside a forwarded batch stays buffered;
 // it is gophertunnel's default flush rate, which both relay legs disable.
 const relayIdleFlush = time.Second / 20
 
 type batchReadResult struct {
-	packets []minecraft.RawPacket
+	packets []packet.Packet
 	err     error
 }
 
@@ -666,13 +644,13 @@ type packetReader struct {
 	done        chan struct{}
 }
 
-func newPacketReader(source, destination packetSession, upstream bool, idle time.Duration, decode func(uint32) bool) *packetReader {
+func newPacketReader(source, destination packetSession, upstream bool, idle time.Duration) *packetReader {
 	// Unbuffered: a stalled destination holds at most one batch read ahead.
 	results, done := make(chan batchReadResult), make(chan struct{})
 	go func() {
 		defer close(results)
 		for {
-			packets, err := callBatchRead(source, decode)
+			packets, err := callBatchRead(source)
 			select {
 			case results <- batchReadResult{packets: packets, err: err}:
 			case <-done:
@@ -686,17 +664,17 @@ func newPacketReader(source, destination packetSession, upstream bool, idle time
 	return &packetReader{destination: destination, upstream: upstream, results: results, idle: time.NewTicker(idle), done: done}
 }
 
-func callBatchRead(source packetSession, decode func(uint32) bool) (packets []minecraft.RawPacket, err error) {
+func callBatchRead(source packetSession) (packets []packet.Packet, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicTypeError("reading packets", recovered)
 		}
 	}()
-	return source.ReadBatchRaw(decode)
+	return source.ReadBatch()
 }
 
 // Read returns the next source batch, serving the idle flush while it waits.
-func (reader *packetReader) Read() ([]minecraft.RawPacket, error) {
+func (reader *packetReader) Read() ([]packet.Packet, error) {
 	for {
 		select {
 		case result, ok := <-reader.results:

@@ -5,6 +5,7 @@ mod block_entities;
 mod block_selection;
 mod block_use;
 pub mod camera;
+mod desktop;
 mod environment;
 mod first_run;
 mod fullscreen;

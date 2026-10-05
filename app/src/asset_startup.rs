@@ -103,16 +103,16 @@ mod actor_carrier;
 mod audio_carrier;
 mod audio_pcm_carrier;
 pub(crate) mod equipment_carrier;
-pub(crate) use actor_carrier::require_actor_artwork;
+pub(crate) use actor_carrier::actor_artwork;
 pub use actor_carrier::{ACTOR_ASSETS_FILENAME, actor_asset_path, require_actor_assets};
 pub(crate) use audio_pcm_carrier::load_audio_pcm_assets;
-pub(crate) use equipment_carrier::{
-    load_optional_block_entity_assets, load_optional_equipment_assets,
-};
+pub(crate) use equipment_carrier::load_optional_equipment_assets;
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;
 mod path_selection;
+#[cfg(test)]
+pub(crate) mod test_carriers;
 
 /// Environment override consumed through [`path_selection`]; kept beside the
 /// other identity anchors so the registered marker's declared consumer stays
@@ -650,20 +650,56 @@ pub fn local_font_asset_path(world_asset_path: &Path) -> PathBuf {
 }
 
 pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, AssetStartupError> {
+    load_runtime_assets_timed(selection, &LoadTimes::default())
+}
+
+/// [`load_runtime_assets`], loading its four carriers in parallel and timing each into `times`.
+/// Errors keep the serial order: world, atmosphere, entity, then font.
+pub(crate) fn load_runtime_assets_timed(
+    selection: AssetSelection,
+    times: &LoadTimes,
+) -> Result<LoadedAssets, AssetStartupError> {
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
-    let file = match File::open(&selection.path) {
+    let path = selection.path.as_path();
+    let (world, atmosphere, entities, fonts) = std::thread::scope(|scope| {
+        let atmosphere = scope.spawn(|| times.time("atmosphere", || load_atmosphere_assets(path)));
+        let entities = scope.spawn(|| times.time("entity", || load_entity_assets(path)));
+        let fonts = scope.spawn(|| times.time("font", || load_font_assets(path)));
+        let world = times.time("world", || load_world_carrier(path));
+        (world, join(atmosphere), join(entities), join(fonts))
+    });
+    let Some((runtime, blob_sha256)) = world? else {
+        return Ok(diagnostic_assets(
+            selection,
+            source,
+            atmosphere?,
+            entities?,
+            fonts?,
+        ));
+    };
+    let metrics = runtime_metrics(&runtime, source, blob_sha256);
+    Ok(LoadedAssets {
+        runtime,
+        atmosphere: atmosphere?,
+        entities: entities?,
+        fonts: fonts?,
+        metrics,
+        selected_path: selection.path,
+        kind: LoadedAssetKind::CompiledBlob,
+        notice: None,
+    })
+}
+
+/// The decoded world carrier and its SHA-256, or `None` when it is absent.
+fn load_world_carrier(
+    path: &Path,
+) -> Result<Option<(Arc<RuntimeAssets>, String)>, AssetStartupError> {
+    let file = match File::open(path) {
         Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            let atmosphere = load_atmosphere_assets(&selection.path)?;
-            let entities = load_entity_assets(&selection.path)?;
-            let fonts = load_font_assets(&selection.path)?;
-            return Ok(diagnostic_assets(
-                selection, source, atmosphere, entities, fonts,
-            ));
-        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {
             return Err(AssetStartupError::Read {
-                path: selection.path,
+                path: path.to_owned(),
                 source,
             });
         }
@@ -671,14 +707,14 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     if file
         .metadata()
         .map_err(|source| AssetStartupError::Read {
-            path: selection.path.clone(),
+            path: path.to_owned(),
             source,
         })?
         .len()
         > MAX_RUNTIME_BLOB_BYTES
     {
         return Err(AssetStartupError::TooLarge {
-            path: selection.path,
+            path: path.to_owned(),
             max_bytes: MAX_RUNTIME_BLOB_BYTES,
         });
     }
@@ -687,47 +723,83 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     file.take(MAX_RUNTIME_BLOB_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|source| AssetStartupError::Read {
-            path: selection.path.clone(),
+            path: path.to_owned(),
             source,
         })?;
     if bytes.len() as u64 > MAX_RUNTIME_BLOB_BYTES {
         return Err(AssetStartupError::TooLarge {
-            path: selection.path,
+            path: path.to_owned(),
             max_bytes: MAX_RUNTIME_BLOB_BYTES,
         });
     }
 
-    let blob_sha256 = format!("{:x}", Sha256::digest(&bytes));
-    let runtime =
-        Arc::new(
-            RuntimeAssets::decode(&bytes).map_err(|source| AssetStartupError::Decode {
-                path: selection.path.clone(),
-                source: Box::new(source),
-                rebuild_command: COMPILE_COMMAND.as_str(),
-            })?,
-        );
-    if let Some(keys) = load_material_keys(&selection.path, runtime.material_count()) {
+    let (runtime, identity) =
+        RuntimeAssets::decode_sealed(&bytes).map_err(|source| AssetStartupError::Decode {
+            path: path.to_owned(),
+            source: Box::new(source),
+            rebuild_command: COMPILE_COMMAND.as_str(),
+        })?;
+    let runtime = Arc::new(runtime);
+    if let Some(keys) = load_material_keys(path, runtime.material_count()) {
         crate::runtime::network::set_base_terrain_catalog(keys.aliases());
         crate::runtime::network::set_base_material_keys(keys);
     }
-    if let Some(refs) = load_vanilla_entity_refs(&selection.path) {
+    if let Some(refs) = load_vanilla_entity_refs(path) {
         crate::runtime::network::entity_pack::set_vanilla_refs(refs);
     }
-    world_provenance::verify_world_carrier(&selection.path, &runtime)?;
-    let metrics = runtime_metrics(&runtime, source, blob_sha256);
-    let atmosphere = load_atmosphere_assets(&selection.path)?;
-    let entities = load_entity_assets(&selection.path)?;
-    let fonts = load_font_assets(&selection.path)?;
-    Ok(LoadedAssets {
-        runtime,
-        atmosphere,
-        entities,
-        fonts,
-        metrics,
-        selected_path: selection.path,
-        kind: LoadedAssetKind::CompiledBlob,
-        notice: None,
-    })
+    world_provenance::verify_world_carrier(path, &runtime)?;
+    Ok(Some((runtime, format_sha256(identity))))
+}
+
+/// Wall time of each startup carrier load, logged as one line.
+#[derive(Default)]
+pub(crate) struct LoadTimes(std::sync::Mutex<Vec<(&'static str, std::time::Duration)>>);
+
+impl LoadTimes {
+    pub(crate) fn time<T>(&self, carrier: &'static str, load: impl FnOnce() -> T) -> T {
+        let start = std::time::Instant::now();
+        let value = load();
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((carrier, start.elapsed()));
+        value
+    }
+
+    /// The carriers loaded so far, in completion order.
+    #[cfg(test)]
+    pub(crate) fn carriers(&self) -> Vec<&'static str> {
+        let times = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        times.iter().map(|(carrier, _)| *carrier).collect()
+    }
+
+    pub(crate) fn summary(&self, wall: std::time::Duration) -> String {
+        let mut times = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        times.sort_by(|a, b| b.1.cmp(&a.1));
+        let each = times
+            .iter()
+            .map(|(carrier, time)| format!("{carrier} {:.1}", time.as_secs_f64() * 1e3))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "loaded startup carriers in {:.1} ms (ms each: {each})",
+            wall.as_secs_f64() * 1e3
+        )
+    }
+}
+
+/// Joins a scoped load, re-raising its panic on this thread.
+pub(crate) fn join<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
+    handle
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 /// SHA-256 of the manifest with line endings canonicalized to LF, matching

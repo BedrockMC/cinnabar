@@ -115,7 +115,7 @@ fn run(
             staged.display()
         );
     }
-    stamp::write(&staged, &selection.identities)?;
+    stamp::write(&staged, &selection.identities, &selection.compiler)?;
     runner::publish_if_active(&staged, &prepared, cancel)?;
     // Only the current pack's archive is kept, so a carrier-only update needs no download.
     let _ = fs::remove_dir_all(workspace.join(".local/assets/bedrock-samples"));

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -18,18 +17,17 @@ import (
 // first-packet latency and shutdown latency against a stalled peer.
 
 type replaySource struct {
-	batches [][]minecraft.RawPacket
+	batches [][]packet.Packet
 	next    int
 }
 
-func (s *replaySource) ReadBatchRaw(func(uint32) bool) ([]minecraft.RawPacket, error) {
+func (s *replaySource) ReadBatch() ([]packet.Packet, error) {
 	if s.next >= len(s.batches) {
 		return nil, io.EOF
 	}
 	s.next++
 	return s.batches[s.next-1], nil
 }
-func (*replaySource) WritePacketRaw([]byte) error                 { return nil }
 func (*replaySource) WritePacket(packet.Packet) error             { return nil }
 func (*replaySource) WritePacketImmediate(...packet.Packet) error { return nil }
 func (*replaySource) Flush() error                                { return nil }
@@ -53,12 +51,10 @@ func newDiscardSink(stall bool) *discardSink {
 	return &discardSink{firstWrite: make(chan struct{}), firstDelivery: make(chan struct{}), stall: stall, closed: make(chan struct{})}
 }
 
-func (s *discardSink) ReadBatchRaw(func(uint32) bool) ([]minecraft.RawPacket, error) {
+func (s *discardSink) ReadBatch() ([]packet.Packet, error) {
 	<-s.closed
 	return nil, net.ErrClosed
 }
-
-func (s *discardSink) WritePacketRaw([]byte) error { return s.WritePacket(nil) }
 
 func (s *discardSink) WritePacket(packet.Packet) error {
 	s.firstOnce.Do(func() { close(s.firstWrite) })
@@ -93,14 +89,13 @@ func (s *discardSink) Abort() error {
 }
 func (s *discardSink) Close() error { return s.Abort() }
 
-func compareBatches(batches, perBatch int) [][]minecraft.RawPacket {
-	out := make([][]minecraft.RawPacket, batches)
+func compareBatches(batches, perBatch int) [][]packet.Packet {
+	out := make([][]packet.Packet, batches)
 	for i := range out {
-		values := make([]packet.Packet, perBatch)
-		for j := range values {
-			values[j] = &packet.NetworkStackLatency{Timestamp: int64(j)}
+		out[i] = make([]packet.Packet, perBatch)
+		for j := range out[i] {
+			out[i][j] = &packet.NetworkStackLatency{Timestamp: int64(j)}
 		}
-		out[i] = rawBatch(values, nil)
 	}
 	return out
 }
@@ -108,13 +103,12 @@ func compareBatches(batches, perBatch int) [][]minecraft.RawPacket {
 // perPacketPump is the pre-batch baseline: one write and flush per packet.
 func perPacketPump(source *replaySource, sink *discardSink) {
 	for {
-		batch, err := source.ReadBatchRaw(nil)
+		batch, err := source.ReadBatch()
 		if err != nil {
 			return
 		}
-		for _, raw := range batch {
-			_ = sink.WritePacketRaw(raw.Data)
-			_ = sink.Flush()
+		for _, value := range batch {
+			_ = sink.WritePacketImmediate(value)
 		}
 	}
 }
