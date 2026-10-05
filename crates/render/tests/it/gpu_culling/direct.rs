@@ -6,7 +6,7 @@ use std::{collections::VecDeque, time::Instant};
 use super::*;
 use kernels::OcclusionStorage;
 use model::reference_occluded;
-use occlusion::{OcclusionBasis, OcclusionHistory, OcclusionView, VerdictTag};
+use occlusion::{OcclusionBasis, OcclusionHistory, VerdictTag};
 
 /// The occlusion kernel over one record table.
 struct Occluder<'a> {
@@ -229,17 +229,14 @@ struct Pending {
     words: Vec<u32>,
 }
 
-fn basis_view(camera: &Camera, world: u64, size: [u32; 2]) -> OcclusionView {
-    let forward =
-        (camera.clip_from_world.inverse() * bevy::math::Vec4::new(0.0, 0.0, 1.0, 1.0)).truncate();
-    OcclusionView {
-        basis: OcclusionBasis {
-            eye: camera.eye.to_array(),
-            clip_from_view: camera.clip_from_view.to_cols_array(),
-            depth_size: size,
-            world,
-        },
-        forward: (forward - camera.eye).normalize().to_array(),
+fn basis_view(camera: &Camera, world: u64, size: [u32; 2]) -> OcclusionBasis {
+    let world_from_view = (camera.clip_from_view.inverse() * camera.clip_from_world).inverse();
+    OcclusionBasis {
+        eye: camera.eye.to_array(),
+        view_rotation: bevy::math::Mat3::from_mat4(world_from_view).to_cols_array(),
+        clip_from_view: camera.clip_from_view.to_cols_array(),
+        depth_size: size,
+        world,
     }
 }
 
@@ -454,7 +451,7 @@ fn replay(
                 Policy::Naive => !newest.as_ref().is_some_and(|words| bit(words, slot)),
             })
             .collect::<Vec<_>>();
-        let pose = (camera.eye, camera.clip_from_view);
+        let pose = (camera.clip_from_world, camera.clip_from_view);
         let verdict =
             policy == Policy::Naive || (previous_pose == Some(pose) && !history.settled(&view));
         previous_pose = Some(pose);
@@ -491,7 +488,7 @@ fn replay(
                 deliver,
                 tag: VerdictTag {
                     frame: frame as u64,
-                    view,
+                    basis: view,
                     slots: occluder.slots,
                 },
                 words: occluder.bits(),
@@ -634,6 +631,50 @@ fn replayed_camera_paths_never_skip_a_sub_chunk_that_shows_pixels() {
     );
 }
 
+/// Turning in place moves the near plane: a wall just beyond it at the old orientation is
+/// clipped at the new one, uncovering terrain an old verdict called occluded.
+#[test]
+fn a_turn_that_clips_a_near_occluder_never_reuses_old_verdicts() {
+    let Some(gpu) = Gpu::for_fixture("direct occlusion near-plane turn") else {
+        return;
+    };
+    let mut terrain = Terrain::default();
+    terrain.add(
+        [0, 4, 0],
+        cuboid([0, 0, 0], [16, 16, 1], 1).to_vec(),
+        Vec::new(),
+    );
+    let blocks = [
+        cuboid([2, 3, 2], [10, 10, 10], 0),
+        cuboid([12, 1, 4], [3, 3, 3], 1),
+    ];
+    terrain.add([0, 4, -2], blocks.concat(), Vec::new());
+    // The wall's face is at z = 1; the eye sits 0.0505 blocks in front of the 0.05 near plane.
+    let eye = Vec3::new(8.5, 72.5, 1.0505);
+    let toward = eye - Vec3::Z * 40.0;
+    let steps = (0..10)
+        .map(|frame| Step {
+            camera: if frame < 6 {
+                camera(eye, toward)
+            } else {
+                yawed(eye, toward, 0.2_f32.to_degrees())
+            },
+            edit: None,
+        })
+        .collect::<Vec<_>>();
+    let counts = replay(&gpu, terrain, &steps, Policy::Production, &[1]);
+    assert!(
+        counts.skipped > 0,
+        "the still frames skip the hidden sub-chunk"
+    );
+    assert!(
+        counts.wrongly_hidden.is_empty(),
+        "{:?}",
+        counts.wrongly_hidden
+    );
+    assert_eq!(counts.pixel_mismatches, 0);
+}
+
 /// #129's walled scene seen from a still camera: hidden sub-chunks stop being submitted.
 #[test]
 fn a_still_camera_stops_submitting_sub_chunks_behind_the_wall() {
@@ -732,7 +773,7 @@ fn median(values: &[f64]) -> f64 {
 /// Before (every frustum-visible sub-chunk, one pass) and after (production occlusion) on a
 /// still, turning and walking camera; asserts submitted work and prints GPU and CPU times.
 #[test]
-fn occlusion_cuts_submitted_terrain_on_still_and_turning_cameras() {
+fn occlusion_cuts_submitted_terrain_only_while_the_view_holds_still() {
     let Some(gpu) = Gpu::for_fixture("direct occlusion measurement") else {
         return;
     };
@@ -750,7 +791,7 @@ fn occlusion_cuts_submitted_terrain_on_still_and_turning_cameras() {
         (
             "turning",
             (0..40)
-                .map(|frame| view_at(start, 15.0 * (frame as f32 * 0.1).sin()))
+                .map(|frame| view_at(start, 15.0 * ((frame + 1) as f32 * 0.1).sin()))
                 .collect(),
         ),
         (
@@ -814,7 +855,7 @@ fn occlusion_cuts_submitted_terrain_on_still_and_turning_cameras() {
             totals
                 .cpu_policy
                 .push(started.elapsed().as_secs_f64() * 1e3);
-            let pose = (camera.eye, camera.clip_from_view);
+            let pose = (camera.clip_from_world, camera.clip_from_view);
             let verdict = previous_pose == Some(pose) && !history.settled(&view);
             previous_pose = Some(pose);
             let input = sized_input(camera, pyramid.mip_count(), size);
@@ -845,7 +886,7 @@ fn occlusion_cuts_submitted_terrain_on_still_and_turning_cameras() {
                     deliver: frame + 1,
                     tag: VerdictTag {
                         frame: frame as u64,
-                        view,
+                        basis: view,
                         slots: occluder.slots,
                     },
                     words: occluder.bits(),
@@ -881,7 +922,10 @@ fn occlusion_cuts_submitted_terrain_on_still_and_turning_cameras() {
         still.drawn * 2 < still.candidates,
         "the hill hides most of the town"
     );
-    assert!(turning.drawn < turning.candidates);
+    assert_eq!(
+        turning.drawn, turning.candidates,
+        "a turning view never skips"
+    );
     assert_eq!(
         walking.drawn, walking.candidates,
         "a moving eye never skips"

@@ -28,7 +28,7 @@ use crate::gpu_timing::readback::{ReadbackRing, SLOTS};
 use super::{
     kernels::{CullKernels, OcclusionStorage, occlusion_bytes},
     model::{CullPhase, CullViewUniform},
-    occlusion::{OcclusionBasis, OcclusionHistory, OcclusionView, VerdictTag},
+    occlusion::{OcclusionBasis, OcclusionHistory, VerdictTag},
     prepare::{
         ChunkHiddenEntities, CullViewComponents, PreparedPyramid, cull_view_input, prepare_pyramid,
         sampleable_depth, write_dirty_records,
@@ -57,7 +57,7 @@ pub(in crate::chunk) struct DirectOcclusionFrame {
     view: Option<QueuedView>,
     /// Render entities offered by the view, and whether each has solid cube faces.
     candidates: Vec<(Entity, bool)>,
-    last_pose: Option<(Entity, [f32; 3], Mat4)>,
+    last_pose: Option<(Entity, Mat4, Mat4)>,
 }
 
 #[derive(Clone, Copy)]
@@ -85,7 +85,7 @@ impl DirectOcclusionFrame {
     ) -> bool {
         let pose = (
             entity,
-            view.world_from_view.translation().to_array(),
+            view.world_from_view.to_matrix(),
             view.clip_from_view,
         );
         let terrain_pass = wants_verdict && self.last_pose == Some(pose);
@@ -194,7 +194,7 @@ pub(in crate::chunk) struct DirectOcclusion {
     skip_view: Option<Entity>,
     skipped: HashSet<Entity>,
     /// The view as last prepared, which decides whether the next frame wants a verdict.
-    last_view: Option<(Entity, OcclusionView)>,
+    last_view: Option<(Entity, OcclusionBasis)>,
     plan: Option<TerrainPassPlan>,
     pub(in crate::chunk) stats: DirectOcclusionStats,
 }
@@ -225,9 +225,11 @@ impl DirectOcclusion {
     pub(in crate::chunk) fn wants_verdict(&self, entity: Entity, view: &ExtractedView) -> bool {
         !self.last_view.is_some_and(|(last_entity, last)| {
             last_entity == entity
-                && last.basis.eye == view.world_from_view.translation().to_array()
-                && last.basis.clip_from_view == view.clip_from_view.to_cols_array()
-                && last.forward == view.world_from_view.forward().to_array()
+                && OcclusionBasis {
+                    depth_size: last.depth_size,
+                    world: last.world,
+                    ..view_basis(view)
+                } == last
                 && self.history.settled(&last)
         })
     }
@@ -387,14 +389,10 @@ pub(super) fn prepare_direct_occlusion(
     };
     let depth = sampleable_depth(depth, resolution_override);
     let size = depth.map(|depth| depth.texture.size());
-    let current = OcclusionView {
-        basis: OcclusionBasis {
-            eye: extracted.world_from_view.translation().to_array(),
-            clip_from_view: extracted.clip_from_view.to_cols_array(),
-            depth_size: size.map_or([0; 2], |size| [size.width, size.height]),
-            world: occlusion.history.world(),
-        },
-        forward: extracted.world_from_view.forward().to_array(),
+    let current = OcclusionBasis {
+        depth_size: size.map_or([0; 2], |size| [size.width, size.height]),
+        world: occlusion.history.world(),
+        ..view_basis(extracted)
     };
     occlusion.skip_view = Some(queued.entity);
     occlusion.last_view = Some((queued.entity, current));
@@ -451,7 +449,7 @@ pub(super) fn prepare_direct_occlusion(
         }
         let tag = VerdictTag {
             frame: occlusion.frame,
-            view: current,
+            basis: current,
             slots,
         };
         let slot = occlusion.verdicts.acquire(tag);
@@ -493,6 +491,17 @@ pub(super) fn submit_direct_occlusion(mut occlusion: ResMut<DirectOcclusion>) {
                 Ordering::Release,
             );
         });
+}
+
+/// The view's pose half of a verdict basis; depth size and world come from prepare.
+fn view_basis(view: &ExtractedView) -> OcclusionBasis {
+    OcclusionBasis {
+        eye: view.world_from_view.translation().to_array(),
+        view_rotation: view.world_from_view.affine().matrix3.to_cols_array(),
+        clip_from_view: view.clip_from_view.to_cols_array(),
+        depth_size: [0; 2],
+        world: 0,
+    }
 }
 
 pub(super) fn reset_direct_occlusion_frame(mut frame: ResMut<DirectOcclusionFrame>) {
