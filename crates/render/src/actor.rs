@@ -491,36 +491,35 @@ impl ActorRenderScene {
         let skins_are_valid = skins.len() <= MAX_RENDERED_PLAYERS
             && skins.iter().all(|skin| skin.len() == STANDARD_SKIN_BYTES);
         let skin_layer_count = skins.len();
-        let artwork = &self.frame.artwork;
-        let mut invalid_references = 0u64;
-        let mut submissions = submissions
-            .into_iter()
-            .filter(|submission| {
-                let valid = submission.route == ActorRigRoute::NoDraw
-                    || if let Some(location) = assignments.get(&submission.input.identity) {
-                        artwork.valid(submission.input.rig, *location)
-                            && submission.texture_layer == location.layer
-                    } else {
-                        (submission.texture_layer as usize) < skin_layer_count
-                    };
-                if !valid {
-                    invalid_references = invalid_references.saturating_add(1);
-                }
-                valid
-            })
-            .collect::<Vec<_>>();
         if skins_are_valid {
             // Frame-local skin indices become stable slots, so a visible-set change uploads nothing.
-            let slots = self.skin_slots.assign(skins);
-            for submission in &mut submissions {
-                if submission.route != ActorRigRoute::NoDraw
-                    && !assignments.contains_key(&submission.input.identity)
-                {
-                    submission.texture_layer = slots[submission.texture_layer as usize];
-                }
-            }
+            self.skin_slots.assign(skins);
             self.publish_skins();
         }
+        let artwork = &self.frame.artwork;
+        let mut invalid_references = 0u64;
+        let slots = self.skin_slots.assigned();
+        let submissions = submissions.into_iter().filter_map(|mut submission| {
+            let artwork_location = assignments.get(&submission.input.identity);
+            let valid = submission.route == ActorRigRoute::NoDraw
+                || if let Some(location) = artwork_location {
+                    artwork.valid(submission.input.rig, *location)
+                        && submission.texture_layer == location.layer
+                } else {
+                    (submission.texture_layer as usize) < skin_layer_count
+                };
+            if !valid {
+                invalid_references = invalid_references.saturating_add(1);
+                return None;
+            }
+            if skins_are_valid
+                && submission.route != ActorRigRoute::NoDraw
+                && artwork_location.is_none()
+            {
+                submission.texture_layer = slots[submission.texture_layer as usize];
+            }
+            Some(submission)
+        });
         let mut rig = self
             .rig_builder
             .build_paged(partial_tick, view, submissions, |identity| {
