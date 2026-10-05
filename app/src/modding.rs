@@ -28,12 +28,22 @@ const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 #[cfg(feature = "local-mods")]
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 #[cfg(feature = "local-mods")]
+const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
+/// Comma-separated command names the selected component may request.
+#[cfg(feature = "local-mods")]
+const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "local-mods")]
 mod registration;
+
+/// The local mod's presentation cues committed this frame, for renderer-side effects.
+#[cfg(feature = "local-mods")]
+#[derive(Resource, Default)]
+pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 
 #[cfg(feature = "local-mods")]
 #[derive(Resource)]
@@ -83,6 +93,16 @@ fn configure(app: &mut App, path: Option<&Path>) {
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
+        entities: std::env::var(ENTITIES_ENV).is_ok_and(|value| value == "1"),
+        commands: std::env::var(COMMANDS_ENV)
+            .map(|names| {
+                names
+                    .split(',')
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
     };
     configure_with_grants(app, path, grants);
 }
@@ -91,7 +111,8 @@ fn configure(app: &mut App, path: Option<&Path>) {
 #[cfg(feature = "local-mods")]
 fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) {
     let Some(path) = path else { return };
-    match ModHost::load_with_grants(path, grants) {
+    let controls = grants.controls;
+    match ModHost::load_with_grants(path, grants.clone()) {
         Ok(host) => {
             app.insert_resource(VisualTimeOverride(host.time_override()))
                 .insert_resource(ModRuntime {
@@ -105,9 +126,7 @@ fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) 
                     suspended: false,
                 })
                 .init_resource::<interaction::ModInteraction>();
-            if grants.controls
-                && let Some(path) = std::env::var_os(font::FONT_ENV)
-            {
+            if controls && let Some(path) = std::env::var_os(font::FONT_ENV) {
                 match font::load(Path::new(&path)).and_then(|font| {
                     app.world_mut()
                         .get_resource_mut::<UiPresentationRuntime>()
@@ -127,6 +146,7 @@ fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) 
 
 #[cfg(feature = "local-mods")]
 fn configure_systems(app: &mut App, watching: bool) {
+    app.init_resource::<ModCueFeed>();
     if watching {
         app.add_systems(
             Update,
@@ -172,6 +192,11 @@ fn drive_mod(
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
     watcher: Option<Res<registration::Watcher>>,
+    outputs: (
+        Option<Res<crate::runtime::network::NetworkHandle>>,
+        Option<ResMut<crate::camera::CameraSettingsAuthority>>,
+        Option<ResMut<ModCueFeed>>,
+    ),
 ) {
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
@@ -198,13 +223,14 @@ fn drive_mod(
     let captured = windows.single().is_ok_and(|(window, cursor)| {
         cursor.is_some_and(|cursor| crate::camera::input_is_active(window, cursor))
     });
-    let snapshot = gameplay.snapshot(captured && !absorbed, extension.grants);
+    let snapshot = gameplay.snapshot(captured && !absorbed, &extension.grants);
+    let mobs = gameplay.mobs(snapshot.as_ref(), &extension.grants);
     let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
     controls.gameplay = snapshot.is_some();
     if extension.host.is_active()
         && let Err(error) = extension
             .host
-            .frame_with_controls(pressed, snapshot, controls)
+            .frame_with_world(pressed, snapshot, mobs, controls)
     {
         if let Some((generation, request_id)) = &extension.registration_request
             && let Some(watcher) = watcher.as_ref()
@@ -225,6 +251,18 @@ fn drive_mod(
     if let Some(delta) = extension.host.take_camera_delta() {
         gameplay.apply(delta);
     }
+    let (network, camera, cues) = outputs;
+    send_commands(
+        network.as_deref(),
+        ui.session_id(),
+        extension.host.take_commands(),
+    );
+    if let Some(mut cues) = cues {
+        cues.0 = extension.host.take_cues();
+    }
+    if let Some(mut camera) = camera {
+        camera.set_rig(extension.host.camera_rig().map(camera_rig));
+    }
     time_override.0 = extension.host.time_override();
     if let Err(error) = presentation.set_mod_label(extension.host.label()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
@@ -234,6 +272,34 @@ fn drive_mod(
         extension.host.set_panel_open(false);
     }
     presentation.set_mod_panel_open(extension.host.panel_open());
+}
+
+/// Granted commands travel the session-fenced UI packet lane as vanilla command requests.
+#[cfg(feature = "local-mods")]
+fn send_commands(
+    network: Option<&crate::runtime::network::NetworkHandle>,
+    session: u64,
+    commands: Vec<String>,
+) {
+    let Some(network) = network else { return };
+    for command in commands {
+        if network
+            .send_form_packet(session, protocol::command_request_packet(&command))
+            .is_err()
+        {
+            eprintln!("Cinnabar extension command dropped: the session is not accepting packets");
+            return;
+        }
+    }
+}
+
+#[cfg(feature = "local-mods")]
+fn camera_rig(rig: mod_host::GameplayCameraRig) -> crate::camera::CameraRig {
+    crate::camera::CameraRig {
+        offset: Vec3::new(rig.offset.x, rig.offset.y, rig.offset.z),
+        roll_radians: rig.roll,
+        fov_delta_degrees: rig.fov_delta,
+    }
 }
 
 /// A mod keybind is unavailable while another UI or an unfocused window owns input.

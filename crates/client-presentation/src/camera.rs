@@ -95,6 +95,15 @@ pub struct CameraSettingsAuthority {
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     feel: CameraFeelSettings,
+    rig: Option<CameraRig>,
+}
+
+/// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CameraRig {
+    pub offset: Vec3,
+    pub roll_radians: f32,
+    pub fov_delta_degrees: f32,
 }
 
 /// Camera feel toggles and scales mirrored from retained settings, already sanitized.
@@ -153,6 +162,7 @@ impl Default for CameraSettingsAuthority {
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             feel: CameraFeelSettings::from_settings(&settings),
+            rig: None,
         }
     }
 }
@@ -198,9 +208,28 @@ impl CameraSettingsAuthority {
         self.horizontal_fov_degrees
     }
 
+    /// A rig presents third-person-back so the local body renders and the viewmodel hides.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        self.perspective
+        if self.rig.is_some() {
+            PerspectiveMode::ThirdPersonBack
+        } else {
+            self.perspective
+        }
+    }
+
+    #[must_use]
+    pub const fn rig(&self) -> Option<CameraRig> {
+        self.rig
+    }
+
+    /// Non-finite rigs are dropped; `None` restores the player's own perspective.
+    pub fn set_rig(&mut self, rig: Option<CameraRig>) {
+        self.rig = rig.filter(|rig| {
+            rig.offset.is_finite()
+                && rig.roll_radians.is_finite()
+                && rig.fov_delta_degrees.is_finite()
+        });
     }
 
     #[must_use]
@@ -276,11 +305,43 @@ pub fn collision_safe_perspective_pose(
     perspective: PerspectiveMode,
     world: &impl CollisionWorld,
 ) -> Transform {
-    let mut pose = perspective_pose(subject_translation, subject_rotation, perspective);
+    let pose = perspective_pose(subject_translation, subject_rotation, perspective);
     if perspective == PerspectiveMode::FirstPerson {
         return pose;
     }
+    sweep_boom(subject_translation, pose, world)
+}
 
+/// The rig's boom from the eye, keeping the eye's look direction.
+#[must_use]
+pub fn rig_pose(subject_translation: Vec3, subject_rotation: Quat, rig: CameraRig) -> Transform {
+    Transform {
+        translation: subject_translation + subject_rotation * rig.offset,
+        rotation: subject_rotation,
+        ..default()
+    }
+}
+
+/// Shortens a rig boom against collision exactly like the third-person boom.
+#[must_use]
+pub fn collision_safe_rig_pose(
+    subject_translation: Vec3,
+    subject_rotation: Quat,
+    rig: CameraRig,
+    world: &impl CollisionWorld,
+) -> Transform {
+    sweep_boom(
+        subject_translation,
+        rig_pose(subject_translation, subject_rotation, rig),
+        world,
+    )
+}
+
+fn sweep_boom(
+    subject_translation: Vec3,
+    mut pose: Transform,
+    world: &impl CollisionWorld,
+) -> Transform {
     let delta = pose.translation - subject_translation;
     let origin = SimVec3::new(
         f64::from(subject_translation.x),
@@ -742,3 +803,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<LocalAvatarVisibilityCarrier>();
     }
 }
+
+#[cfg(test)]
+#[path = "camera/rig_tests.rs"]
+mod rig_tests;

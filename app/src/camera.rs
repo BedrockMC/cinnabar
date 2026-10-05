@@ -14,7 +14,7 @@ use bevy::{
 
 pub use client_presentation::camera::{
     AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, AutoFly, CameraFeelSettings,
-    CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin,
+    CameraFovInputs, CameraFovState, CameraHurtState, CameraPresentationPlugin, CameraRig,
     CameraSettingsAuthority, CameraSettingsError, FirstPersonHandMotion, FlyCamera,
     FlyCameraUpdateSet, HandSwayState, HeadMedium, LocalHurtEvent, OverlayKind, OverlayLayer,
     PITCH_LIMIT, PortalProgress, SPYGLASS_FOV_MODIFIER, ScreenEffectFacts, ScreenEffectInputs,
