@@ -1,3 +1,15 @@
+## Entity shadows
+
+- Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
+  by the encoded-colour multiplier (0.7 grey with a sky tint), once however many overlap. One
+  instanced draw after opaque geometry; casters and parameters upload only when they change.
+- Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
+  riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
+- Remote casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
+  drawn; the breathing point, first-person local caster, item and local volume culling and
+  camera-inside behaviour are provisional. Native side-by-side
+  comparison is pending.
+
 ## Configured inventory hotbar swaps
 
 - User-requested inventory shortcut: the configured hotbar key swaps the hovered cell directly with that hotbar slot.
