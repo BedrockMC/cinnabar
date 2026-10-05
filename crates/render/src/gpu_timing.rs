@@ -5,7 +5,7 @@
 //! `TIMESTAMP_QUERY_INSIDE_PASSES` and aggregate profiling is on, since per-draw timestamps
 //! perturb the workload. Adapters without timestamps leave every `gpu_*` stage empty.
 
-mod readback;
+pub(crate) mod readback;
 #[cfg(test)]
 mod tests;
 
@@ -82,6 +82,10 @@ fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
     use crate::ui_render::{UiOverlayLabel, UiWorldLabel, overlay::UiOverlayPostLabel};
     let mut nodes = vec![
         (Node3d::MainOpaquePass.intern(), RuntimeStage::GpuOpaque),
+        (
+            crate::chunk::TerrainPassLabel.intern(),
+            RuntimeStage::GpuOpaque,
+        ),
         (
             Node3d::MainTransparentPass.intern(),
             RuntimeStage::GpuTransparent,
