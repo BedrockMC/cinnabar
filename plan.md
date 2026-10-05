@@ -67,6 +67,16 @@
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
 
+## VSync video toggle
+
+- User-requested deviation: retail vanilla has no VSync menu control (it persists `gfx_vsync`,
+  default on; the three-way `vsync_dropdown` exists only in the non-publish Debug section).
+- Toggle follows Max Framerate in the advanced video options, labelled `options.vsync`, default
+  on, persisted with the settings registry and applied live.
+- On keeps the automatic present-mode policy and its DX12 remedy; off requests AutoNoVsync
+  (Immediate, else Mailbox). `--vsync`, `--no-vsync` and evidence runs pin the session and show
+  the toggle locked to that state. Incomplete: rendered Video-screen acceptance pending.
+
 ## Unfilled sub-chunk slots light as air
 
 - Probable cause of reported dark corners on distant stepped terrain: a requested sub-chunk

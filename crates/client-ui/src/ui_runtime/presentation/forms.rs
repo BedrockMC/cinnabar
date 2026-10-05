@@ -77,6 +77,7 @@ pub mod start_feed;
 pub mod tests;
 pub mod textures;
 pub mod toast_screen;
+pub mod vsync_setting;
 
 pub use chat_screen::{CHAT_SCREEN, ChatHit};
 pub use container_data::observe_station_block;
