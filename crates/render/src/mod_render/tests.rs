@@ -151,11 +151,16 @@ fn primitives_queue_one_late_transparent_item_only_when_present() {
     app.world_mut()
         .run_system_once(primitives::init_gpu)
         .unwrap();
+    app.init_resource::<ModRenderScene>();
     app.world_mut().run_system_once(primitives::queue).unwrap();
     assert!(fixture::items(&app, view).is_empty());
-    app.world_mut()
-        .resource_mut::<primitives::PrimitiveGpu>()
-        .vertex_count = 6;
+    app.world_mut().resource_mut::<ModRenderScene>().apply(
+        &RenderOutput {
+            passes: Vec::new(),
+            primitives: Arc::new(decal()),
+        },
+        1,
+    );
     app.world_mut().run_system_once(primitives::queue).unwrap();
     let items = fixture::items(&app, view);
     assert_eq!(items.len(), 1);
@@ -224,4 +229,36 @@ fn replaced_passes_release_their_pipelines() {
         cache.pipelines().count()
     );
     assert_eq!(app.world().resource::<passes::PassGpu>().pipelines.len(), 1);
+}
+
+#[test]
+fn primitives_queue_on_the_frame_they_first_arrive() {
+    // Queue runs before resource preparation uploads the frame's vertices.
+    let (mut app, view) = fixture::app();
+    app.init_resource::<primitives::PrimitivePipeline>()
+        .add_render_command::<Transparent3d, primitives::DrawPrimitiveCommands>();
+    app.world_mut()
+        .run_system_once(primitives::init_gpu)
+        .unwrap();
+    let mut scene = ModRenderScene::default();
+    scene.apply(
+        &RenderOutput {
+            passes: Vec::new(),
+            primitives: Arc::new(decal()),
+        },
+        1,
+    );
+    app.insert_resource(scene);
+    app.world_mut().run_system_once(primitives::queue).unwrap();
+    assert_eq!(fixture::items(&app, view).len(), 1);
+    fixture::clear(&mut app, view);
+    app.world_mut().resource_mut::<ModRenderScene>().clear();
+    app.world_mut()
+        .resource_mut::<primitives::PrimitiveGpu>()
+        .vertex_count = 6;
+    app.world_mut().run_system_once(primitives::queue).unwrap();
+    assert!(
+        fixture::items(&app, view).is_empty(),
+        "stale uploads queue nothing"
+    );
 }

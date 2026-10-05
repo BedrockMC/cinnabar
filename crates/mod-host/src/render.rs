@@ -190,17 +190,30 @@ impl wit::Host for State {
         if params.len() > MAX_PASS_PARAMS || !params.iter().all(|value| value.is_finite()) {
             return Ok(Err("pass params must be at most 16 finite values".into()));
         }
-        let Some(pass) = self
+        let mut values = [0.0; MAX_PASS_PARAMS];
+        values[..params.len()].copy_from_slice(&params);
+        let current = self
+            .render
+            .staged_passes
+            .as_ref()
+            .unwrap_or(&self.render.committed.passes)
+            .iter()
+            .find(|pass| pass.name == name);
+        match current {
+            None => return Ok(Err("unknown render pass".into())),
+            // Per-frame updates are usually unchanged; those must not copy the pass list.
+            Some(pass) if pass.enabled == enabled && pass.params == values => return Ok(Ok(())),
+            Some(_) => {}
+        }
+        if let Some(pass) = self
             .render
             .staged()
             .iter_mut()
             .find(|pass| pass.name == name)
-        else {
-            return Ok(Err("unknown render pass".into()));
-        };
-        pass.enabled = enabled;
-        pass.params = [0.0; MAX_PASS_PARAMS];
-        pass.params[..params.len()].copy_from_slice(&params);
+        {
+            pass.enabled = enabled;
+            pass.params = values;
+        }
         Ok(Ok(()))
     }
 
@@ -278,3 +291,7 @@ fn convert(primitives: wit::Primitives) -> Primitives {
             .collect(),
     }
 }
+
+#[cfg(test)]
+#[path = "render_tests.rs"]
+mod tests;

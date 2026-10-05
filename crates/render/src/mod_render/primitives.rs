@@ -291,12 +291,13 @@ fn prepare_bind_group(
 pub(crate) fn queue(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<PrimitivePipeline>,
-    gpu: Res<PrimitiveGpu>,
+    scene: Option<Res<ModRenderScene>>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    if gpu.vertex_count == 0 {
+    // Queue precedes the upload, so this frame's scene decides; the draw reads the upload.
+    if scene.is_none_or(|scene| scene.vertices.is_empty()) {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawPrimitiveCommands>();

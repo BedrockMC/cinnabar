@@ -247,3 +247,223 @@ fn decals_render_on_the_ground_and_respect_scene_depth() {
     gpu_snapshot::save("mod-telegraph-decal", &open);
     gpu_snapshot::save("mod-telegraph-decal-occluded", &occluded);
 }
+
+/// Renders a depth ramp whose texel `i` holds `(i + 0.5) / side`, then reads it back through
+/// `depth(uv)` at each pixel centre of a pass target with the same size.
+fn depth_through_pass(gpu: &Gpu, side: u32) -> Vec<u8> {
+    let size = wgpu::Extent3d {
+        width: side,
+        height: 1,
+        depth_or_array_layers: 1,
+    };
+    let texture = |format, usage| {
+        gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
+    };
+    let depth = texture(
+        wgpu::TextureFormat::Depth32Float,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+    );
+    let depth_view = depth.create_view(&Default::default());
+    let ramp = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(
+                format!(
+                    "@vertex fn v(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
+                    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+                    return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+                }}
+                @fragment fn f(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 {{
+                    return p.x / {side}.0;
+                }}"
+                )
+                .into(),
+            ),
+        });
+    let ramp_pipeline = gpu
+        .device
+        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &ramp,
+                entry_point: Some("v"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Always,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &ramp,
+                entry_point: Some("f"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            multiview: None,
+            cache: None,
+        });
+    // Touches every binding so the derived layout matches the production one.
+    let source = "fn effect(uv: vec2<f32>) -> vec3<f32> { return vec3<f32>(depth(uv)) + scene(uv) * param(0u); }";
+    let shader = mod_render::shader::compose(source, true).unwrap();
+    let module = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(shader.into()),
+        });
+    let target = texture(
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    );
+    let target_view = target.create_view(&Default::default());
+    let pass_pipeline = gpu
+        .device
+        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some(mod_render::shader::VERTEX_ENTRY),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some(mod_render::shader::FRAGMENT_ENTRY),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+            }),
+            multiview: None,
+            cache: None,
+        });
+    let frame = gpu.buffer(&frame_words(&[]), wgpu::BufferUsages::UNIFORM);
+    let scene = scene_texture(gpu);
+    let sampler = gpu.device.create_sampler(&Default::default());
+    let bindings = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pass_pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: frame.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&scene),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&depth_view),
+            },
+        ],
+    });
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(&ramp_pipeline);
+        pass.draw(0..3, 0..1);
+    }
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(&pass_pipeline);
+        pass.set_bind_group(0, &bindings, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    // Rows are padded to the copy alignment.
+    let row = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: u64::from(row),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        target.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(1),
+            },
+        },
+        size,
+    );
+    gpu.queue.submit([encoder.finish()]);
+    readback
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    let bytes = readback.slice(..).get_mapped_range()[..side as usize * 4].to_vec();
+    bytes
+}
+
+#[test]
+fn depth_reads_the_texel_under_each_scene_pixel() {
+    let Some(gpu) = Gpu::for_fixture("depth_reads_the_texel_under_each_scene_pixel") else {
+        return;
+    };
+    let side = 4;
+    let pixels = depth_through_pass(&gpu, side);
+    for texel in 0..side as usize {
+        let expected = (texel as f32 + 0.5) / side as f32 * 255.0;
+        let actual = f32::from(pixels[texel * 4]);
+        assert!(
+            (actual - expected).abs() <= 1.5,
+            "pixel {texel} read depth {actual}, expected {expected}: {pixels:?}"
+        );
+    }
+}
