@@ -42,10 +42,12 @@ impl GpuArtwork {
         }
         self.identity = Some(identity);
         let limits = device.limits();
-        let bytes = pages.pages.iter().try_fold(
-            render_model::MAX_RENDERED_PLAYERS * STANDARD_SKIN_BYTES,
-            |total, page| total.checked_add(page.rgba8.len()),
-        );
+        let bytes = pages
+            .pages
+            .iter()
+            .try_fold(crate::actor::PLAYER_SKIN_BUDGET_BYTES, |total, page| {
+                total.checked_add(page.rgba8.len())
+            });
         if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES
             || bytes.is_none_or(|bytes| bytes > MAX_ACTOR_GPU_PIXEL_BYTES)
             || pages

@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use meshing::FaceConnectivity;
 use world::SubChunkKey;
@@ -8,6 +9,8 @@ const INITIAL_Y_BITS: u32 = 5;
 /// Growth stops at 2^20 cells; anything beyond stays in the overflow map.
 const MAX_CELL_BITS: u32 = 20;
 const PRESENT: u64 = 1 << 63;
+const MAX_ADDITIONS: usize = 4096;
+static NEXT_GRID_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy)]
 struct Cell {
@@ -31,16 +34,49 @@ pub(super) enum Slot {
 /// Face connectivity on a toroidal grid indexed by sub-chunk coordinates.
 ///
 /// Invariant: an overflow key's home cell is occupied, so an empty cell is a definite miss.
-#[derive(Default)]
 pub(crate) struct ConnectivityGrid {
     xz_bits: u32,
     y_bits: u32,
     cells: Vec<Cell>,
     overflow: HashMap<SubChunkKey, FaceConnectivity>,
     len: usize,
+    identity: u64,
+    epoch: u64,
+    additions: Vec<SubChunkKey>,
+}
+
+impl Default for ConnectivityGrid {
+    /// Independent grids cannot reuse another graph's retained traversal state.
+    fn default() -> Self {
+        Self {
+            xz_bits: 0,
+            y_bits: 0,
+            cells: Vec::new(),
+            overflow: HashMap::new(),
+            len: 0,
+            identity: NEXT_GRID_ID.fetch_add(1, Ordering::Relaxed),
+            epoch: 0,
+            additions: Vec::new(),
+        }
+    }
 }
 
 impl ConnectivityGrid {
+    /// Identifies this graph, its slot layout and the retained addition history.
+    pub(super) fn checkpoint(&self) -> (u64, u64, usize) {
+        (self.identity, self.epoch, self.additions.len())
+    }
+
+    /// Additions since a checkpoint remain valid only within the same graph epoch.
+    pub(super) fn additions_since(&self, offset: usize) -> &[SubChunkKey] {
+        &self.additions[offset..]
+    }
+
+    /// Retires incremental readers after a destructive change or bounded journal rollover.
+    fn invalidate_traversals(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.additions.clear();
+    }
     #[must_use]
     pub(crate) const fn len(&self) -> usize {
         self.len
@@ -109,6 +145,12 @@ impl ConnectivityGrid {
             if self.overflow.len() > 64.max(self.len / 16) {
                 self.grow();
             }
+            if self.additions.len() == MAX_ADDITIONS {
+                self.invalidate_traversals();
+            }
+            self.additions.push(key);
+        } else if previous != Some(value) {
+            self.invalidate_traversals();
         }
         previous
     }
@@ -129,10 +171,14 @@ impl ConnectivityGrid {
             self.overflow.remove(key)
         };
         self.len -= usize::from(removed.is_some());
+        if removed.is_some() {
+            self.invalidate_traversals();
+        }
         removed
     }
 
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&SubChunkKey) -> bool) {
+        let previous_len = self.len;
         self.overflow.retain(|key, _| keep(key));
         let mut len = self.overflow.len();
         for cell in &mut self.cells {
@@ -162,6 +208,9 @@ impl ConnectivityGrid {
                 key,
                 bits: value.bits() | PRESENT,
             };
+        }
+        if self.len != previous_len {
+            self.invalidate_traversals();
         }
     }
 
@@ -249,6 +298,7 @@ impl ConnectivityGrid {
     }
 
     fn reset(&mut self, xz_bits: u32, y_bits: u32) {
+        self.invalidate_traversals();
         self.xz_bits = xz_bits;
         self.y_bits = y_bits;
         self.cells = vec![EMPTY; 1 << (2 * xz_bits + y_bits)];

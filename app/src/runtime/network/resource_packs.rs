@@ -349,7 +349,7 @@ fn compile_application(
     })
 }
 
-/// Compiled join results persist here across launches; unset, nothing is written.
+/// Server-pack archives and compiled join results persist here; unset, nothing is written.
 static COMPILE_CACHE: std::sync::OnceLock<client_session::compile_cache::CompileCache> =
     std::sync::OnceLock::new();
 

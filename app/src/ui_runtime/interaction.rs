@@ -429,6 +429,16 @@ pub(crate) fn drive_chat_keyboard_input(
         cursor.visible = true;
         return;
     }
+    if !window.focused {
+        modifiers.reset_all();
+        keyboard_messages.clear();
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        mouse_motion.delta = Vec2::ZERO;
+        cursor.grab_mode = CursorGrabMode::None;
+        cursor.visible = true;
+        return;
+    }
     if runtime.server_forms().owns_input()
         || runtime.emotes().is_open()
         || emote_input.is_some_and(|consumed| consumed.0)
@@ -450,18 +460,6 @@ pub(crate) fn drive_chat_keyboard_input(
         cursor.visible = true;
         return;
     }
-    if !window.focused {
-        modifiers.reset_all();
-        keyboard_messages.clear();
-        if runtime.chat_focused() {
-            runtime.close_chat();
-        }
-        if runtime.inventory_open() {
-            runtime.close_inventory(&mut player_runtime);
-        }
-        return;
-    }
-
     // An already-open inventory owns this frame's pointer edge. Keyboard
     // transitions below may close it or open a new UI, so both sides of the
     // transition are checked before preserving that edge for the inventory
