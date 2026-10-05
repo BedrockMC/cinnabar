@@ -1,5 +1,6 @@
 use assets::{
-    FontTexturePage, GlyphMetrics, RuntimeFontCatalog, RuntimeHudCatalog, encode_font_catalog,
+    FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, RuntimeHudCatalog,
+    encode_font_catalog,
 };
 use protocol::{
     BossAction as ProtocolBossAction, BossColor as ProtocolBossColor, BossEvent,
@@ -165,7 +166,7 @@ fn fixture_font_with_page_count(page_count: usize) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: 1,
                 height: 1,
-                rgba8: pixels,
+                pixels: FontPixels::Rgba8(pixels),
             }
         })
         .collect::<Vec<_>>();

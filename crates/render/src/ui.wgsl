@@ -15,6 +15,8 @@ const STYLE_ALPHA_TEST: u32 = UI_STYLE_ALPHA_TEST;
 @group(0) @binding(1) var ui_pages: texture_2d_array<f32>;
 @group(0) @binding(2) var ui_sampler: sampler;
 @group(0) @binding(3) var ui_linear_sampler: sampler;
+// x is 1 when the bucket stores one coverage byte per texel of a white page.
+@group(0) @binding(4) var<uniform> ui_page_format: vec4<u32>;
 
 struct UiVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -88,6 +90,9 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         sample = textureSampleLevel(ui_pages, ui_linear_sampler, normalized_uv, i32(input.texture_page), 0.0);
     } else {
         sample = textureSampleLevel(ui_pages, ui_sampler, normalized_uv, i32(input.texture_page), 0.0);
+    }
+    if ui_page_format.x != 0u {
+        sample = vec4<f32>(1.0, 1.0, 1.0, sample.r);
     }
     if (input.style_flags & STYLE_GRAYSCALE) != 0u {
         // Provisional luma weights (Rec. 601); the retail material is not inspected.

@@ -13,7 +13,7 @@ fn independent_font(sides: &[u32]) -> Arc<RuntimeFontCatalog> {
                 pixels_sha256: Sha256::digest(&pixels).into(),
                 width: side,
                 height: side,
-                rgba8: pixels,
+                pixels: FontPixels::Rgba8(pixels),
             }
         })
         .collect::<Vec<_>>();
@@ -158,7 +158,7 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     for (index, source) in font.pages().iter().enumerate() {
         let page = &presentation.textures.pages()[index];
         assert_eq!(page.dimensions(), [source.width, source.height]);
-        assert_eq!(page.pixels().as_ptr(), source.rgba8.as_ptr());
+        assert_eq!(page.pixels().as_ptr(), source.pixels.bytes().as_ptr());
     }
 }
 

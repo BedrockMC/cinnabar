@@ -12,9 +12,10 @@ use std::{
 use ::assets::{
     AtmosphereRole, AtmosphereTexture, BlobProvenance, BlockFlags, BlockVisual, CompiledAssets,
     CompiledAtmosphereAssets, CompiledBiomeAssets, CompiledEntityAssets, EntityAssetKind,
-    EntityAssetSource, EntityAssetSymbol, FontTexturePage, GlyphMetrics, Material, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage, TextureRef,
-    VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob, encode_font_catalog,
+    EntityAssetSource, EntityAssetSymbol, FontPixels, FontTexturePage, GlyphMetrics, Material,
+    NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip, TexturePage,
+    TextureRef, VisualKind, encode_atmosphere_blob, encode_blob, encode_entity_blob,
+    encode_font_catalog,
 };
 use bedrock_client::args::{ClientArgs, ParseOutcome};
 use bedrock_client::asset_startup::{
@@ -214,7 +215,7 @@ fn synthetic_font_blob_with_manifest(seed: u8, manifest_sha256: [u8; 32]) -> Box
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 1,
         height: 1,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyphs = [GlyphMetrics {
         codepoint: '\u{fffd}',

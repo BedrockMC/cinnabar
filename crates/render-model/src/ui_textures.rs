@@ -34,10 +34,29 @@ enum Pixels {
     },
 }
 
+/// How a page's texels are stored, and so the format of the bucket it uploads to.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum UiTextureFormat {
+    #[default]
+    Rgba8,
+    /// One alpha byte per texel of a white page; the shader samples it as white with that alpha.
+    Coverage,
+}
+
+impl UiTextureFormat {
+    pub const fn bytes_per_texel(self) -> usize {
+        match self {
+            Self::Rgba8 => 4,
+            Self::Coverage => 1,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UiTexturePage {
     dimensions: [u32; 2],
     identity: [u8; 32],
+    format: UiTextureFormat,
     pixels: Pixels,
 }
 
@@ -53,6 +72,7 @@ impl UiTexturePage {
         Ok(Self {
             dimensions,
             identity: Sha256::digest(&pixels).into(),
+            format: UiTextureFormat::Rgba8,
             pixels: Pixels::Owned(pixels),
         })
     }
@@ -66,13 +86,18 @@ impl UiTexturePage {
             .get(page)
             .ok_or(UiRenderRejectReason::InvalidTextureExtent)?;
         let dimensions = [source.width, source.height];
-        if source.rgba8.len() != page_bytes(dimensions)? {
+        let format = match source.pixels {
+            assets::FontPixels::Rgba8(_) => UiTextureFormat::Rgba8,
+            assets::FontPixels::Coverage(_) => UiTextureFormat::Coverage,
+        };
+        if source.pixels.bytes().len() != page_bytes_in(dimensions, format)? {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         // RuntimeFontCatalog can only be obtained through its authenticated decoder.
         Ok(Self {
             dimensions,
             identity: source.pixels_sha256,
+            format,
             pixels: Pixels::Font { catalog, page },
         })
     }
@@ -80,25 +105,35 @@ impl UiTexturePage {
     pub fn pixels(&self) -> &[u8] {
         match &self.pixels {
             Pixels::Owned(pixels) => pixels,
-            Pixels::Font { catalog, page } => &catalog.pages()[*page].rgba8,
+            Pixels::Font { catalog, page } => catalog.pages()[*page].pixels.bytes(),
         }
     }
 
     pub const fn dimensions(&self) -> [u32; 2] {
         self.dimensions
     }
+    pub const fn format(&self) -> UiTextureFormat {
+        self.format
+    }
     pub const fn identity(&self) -> [u8; 32] {
         self.identity
     }
 }
 
-fn page_bytes([width, height]: [u32; 2]) -> Result<usize, UiRenderRejectReason> {
+fn page_bytes(dimensions: [u32; 2]) -> Result<usize, UiRenderRejectReason> {
+    page_bytes_in(dimensions, UiTextureFormat::Rgba8)
+}
+
+fn page_bytes_in(
+    [width, height]: [u32; 2],
+    format: UiTextureFormat,
+) -> Result<usize, UiRenderRejectReason> {
     if width == 0 || height == 0 || width > MAX_UI_TEXTURE_SIDE || height > MAX_UI_TEXTURE_SIDE {
         return Err(UiRenderRejectReason::InvalidTextureExtent);
     }
     (width as usize)
         .checked_mul(height as usize)
-        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_mul(format.bytes_per_texel()))
         .ok_or(UiRenderRejectReason::InvalidTextureExtent)
 }
 
@@ -111,6 +146,7 @@ pub struct UiTextureLocation {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiTextureBucket {
     pub dimensions: [u32; 2],
+    pub format: UiTextureFormat,
     pub layers: u32,
 }
 
@@ -124,15 +160,26 @@ pub struct UiTexturePlan {
 impl UiTexturePlan {
     /// Dry plan all pages, including blank reservations, before allocating pixels.
     pub fn new(dimensions: &[[u32; 2]]) -> Result<Self, UiRenderRejectReason> {
-        if dimensions.is_empty() || dimensions.len() > MAX_UI_TEXTURE_LAYERS as usize {
+        let pages = dimensions
+            .iter()
+            .map(|&dimensions| (dimensions, UiTextureFormat::Rgba8))
+            .collect::<Vec<_>>();
+        Self::with_formats(&pages)
+    }
+
+    /// Plans pages of mixed storage; each format gets its own buckets.
+    pub fn with_formats(
+        pages: &[([u32; 2], UiTextureFormat)],
+    ) -> Result<Self, UiRenderRejectReason> {
+        if pages.is_empty() || pages.len() > MAX_UI_TEXTURE_LAYERS as usize {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let mut buckets = Vec::<UiTextureBucket>::new();
-        let mut locations = Vec::with_capacity(dimensions.len());
+        let mut locations = Vec::with_capacity(pages.len());
         let mut bytes = 0usize;
-        for &dimensions in dimensions {
+        for &(dimensions, format) in pages {
             bytes = bytes
-                .checked_add(page_bytes(dimensions)?)
+                .checked_add(page_bytes_in(dimensions, format)?)
                 .ok_or(UiRenderRejectReason::InvalidTextureExtent)?;
             if bytes > MAX_UI_TEXTURE_BYTES {
                 return Err(UiRenderRejectReason::TextureByteLimitExceeded {
@@ -140,19 +187,22 @@ impl UiTexturePlan {
                     limit: MAX_UI_TEXTURE_BYTES,
                 });
             }
-            let bucket =
-                if let Some(index) = buckets.iter().position(|b| b.dimensions == dimensions) {
-                    index
-                } else {
-                    if buckets.len() == MAX_UI_TEXTURE_BUCKETS {
-                        return Err(UiRenderRejectReason::InvalidTextureExtent);
-                    }
-                    buckets.push(UiTextureBucket {
-                        dimensions,
-                        layers: 0,
-                    });
-                    buckets.len() - 1
-                };
+            let bucket = if let Some(index) = buckets
+                .iter()
+                .position(|b| b.dimensions == dimensions && b.format == format)
+            {
+                index
+            } else {
+                if buckets.len() == MAX_UI_TEXTURE_BUCKETS {
+                    return Err(UiRenderRejectReason::InvalidTextureExtent);
+                }
+                buckets.push(UiTextureBucket {
+                    dimensions,
+                    format,
+                    layers: 0,
+                });
+                buckets.len() - 1
+            };
             locations.push(UiTextureLocation {
                 bucket,
                 layer: buckets[bucket].layers,
@@ -250,11 +300,11 @@ impl UiTextureCatalog {
         {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
-        let dimensions = pages
+        let planned = pages
             .iter()
-            .map(UiTexturePage::dimensions)
+            .map(|page| (page.dimensions, page.format))
             .collect::<Vec<_>>();
-        let plan = UiTexturePlan::new(&dimensions)?;
+        let plan = UiTexturePlan::with_formats(&planned)?;
         let mut all = Sha256::new();
         let mut static_pages = Sha256::new();
         all.update(source_identity);
@@ -346,4 +396,32 @@ fn valid_dynamic_dimensions(offset: usize, [width, height]: [u32; 2]) -> bool {
             && (UI_DYNAMIC_PAGE_SIDE..=MAX_UI_TEXTURE_SIDE).contains(&width);
     }
     [width, height] == [UI_ART_PAGE_SIDE; 2]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Coverage pages get their own one-byte-per-texel buckets beside same-sized RGBA pages.
+    #[test]
+    fn coverage_pages_plan_separate_quarter_size_buckets() {
+        let side = [64, 64];
+        let plan = UiTexturePlan::with_formats(&[
+            (side, UiTextureFormat::Coverage),
+            (side, UiTextureFormat::Rgba8),
+            (side, UiTextureFormat::Coverage),
+        ])
+        .unwrap();
+        assert_eq!(plan.buckets().len(), 2);
+        assert_eq!(plan.buckets()[0].format, UiTextureFormat::Coverage);
+        assert_eq!(plan.buckets()[0].layers, 2);
+        assert_eq!(
+            plan.locations()[2],
+            UiTextureLocation {
+                bucket: 0,
+                layer: 1
+            }
+        );
+        assert_eq!(plan.bytes(), 64 * 64 * (1 + 4 + 1));
+    }
 }

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use assets::{CompiledFontCatalog, FontTexturePage, GlyphMetrics, encode_font_catalog};
+use assets::{CompiledFontCatalog, FontPixels, FontTexturePage, GlyphMetrics, encode_font_catalog};
 use sha2::{Digest, Sha256};
 use ui::{
     BedrockColor, TextError, TextLayout, TextLayoutCache, TextLayoutRequest, TextLineAlign,
@@ -20,7 +20,7 @@ fn font() -> CompiledFontCatalog {
         pixels_sha256: Sha256::digest(&rgba8).into(),
         width: 32,
         height: 8,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let glyphs: Vec<GlyphMetrics> = [' ', '-', '.', 'W', 'a', 'b', 'c', 'd', '\u{fffd}']
         .into_iter()
