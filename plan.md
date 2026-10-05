@@ -1,3 +1,12 @@
+## Menu frame passes and retained memory
+
+- The HUD composites after FXAA, inside the output pass; FXAA is off with no world drawn.
+- The panorama draws opaque in the main pass; a static menu frame is two fullscreen passes.
+- Font pages are coverage bytes on CPU and GPU; the transparent ref buffer grows on demand;
+  JSON-UI caches evict least recently used entries.
+- Incomplete visual acceptance: a rendered menu and HUD frame (text sharpness, panorama,
+  crosshair, screen overlays) on the target platform is pending.
+
 ## Java-style Tab player list
 
 - User-requested HUD extension: hold Tab for the authoritative online roster.
