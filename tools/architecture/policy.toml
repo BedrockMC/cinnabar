@@ -176,6 +176,13 @@ path = "crates/input"
 allowed_dependencies = []
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+# Control wire, auth and recording primitives shared by the client glue and controllers.
+[[crates]]
+name = "developer-control"
+path = "crates/developer-control"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
 [[crates]]
 name = "render-api"
 path = "crates/render-api"
@@ -211,7 +218,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "particles", "player-state", "protocol", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
+allowed_dependencies = ["acceptance", "assets", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "inventory", "json-ui", "launcher", "meshing", "mod-host", "pack-compiler", "particles", "player-state", "protocol", "render", "render-model", "resource-pack", "semantic-input", "server-experience", "sim", "ui", "world"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -314,8 +321,22 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "jsonui-mcp"
 path = "tools/jsonui-mcp"
-allowed_dependencies = ["json-ui", "jsonui-editor"]
+allowed_dependencies = ["json-ui", "jsonui-editor", "mcp-stdio"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+[[crates]]
+name = "mcp-stdio"
+path = "tools/mcp-stdio"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+# Drives a developer client over its loopback control endpoint; never links the client.
+[[crates]]
+name = "cinnabar-mcp"
+path = "tools/cinnabar-mcp"
+allowed_dependencies = ["developer-control", "mcp-stdio"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+forbidden_transitive_dependencies = ["app", "bedrock-client", "bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
 name = "cinnabar-cxb"

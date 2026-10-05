@@ -632,6 +632,7 @@ dependencies = [
  "client-world",
  "crossbeam-channel",
  "ctrlc",
+ "developer-control",
  "diagnostics",
  "fontdue",
  "futures-lite",
@@ -1781,6 +1782,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-mcp"
+version = "0.1.5"
+dependencies = [
+ "developer-control",
+ "image",
+ "mcp-stdio",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2529,6 +2541,16 @@ dependencies = [
  "rustc_version",
  "syn 2.0.118",
  "unicode-xid",
+]
+
+[[package]]
+name = "developer-control"
+version = "0.1.5"
+dependencies = [
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -3889,6 +3911,7 @@ dependencies = [
  "image",
  "json-ui",
  "jsonui-editor",
+ "mcp-stdio",
  "serde_json",
  "uuid",
 ]
@@ -4076,6 +4099,13 @@ name = "maybe-owned"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
+
+[[package]]
+name = "mcp-stdio"
+version = "0.1.5"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "memchr"

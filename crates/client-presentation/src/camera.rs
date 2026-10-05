@@ -559,6 +559,9 @@ pub fn update_cursor_capture(
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
 ) {
+    if policy.driven {
+        return;
+    }
     let (window, mut cursor) = window.into_inner();
 
     // Focus loss has priority over every capture request, including auto-fly.

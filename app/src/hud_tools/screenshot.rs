@@ -149,7 +149,7 @@ fn report_saved(
 }
 
 /// Writes the capture as RGB so HDR alpha never reaches the file.
-fn write_png(image: Image, path: &Path) -> SaveResult {
+pub(crate) fn write_png(image: Image, path: &Path) -> SaveResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
