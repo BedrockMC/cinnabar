@@ -47,7 +47,7 @@ pub struct ControlObservation {
     pub sprint_blocked: bool,
     /// Ability flight is active, where sneak means descend and never latches.
     pub flying: bool,
-    /// Native SprintTrigger cannot stop an existing sprint while the previous
+    /// Vanilla cannot stop an existing sprint while the previous
     /// swimming pose has current body-water contact.
     pub retain_sprint: bool,
 }

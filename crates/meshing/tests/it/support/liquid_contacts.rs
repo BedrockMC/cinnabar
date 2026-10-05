@@ -13,7 +13,7 @@ fn has_face(mesh: &ChunkMesh, face: Face) -> bool {
 }
 
 // Vanilla classic WATER material 5 compares neighbouring primary
-// BlockType with Air, not its opacity. Deferred model 1 instead compares material;
+// block type with air, not its opacity. Deferred model 1 instead compares material;
 // non-water liquids do not enter this special gate. Top admission is separate.
 #[test]
 fn classic_water_hides_non_air_primary_contacts_even_without_opaque_faces() {

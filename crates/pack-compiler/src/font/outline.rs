@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use assets::{
-    FONT_CARRIER_SCHEMA, FontTexturePage, GlyphMetrics, MAX_FONT_PAGE_SIDE, MAX_FONT_SOURCE_BYTES,
-    encode_font_catalog,
+    FONT_CARRIER_SCHEMA, FontPixels, FontTexturePage, GlyphMetrics, MAX_FONT_PAGE_SIDE,
+    MAX_FONT_SOURCE_BYTES, encode_font_catalog,
 };
 use fontdue::{Font, FontSettings};
 use sha2::{Digest, Sha256};
@@ -131,7 +131,7 @@ pub fn compile_outline_font(
         pixels_sha256,
         width: config.atlas_side,
         height: config.atlas_side,
-        rgba8,
+        pixels: FontPixels::Rgba8(rgba8),
     };
     let pages = [page];
     let bytes = encode_font_catalog(source_manifest_sha256, &glyphs, &pages)?;

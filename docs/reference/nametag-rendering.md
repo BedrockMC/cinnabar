@@ -1,4 +1,4 @@
-# Native name-tag rendering rules
+# Name-tag rendering rules
 
 ## Vanilla rules
 
@@ -51,17 +51,10 @@ username, without changing its scoreboard name authority.
 
 ## Material and shader witnesses
 
-The installed PlayCover app and the IPA named `Minecraft-1.26.50-for-iOS-mcpelife.ipa`
-contain the definitions in `data/resource_packs/vanilla/materials/ui3D.material`, lines
-224–345, and readable Metal shaders in `data/renderer/materials/Nametag.material.bin`
-and `UIText.material.bin`. Their **internal version is 1.26.51.01**, not the filename's
-1.26.50; they corroborate the material rules but are not a version-matched shader-pack witness.
-SHA-256 values: `ui3D.material`
-`2ca6efaa1e93d650c2476025cb4d6043a70a14516ae542ffcb4218dc8abeeaec`,
-`Nametag.material.bin`
-`cf0f7d60b85c42324fa2955c50a599405bdbaf238c0d800b9eeeefb17ff98d49`,
-`UIText.material.bin`
-`b1f6dc57ea38b7ececf55ec1209b5521e005e192bf05fe0b08ee6ea01e85eb2b`.
+The installed vanilla app defines these in `data/resource_packs/vanilla/materials/ui3D.material`,
+with shaders in `data/renderer/materials/Nametag.material.bin` and `UIText.material.bin`.
+That install is **1.26.51.01**, so it corroborates the material rules but is not a
+version-matched shader-pack witness.
 
 `name_tag` blends with DisableDepthWrite and Always; `name_tag_depth_tested` inherits
 the plate and changes to LessEqual. `name_tag_text` blends with Always and does not

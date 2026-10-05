@@ -27,6 +27,7 @@ mod json5;
 mod label;
 mod layout;
 mod localize;
+mod lru;
 mod merge;
 mod pack;
 mod predicate;
@@ -42,6 +43,9 @@ mod widgets;
 use std::collections::BTreeMap;
 
 use serde_json::Value;
+
+#[cfg(test)]
+mod allocation_count;
 
 pub use anim::{
     AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
@@ -223,8 +227,8 @@ impl Context {
             .fold(Self::desktop(), |context, (name, value)| {
                 context.with_flag(name, *value)
             });
-        // `SceneFactory::_createSafeZoneSizeVar` at the desktop defaults (safe
-        // zone 1, screen position 0) sizes every buffer zero along its axis.
+        // The safe zone at the desktop defaults (safe zone 1, screen position 0)
+        // sizes every buffer zero along its axis.
         let vertical = || serde_json::json!(["100%", 0]);
         let horizontal = || serde_json::json!([0, "100%"]);
         context

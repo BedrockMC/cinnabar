@@ -41,8 +41,8 @@ impl LocalPhysicsController {
             let fly_toggle_pending = self.fly_toggle_pending;
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
-            // MovePlayer changes spatial state without resetting jump input or
-            // movement abilities (native MovePlayerInput RVAs 04b046c0/04b047e0).
+            // As in vanilla, MovePlayer changes spatial state without resetting
+            // jump input or movement abilities.
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
             self.fly_toggle_pending = fly_toggle_pending;
@@ -89,8 +89,8 @@ impl LocalPhysicsController {
             f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
             f64::from(network_position[2]),
         );
-        // Vanilla's correction input writes both position and StateVector
-        // motion into the corrected frame before replaying later inputs.
+        // Vanilla's correction input writes both position and velocity
+        // into the corrected frame before replaying later inputs.
         corrected.position = feet;
         corrected.on_ground = on_ground;
         // Axis collisions describe the motion that produced a position, so they

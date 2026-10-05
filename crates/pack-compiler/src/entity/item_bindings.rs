@@ -2,7 +2,7 @@
 //!
 //! This bounded crosswalk adds canonical inventory keys to the existing atlas
 //! routes. It establishes neither auxiliary icon states nor metadata policy.
-//! Current Item::initClient reads components.minecraft:icon;
+//! Vanilla reads components.minecraft:icon;
 //! the table records native packaged seed components omitted from the sample pack.
 
 use std::collections::BTreeSet;

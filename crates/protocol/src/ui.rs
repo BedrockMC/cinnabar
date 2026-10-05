@@ -773,7 +773,7 @@ pub(crate) fn normalize_block_crack(
     Ok(BlockCrackEvent { position, action })
 }
 
-/// Floors a coordinate as `LevelRendererPlayer::levelEvent` does.
+/// Floors a coordinate as vanilla's level-event handling does.
 fn floored_block_coordinate(value: f32, field: &'static str) -> Result<i32, UiPacketError> {
     let error = UiPacketError::InvalidBlockCrackPosition {
         field,

@@ -52,7 +52,7 @@ pub(crate) struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
-// Native ItemInHandRenderer::tick: ±0.4 clamp and cached
+// Vanilla held-item tick: ±0.4 clamp and cached
 // stack replacement at height <= 0.1.
 const ARM_HEIGHT_STEP: f32 = 0.4;
 const ARM_SWAP_HEIGHT: f32 = 0.1;
@@ -97,7 +97,7 @@ pub(super) fn advance_motion(
             .advance(query::actor_flag(actor, query::FLAG_STANDING));
     }
     // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
-    // a mob: Actor::getInterpolatedBodyYaw returns 0, while
+    // a mob: its interpolated body yaw is 0, while
     // query.target_y_rotation reads the actor's absolute rotation.
     if query::is_arrow(actor) {
         motion.body_yaw = 0.0;
@@ -540,7 +540,7 @@ pub(super) fn apply_engine_variables(
         f32::from(context.view_bobbing.unwrap_or(true)),
     );
     if is_native_fish(actor) {
-        // The native updater publishes FishAnimationComponent before pack scripts.
+        // Vanilla publishes the fish animation phase before pack scripts.
         let [current, previous] = motion.fish_phase();
         variables.set(engine.fish_animation_amount, current);
         variables.set(engine.fish_animation_amount_previous, previous);

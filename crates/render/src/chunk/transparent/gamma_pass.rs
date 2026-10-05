@@ -1,6 +1,6 @@
 //! Ordinary terrain transparency blends encoded colour, not linear colour.
 //!
-//! Current client RendererSettings selects UNORM format 0x57, while
+//! Vanilla selects UNORM format 0x57, while
 //! the renderer uses that format for the colour attachment. The near-version ordinary
 //! RenderChunk/Transparent Metal fragment writes gamma RGB without a transfer.
 //! Opaque sRGB-target bytes already have that encoding: copy them unchanged into

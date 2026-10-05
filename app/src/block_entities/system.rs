@@ -213,8 +213,8 @@ fn light_factor(block: u8, sky: u8, daylight: f32) -> f32 {
 }
 
 fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> BlockEntityLight {
-    // Current SkullBlockRenderer supplies BlockSource light at
-    // the skull's BlockPos to mob_head's ordinary entity material.
+    // Vanilla lights a skull with the world light at its block position,
+    // through mob_head's ordinary entity material.
     if matches!(kind, BlockEntityKind::Skull(_)) {
         BlockEntityLight::Actor { block, sky }
     } else {

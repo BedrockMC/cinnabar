@@ -14,7 +14,9 @@ use bevy::render::render_resource::{BindGroupEntry, BindingResource, PipelineCac
 use render_model::UiRenderRejectReason;
 
 use super::{UiGpu, UiPipeline};
-use render_model::{UiTextureCatalog, UiTextureLocation, UiTexturePage, UiTexturePlan};
+use render_model::{
+    UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
+};
 
 /// Observes schedule-separated device-resource changes, not arbitrary context IDs.
 pub(crate) struct DeviceObservation {
@@ -46,6 +48,8 @@ impl DeviceObservation {
 pub(super) struct GpuBucket {
     pub(super) texture: Texture,
     pub(super) view: TextureView,
+    /// `x` is 1 for a coverage bucket, which the shader samples as white with that alpha.
+    pub(super) format_uniform: bevy::render::render_resource::Buffer,
     pub(super) bind_group: Option<BindGroup>,
 }
 
@@ -162,15 +166,17 @@ impl UiGpuTextures {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let dirty = self.state.dirty(catalog)?;
-        let format = TextureFormat::Rgba8Unorm.guaranteed_format_features(device.features());
-        if !format
-            .allowed_usages
-            .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
-            || !format
-                .flags
-                .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
-        {
-            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        for format in [TextureFormat::Rgba8Unorm, TextureFormat::R8Unorm] {
+            let format = format.guaranteed_format_features(device.features());
+            if !format
+                .allowed_usages
+                .contains(TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST)
+                || !format
+                    .flags
+                    .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
+            {
+                return Err(UiRenderRejectReason::InvalidTextureExtent);
+            }
         }
         // All catalog and per-device admission checks precede allocation/writes.
         if resized {
@@ -192,7 +198,10 @@ impl UiGpuTextures {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: TextureDimension::D2,
-                    format: TextureFormat::Rgba8Unorm,
+                    format: match bucket.format {
+                        UiTextureFormat::Rgba8 => TextureFormat::Rgba8Unorm,
+                        UiTextureFormat::Coverage => TextureFormat::R8Unorm,
+                    },
                     usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
                     view_formats: &[],
                 });
@@ -201,9 +210,18 @@ impl UiGpuTextures {
                     dimension: Some(TextureViewDimension::D2Array),
                     ..Default::default()
                 });
+                let coverage = u32::from(bucket.format == UiTextureFormat::Coverage);
+                let format_uniform = device.create_buffer_with_data(
+                    &bevy::render::render_resource::BufferInitDescriptor {
+                        label: Some("UI bucket page format"),
+                        contents: bytemuck::cast_slice(&[coverage, 0, 0, 0]),
+                        usage: bevy::render::render_resource::BufferUsages::UNIFORM,
+                    },
+                );
                 self.buckets.push(GpuBucket {
                     texture,
                     view,
+                    format_uniform,
                     bind_group: None,
                 });
             }
@@ -233,7 +251,7 @@ impl UiGpuTextures {
                 page.pixels(),
                 TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(width * 4),
+                    bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
                     rows_per_image: Some(height),
                 },
                 Extent3d {
@@ -283,6 +301,10 @@ pub(super) fn prepare_ui_bind_group(
                 BindGroupEntry {
                     binding: 3,
                     resource: BindingResource::Sampler(&linear_sampler),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: bucket.format_uniform.as_entire_binding(),
                 },
             ],
         ));
