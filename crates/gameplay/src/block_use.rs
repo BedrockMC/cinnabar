@@ -391,7 +391,7 @@ pub fn predicted_toggle(
     collisions.block_state_runtime_id(mode, identifier, &states)
 }
 
-/// Trapdoors and levers flip `open_bit` (`TrapDoorBlock::_useTrapDoor`); an
+/// Trapdoors and levers flip `open_bit`; an
 /// unpressed button presses. Doors and fence gates also change their other
 /// half or facing, which is not modelled, so they wait for the server.
 pub fn toggled_states(

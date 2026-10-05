@@ -64,7 +64,7 @@ impl HitKind {
     }
 }
 
-/// A control's press sound (`SoundComponent`): its `sound_name`, else the first
+/// A control's press sound: its `sound_name`, else the first
 /// `sounds` entry for a button event on the control's button (or any button).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ControlSound {

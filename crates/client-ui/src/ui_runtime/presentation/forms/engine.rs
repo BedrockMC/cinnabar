@@ -674,7 +674,7 @@ impl Painter<'_> {
         filter: json_ui::SpriteFilter,
     ) -> Option<UiVisual> {
         let Some((page, [x, y, w, h])) = self.textures.sprite(path) else {
-            // An unresolved texture draws `mce::TexturePtr`'s default white texture.
+            // An unresolved texture draws vanilla's default white texture.
             return self.textures.missing(path).then_some(UiVisual::Solid {
                 texture_page: self.solid_page,
                 color,

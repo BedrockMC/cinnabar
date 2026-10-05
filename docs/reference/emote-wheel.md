@@ -7,9 +7,24 @@ The control is listed in Keyboard & Mouse and Controller settings. Change Emotes
 original custom dance in a chosen slot and persists the complete slot array.
 Equipping an already equipped piece moves/swaps it rather than duplicating it.
 
-## Identified references
+## Vanilla rules
 
-
+- The emote action is named `key.emote`; its keyboard default is B.
+- The pinned pack's `persona_emote.emote_wheel_screen` and
+  `persona_common.emote_wheel_panel` define four cardinal slots. The
+  controller's contextual global bindings query each originating control's
+  `#index`.
+- The controller default is D-pad Left, bound as `button.emote`. Supplemental
+  binding rows are appended to preserve saved IDs.
+- Playing an emote slot accepts slots 0–3. Equipping an emote bounds the slot
+  and swaps an already equipped piece into the requested slot.
+- The selection wheel's radius follows the shorter rectangle side; the inner
+  boundary is excluded and the outer is included. Visibility selects one state,
+  and the wheel starts with no hovered slice.
+- Playing an emote drives animation controller playback and emoting status; it
+  does not directly change the camera perspective.
+- Nonzero horizontal movement requests emote cancellation.
+- Emoting keeps the HUD paper doll visible with the existing hold timer.
 
 ## Original custom emote
 

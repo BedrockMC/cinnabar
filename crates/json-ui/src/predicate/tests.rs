@@ -90,7 +90,7 @@ fn predicates_over_variables() {
     assert_eq!(eval("($banner_text_binding_name = '')", &env()), Some(true));
 }
 
-// An unbound `$var` is null as in `UIEval::evalVariable`; with no bag a `#name`
+// An unbound `$var` is null as in vanilla; with no bag a `#name`
 // is undecidable.
 #[test]
 fn unbound_variable_is_null_and_bagless_binding_undecidable() {

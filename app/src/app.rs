@@ -533,6 +533,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     ui_presentation
         .enable_json_ui(ui_assets)
         .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
+    let ui_catalog = crate::runtime::network::PackUiCatalog(
+        ui_presentation
+            .pack_catalog_base()
+            .context("JSON-UI engine is missing its carrier catalog")?,
+    );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
     // Dev-only: CINNABAR_OREUI_LOCAL_ASSETS compares OreUI against the install's originals.
     if let Some(images) = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images()
@@ -619,6 +624,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             client_blob_cache: client_blob_cache.cache(),
             player_skin: local_player_skin.clone(),
             actor_artwork: Some(actor_artwork.clone()),
+            ui_catalog: Some(ui_catalog.0.clone()),
         })
         .context("spawn Bedrock network worker")
         {
@@ -701,6 +707,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
     .insert_resource(SessionController::new(core_process))
+    .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
@@ -814,9 +821,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                 .map(std::path::PathBuf::from),
         ))
         .init_resource::<render::RuntimeStageSpans>()
+        .add_plugins(render::GpuTimingPlugin)
         .add_systems(
             First,
             (
+                crate::runtime::frame_profile::track_frame_interval,
                 crate::runtime::frame_profile::trace_frame_focus,
                 render::begin_stage_span::<MAIN_FRAME>,
             )

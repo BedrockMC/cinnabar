@@ -7,9 +7,8 @@ use world::{ChunkKey, SUB_CHUNK_SIDE as SIDE, SubChunkKey};
 const TRANSFER_RADIUS_BLOCKS: f32 = 16.0;
 const END_SPAWN_Y: f32 = 50.0;
 
-// Current client offset initializer 02ddc3a0 copies these 57 eight-byte
-// ChunkPos entries into a 0x1c8-byte vector. Level slot 0x830 (01313e50)
-// returns this list independently of the server's simulation radius.
+// Vanilla's 57 client ticking chunk offsets, used independently of the
+// server's simulation radius.
 pub(super) const CLIENT_TICKING_OFFSETS: &[[i32; 2]] = &[
     [-1, -4],
     [0, -4],

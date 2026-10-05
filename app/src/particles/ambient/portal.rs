@@ -47,7 +47,7 @@ fn effect_for_state(state: Option<&str>) -> &'static str {
     let axis_x = state
         .and_then(|state| serde_json::from_str::<serde_json::Value>(state).ok())
         .is_some_and(|state| state["portal_axis"]["value"].as_str() == Some("x"));
-    // Native PortalAxis::X (1) selects the north/south effect. Unknown (0)
+    // Vanilla portal axis x (1) selects the north/south effect. Unknown (0)
     // follows the same east/west route as Z (2), without inferring neighbors.
     if axis_x { NORTH_SOUTH } else { EAST_WEST }
 }

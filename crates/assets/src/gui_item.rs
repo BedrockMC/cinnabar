@@ -68,7 +68,7 @@ pub fn project_cube([x, y, z]: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// Static shield ModelPart geometry through its own native GUI matrix, in design pixels.
+/// Static shield model-part geometry through its own vanilla GUI matrix, in design pixels.
 #[must_use]
 pub fn project_shield(authored: [f32; 3]) -> [f32; 3] {
     let [x, y, z] = [
@@ -86,7 +86,7 @@ pub fn project_shield(authored: [f32; 3]) -> [f32; 3] {
     })
 }
 
-/// ModelPart box UV layout, or explicit authored face UV dimensions.
+/// Model-part box UV layout, or explicit authored face UV dimensions.
 #[must_use]
 pub fn shield_face_uvs(cube: &EntityGeometryCube) -> [Option<[[f32; 2]; 4]>; 6] {
     let quad =

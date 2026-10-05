@@ -1,4 +1,4 @@
-//! Label painting after vanilla's `TextComponent`: one layout per label with
+//! Label painting after vanilla's label text: one layout per label with
 //! per-line alignment, line padding, hyphen chops and `...` at the lines its
 //! height holds. Native hover geometry lives in the sibling tooltip module.
 
