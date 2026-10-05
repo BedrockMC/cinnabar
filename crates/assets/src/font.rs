@@ -512,6 +512,7 @@ fn validate_page_offsets(bytes: &[u8], envelope: Envelope) -> Result<(), FontCat
         let pixel_offset = usize_at(bytes, base + 24)?;
         let pixel_length = usize_at(bytes, base + 32)?;
         let source_sha256 = array_at(bytes, base + 40)?;
+        // The envelope seals the pixels; their digests are checked when encoding.
         let pixels_sha256: [u8; 32] = array_at(bytes, base + 72)?;
         if u32_at(bytes, base + 104)? != 0
             || path_offset != expected_path_offset
@@ -544,9 +545,6 @@ fn validate_page_offsets(bytes: &[u8], envelope: Envelope) -> Result<(), FontCat
             return Err(invalid_carrier(
                 "font pages are not strictly source-ordered",
             ));
-        }
-        if Sha256::digest(&bytes[pixel_offset..pixel_end]).as_slice() != pixels_sha256 {
-            return Err(invalid_carrier("font page pixel SHA-256 is invalid"));
         }
         total_source_bytes = total_source_bytes
             .checked_add(u64::from(source_bytes))

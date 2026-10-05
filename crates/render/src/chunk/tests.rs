@@ -142,6 +142,7 @@ fn retirement_test_allocation() -> ArenaAllocation {
         biome_range: 2..6,
         biome_capacity: 4,
         gpu: GpuChunkAllocation {
+            cube_layout: CubeQuadLayout::default(),
             key: SubChunkKey::new(0, 0, 0, 0),
             generation: 7,
             tint_identity: ChunkBiomeTintIdentity::new(2, 2),

@@ -143,19 +143,15 @@ func observeTransfers(upstream upstreamSession, state *TransferState, logger *sl
 	return &transferObservingSession{upstreamSession: upstream, state: state, logger: logger}
 }
 
-func (s *transferObservingSession) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
-	batch, err := s.upstreamSession.ReadBatchRaw(func(id uint32) bool {
-		return id == packet.IDTransfer || decode != nil && decode(id)
-	})
-	for _, raw := range batch {
-		for _, value := range raw.Decoded {
-			transfer, ok := value.(*packet.Transfer)
-			if !ok {
-				continue
-			}
-			if recordErr := s.state.Record(TransferTarget{Host: transfer.Address, Port: transfer.Port}); recordErr != nil && s.logger != nil {
-				s.logger.Warn("ignoring unusable server transfer", "error", recordErr)
-			}
+func (s *transferObservingSession) ReadBatch() ([]packet.Packet, error) {
+	batch, err := s.upstreamSession.ReadBatch()
+	for _, value := range batch {
+		transfer, ok := value.(*packet.Transfer)
+		if !ok {
+			continue
+		}
+		if recordErr := s.state.Record(TransferTarget{Host: transfer.Address, Port: transfer.Port}); recordErr != nil && s.logger != nil {
+			s.logger.Warn("ignoring unusable server transfer", "error", recordErr)
 		}
 	}
 	return batch, err
@@ -203,8 +199,8 @@ func observeDisconnects(upstream upstreamSession, callback func(DisconnectInfo))
 	return &disconnectObservingSession{upstreamSession: upstream, callback: callback}
 }
 
-func (s *disconnectObservingSession) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
-	batch, err := s.upstreamSession.ReadBatchRaw(decode)
+func (s *disconnectObservingSession) ReadBatch() ([]packet.Packet, error) {
+	batch, err := s.upstreamSession.ReadBatch()
 	if err != nil {
 		reportDisconnect(s.callback, err)
 	}
