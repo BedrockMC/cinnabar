@@ -149,9 +149,17 @@ pub(in crate::chunk) fn queue_chunks(
     } else {
         frame_probe.clear();
     }
+    let probing = frame_probe.is_active() || probes.input.enabled();
     let gpu_cull_view = gpu_culling.select(
         draw_mode,
-        frame_probe.is_active() || probes.input.enabled(),
+        probing,
+        views
+            .iter()
+            .map(|(entity, main, view, _, _, enhanced)| (entity, main, view, enhanced.is_some())),
+    );
+    let direct_view = gpu_culling.select_direct(
+        draw_mode,
+        probing,
         views
             .iter()
             .map(|(entity, main, view, _, _, enhanced)| (entity, main, view, enhanced.is_some())),
@@ -419,6 +427,12 @@ pub(in crate::chunk) fn queue_chunks(
             continue;
         }
 
+        // `Some(true)` routes solid faces to the terrain pass instead of this phase.
+        let terrain_pass = if direct_view == Some(view_entity) {
+            gpu_culling.begin_direct(view_entity, view, (solid_pipeline_id, solid_direct_draw))
+        } else {
+            None
+        };
         for &(render_entity, main_entity) in visible_entities.get::<ChunkRenderInstance>() {
             let Ok(allocation) = allocations.get(render_entity) else {
                 continue;
@@ -434,10 +448,16 @@ pub(in crate::chunk) fn queue_chunks(
             if !frame_probe.record_visible(render_entity, identity) {
                 continue;
             }
+            let solid = cube_stream_drawable(allocation);
+            if terrain_pass.is_some()
+                && let Some(frame) = gpu_culling.direct_frame()
+            {
+                frame.push(render_entity, solid);
+            }
             // Solid before cutout, so the cutout bin follows it in insertion order.
             let cube_draws = [
                 (
-                    cube_stream_drawable(allocation),
+                    solid && terrain_pass != Some(true),
                     solid_direct_draw,
                     solid_pipeline_id,
                 ),

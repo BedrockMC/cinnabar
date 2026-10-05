@@ -3,7 +3,7 @@
 use super::*;
 
 /// Boxes write their id; rectangles are screen-aligned NDC quads at a fixed depth.
-const SCENE_SHADER: &str = r#"
+pub(super) const SCENE_SHADER: &str = r#"
 struct View { clip_from_world: mat4x4<f32> }
 struct Item { low: vec4<f32>, high: vec4<f32> }
 @group(0) @binding(0) var<uniform> view: View;
@@ -33,7 +33,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) @interpolate(f
 @fragment fn colour_fragment(in: Out) -> @location(0) vec4<f32> { return vec4(f32(in.id) / 8.0); }
 "#;
 
-fn render_scene(
+pub(super) fn render_scene(
     gpu: &Gpu,
     target: &Target,
     entries: (&str, &str),
