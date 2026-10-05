@@ -40,12 +40,46 @@ struct Control {
 
 struct Slot {
     player: Player,
-    audio: Option<Arc<MediaAudio>>,
-    audio_generation: u64,
+    voice: Voice,
 }
 
-impl Drop for Slot {
-    /// Silences the mixer voice with its player; the decoder helper dies with the player.
+/// One player's mixer voice; only one exists process-wide, so a finished player hands it back.
+#[derive(Default)]
+struct Voice {
+    audio: Option<Arc<MediaAudio>>,
+    generation: u64,
+}
+
+impl Voice {
+    /// Opens, resets or keeps the voice for an active player; an inactive one releases it.
+    fn sync(
+        &mut self,
+        device: Option<&mut client_presentation::named_audio::AudioDevice>,
+        generation: u64,
+        active: bool,
+    ) -> Option<&Arc<MediaAudio>> {
+        if !active {
+            *self = Self::default();
+            return None;
+        }
+        if self.audio.is_none()
+            && generation != 0
+            && let Some(device) = device
+        {
+            self.audio = media_audio::start(device, generation);
+            self.generation = generation;
+        }
+        let audio = self.audio.as_ref()?;
+        if self.generation != generation {
+            audio.reset(generation);
+            self.generation = generation;
+        }
+        Some(audio)
+    }
+}
+
+impl Drop for Voice {
+    /// Retires the mixer source, which releases the voice permit.
     fn drop(&mut self) {
         if let Some(audio) = &self.audio {
             audio.cancel();
@@ -185,8 +219,7 @@ impl Media {
                 key.clone(),
                 Slot {
                     player,
-                    audio: None,
-                    audio_generation: 0,
+                    voice: Voice::default(),
                 },
             );
             self.frames.insert(key.clone(), None);
@@ -232,22 +265,12 @@ impl Media {
         local_us: u64,
     ) {
         for slot in self.players.values_mut() {
+            let active = !slot.player.playback().stopped && !slot.player.ended();
             let generation = slot.player.decoder_generation();
-            if slot.audio.is_none()
-                && generation != 0
-                && let Some(device) = device.as_deref_mut()
-            {
-                slot.audio = media_audio::start(device, generation);
-                slot.audio_generation = generation;
-            }
-            let Some(audio) = &slot.audio else {
+            let Some(audio) = slot.voice.sync(device.as_deref_mut(), generation, active) else {
                 while slot.player.take_pcm().is_some() {}
                 continue;
             };
-            if slot.audio_generation != generation {
-                audio.reset(generation);
-                slot.audio_generation = generation;
-            }
             while let Some(block) = slot.player.peek_pcm() {
                 if !audio.has_room(block.samples.len() / usize::from(block.channels)) {
                     break;
@@ -387,6 +410,18 @@ mod tests {
             count: 1,
         };
         assert!(screen(1, &mesh).is_none());
+    }
+
+    #[test]
+    fn a_finished_player_hands_the_single_mixer_voice_to_the_next() {
+        let (mut device, mut mixer) = client_presentation::named_audio::AudioDevice::memory_mixer();
+        let mut first = Voice::default();
+        assert!(first.sync(Some(&mut device), 1, true).is_some());
+        assert!(first.sync(Some(&mut device), 1, false).is_none());
+        // The mixer retires the cancelled source on its next pull, releasing the permit.
+        mixer.by_ref().take(64).for_each(drop);
+        let mut second = Voice::default();
+        assert!(second.sync(Some(&mut device), 1, true).is_some());
     }
 
     #[test]

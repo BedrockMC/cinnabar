@@ -19,6 +19,8 @@ pub enum Output {
 pub(super) struct Queues {
     pub(super) frames: FrameQueue,
     pub(super) pcm: VecDeque<PcmBlock>,
+    /// Presentation end of the latest decoded audio.
+    pub(super) audio_end_us: u64,
 }
 
 impl Queues {
@@ -45,6 +47,10 @@ impl Queues {
                         block.samples.len() / usize::from(block.channels)
                             <= super::super::OPUS_PACKET_FRAMES,
                         "PCM block exceeds packet frame limit"
+                    );
+                    let frames = (block.samples.len() / usize::from(block.channels)) as u64;
+                    self.audio_end_us = self.audio_end_us.max(
+                        block.pts_us + frames * 1_000_000 / u64::from(super::super::SAMPLE_RATE),
                     );
                     self.pcm.push_back(block);
                 }

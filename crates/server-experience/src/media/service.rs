@@ -219,6 +219,10 @@ impl Player {
         }
         if self.decoder_generation != self.playback.decode_generation {
             self.stop_decoder();
+            // A replaced helper's IPC thread releases the decoder slot shortly after it dies.
+            if !super::worker::DecoderLease::free() {
+                return Ok(());
+            }
             self.worker = Some(Worker::start(
                 &self.helper,
                 self.descriptor.clone(),
@@ -241,9 +245,17 @@ impl Player {
         } else {
             let interval = 1_000_000 / u64::from(self.descriptor.fps);
             if self.decoder_ended && self.output.pcm.is_empty() {
-                self.playback.finish(server_us, duration);
-                self.ended = true;
-                self.event(EventKind::Ended, position);
+                // The last frame stays up for its interval and queued audio plays out first.
+                let end = self
+                    .presented_us
+                    .map_or(0, |shown| shown.saturating_add(interval))
+                    .max(self.output.audio_end_us)
+                    .min(duration);
+                if position >= end {
+                    self.playback.finish(server_us, duration);
+                    self.ended = true;
+                    self.event(EventKind::Ended, position);
+                }
             } else if !self.decoder_ended
                 && self
                     .presented_us
@@ -283,6 +295,11 @@ impl Player {
             self.playback
                 .position(server_us, self.descriptor.duration_us),
         )
+    }
+
+    /// True once playback reached the presentation end.
+    pub fn ended(&self) -> bool {
+        self.ended
     }
 
     /// Decoder discontinuity counter; audio queued under another value is stale.
@@ -338,5 +355,96 @@ impl Player {
         self.decoder_generation = 0;
         self.decoder_ended = false;
         self.presented_us = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{
+            ranges::tests::descriptor_for,
+            timeline::{INITIAL_MEDIA_GENERATION, INITIAL_MEDIA_INSTANCE, Operation},
+        },
+        *,
+    };
+
+    /// A player for the 500 ms, 10 fps fixture descriptor, without a bundle or helper.
+    fn player() -> Player {
+        let owner = Principal {
+            session: "session".into(),
+            bundle: "cinema".into(),
+            generation: crate::policy::INITIAL_BUNDLE_GENERATION,
+        };
+        Player {
+            owner,
+            epoch: 1,
+            expires_unix: u64::MAX,
+            descriptor: descriptor_for(&[0; 16]),
+            origins: BTreeSet::new(),
+            data_budget: Arc::new(AtomicU64::new(0)),
+            helper: PathBuf::from("/nonexistent/cinnabar-media-helper"),
+            clock: Clock::local(),
+            ping: None,
+            ping_id: 0,
+            last_ping_us: 0,
+            playback: Playback::default(),
+            output: output::Queues::default(),
+            worker: None,
+            decoder_generation: 0,
+            decoder_ended: false,
+            presented_us: None,
+            announce_playing: false,
+            ended: false,
+            events: Vec::new(),
+            buffering: true,
+        }
+    }
+
+    fn play(player: &mut Player, revision: u64, at_us: u64) {
+        let message = Message {
+            owner: player.owner.clone(),
+            instance: INITIAL_MEDIA_INSTANCE,
+            generation: INITIAL_MEDIA_GENERATION,
+            timeline: player.descriptor.timeline.clone(),
+            world_epoch: 1,
+            revision,
+            effective_server_us: at_us,
+            operation: Operation::Play { position_us: 0 },
+        };
+        player.control(message, at_us).unwrap();
+    }
+
+    #[test]
+    fn a_restart_waits_for_the_previous_decoder_to_release_its_lease() {
+        let lease = super::super::worker::DecoderLease::acquire().unwrap();
+        let mut player = player();
+        play(&mut player, 1, 0);
+        player.tick(0, 0, true).unwrap();
+        assert!(player.worker.is_none() && player.buffering);
+        assert_eq!(player.decoder_generation, 0, "restart stays pending");
+        drop(lease);
+    }
+
+    #[test]
+    fn the_end_waits_for_the_last_frame_and_queued_audio_to_play_out() {
+        let mut player = player();
+        play(&mut player, 1, 0);
+        player.playback.advance(0, 500_000).unwrap();
+        player.decoder_generation = player.playback.decode_generation;
+        player.decoder_ended = true;
+        player.presented_us = Some(400_000);
+        player.tick(0, 417_000, true).unwrap();
+        assert!(
+            player.take_events().is_empty(),
+            "ended before the last frame's interval"
+        );
+        player.tick(0, 500_000, true).unwrap();
+        assert_eq!(
+            player.take_events(),
+            [Event {
+                kind: EventKind::Ended,
+                position_us: 500_000
+            }]
+        );
     }
 }
