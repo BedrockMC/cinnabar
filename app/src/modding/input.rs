@@ -18,6 +18,7 @@ pub(super) struct PhysicalControls {
     keys: MessageCursor<KeyboardInput>,
     mouse: MessageCursor<MouseButtonInput>,
     left_held: bool,
+    held_keys: Vec<String>,
     restore_capture: bool,
     panel_owned: bool,
 }
@@ -40,6 +41,23 @@ mod tests {
         assert!(!keys.just_released(KeyCode::KeyW));
         assert!(keys.pressed(KeyCode::KeyA));
         assert!(keys.just_pressed(KeyCode::KeyA));
+    }
+
+    #[test]
+    fn held_keys_follow_press_and_release_and_stay_bounded() {
+        let mut physical = PhysicalControls::default();
+        physical.track_held("Digit1".into(), true);
+        physical.track_held("Digit1".into(), true);
+        physical.track_held("ShiftLeft".into(), true);
+        assert_eq!(physical.held_keys, ["Digit1", "ShiftLeft"]);
+        physical.track_held("Digit1".into(), false);
+        assert_eq!(physical.held_keys, ["ShiftLeft"]);
+        for index in 0..mod_host::MAX_CONTROL_KEYS * 2 {
+            physical.track_held(format!("Key{index}"), true);
+        }
+        assert_eq!(physical.held_keys.len(), mod_host::MAX_CONTROL_KEYS);
+        physical.discard_pending(None, None);
+        assert!(physical.held_keys.is_empty());
     }
 
     #[test]
@@ -128,6 +146,21 @@ impl PhysicalControls {
             self.mouse.clear(events);
         }
         self.left_held = false;
+        self.held_keys.clear();
+    }
+
+    /// Tracks held keys from events, since reserved keys are reset out of the shared input state.
+    fn track_held(&mut self, key: String, pressed: bool) {
+        let index = self.held_keys.iter().position(|held| *held == key);
+        match (pressed, index) {
+            (true, None) if self.held_keys.len() < mod_host::MAX_CONTROL_KEYS => {
+                self.held_keys.push(key);
+            }
+            (false, Some(index)) => {
+                self.held_keys.swap_remove(index);
+            }
+            _ => {}
+        }
     }
 
     /// Remembers input ownership independently of guest reload or quarantine.
@@ -202,14 +235,17 @@ pub(super) fn prepare_mod_input(
     };
     let mut panel_keys = Vec::new();
     if let Some(events) = keyboard_events {
+        let mut transitions = Vec::new();
         for event in physical.keys.read(&events) {
-            if window.focused
-                && event.window == entity
-                && event.state == ButtonState::Pressed
-                && !matches!(event.key_code, KeyCode::Unidentified(_))
-            {
+            if event.window != entity || matches!(event.key_code, KeyCode::Unidentified(_)) {
+                continue;
+            }
+            let name = format!("{:?}", event.key_code);
+            let down = event.state == ButtonState::Pressed;
+            transitions.push((name.clone(), down));
+            if down && window.focused {
                 panel_keys.push((
-                    format!("{:?}", event.key_code),
+                    name,
                     event
                         .text
                         .as_deref()
@@ -221,6 +257,9 @@ pub(super) fn prepare_mod_input(
                     event.repeat,
                 ));
             }
+        }
+        for (name, down) in transitions {
+            physical.track_held(name, down);
         }
     }
     if let Some(events) = mouse_events {
@@ -334,10 +373,16 @@ pub(super) fn prepare_mod_input(
         } else {
             Vec::new()
         },
+        keys_held: if window.focused && !absorbed && !editing {
+            physical.held_keys.clone()
+        } else {
+            Vec::new()
+        },
         events,
     };
     if !window.focused {
         physical.left_held = false;
+        physical.held_keys.clear();
     }
     if (open || was_open)
         && let Some(mouse) = mouse.as_mut()

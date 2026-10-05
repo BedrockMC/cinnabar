@@ -1,4 +1,7 @@
-use crate::{CameraDelta, FRAME_FUEL, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModGrants};
+use crate::{
+    CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob, GameplaySnapshot, MAX_LABEL_BYTES,
+    MEMORY_BYTES, ModCue, ModGrants,
+};
 use anyhow::{Result, bail};
 use wasmtime::{
     Engine, Store, StoreLimits, StoreLimitsBuilder,
@@ -7,6 +10,7 @@ use wasmtime::{
 
 wasmtime::component::bindgen!({
     path: "../mod-api/wit", world: "extension", imports: { default: trappable },
+    additional_derives: [PartialEq],
 });
 
 const MAX_IMPORT_WRITES: u32 = 8;
@@ -34,6 +38,40 @@ struct State {
     pending_packet_delay: Option<u32>,
     packet_delay_writes: u32,
     controls: controls::ControlState,
+    world: gameplay::WorldState,
+}
+
+impl State {
+    fn new(grants: ModGrants, settings: String) -> Self {
+        Self {
+            limits: StoreLimitsBuilder::new()
+                .memory_size(MEMORY_BYTES)
+                .table_elements(4096)
+                .instances(16)
+                .memories(1)
+                .tables(2)
+                .trap_on_grow_failure(true)
+                .build(),
+            pressed: false,
+            label: None,
+            pending: None,
+            writes: 0,
+            grants,
+            time_override: None,
+            pending_time: None,
+            environment_writes: 0,
+            snapshot: None,
+            gameplay_reads: 0,
+            camera_writes: 0,
+            pending_camera: None,
+            camera_delta: None,
+            packet_delay_ms: 0,
+            pending_packet_delay: None,
+            packet_delay_writes: 0,
+            controls: controls::ControlState::new(settings),
+            world: gameplay::WorldState::default(),
+        }
+    }
 }
 
 impl cinnabar::extension::hud::Host for State {
@@ -101,33 +139,7 @@ impl Instance {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
         Extension::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let state = State {
-            limits: StoreLimitsBuilder::new()
-                .memory_size(MEMORY_BYTES)
-                .table_elements(4096)
-                .instances(16)
-                .memories(1)
-                .tables(2)
-                .trap_on_grow_failure(true)
-                .build(),
-            pressed: false,
-            label: None,
-            pending: None,
-            writes: 0,
-            grants,
-            time_override: None,
-            pending_time: None,
-            environment_writes: 0,
-            snapshot: None,
-            gameplay_reads: 0,
-            camera_writes: 0,
-            pending_camera: None,
-            camera_delta: None,
-            packet_delay_ms: 0,
-            pending_packet_delay: None,
-            packet_delay_writes: 0,
-            controls: controls::ControlState::new(settings),
-        };
+        let state = State::new(grants, settings);
         let mut store = Store::new(engine, state);
         store.limiter(|state| &mut state.limits);
         store.set_fuel(FRAME_FUEL)?;
@@ -146,6 +158,7 @@ impl Instance {
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
+        mobs: Vec<GameplayMob>,
         controls: crate::ControlFrame,
     ) -> Result<()> {
         let state = self.store.data_mut();
@@ -155,11 +168,14 @@ impl Instance {
         state.pending_packet_delay = None;
         state.packet_delay_writes = 0;
         state.controls.begin_frame();
+        state.world.begin_frame();
         if !self.active {
             return Ok(());
         }
         gameplay::validate_snapshot(snapshot.as_ref())?;
+        gameplay::validate_mobs(snapshot.as_ref(), &mobs)?;
         controls::validate_frame(&controls)?;
+        let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
         let state = self.store.data_mut();
         state.pressed = pressed;
         state.writes = 0;
@@ -167,6 +183,8 @@ impl Instance {
         state.gameplay_reads = 0;
         state.camera_writes = 0;
         state.snapshot = snapshot;
+        state.world.advance_command_window(snapshot_seconds);
+        state.world.mobs = mobs;
         state.controls.frame = controls;
         self.store.set_fuel(FRAME_FUEL)?;
         if let Err(error) = self.guest.call_frame(&mut self.store) {
@@ -179,14 +197,34 @@ impl Instance {
             self.store.data_mut().pending_camera = None;
             self.store.data_mut().camera_delta = None;
             self.store.data_mut().controls.revoke();
+            self.store.data_mut().world = gameplay::WorldState::default();
             self.store.data_mut().packet_delay_ms = 0;
             self.store.data_mut().pending_packet_delay = None;
             bail!("mod quarantined after a guest trap: {error:#}");
         }
         commit(&mut self.store);
         self.store.data_mut().snapshot = None;
+        self.store.data_mut().world.mobs = Vec::new();
+        self.store.data_mut().world.incoming = Vec::new();
         self.store.data_mut().controls.frame = crate::empty_controls();
         Ok(())
+    }
+
+    pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
+        self.store.data().world.rig
+    }
+
+    pub(super) fn take_commands(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.store.data_mut().world.commands)
+    }
+
+    /// Cues the next callback may poll; they last exactly one callback.
+    pub(super) fn deliver_cues(&mut self, cues: Vec<ModCue>) {
+        self.store.data_mut().world.incoming = gameplay::incoming(cues);
+    }
+
+    pub(super) fn take_cues(&mut self) -> Vec<ModCue> {
+        std::mem::take(&mut self.store.data_mut().world.cues)
     }
 
     pub(super) fn take_camera_delta(&mut self) -> Option<CameraDelta> {
@@ -240,6 +278,7 @@ impl Instance {
 fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.controls.commit();
+    state.world.commit();
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;

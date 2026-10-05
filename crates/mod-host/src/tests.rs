@@ -1,6 +1,7 @@
 use super::*;
 mod gameplay;
 mod prepared_settings;
+mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
 fn fixture(frame: &str, text: &str) -> String {
