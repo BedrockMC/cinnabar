@@ -94,9 +94,11 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
 
 pub(super) mod allocation_count;
 mod block_cracks;
+mod column_residency;
 mod commit_budget;
 mod dimension_transfer;
 mod light_scheduler;
+mod local_retention;
 mod neighbour_deadlines;
 
 mod mesh_dependency;

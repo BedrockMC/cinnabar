@@ -157,7 +157,7 @@ pub(crate) fn update_look(
     ),
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    settings: Res<CameraSettingsAuthority>,
+    settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
     smoother: ResMut<look::LookSmoother>,
     view: ResMut<LocalViewPose>,
@@ -205,6 +205,15 @@ pub(crate) fn update_movement(
         view,
     );
 }
+/// Present while a developer controller drives input; the window then counts as focused and
+/// captured without touching the OS cursor.
+#[derive(Resource, Debug, Default)]
+#[cfg_attr(
+    not(feature = "developer-control"),
+    allow(dead_code, reason = "inserted only by the developer control endpoint")
+)]
+pub(crate) struct DrivenInput;
+
 /// Samples UI cursor authority immediately before presentation updates capture.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
@@ -218,8 +227,10 @@ pub(crate) fn update_cursor_capture(
     menu: Option<Res<crate::menu::MenuRuntime>>,
     presentation: Option<Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>>,
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
+    driven: Option<Res<DrivenInput>>,
 ) {
     let policy = client_presentation::observations::CursorPolicy {
+        driven: driven.is_some(),
         consent: consent.is_some_and(|consent| consent.0),
         absorbs_input: crate::screen_policy::absorbs_input(
             &player_runtime,

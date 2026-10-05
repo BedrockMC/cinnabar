@@ -25,6 +25,21 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    fn set_packet_delay(&mut self, delay_ms: u32) -> Result<Result<(), String>> {
+        self.packet_delay_writes += 1;
+        if self.packet_delay_writes > MAX_IMPORT_WRITES {
+            bail!("packet delay import budget exhausted");
+        }
+        if !self.grants.packet_delay {
+            return Ok(Err("packet delay capability denied".into()));
+        }
+        if delay_ms > mod_api::MAX_PACKET_DELAY_MS {
+            return Ok(Err("packet delay exceeds the capability limit".into()));
+        }
+        self.pending_packet_delay = Some(delay_ms);
+        Ok(Ok(()))
+    }
+
     fn set_attack_reach(&mut self, blocks: Option<f32>) -> Result<Result<(), String>> {
         self.set_reach(blocks)
     }

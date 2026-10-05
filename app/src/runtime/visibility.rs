@@ -68,6 +68,16 @@ impl CaveVisibilityCache {
         }
     }
 
+    /// Graph additions can only reveal entities, so publication visits just the added keys.
+    fn publish_additions(&mut self, mut set: impl FnMut(Entity, bool)) {
+        for key in self.scratch.added_visible() {
+            if let Some(&entity) = self.rendered.get(key) {
+                set(entity, true);
+                self.visible_rendered += 1;
+            }
+        }
+    }
+
     /// Whether the culler hides the box from `low` to `high` in `dimension`: as in vanilla,
     /// only when the cache matches graph `generation` and every sub-chunk the
     /// box overlaps is `known` to that graph without being visible.
@@ -132,13 +142,18 @@ pub(crate) fn refresh_cave_visibility(
     }
 
     let cache = &mut *cache;
-    stream.cave_visible_sub_chunks_into(camera_key, &mut cache.scratch, &mut cache.next_visible);
+    let rebuilt = stream.update_cave_visible_sub_chunks(
+        camera_key,
+        &mut cache.scratch,
+        &mut cache.visible,
+        &mut cache.next_visible,
+    );
     cache.camera = Some(camera_key);
     cache.graph_generation = Some(generation);
-    if cache.initialized && cache.visible == cache.next_visible {
+    if rebuilt && cache.initialized && cache.visible == cache.next_visible {
         return;
     }
-    cache.publish_next(|entity, visible| {
+    let set = |entity, visible| {
         let Ok(mut visibility) = chunks.get_mut(entity) else {
             return;
         };
@@ -150,7 +165,12 @@ pub(crate) fn refresh_cave_visibility(
         if *visibility != desired {
             *visibility = desired;
         }
-    });
+    };
+    if rebuilt {
+        cache.publish_next(set);
+    } else {
+        cache.publish_additions(set);
+    }
 }
 
 pub(crate) fn apply_added_chunk_visibility(

@@ -102,7 +102,6 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             .and_then(|id| stream.and_then(|stream| stream.authority().actor(id)))
             .is_some_and(|actor| actor.status.dead);
     let blocked = input.consent.as_ref().is_some_and(|consent| consent.0)
-        || !input.window.0.focused
         || input.menu.as_ref().is_some_and(|menu| menu.is_visible())
         || input.runtime.chat_focused()
         || input.runtime.inventory_open()
@@ -114,6 +113,20 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.keyboard.clear();
         input.runtime.emotes_mut().close();
         input.runtime.emotes_mut().stop();
+        if let Some(presentation) = input.presentation.as_deref_mut() {
+            presentation.set_emote_pointer(None);
+        }
+        return;
+    }
+    if !input.window.0.focused {
+        input.keyboard.clear();
+        input.keys.reset_all();
+        input.mouse.reset_all();
+        input.motion.delta = Vec2::ZERO;
+        input.observed.pointer = None;
+        input.consumed.0 = owned;
+        input.window.1.grab_mode = CursorGrabMode::None;
+        input.window.1.visible = true;
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_pointer(None);
         }

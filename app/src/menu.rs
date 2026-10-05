@@ -162,6 +162,10 @@ pub(crate) struct MenuRuntime {
     /// Failed writes wait until this deadline while retaining the newest edits.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
+    /// In-memory option overrides (index, persisted value) that saves never write.
+    session_overrides: Vec<(usize, i32)>,
+    /// A developer controller is driving: hotkey toggles stay in memory.
+    transient_toggles: bool,
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,

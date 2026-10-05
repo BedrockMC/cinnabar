@@ -55,6 +55,7 @@ struct Grants {
     controls: bool,
     interaction: bool,
     settings: bool,
+    packet_delay: bool,
 }
 
 impl From<&Grants> for ModGrants {
@@ -66,6 +67,7 @@ impl From<&Grants> for ModGrants {
             controls: grants.controls,
             interaction: grants.interaction,
             settings: grants.settings,
+            packet_delay: grants.packet_delay,
         }
     }
 }
