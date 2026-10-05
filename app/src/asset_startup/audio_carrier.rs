@@ -14,7 +14,6 @@ use std::{
 };
 
 use assets::RuntimeAudioCatalog;
-use sha2::{Digest, Sha256};
 
 use super::{
     AssetStartupError, DEFAULT_ASSET_PATH, VANILLA_SOURCE_JSON, canonical_source_manifest_sha256,
@@ -170,7 +169,7 @@ pub fn load_audio_assets(
         });
     }
     Ok(Some(LoadedAudioAssets {
-        identity: Sha256::digest(&bytes).into(),
+        identity: runtime.carrier_sha256(),
         runtime: Arc::new(runtime),
         selected_path: path,
     }))
