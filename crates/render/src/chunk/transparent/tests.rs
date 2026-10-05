@@ -50,6 +50,7 @@ pub(super) fn resident_transparent_allocation(
     tint_identity: ChunkBiomeTintIdentity,
 ) -> GpuChunkAllocation {
     GpuChunkAllocation {
+        cube_layout: CubeQuadLayout::default(),
         key: identity.key,
         generation: identity.mesh_generation,
         tint_identity,

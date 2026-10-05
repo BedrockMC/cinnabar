@@ -88,11 +88,13 @@ impl CubeQuadLayout {
         Face::PositiveZ,
     ];
 
-    pub(crate) fn from_solid_counts(counts: [u32; 6]) -> Self {
+    /// Layout for `counts` solid quads per face, indexed by `Face as usize`.
+    #[must_use]
+    pub fn from_solid_counts(counts: [u32; 6]) -> Self {
         let mut end = 0_u32;
         Self {
             solid_ends: Self::SOLID_FACE_ORDER.map(|face| {
-                end += counts[face as usize];
+                end = end.saturating_add(counts[face as usize]);
                 end
             }),
         }
