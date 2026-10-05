@@ -118,15 +118,24 @@ impl Prompter for Recorder {
     }
 }
 
+/// The bundled compiler stands in as a script whose check reports a stale pack carrier.
+#[cfg(unix)]
 #[test]
 fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
+    use std::os::unix::fs::PermissionsExt;
+
     let data = Dir::new("failing-step");
     let mut layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
     layout.resource_root = data.path().join("resources");
     let kit = layout.prep_kit();
-    fs::create_dir_all(kit.join("bin")).unwrap();
-    fs::create_dir_all(kit.join("data")).unwrap();
-    fs::write(kit.join("bin").join(runner::assetc_name()), b"compiler").unwrap();
+    let compiler = assets::carriers::kit_compiler(&kit);
+    fs::create_dir_all(compiler.parent().unwrap()).unwrap();
+    fs::write(
+        &compiler,
+        "#!/bin/sh\necho '{\"current\":false,\"stale\":[\"world\"],\"needs_pack\":true}'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&compiler, fs::Permissions::from_mode(0o755)).unwrap();
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     zip.start_file("../escape.txt", zip::write::SimpleFileOptions::default())
         .unwrap();
@@ -134,11 +143,6 @@ fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
     let archive = zip.finish().unwrap().into_inner();
     let sha = format!("{:x}", Sha256::digest(&archive));
     write_vanilla_manifest(&kit, "https://example.invalid/pack.zip", &sha, "pack.zip");
-    fs::write(
-        kit.join("assets/cinnangles-sans-source.json"),
-        r#"{"font_file":"Font.ttf"}"#,
-    )
-    .unwrap();
     // A verified download is reused, so the run reaches the unpack step offline.
     let downloads = layout
         .prepare_workspace()
