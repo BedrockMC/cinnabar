@@ -1422,15 +1422,19 @@ with an opaque server disconnect after roughly 23 minutes; disconnect acceptance
 remains open. The inspection build received another opaque server kick after
 roughly nine minutes with zero decode errors. Targeted-entity F3 diagnostics
 pass their regressions. The user
-identified the sheep as zero-scale floating-text hosts; preserving scale zero
-and correcting the pale blended title backgrounds are in progress.
+identified the sheep as zero-scale floating-text hosts. Scale zero now suppresses
+their bodies while retaining names. Ordinary SDR title panels blend encoded
+destination colors; a fresh Metal frame shows dark panels and no floating sheep.
+Enhanced/HDR/MSAA actor blending and exact cross-family order remain incomplete.
 Standing and hanging lantern body, cap and handle measurements use a near-version
 native witness. Their geometry, UVs and lighting remain fallback support pending
 exact current-version verification. NPC controller particle routing and alpha-first
 hex tint decoding pass owner and app route regressions; user frames show NPC
-particles. Their ten-minute emitter deadline remains incomplete.
-Unsupported locators and initialization scripts remain incomplete. Actor material
-pipelines still compile on first appearance; loading prewarming is incomplete.
+particles. Authored emitter lifetimes now survive ten minutes and remain bounded
+by actor/state teardown and admission limits. Unsupported locators and initialization
+scripts remain incomplete. Actor raster pipelines prewarm during loading; the
+loading gate holds until their compilation completes. Focused regressions pass;
+this inspection build does not establish frame-budget or session acceptance.
 See `docs/evidence/hive-connection.md` for the functional checks.
 
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
