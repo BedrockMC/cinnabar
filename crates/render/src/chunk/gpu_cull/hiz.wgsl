@@ -1,5 +1,6 @@
 // Reverse-Z depth pyramid: every texel keeps the farthest (smallest) depth it covers.
-// Level 0 texel x covers depth pixels 2x and 2x + 1; each level halves with clamped reads.
+// Level 0 texel x covers depth pixels 2x and 2x + 1, and level L texel x every pixel p with
+// p >> (L + 1) == x. Power-of-two levels halve exactly; padding texels read clamped edges.
 
 @group(0) @binding(0) var depth_single: texture_depth_2d;
 @group(0) @binding(1) var depth_multi: texture_depth_multisampled_2d;

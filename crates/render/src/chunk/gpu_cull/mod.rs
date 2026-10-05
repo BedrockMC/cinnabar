@@ -41,7 +41,10 @@ pub(in crate::chunk) fn gpu_cull_supported(
 ) -> bool {
     !forced_cpu
         && draw_mode == ChunkDrawMode::MultiDrawIndirect
-        && features.contains(WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT)
+        // Count-driven draws address quads through a non-zero `first_instance`.
+        && features.contains(
+            WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE,
+        )
         && downlevel.contains(DownlevelFlags::COMPUTE_SHADERS)
 }
 
