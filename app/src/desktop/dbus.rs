@@ -3,17 +3,27 @@
 use std::{
     collections::HashMap,
     path::PathBuf,
+    pin::pin,
     sync::atomic::{AtomicU32, Ordering},
+    time::Duration,
 };
 
+use futures_lite::{Stream, StreamExt, future};
 use zbus::{
-    blocking::{Connection, Proxy},
+    MatchRule,
+    blocking::{Connection, MessageIterator, Proxy},
+    message::Type,
     zvariant::{OwnedObjectPath, OwnedValue, Value},
 };
 
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const REQUEST: &str = "org.freedesktop.portal.Request";
+/// The user may still be browsing; past this the tool fallbacks take over.
+const CHOOSER_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const OPEN_URI_TIMEOUT: Duration = Duration::from_secs(30);
+/// Responses buffered while the call is in flight; other apps' requests can share the bus.
+const RESPONSE_QUEUE: usize = 64;
 
 type Results = HashMap<String, OwnedValue>;
 
@@ -27,6 +37,7 @@ pub(crate) fn open_uri(uri: &str) -> zbus::Result<()> {
         "OpenURI",
         uri,
         HashMap::new(),
+        OPEN_URI_TIMEOUT,
     )?;
     opened(code)
 }
@@ -54,6 +65,7 @@ pub(crate) fn pick_file(
         "OpenFile",
         title,
         options,
+        CHOOSER_TIMEOUT,
     )?;
     chosen_file(code, results)
 }
@@ -97,13 +109,14 @@ pub(crate) fn notify(summary: &str, body: &str) -> zbus::Result<()> {
 }
 
 /// Calls a portal method shaped `(parent_window, argument, options)`; returns its response code
-/// (0 success, 1 cancelled, 2 other) and results.
+/// (0 success, 1 cancelled, 2 other) and results, or an error once `timeout` passes.
 fn request(
     connection: &Connection,
     interface: &str,
     method: &str,
     argument: &str,
     mut options: HashMap<&str, Value<'_>>,
+    timeout: Duration,
 ) -> zbus::Result<(u32, Results)> {
     static NEXT_TOKEN: AtomicU32 = AtomicU32::new(0);
     let token = format!(
@@ -111,25 +124,51 @@ fn request(
         std::process::id(),
         NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
     );
-    let sender = connection
-        .unique_name()
-        .ok_or_else(|| zbus::Error::Failure("session bus gave no unique name".into()))?;
-    let expected = request_path(sender.as_str(), &token);
-    // Subscribing before the call means a fast Response cannot be missed.
-    let mut responses =
-        Proxy::new(connection, PORTAL, expected.as_str(), REQUEST)?.receive_signal("Response")?;
     options.insert("handle_token", Value::from(token));
+    // Every Response is buffered from before the call, so one that beats the returned handle
+    // (older portals ignore the token and choose their own path) is still matched.
+    let rule = MatchRule::builder()
+        .msg_type(Type::Signal)
+        .interface(REQUEST)?
+        .member("Response")?
+        .path_namespace(format!("{PORTAL_PATH}/request"))?
+        .build();
+    let responses = MessageIterator::for_match_rule(rule, connection, Some(RESPONSE_QUEUE))?
+        .into_inner()
+        .map(|message| {
+            let message = message?;
+            let path = message.header().path().map(ToString::to_string);
+            Ok((path, message))
+        });
     let portal = Proxy::new(connection, PORTAL, PORTAL_PATH, interface)?;
     let handle: OwnedObjectPath = portal.call(method, &("", argument, options))?;
-    // Portals older than handle tokens answer on a path of their own choosing.
-    if handle.as_str() != expected {
-        responses =
-            Proxy::new(connection, PORTAL, handle.as_str(), REQUEST)?.receive_signal("Response")?;
-    }
-    let response = responses
-        .next()
-        .ok_or_else(|| zbus::Error::Failure("portal request closed without a response".into()))?;
+    let response = async_io::block_on(future::or(
+        response_for(responses, handle.as_str()),
+        async {
+            async_io::Timer::after(timeout).await;
+            Err(zbus::Error::Failure(format!(
+                "{method} got no response within {timeout:?}"
+            )))
+        },
+    ))?;
     response.body().deserialize()
+}
+
+/// The first event addressed to `handle`, skipping other requests' responses.
+async fn response_for<T>(
+    events: impl Stream<Item = zbus::Result<(Option<String>, T)>>,
+    handle: &str,
+) -> zbus::Result<T> {
+    let mut events = pin!(events);
+    while let Some(event) = events.next().await {
+        let (path, value) = event?;
+        if path.as_deref() == Some(handle) {
+            return Ok(value);
+        }
+    }
+    Err(zbus::Error::Failure(
+        "portal request closed without a response".into(),
+    ))
 }
 
 /// Whether the user completed the request; `false` when they dismissed it, `Err` when the
@@ -144,12 +183,6 @@ fn response(method: &str, code: u32) -> zbus::Result<bool> {
     }
 }
 
-/// The Request object a portal creates for `token`, per the portal's documented path scheme.
-fn request_path(unique_name: &str, token: &str) -> String {
-    let sender = unique_name.trim_start_matches(':').replace('.', "_");
-    format!("{PORTAL_PATH}/request/{sender}/{token}")
-}
-
 fn file_path(uri: &str) -> Option<PathBuf> {
     url::Url::parse(uri).ok()?.to_file_path().ok()
 }
@@ -159,11 +192,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_path_follows_the_sender_and_token() {
+    fn a_response_that_arrives_before_the_handle_is_known_still_matches() {
+        let handle = "/org/freedesktop/portal/desktop/request/1_9/legacy";
+        let other = "/org/freedesktop/portal/desktop/request/1_3/other";
+        let events = futures_lite::stream::iter([
+            Ok((Some(other.to_owned()), "other app")),
+            Ok((None, "no path")),
+            Ok((Some(handle.to_owned()), "ours")),
+            Ok((Some(handle.to_owned()), "late duplicate")),
+        ]);
         assert_eq!(
-            request_path(":1.42", "cinnabar_7_0"),
-            "/org/freedesktop/portal/desktop/request/1_42/cinnabar_7_0"
+            async_io::block_on(response_for(events, handle)).unwrap(),
+            "ours"
         );
+        let unrelated = futures_lite::stream::iter([Ok((Some(other.to_owned()), "other app"))]);
+        assert!(async_io::block_on(response_for(unrelated, handle)).is_err());
     }
 
     #[test]
