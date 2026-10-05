@@ -352,7 +352,7 @@ pub fn prepare_actor_render_frame(
         if let Some(ticks) = input.swing_started {
             stream.start_local_player_swing(ticks);
         }
-        stream.set_actor_camera_rotation(actor_camera_rotation(view.rotation()));
+        stream.set_actor_camera_rotation(actor_camera_rotation(view.camera_rotation()));
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
