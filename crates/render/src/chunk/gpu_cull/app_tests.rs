@@ -14,6 +14,7 @@ use bevy::{
     window::WindowPlugin,
 };
 
+use super::model::CullRecord;
 use super::*;
 
 fn noop_render_plugin() -> RenderPlugin {

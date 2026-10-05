@@ -427,12 +427,15 @@ impl Target {
     fn pass<'e>(&self, encoder: &'e mut wgpu::CommandEncoder, clear: bool) -> wgpu::RenderPass<'e> {
         let color = self.color.create_view(&Default::default());
         let depth = self.depth.create_view(&Default::default());
-        let load = |value| {
-            if clear {
-                wgpu::LoadOp::Clear(value)
-            } else {
-                wgpu::LoadOp::Load
-            }
+        let sky = wgpu::Color {
+            r: 0.12,
+            g: 0.18,
+            b: 0.25,
+            a: 1.0,
+        };
+        let (color_load, depth_load) = match clear {
+            true => (wgpu::LoadOp::Clear(sky), wgpu::LoadOp::Clear(0.0)),
+            false => (wgpu::LoadOp::Load, wgpu::LoadOp::Load),
         };
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
@@ -441,23 +444,14 @@ impl Target {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: if clear {
-                        wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.12,
-                            g: 0.18,
-                            b: 0.25,
-                            a: 1.0,
-                        })
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
+                    load: color_load,
                     store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &depth,
                 depth_ops: Some(wgpu::Operations {
-                    load: load(0.0),
+                    load: depth_load,
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
@@ -1176,8 +1170,8 @@ fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
         occluded_any |= next.len() < visible.len();
         history = next;
 
-        let expected = cpu.read(&gpu, &cpu.color);
-        let actual = gpu_target.read(&gpu, &gpu_target.color);
+        let expected = read_texture(&gpu, &cpu.color, 0);
+        let actual = read_texture(&gpu, &gpu_target.color, 0);
         gpu_snapshot::save(&format!("gpu_cull_cpu_{index}"), &expected);
         gpu_snapshot::save(&format!("gpu_cull_gpu_{index}"), &actual);
         let background = &expected[..4];
@@ -1198,10 +1192,4 @@ fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
         );
     }
     assert!(occluded_any, "the wall must occlude some sub-chunks");
-}
-
-impl Target {
-    fn read(&self, gpu: &Gpu, texture: &wgpu::Texture) -> Vec<u8> {
-        read_texture(gpu, texture, 0)
-    }
 }
