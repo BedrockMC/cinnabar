@@ -1,5 +1,19 @@
 use super::*;
 
+impl UiPresentationRuntime {
+    /// Releases pointer capture while preserving the panel and its editor draft.
+    pub fn cancel_mod_panel_pointer_input(&mut self) {
+        if let Some(panel) = self.form_presentation.mod_panel.as_mut() {
+            panel.drag = None;
+            panel.pointer = None;
+            panel.held = false;
+            panel.view.hovered = None;
+            panel.view.pressed = None;
+            panel.view.pointer = None;
+        }
+    }
+}
+
 impl ModPanel {
     pub(super) fn pointer_events(
         &mut self,

@@ -261,11 +261,13 @@ fn compile_encoded(
             }
         }
     };
-    let blob = encode
-        .then(|| assets::encode_entity_blob(&compiled.entities).ok())
-        .flatten();
-    let assets = match RuntimeEntityAssets::from_compiled(compiled.entities) {
-        Ok(assets) => Arc::new(assets),
+    let built = if encode {
+        RuntimeEntityAssets::from_compiled_encoded(compiled.entities)
+    } else {
+        RuntimeEntityAssets::from_compiled(compiled.entities).map(|assets| (assets, None))
+    };
+    let (assets, blob) = match built {
+        Ok((assets, blob)) => (Arc::new(assets), blob),
         Err(error) => {
             bevy::log::warn!(%error, "server pack entity catalog was rejected");
             return (None, None);

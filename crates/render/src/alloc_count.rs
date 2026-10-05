@@ -1,4 +1,4 @@
-//! Counts heap allocations made by the current thread, for per-frame allocation guards.
+//! Counts heap allocations made by the current thread, for frame allocation guards.
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},

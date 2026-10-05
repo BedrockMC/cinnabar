@@ -37,7 +37,7 @@ fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVertex> {
         .to_vec()
 }
 
-fn source() -> String {
+pub(super) fn source() -> String {
     let actor = include_str!("../../src/actor.wgsl")
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
@@ -48,8 +48,8 @@ fn source() -> String {
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
     shader_source::standalone(&actor, &[])
-        .replace("@group(1) @binding(0)", "@group(0) @binding(10)")
-        .replace("@group(1) @binding(1)", "@group(0) @binding(11)")
+        .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
+        .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
 }
 
 fn raster(
@@ -171,11 +171,23 @@ fn raster(
             resource: class.as_entire_binding(),
         },
         wgpu::BindGroupEntry {
+            binding: 9,
+            resource: wgpu::BindingResource::TextureView(&skin),
+        },
+        wgpu::BindGroupEntry {
             binding: 10,
-            resource: lightmap.as_entire_binding(),
+            resource: wgpu::BindingResource::TextureView(&skin),
         },
         wgpu::BindGroupEntry {
             binding: 11,
+            resource: wgpu::BindingResource::TextureView(&skin),
+        },
+        wgpu::BindGroupEntry {
+            binding: 20,
+            resource: lightmap.as_entire_binding(),
+        },
+        wgpu::BindGroupEntry {
+            binding: 21,
             resource: atmosphere.as_entire_binding(),
         },
     ];
