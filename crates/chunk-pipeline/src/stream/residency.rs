@@ -222,7 +222,7 @@ impl WorldStream {
         true
     }
     /// Retains terrain around completed local physics without changing the last server position.
-    /// Stale session or dimension observations are rejected; unchanged grids do no retention work.
+    /// Rejects stale owners and any physics that has not yet applied a committed spatial control.
     pub fn retain_for_local_player(
         &mut self,
         actor_session_id: u64,
@@ -234,6 +234,7 @@ impl WorldStream {
             || dimension != self.authority.current_dimension()
             || dimension_epoch != self.authority.form_dimension_epoch()
             || !position.into_iter().all(f32::is_finite)
+            || self.authority.has_pending_spatial_control()
         {
             return false;
         }

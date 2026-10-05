@@ -115,7 +115,8 @@ fn server_spatial_commits_replace_the_local_retention_center() {
         .unwrap();
     assert_eq!(stream.local_player_chunk, None);
     assert_eq!(stream.last_retention_center, Some(ChunkKey::new(0, -1, -2)));
-    retain(&mut stream, [320.0, 70.0, 0.0]);
+    stream.take_committed_controls();
+    assert!(retain(&mut stream, [320.0, 70.0, 0.0]));
     let previous_epoch = stream.form_dimension_epoch();
     stream
         .submit(
@@ -134,4 +135,61 @@ fn server_spatial_commits_replace_the_local_retention_center() {
         previous_epoch,
         [320.0, 70.0, 0.0],
     ));
+}
+
+#[test]
+fn deferred_spatial_controls_keep_stale_physics_from_evicting_destination_terrain() {
+    let mut stream = stream();
+    stream
+        .submit(
+            2,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 1,
+                position: [1600.5, 70.0, 0.5],
+                mode: MovePlayerMode::Teleport,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    let destination = populate_view(&mut stream, [100, 0]);
+    assert!(!retain(&mut stream, [0.5, 70.0, 0.5]));
+    assert_eq!(stream.loaded_columns.len(), destination);
+    assert!(stream.column_is_data_interesting(ChunkKey::new(0, 100, 0)));
+    stream.take_committed_controls();
+    assert!(retain(&mut stream, [1616.5, 70.0, 0.5]));
+}
+
+/// A delayed correction must not prune around its historical anchor before physics reconciles it.
+#[test]
+fn historical_correction_keeps_the_current_grid() {
+    for local_grid in [true, false] {
+        let mut stream = stream();
+        let center = if local_grid {
+            assert!(retain(&mut stream, [320.5, 70.0, 0.5]));
+            20
+        } else {
+            0
+        };
+        let current = populate_view(&mut stream, [center, 0]);
+        stream
+            .submit(
+                2,
+                WorldEvent::PlayerMovementCorrection(PlayerMovementCorrectionEvent {
+                    position: [272.5, 70.0, 0.5],
+                    delta: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    subject: MovementCorrectionSubject::Player,
+                    on_ground: true,
+                    tick: 5,
+                }),
+            )
+            .unwrap();
+        assert_eq!(stream.loaded_columns.len(), current);
+        let leading = ChunkKey::new(0, center + 2, 0);
+        assert!(stream.loaded_columns.contains(&leading));
+        stream.take_committed_controls();
+        assert!(retain(&mut stream, [272.5, 70.0, 0.5]));
+        assert!(!stream.loaded_columns.contains(&leading));
+    }
 }

@@ -555,9 +555,8 @@ impl WorldStream {
                 {
                     return;
                 }
+                // A correction names a past tick; retention waits for physics to reconcile it.
                 let resolved = self.authority.resolve_position(correction.position);
-                self.local_player_chunk = None;
-                self.reevaluate_chunk_retention();
                 self.authority.push_committed_control(
                     CommittedControlEvent::PlayerMovementCorrection {
                         sequence,
