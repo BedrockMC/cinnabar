@@ -156,7 +156,32 @@ pub(in crate::chunk) fn transparent_ref_buffer(device: &RenderDevice, slot_refs:
     )
 }
 
-/// Grows both slots to hold `refs`, re-uploading every resident ref at the new stride.
+/// One resident slot's refs moved from the old slot stride to the new one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::chunk) struct TransparentRefCopy {
+    pub(in crate::chunk) source: u64,
+    pub(in crate::chunk) destination: u64,
+    pub(in crate::chunk) bytes: u64,
+}
+
+/// The GPU copies that carry every resident ref across a stride change.
+pub(in crate::chunk) fn transparent_ref_growth_copies(
+    state: &TransparentSortState,
+    old_slot_refs: usize,
+    new_slot_refs: usize,
+) -> Vec<TransparentRefCopy> {
+    state
+        .resident_refs()
+        .filter(|(_, refs)| !refs.is_empty())
+        .map(|(slot, refs)| TransparentRefCopy {
+            source: transparent_ref_offset(slot, old_slot_refs, 0),
+            destination: transparent_ref_offset(slot, new_slot_refs, 0),
+            bytes: transparent_ref_offset(0, 0, refs.len()),
+        })
+        .collect()
+}
+
+/// Grows both slots to hold `refs`, copying resident refs on the GPU so growth uploads nothing.
 /// Returns whether the buffer was replaced, which invalidates written indirect args.
 pub(in crate::chunk) fn ensure_transparent_ref_capacity(
     arena: &mut ChunkGpuArena,
@@ -172,15 +197,26 @@ pub(in crate::chunk) fn ensure_transparent_ref_capacity(
         .min(MAX_TRANSPARENT_DRAW_REFS)
         .next_power_of_two()
         .clamp(INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_DRAW_REFS);
-    arena.transparent_ref_buffer = transparent_ref_buffer(device, slot_refs);
-    arena.transparent_slot_refs = slot_refs;
-    for (slot, resident) in state.resident_refs() {
-        queue.write_buffer(
-            &arena.transparent_ref_buffer,
-            transparent_ref_offset(slot, slot_refs, 0),
-            bytemuck::cast_slice(resident),
-        );
+    let copies = transparent_ref_growth_copies(state, arena.transparent_slot_refs, slot_refs);
+    let grown = transparent_ref_buffer(device, slot_refs);
+    if !copies.is_empty() {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("transparent ref growth"),
+        });
+        for copy in &copies {
+            encoder.copy_buffer_to_buffer(
+                &arena.transparent_ref_buffer,
+                copy.source,
+                &grown,
+                copy.destination,
+                copy.bytes,
+            );
+        }
+        // The old buffer is released once this submission no longer needs it.
+        queue.submit([encoder.finish()]);
     }
+    arena.transparent_ref_buffer = grown;
+    arena.transparent_slot_refs = slot_refs;
     true
 }
 
@@ -336,6 +372,19 @@ mod growth_tests {
             &state,
         ));
         let before = arena.transparent_ref_buffer.id();
+        // Growth moves the three committed refs on the GPU: one copy, nothing uploaded.
+        assert_eq!(
+            transparent_ref_growth_copies(
+                &state,
+                INITIAL_TRANSPARENT_SLOT_REFS,
+                INITIAL_TRANSPARENT_SLOT_REFS * 2
+            ),
+            [TransparentRefCopy {
+                source: 0,
+                destination: 0,
+                bytes: 3 * std::mem::size_of::<PackedTransparentDrawRef>() as u64,
+            }]
+        );
         assert!(ensure_transparent_ref_capacity(
             &mut arena,
             &device,
@@ -360,6 +409,50 @@ mod growth_tests {
         assert_eq!(
             arena.transparent_ref_buffer.size(),
             TRANSPARENT_REF_BUFFER_BYTES as u64
+        );
+    }
+
+    /// A half-uploaded staged slot moves with the committed one; nothing is re-uploaded.
+    #[test]
+    fn transparent_ref_growth_copies_each_resident_slot_at_its_new_stride() {
+        let key = |x| {
+            ViewSortKey::try_new(
+                [x, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+                Vec::new(),
+                ChunkTextureAssetIdentity::new(1, 1),
+                ChunkBiomeTintIdentity::new(2, 2),
+            )
+            .unwrap()
+        };
+        let mut state = TransparentSortState::with_upload_cap(2);
+        let refs = |count| vec![PackedTransparentDrawRef::new(1, 2); count];
+        let generation = state.request(&key(0.0));
+        state
+            .complete(TransparentSortResult::new(generation, key(0.0), refs(3)).unwrap())
+            .unwrap();
+        assert!(!state.acknowledge_upload());
+        assert!(state.acknowledge_upload());
+        let generation = state.request(&key(1.0));
+        state
+            .complete(TransparentSortResult::new(generation, key(1.0), refs(4)).unwrap())
+            .unwrap();
+        assert!(!state.acknowledge_upload());
+        let size = std::mem::size_of::<PackedTransparentDrawRef>() as u64;
+        assert_eq!(
+            transparent_ref_growth_copies(&state, 8, 32),
+            [
+                TransparentRefCopy {
+                    source: 0,
+                    destination: 0,
+                    bytes: 3 * size,
+                },
+                TransparentRefCopy {
+                    source: 8 * size,
+                    destination: 32 * size,
+                    bytes: 2 * size,
+                },
+            ]
         );
     }
 }
