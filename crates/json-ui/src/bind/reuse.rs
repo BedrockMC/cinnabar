@@ -158,11 +158,14 @@ impl Track {
 }
 
 /// Changed data keys between two data sources; `None` when a change reaches
-/// every control (creation values, strictness or the screen factory id).
+/// every control (creation values, strictness, the screen factory id or
+/// component writes on either side).
 pub(super) fn changes(old: &DataSource, new: &DataSource) -> Option<Changes> {
     if old.creation_values != new.creation_values
         || old.strict != new.strict
         || old.factory_id != new.factory_id
+        || !old.components.is_empty()
+        || !new.components.is_empty()
     {
         return None;
     }
@@ -178,6 +181,11 @@ pub(super) fn changes(old: &DataSource, new: &DataSource) -> Option<Changes> {
     });
     diff(&old.collections, &new.collections, |key| {
         let (old, new) = (old.collections.get(key), new.collections.get(key));
+        // An absent list and an empty one bind differently (a factory's literal count).
+        if old.is_some() != new.is_some() {
+            reads.add(Data::Length, key, None);
+            reads.add(Data::Roles, key, None);
+        }
         let old: &[_] = old.map_or(&[], |items| items);
         let new: &[_] = new.map_or(&[], |items| items);
         if old.len() != new.len() {
@@ -421,7 +429,9 @@ pub(super) fn finish(node: &mut Node) -> bool {
     track.count = 1;
     track.below = track.reads;
     track.scroll = track.observes_scroll;
-    track.stable = track.settled;
+    // A grid whose cell count a view sets expands only after views settle, so
+    // it rebuilds every bind rather than keep cells for a stale count.
+    track.stable = track.settled && !super::grid::grid_awaits_views(node.src.get(), &node.bindings);
     track.deferred_below = node.deferred.is_some();
     track.views_below = node
         .bindings
