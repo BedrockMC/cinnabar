@@ -239,3 +239,166 @@ fn slot_table_tracks_moves_removals_cave_visibility_and_tint() {
     table.update(entity(2), 3, tint, live, &hidden);
     assert_eq!(table.take_dirty(), [1, 2, 3]);
 }
+
+/// Release timing: `cargo test --release -p render --lib gpu_cull_cpu_stage_bench -- --ignored --nocapture`.
+#[test]
+#[ignore = "offline CPU stage timing fixture"]
+fn gpu_cull_cpu_stage_bench() {
+    use bevy::render::render_phase::ViewRangefinder3d;
+    use std::time::Instant;
+
+    // A 12-chunk radius: 25 x 25 columns of 24 sub-chunks.
+    let mut world = World::new();
+    let mut entities = Vec::new();
+    for x in -12..=12 {
+        for z in -12..=12 {
+            for y in -4..20 {
+                let index = entities.len() as u32;
+                let mut allocation =
+                    allocation(CubeQuadLayout::from_solid_counts([1, 1, 2, 2, 1, 1]), index);
+                allocation.key = SubChunkKey::new(0, x, y, z);
+                entities.push(world.spawn(allocation).id());
+            }
+        }
+    }
+    let eye = Vec3::new(8.0, 72.0, 8.0);
+    let world_from_view =
+        Transform::from_translation(eye).looking_to(Vec3::new(1.0, -0.2, 0.4), Vec3::Y);
+    let clip_from_world = Mat4::perspective_infinite_reverse_rh(1.2, 16.0 / 9.0, 0.05)
+        * world_from_view.to_matrix().inverse();
+    let frustum = bevy::camera::primitives::Frustum::from_clip_from_world(&clip_from_world);
+    let mut query = world.query::<&GpuChunkAllocation>();
+    query.update_archetypes(&world);
+    let visible = entities
+        .iter()
+        .copied()
+        .filter(|&entity| {
+            let origin =
+                chunk_origin(query.get_manual(&world, entity).unwrap().key).map(|v| v as f32 + 8.0);
+            let aabb = bevy::camera::primitives::Aabb {
+                center: Vec3A::from_array(origin),
+                half_extents: Vec3A::splat(8.0),
+            };
+            frustum.intersects_obb_identity(&aabb)
+        })
+        .map(|entity| (entity, MainEntity::from(entity)))
+        .collect::<Vec<_>>();
+    let rangefinder = ViewRangefinder3d::from_world_from_view(&world_from_view.compute_affine());
+    let probe = ActiveFrameProbe::default();
+    let tint = ChunkBiomeTintIdentity::default();
+    let median = |mut samples: Vec<f64>| {
+        samples.sort_by(f64::total_cmp);
+        samples[samples.len() / 2]
+    };
+
+    // Before: the CPU indirect path's queue planning and indirect rebuild, every frame.
+    let mut uploaded = Vec::new();
+    let (mut queue, mut prepare, mut draws) = (Vec::new(), Vec::new(), 0);
+    for _ in 0..200 {
+        let scope = probe.scope();
+        let started = Instant::now();
+        let sorted = sorted_visible_entities(visible.iter().copied())
+            .into_iter()
+            .filter(|(entity, _)| {
+                query
+                    .get_manual(&world, *entity)
+                    .ok()
+                    .is_some_and(|allocation| {
+                        drawable_allocation_identity(&scope, *entity, allocation, tint)
+                            .is_some_and(|identity| scope.record_visible(*entity, identity))
+                    })
+            })
+            .collect::<Vec<_>>();
+        let cubes = front_to_back_cube_entities(
+            sorted
+                .iter()
+                .map(|(entity, _)| (*entity, query.get_manual(&world, *entity).unwrap().key)),
+            &rangefinder,
+        );
+        let solids = cubes.clone();
+        let models = sorted.iter().map(|(entity, _)| *entity).collect::<Vec<_>>();
+        let liquids = models.clone();
+        queue.push(started.elapsed().as_secs_f64() * 1e3);
+        let started = Instant::now();
+        let resident = |list: &[Entity]| {
+            list.iter()
+                .filter_map(|&entity| {
+                    query
+                        .get_manual(&world, entity)
+                        .ok()
+                        .map(|item| (entity, item))
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut commands = Vec::new();
+        commands.extend(
+            pipeline::solid::prepare_solid_indirect_batch_draws(
+                resident(&solids),
+                Some(eye.as_dvec3().to_array()),
+                &scope,
+                tint,
+            )
+            .0,
+        );
+        commands.extend(prepare_indirect_batch_draws(resident(&cubes), &scope, tint).0);
+        commands.extend(prepare_model_indirect_batch_draws(resident(&models), &scope, tint).0);
+        commands
+            .extend(prepare_depth_liquid_indirect_batch_draws(resident(&liquids), &scope, tint).0);
+        let bytes: &[u8] = bytemuck::cast_slice(&commands);
+        if uploaded != bytes {
+            uploaded = bytes.to_vec();
+        }
+        prepare.push(started.elapsed().as_secs_f64() * 1e3);
+        draws = commands.len();
+    }
+
+    // After: the record table's steady frame, and a streaming frame that replaces 64 records.
+    let hidden = HashSet::new();
+    let mut table = CullSlots::default();
+    table.set_tint(tint, &hidden);
+    for &entity in &entities {
+        let allocation = query.get_manual(&world, entity).unwrap();
+        table.update(
+            entity,
+            allocation.metadata_index,
+            tint,
+            cull_record(allocation, None),
+            &hidden,
+        );
+    }
+    table.take_dirty();
+    let (mut steady, mut streaming) = (Vec::new(), Vec::new());
+    for frame in 0..200 {
+        let started = Instant::now();
+        table.set_tint(tint, &hidden);
+        table.trim();
+        let dirty = table.take_dirty();
+        std::hint::black_box((dirty, table.take_enabled_dirty()));
+        steady.push(started.elapsed().as_secs_f64() * 1e3);
+        let started = Instant::now();
+        for &entity in entities.iter().skip(frame * 64 % entities.len()).take(64) {
+            let allocation = query.get_manual(&world, entity).unwrap();
+            table.update(
+                entity,
+                allocation.metadata_index,
+                tint,
+                cull_record(allocation, None),
+                &hidden,
+            );
+        }
+        table.trim();
+        std::hint::black_box(table.take_dirty());
+        streaming.push(started.elapsed().as_secs_f64() * 1e3);
+    }
+    eprintln!(
+        "gpu cull cpu bench: {} resident, {} frustum-visible, {draws} indirect commands; \
+         before opaque_batch_planning={:.3}ms indirect_preparation={:.3}ms; \
+         after steady={:.4}ms streaming_64={:.4}ms (medians)",
+        entities.len(),
+        visible.len(),
+        median(queue),
+        median(prepare),
+        median(steady),
+        median(streaming),
+    );
+}
