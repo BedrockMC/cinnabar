@@ -4,7 +4,7 @@ use crate::RuntimeStage;
 use std::time::Duration;
 
 /// Frames that may be recorded or awaiting readback at once; a full ring skips timing.
-pub(super) const SLOTS: usize = 3;
+pub(crate) const SLOTS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotState {
@@ -16,7 +16,7 @@ enum SlotState {
 
 /// Readback slot lifecycle: free, recording one frame, then in flight until mapped.
 #[derive(Debug)]
-pub(super) struct ReadbackRing {
+pub(crate) struct ReadbackRing {
     states: [SlotState; SLOTS],
     next: usize,
     submitted: u64,
@@ -34,7 +34,7 @@ impl Default for ReadbackRing {
 
 impl ReadbackRing {
     /// Claims a free slot round-robin; `None` while every slot awaits readback.
-    pub(super) fn acquire(&mut self) -> Option<usize> {
+    pub(crate) fn acquire(&mut self) -> Option<usize> {
         let slot = (0..SLOTS)
             .map(|offset| (self.next + offset) % SLOTS)
             .find(|slot| self.states[*slot] == SlotState::Free)?;
@@ -43,19 +43,19 @@ impl ReadbackRing {
         Some(slot)
     }
 
-    pub(super) fn submit(&mut self, slot: usize) {
+    pub(crate) fn submit(&mut self, slot: usize) {
         debug_assert_eq!(self.states[slot], SlotState::Recording);
         self.submitted += 1;
         self.states[slot] = SlotState::InFlight(self.submitted);
     }
 
     /// Returns a recording or completed slot to the free pool.
-    pub(super) fn release(&mut self, slot: usize) {
+    pub(crate) fn release(&mut self, slot: usize) {
         self.states[slot] = SlotState::Free;
     }
 
     /// The earliest submitted slot still awaiting readback.
-    pub(super) fn oldest_in_flight(&self) -> Option<usize> {
+    pub(crate) fn oldest_in_flight(&self) -> Option<usize> {
         (0..SLOTS)
             .filter_map(|slot| match self.states[slot] {
                 SlotState::InFlight(sequence) => Some((sequence, slot)),

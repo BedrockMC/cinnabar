@@ -387,3 +387,89 @@ pub fn reference_args(
     }
     args
 }
+
+/// The occlusion kernel's bit for `record` against read-back pyramid `levels`; `strict` keeps
+/// boxes reaching past the viewport. `lean` of +1 or -1 tilts every comparison toward visible or
+/// occluded, so tests can set rounding ties aside.
+pub fn reference_occluded(
+    record: &CullRecord,
+    view: &CullViewUniform,
+    levels: &[(Vec<f32>, [u32; 2])],
+    strict: bool,
+    lean: f32,
+) -> bool {
+    if !record.is_live() || view.depth[3] == 0 {
+        return false;
+    }
+    let [low, high] = record.bounds();
+    let base: [f32; 3] =
+        std::array::from_fn(|axis| (record.origin[axis] - view.camera[axis]) as f32);
+    let m = view.clip_from_rel;
+    let (mut ndc_min, mut ndc_max, mut nearest) = ([1.0e30_f32; 2], [-1.0e30_f32; 2], 0.0_f32);
+    for corner in 0..8 {
+        let point: [f32; 3] = std::array::from_fn(|axis| {
+            base[axis]
+                + if corner >> axis & 1 != 0 {
+                    high[axis] as f32 + HIZ_PADDING
+                } else {
+                    low[axis] as f32 - HIZ_PADDING
+                }
+        });
+        let clip: [f32; 4] = std::array::from_fn(|row| {
+            m[0][row] * point[0] + m[1][row] * point[1] + m[2][row] * point[2] + m[3][row]
+        });
+        if clip[3].is_nan() || clip[3] <= 1.0e-4 {
+            return false;
+        }
+        for axis in 0..2 {
+            ndc_min[axis] = ndc_min[axis].min(clip[axis] / clip[3]);
+            ndc_max[axis] = ndc_max[axis].max(clip[axis] / clip[3]);
+        }
+        nearest = nearest.max(clip[2] / clip[3]);
+    }
+    let edge = 1.0 - lean * 1.0e-5;
+    if strict
+        && (ndc_min.iter().any(|&value| value < -edge) || ndc_max.iter().any(|&value| value > edge))
+    {
+        return false;
+    }
+    let ndc_min = ndc_min.map(|value| value.clamp(-1.0, 1.0));
+    let ndc_max = ndc_max.map(|value| value.clamp(-1.0, 1.0));
+    let vp = view.viewport;
+    let left = vp[0] + (ndc_min[0] * 0.5 + 0.5) * vp[2];
+    let right = vp[0] + (ndc_max[0] * 0.5 + 0.5) * vp[2];
+    let top = vp[1] + (0.5 - ndc_max[1] * 0.5) * vp[3];
+    let bottom = vp[1] + (0.5 - ndc_min[1] * 0.5) * vp[3];
+    let limit = [view.depth[0] as f32 - 1.0, view.depth[1] as f32 - 1.0];
+    let dilation = 1.0 + lean;
+    let pixel = |value: f32, axis: usize| value.clamp(0.0, limit[axis]) as u32;
+    let p0 = [
+        pixel(left.floor() - dilation, 0),
+        pixel(top.floor() - dilation, 1),
+    ];
+    let p1 = [
+        pixel(right.floor() + dilation, 0),
+        pixel(bottom.floor() + dilation, 1),
+    ];
+    let mut level = 0;
+    while level + 1 < view.depth[2] {
+        let shift = level + 1;
+        let span = |axis: usize| (p1[axis] >> shift) - (p0[axis] >> shift);
+        if span(0) <= 3 && span(1) <= 3 {
+            break;
+        }
+        level += 1;
+    }
+    let (texels, size) = &levels[level as usize];
+    let shift = level + 1;
+    let last = [size[0] - 1, size[1] - 1];
+    let t0 = [(p0[0] >> shift).min(last[0]), (p0[1] >> shift).min(last[1])];
+    let t1 = [(p1[0] >> shift).min(last[0]), (p1[1] >> shift).min(last[1])];
+    let mut farthest = 1.0_f32;
+    for y in t0[1]..=t1[1] {
+        for x in t0[0]..=t1[0] {
+            farthest = farthest.min(texels[(y * size[0] + x) as usize]);
+        }
+    }
+    nearest + lean * 1.0e-6 < farthest
+}

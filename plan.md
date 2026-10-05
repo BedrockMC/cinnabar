@@ -1,9 +1,25 @@
+## Read-back terrain occlusion on direct-draw devices
+
+- Metal (any direct-draw device with compute) never draws indirectly. While the camera holds
+  still and a verdict could change, solid terrain draws in its own pass ahead of other opaque
+  draws; a Hi-Z of that depth tests every resident slot and the occluded bits come back
+  through a small readback ring that drops frames rather than wait. Opaque streams of a slot are skipped once two
+  consecutive verdicts agree under the same eye, projection, depth size and geometry; any eye
+  translation, sub-chunk removal or replacement, cave or tint change voids them, and a fast
+  turn skips nothing. `RUST_MCBE_CPU_CULLING=1` turns it off.
+- Offscreen tests: kernel bits match a CPU Hi-Z reference; replayed paths (flick, strafe past
+  a pillar, wall edit) never skip a sub-chunk that shows pixels while a stale-verdict policy
+  does; the walled scene stops submitting what it hides.
+- Incomplete live visual acceptance: an in-game pass on the M3 Pro (no pop-in, no wrongly
+  hidden terrain) and live `gpu_opaque` and render CPU stage captures are pending.
+
 ## GPU terrain culling with Hi-Z occlusion
 
 - On Vulkan/DX12 with native multi-draw-indirect-count, opaque terrain (solid runs, cutout,
   models, depth-writing liquid) is culled by a compute pass over persistent per-slot records:
   frustum, cave visibility, facing runs and a two-phase depth-pyramid test, drawn from
-  compacted slot-ordered args. Metal, GL and probe frames keep the CPU path.
+  compacted slot-ordered args. Metal reads occlusion back instead (below); GL and probe
+  frames keep the CPU path.
 - Offscreen GPU tests match Bevy's visible sets, the CPU reference args, a conservative Hi-Z
   against rendered ids, and the CPU path's pixels from a stale history.
 - Incomplete live visual acceptance: a rendered-frame pass on Vulkan and DX12 is pending,
