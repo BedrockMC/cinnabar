@@ -19,6 +19,7 @@ impl SettingsOptions {
         settings.video.damage_bob = self.value("damage_bob") as f32 / 100.0;
         settings.video.frame_cap =
             (self.value("max_framerate") != 0).then(|| self.value("max_framerate") as u16);
+        settings.video.vsync = self.value("vsync") != 0;
         settings.video.render_distance_chunks = self.value("render_distance") as u8;
         settings.video.view_bobbing = self.value("view_bobbing") != 0;
         settings.video.outline_selection = self.value("classic_box_selection") != 0;

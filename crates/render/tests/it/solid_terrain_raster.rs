@@ -52,7 +52,7 @@ fn fixture_quads() -> (Vec<PackedQuad>, CubeQuadLayout) {
 }
 
 /// Distinct per-corner light, AO and face-shade bits, so interpolation shows any mismatch.
-fn lighting_words(count: usize) -> Vec<u32> {
+pub(crate) fn lighting_words(count: usize) -> Vec<u32> {
     (0..count)
         .flat_map(|quad| {
             let sample = |corner: usize| {
@@ -65,7 +65,7 @@ fn lighting_words(count: usize) -> Vec<u32> {
         .collect()
 }
 
-fn pattern_texture(gpu: &Gpu) -> wgpu::TextureView {
+pub(crate) fn pattern_texture(gpu: &Gpu) -> wgpu::TextureView {
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("solid raster pattern"),
         size: wgpu::Extent3d {

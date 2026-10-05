@@ -112,6 +112,7 @@ pub(crate) struct MenuRuntime {
     failed_video_settings_save: Option<video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
     servers: Vec<SavedServer>,
@@ -188,6 +189,13 @@ impl MenuRuntime {
         if self.render_mode_request.is_none() {
             self.render_mode = applied;
         }
+    }
+
+    /// Shows the VSync toggle locked to a launch-flag override.
+    #[must_use]
+    pub(crate) const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
+        self.vsync_override = vsync;
+        self
     }
 
     /// Consume the pending Video-section change.
@@ -282,6 +290,7 @@ impl MenuRuntime {
             gui_scale_choices: self.gui_scale_choices.clone(),
             fullscreen: self.fullscreen,
             render_mode: self.render_mode,
+            vsync_override: self.vsync_override,
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
