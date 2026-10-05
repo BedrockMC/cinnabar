@@ -18,6 +18,9 @@ pub(super) struct PhysicalControls {
     keys: MessageCursor<KeyboardInput>,
     mouse: MessageCursor<MouseButtonInput>,
     left_held: bool,
+    held_keys: Vec<String>,
+    /// Whether `held_keys` was seeded from physical input since the mod attached or refocused.
+    held_seeded: bool,
     restore_capture: bool,
     panel_owned: bool,
 }
@@ -40,6 +43,68 @@ mod tests {
         assert!(!keys.just_released(KeyCode::KeyW));
         assert!(keys.pressed(KeyCode::KeyA));
         assert!(keys.just_pressed(KeyCode::KeyA));
+    }
+
+    #[test]
+    fn keys_already_held_when_a_mod_attaches_are_reported_held_without_a_press_edge() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("empty.wat");
+        std::fs::write(
+            &path,
+            r#"(component
+            (core module $m (func (export "init")) (func (export "frame")))
+            (core instance $i (instantiate $m))
+            (func (export "init") (canon lift (core func $i "init")))
+            (func (export "frame") (canon lift (core func $i "frame"))))"#,
+        )
+        .unwrap();
+        let mut scratch = App::new();
+        super::super::configure_set(&mut scratch, vec![(path, mod_host::ModGrants::default())]);
+        let runtime = scratch
+            .world_mut()
+            .remove_resource::<super::super::ModRuntime>()
+            .unwrap();
+        let mut app = App::new();
+        let mut keys = ButtonInput::<KeyCode>::default();
+        keys.press(KeyCode::ShiftLeft);
+        keys.clear_just_pressed(KeyCode::ShiftLeft);
+        app.insert_resource(runtime)
+            .insert_resource(keys)
+            .insert_resource(UiRuntime::new(1))
+            .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+            .insert_resource(
+                UiPresentationRuntime::new(client_ui::test_support::fixture_font()).unwrap(),
+            )
+            .add_systems(Update, prepare_mod_input);
+        app.world_mut().spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ));
+        app.update();
+        let controls = &app.world().resource::<super::super::ModRuntime>().controls;
+        assert_eq!(controls.keys_held, ["ShiftLeft"]);
+        assert!(controls.keys_pressed.is_empty());
+    }
+
+    #[test]
+    fn held_keys_follow_press_and_release_and_stay_bounded() {
+        let mut physical = PhysicalControls::default();
+        physical.track_held("Digit1".into(), true);
+        physical.track_held("Digit1".into(), true);
+        physical.track_held("ShiftLeft".into(), true);
+        assert_eq!(physical.held_keys, ["Digit1", "ShiftLeft"]);
+        physical.track_held("Digit1".into(), false);
+        assert_eq!(physical.held_keys, ["ShiftLeft"]);
+        for index in 0..mod_host::MAX_CONTROL_KEYS * 2 {
+            physical.track_held(format!("Key{index}"), true);
+        }
+        assert_eq!(physical.held_keys.len(), mod_host::MAX_CONTROL_KEYS);
+        physical.discard_pending(None, None);
+        assert!(physical.held_keys.is_empty());
     }
 
     #[test]
@@ -128,6 +193,32 @@ impl PhysicalControls {
             self.mouse.clear(events);
         }
         self.left_held = false;
+        self.held_keys.clear();
+        self.held_seeded = false;
+    }
+
+    /// Adopts keys already down at attachment as held, without producing press edges.
+    fn seed_held<'a>(&mut self, pressed: impl Iterator<Item = &'a KeyCode>) {
+        if std::mem::replace(&mut self.held_seeded, true) {
+            return;
+        }
+        for key in pressed.filter(|key| !matches!(key, KeyCode::Unidentified(_))) {
+            self.track_held(format!("{key:?}"), true);
+        }
+    }
+
+    /// Tracks held keys from events, since reserved keys are reset out of the shared input state.
+    fn track_held(&mut self, key: String, pressed: bool) {
+        let index = self.held_keys.iter().position(|held| *held == key);
+        match (pressed, index) {
+            (true, None) if self.held_keys.len() < mod_host::MAX_CONTROL_KEYS => {
+                self.held_keys.push(key);
+            }
+            (false, Some(index)) => {
+                self.held_keys.swap_remove(index);
+            }
+            _ => {}
+        }
     }
 
     /// Remembers input ownership independently of guest reload or quarantine.
@@ -200,16 +291,22 @@ pub(super) fn prepare_mod_input(
         }
         return;
     };
+    if window.focused {
+        physical.seed_held(keys.get_pressed());
+    }
     let mut panel_keys = Vec::new();
     if let Some(events) = keyboard_events {
+        let mut transitions = Vec::new();
         for event in physical.keys.read(&events) {
-            if window.focused
-                && event.window == entity
-                && event.state == ButtonState::Pressed
-                && !matches!(event.key_code, KeyCode::Unidentified(_))
-            {
+            if event.window != entity || matches!(event.key_code, KeyCode::Unidentified(_)) {
+                continue;
+            }
+            let name = format!("{:?}", event.key_code);
+            let down = event.state == ButtonState::Pressed;
+            transitions.push((name.clone(), down));
+            if down && window.focused {
                 panel_keys.push((
-                    format!("{:?}", event.key_code),
+                    name,
                     event
                         .text
                         .as_deref()
@@ -221,6 +318,9 @@ pub(super) fn prepare_mod_input(
                     event.repeat,
                 ));
             }
+        }
+        for (name, down) in transitions {
+            physical.track_held(name, down);
         }
     }
     if let Some(events) = mouse_events {
@@ -241,7 +341,8 @@ pub(super) fn prepare_mod_input(
         |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
     );
     let was_open = physical.panel_owned;
-    let mut open = extension.host.panel_open() && presentation.mod_panel_open();
+    let owner = extension.panel_owner();
+    let mut open = extension.host(owner).panel_open() && presentation.mod_panel_open();
     let editing = open && presentation.mod_panel_editing();
     let interrupt = editing
         && panel_keys.iter().any(|(key, _, repeat)| {
@@ -276,19 +377,19 @@ pub(super) fn prepare_mod_input(
     let close_requested = pressed.iter().any(|key| key == "Escape")
         && open
         && !extension
-            .host
+            .host(owner)
             .panel()
             .is_some_and(|panel| panel.capture_key);
-    if !extension.host.is_active() || (window.focused && (absorbed || close_requested)) {
+    if !extension.host(owner).is_active() || (window.focused && (absorbed || close_requested)) {
         open = false;
     } else if extension
-        .host
+        .host(owner)
         .panel()
         .is_some_and(|panel| pressed.contains(&panel.toggle_key))
     {
         open = !open;
     }
-    extension.host.set_panel_open(open);
+    extension.host_mut(owner).set_panel_open(open);
     presentation.set_mod_panel_open(open);
     let was_held = mouse
         .as_ref()
@@ -311,7 +412,7 @@ pub(super) fn prepare_mod_input(
         })
         .collect();
     open = presentation.mod_panel_open();
-    extension.host.set_panel_open(open);
+    extension.host_mut(owner).set_panel_open(open);
     let restore = physical.finish_panel(
         open,
         window.focused,
@@ -334,10 +435,17 @@ pub(super) fn prepare_mod_input(
         } else {
             Vec::new()
         },
+        keys_held: if window.focused && !absorbed && !editing {
+            physical.held_keys.clone()
+        } else {
+            Vec::new()
+        },
         events,
     };
     if !window.focused {
         physical.left_held = false;
+        physical.held_keys.clear();
+        physical.held_seeded = false;
     }
     if (open || was_open)
         && let Some(mouse) = mouse.as_mut()
@@ -363,12 +471,12 @@ pub(super) fn prepare_mod_input(
             // A close edge belongs to the panel, not the underlying pause menu.
             keys.reset(KeyCode::Escape);
         }
-        let reserved = extension.host.reserved_keys();
+        let reserved = extension.reserved_keys();
         let toggle = extension
-            .host
+            .host(owner)
             .panel()
             .map(|panel| panel.toggle_key.as_str());
-        consume_reserved(&mut keys, reserved, toggle);
+        consume_reserved(&mut keys, &reserved, toggle);
     }
 }
 

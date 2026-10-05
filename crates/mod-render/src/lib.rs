@@ -5,7 +5,8 @@ pub mod shader;
 
 use mod_api::{
     MAX_PASS_PARAMS, MAX_PRIMITIVE_COORDINATE, MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_BEAMS,
-    MAX_RENDER_BILLBOARDS, MAX_RENDER_DECALS, MAX_RENDER_RIBBONS, MAX_RIBBON_POINTS,
+    MAX_RENDER_BILLBOARDS, MAX_RENDER_DECALS, MAX_RENDER_PASSES, MAX_RENDER_RIBBONS,
+    MAX_RIBBON_POINTS,
 };
 use std::sync::Arc;
 
@@ -164,6 +165,50 @@ pub struct Pass {
 pub struct RenderOutput {
     pub passes: Vec<Pass>,
     pub primitives: Arc<Primitives>,
+}
+
+/// Combines several mods' output in load order within the single-mod budgets: earlier mods
+/// keep a contested pass name and fill each primitive budget first.
+pub fn merge<'a>(outputs: impl IntoIterator<Item = &'a RenderOutput>) -> RenderOutput {
+    let outputs: Vec<&RenderOutput> = outputs.into_iter().collect();
+    let mut passes: Vec<Pass> = Vec::new();
+    for pass in outputs.iter().flat_map(|output| &output.passes) {
+        if passes.len() < MAX_RENDER_PASSES && passes.iter().all(|kept| kept.name != pass.name) {
+            passes.push(pass.clone());
+        }
+    }
+    passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+    let mut drawing = outputs
+        .iter()
+        .filter(|output| !output.primitives.is_empty());
+    // A lone drawing mod's set already fits the budgets; sharing it skips a geometry rebuild.
+    let primitives = match (drawing.next(), drawing.next()) {
+        (None, _) => outputs
+            .first()
+            .map(|output| Arc::clone(&output.primitives))
+            .unwrap_or_default(),
+        (Some(only), None) => Arc::clone(&only.primitives),
+        _ => {
+            let mut merged = Primitives::default();
+            for other in outputs.iter().map(|output| &output.primitives) {
+                fill(&mut merged.decals, &other.decals, MAX_RENDER_DECALS);
+                fill(&mut merged.ribbons, &other.ribbons, MAX_RENDER_RIBBONS);
+                fill(&mut merged.beams, &other.beams, MAX_RENDER_BEAMS);
+                fill(
+                    &mut merged.billboards,
+                    &other.billboards,
+                    MAX_RENDER_BILLBOARDS,
+                );
+            }
+            Arc::new(merged)
+        }
+    };
+    RenderOutput { passes, primitives }
+}
+
+fn fill<T: Clone>(into: &mut Vec<T>, from: &[T], cap: usize) {
+    let room = cap.saturating_sub(into.len());
+    into.extend(from.iter().take(room).cloned());
 }
 
 /// Valid pass names are short lowercase identifiers.

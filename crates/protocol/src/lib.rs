@@ -206,9 +206,9 @@ pub use ui::{
     NpcDialogueForm, NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction,
     ScoreEntry, ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory,
     TextEvent, TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError,
-    UnsupportedForm, chat_input_packet, chat_text_packet, custom_form_submit_response,
-    modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
-    npc_request_packet, server_settings_request_packet,
+    UnsupportedForm, chat_input_packet, chat_text_packet, command_request_packet,
+    custom_form_submit_response, modal_form_busy_response, modal_form_cancel_response,
+    modal_form_submit_response, npc_request_packet, server_settings_request_packet,
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use world::{

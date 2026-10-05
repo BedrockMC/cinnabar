@@ -40,6 +40,7 @@ impl ModHost {
             bytes.len() <= MAX_COMPONENT_BYTES,
             "component exceeds byte limit"
         );
+        grants.validate()?;
         let mut config = Config::new();
         config.wasm_component_model(true).consume_fuel(true);
         config.max_wasm_stack(256 * 1024);
@@ -61,10 +62,10 @@ impl ModHost {
             );
             json.to_owned()
         } else {
-            read_settings(path, grants)?
+            read_settings(path, &grants)?
         };
         let settings_seed = grants.settings.then(|| seed.clone());
-        let instance = Instance::new(&engine, bytes, grants, seed)?;
+        let instance = Instance::new(&engine, bytes, grants.clone(), seed)?;
         Ok(Self {
             engine,
             instance,
@@ -101,7 +102,30 @@ impl ModHost {
         self.grants.settings.then(|| self.instance.settings())
     }
 
+    pub fn grants(&self) -> &ModGrants {
+        &self.grants
+    }
+
     pub fn settings_seed(&self) -> Option<&str> {
         self.settings_seed.as_deref()
+    }
+}
+
+impl ModGrants {
+    /// Rejects command grants that are not short bare command names.
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.commands.len() <= mod_api::MAX_COMMAND_GRANTS
+                && self.commands.iter().all(|name| {
+                    !name.is_empty()
+                        && name.len() <= mod_api::MAX_CONTROL_KEY_BYTES
+                        && name.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        })
+                }),
+            "command grants must be at most {} lowercase command names",
+            mod_api::MAX_COMMAND_GRANTS
+        );
+        Ok(())
     }
 }

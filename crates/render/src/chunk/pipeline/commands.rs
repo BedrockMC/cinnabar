@@ -241,6 +241,7 @@ mod order_tests;
 pub(in crate::chunk) type DrawChunkCommands = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuTerrainOpaque as usize },
     (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
         crate::enhanced::SetEnhancedViewBindGroup<2>,
@@ -259,6 +260,7 @@ pub(in crate::chunk) type DrawChunkIndirectCommands = crate::gpu_timing::GpuDraw
 pub(in crate::chunk) type DrawModelCommands = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuTerrainOpaque as usize },
     (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
         crate::enhanced::SetEnhancedViewBindGroup<2>,
@@ -286,6 +288,7 @@ pub(in crate::chunk) type DrawTransparentModelCommands = crate::gpu_timing::GpuD
 pub(in crate::chunk) type DrawDepthLiquidCommands = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuTerrainOpaque as usize },
     (
+        crate::chunk::gpu_cull::SkipOccludedTerrain,
         SetItemPipeline,
         crate::lighting::SetWorldLightmap,
         crate::enhanced::SetEnhancedViewBindGroup<2>,

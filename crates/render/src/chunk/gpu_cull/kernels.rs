@@ -108,6 +108,52 @@ impl CullStorage {
     }
 }
 
+/// Buffers for the occluded bit of `capacity` record slots.
+pub struct OcclusionStorage {
+    pub capacity: u32,
+    pub records: wgpu::Buffer,
+    /// One occluded bit per slot.
+    pub occluded: wgpu::Buffer,
+    pub uniform: wgpu::Buffer,
+}
+
+impl OcclusionStorage {
+    pub fn new(device: &wgpu::Device, capacity: u32) -> Self {
+        use wgpu::BufferUsages as U;
+        let buffer = |label: &str, size: u64, usage: U| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: size.max(16),
+                usage,
+                mapped_at_creation: false,
+            })
+        };
+        Self {
+            capacity,
+            records: buffer(
+                "terrain occlusion records",
+                u64::from(capacity) * RECORD_BYTES,
+                U::STORAGE | U::COPY_DST,
+            ),
+            occluded: buffer(
+                "terrain occlusion bits",
+                occlusion_bytes(capacity),
+                U::STORAGE | U::COPY_SRC,
+            ),
+            uniform: buffer(
+                "terrain occlusion view",
+                std::mem::size_of::<CullViewUniform>() as u64,
+                U::UNIFORM | U::COPY_DST,
+            ),
+        }
+    }
+}
+
+/// Bytes of the occluded bitset for `capacity` slots.
+pub fn occlusion_bytes(capacity: u32) -> u64 {
+    u64::from(capacity.div_ceil(32)) * 4
+}
+
 /// Mip sizes for a depth target: level 0 is half the next power of two on each axis, so
 /// every level halves exactly, matches the hardware mip chain, and drops no edge pixel.
 pub fn pyramid_sizes(depth_size: [u32; 2]) -> Vec<[u32; 2]> {
@@ -192,6 +238,7 @@ pub struct CullKernels {
     seed: wgpu::ComputePipeline,
     seed_multisampled: wgpu::ComputePipeline,
     reduce: wgpu::ComputePipeline,
+    occlusion: wgpu::ComputePipeline,
     blank_pyramid: wgpu::TextureView,
 }
 
@@ -285,6 +332,7 @@ impl CullKernels {
             seed: pipeline(&pyramid, None, "hiz_seed"),
             seed_multisampled: pipeline(&pyramid, None, "hiz_seed_multisampled"),
             reduce: pipeline(&pyramid, None, "hiz_reduce"),
+            occlusion: pipeline(&cull, None, "cull_occlusion"),
             blank_pyramid: blank.create_view(&Default::default()),
             layout,
         }
@@ -352,6 +400,47 @@ impl CullKernels {
                 pass.dispatch_workgroups(workgroups, 1, 1);
             }
         }
+    }
+
+    /// Binds the occlusion kernel to `storage` and the pyramid it tests.
+    pub fn occlusion_bind_group(
+        &self,
+        device: &wgpu::Device,
+        storage: &OcclusionStorage,
+        pyramid: &HizPyramid,
+    ) -> wgpu::BindGroup {
+        let entries = [
+            (0, storage.uniform.as_entire_binding()),
+            (1, storage.records.as_entire_binding()),
+            (8, wgpu::BindingResource::TextureView(&pyramid.view)),
+            (9, storage.occluded.as_entire_binding()),
+        ]
+        .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("terrain occlusion bindings"),
+            layout: &self.occlusion.get_bind_group_layout(0),
+            entries: &entries,
+        })
+    }
+
+    /// Writes the occluded bit of every slot below `slots`.
+    pub fn encode_occlusion(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        bind_group: &wgpu::BindGroup,
+        slots: u32,
+    ) {
+        let groups = group_count(slots);
+        if groups == 0 {
+            return;
+        }
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("terrain occlusion"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&self.occlusion);
+        pass.set_bind_group(0, bind_group, &[]);
+        pass.dispatch_workgroups(groups, 1, 1);
     }
 
     pub fn pyramid_bindings(

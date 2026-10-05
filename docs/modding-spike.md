@@ -242,6 +242,42 @@ CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_
 Replacing the component reloads it as for other mods. A rejected shader shows its error as
 the mod's label.
 
+## Mobs, camera rig, commands and cues
+
+`CINNABAR_MOD_ENTITIES=1` grants `gameplay.read-mobs`: up to
+`mod_api::MAX_GAMEPLAY_MOBS` non-player actors within `MAX_MOB_RANGE_BLOCKS` of the
+eye, nearest first, with type ID and replicated health. `gameplay.set-camera-rig`
+(camera grant) retains a third-person boom in camera-local blocks plus roll and FOV
+change, swept against blocks like the vanilla boom; it presents third-person-back
+until `none`, a trap or a reload. `CINNABAR_MOD_COMMANDS=ability` (comma-separated)
+lets `gameplay.request-command` send `/ability ...` as a vanilla player command
+request; any other command is refused, and requests are capped by
+`MAX_COMMANDS_PER_FRAME` and `MAX_COMMANDS_PER_SECOND`. `events.emit` publishes bounded
+cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
+`MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
+only after a successful callback and is dropped on a trap or reload.
+
+## Several mods at once
+
+`CINNABAR_MOD_SET=/abs/mods.json` loads up to `mod_api::MAX_LOADED_MODS` components,
+each with its own grants (the `local-mod.json` names), budgets, trap quarantine and hot
+reload. A component that fails to load is skipped:
+
+```json
+{"version": 1, "mods": [
+  {"component": "/abs/camera.wasm", "grants": {"players": true, "camera": true, "controls": true}},
+  {"component": "/abs/hud.wasm", "grants": {"environment": true}}
+]}
+```
+
+File order settles conflicts: the earliest camera rig, rotation, time override, attack
+reach and non-zero packet delay win; a key reserved by an earlier mod never reaches a later
+one; the first mod with a panel owns it; labels join with ` | `; commands and cues keep load
+order. Render passes merge by name with the earliest mod keeping a contested name, and passes
+and each primitive kind fill the single-mod budgets in load order. Each mod polls
+every mod's previous-frame cues. The set takes precedence over `CINNABAR_MOD_COMPONENT`
+and the registration watcher, which still load a single mod.
+
 ## Attach a local component to a running client
 
 A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
@@ -262,7 +298,9 @@ A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root
     "interaction": true,
     "settings": true,
     "render": false,
-    "render_depth": false
+    "render_depth": false,
+    "entities": false,
+    "commands": []
   }
 }
 ```

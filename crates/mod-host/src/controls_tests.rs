@@ -3,27 +3,7 @@ use crate::{GameplaySnapshot, GameplayVector3, ModGrants};
 use cinnabar::extension::{input::Host as _, panel::Host as _, settings::Host as _};
 
 fn state(grants: ModGrants) -> State {
-    State {
-        limits: wasmtime::StoreLimitsBuilder::new().build(),
-        pressed: false,
-        label: None,
-        pending: None,
-        writes: 0,
-        grants,
-        time_override: None,
-        pending_time: None,
-        environment_writes: 0,
-        snapshot: None,
-        gameplay_reads: 0,
-        camera_writes: 0,
-        pending_camera: None,
-        camera_delta: None,
-        packet_delay_ms: 0,
-        pending_packet_delay: None,
-        packet_delay_writes: 0,
-        controls: ControlState::new("{\"cps\":12}".into()),
-        render: super::super::render::RenderState::new(),
-    }
+    State::new(grants, "{\"cps\":12}".into())
 }
 
 fn panel() -> String {

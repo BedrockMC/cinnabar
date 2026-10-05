@@ -1,15 +1,19 @@
 //! GPU-driven opaque terrain culling: persistent per-slot records, a compute cull with
 //! two-phase Hi-Z occlusion, and count-driven multi-draw-indirect submission.
 //!
-//! Backends whose multi-draw is a CPU loop (Metal, GL) lack `MULTI_DRAW_INDIRECT_COUNT` and
-//! keep CPU culling. DX12 count draws lose shader base offsets; it also keeps CPU culling,
-//! as do frames with an active presentation or visibility probe.
+//! Direct-draw devices (Metal) instead read occlusion bits back for later frames to skip; see
+//! [`direct`]. DX12 count draws lose shader base offsets, so it keeps CPU culling, as do frames
+//! with an active presentation or visibility probe.
 
 #[cfg(test)]
 mod app_tests;
+mod direct;
+#[cfg(test)]
+mod direct_tests;
 pub(in crate::chunk) mod kernels;
 pub(in crate::chunk) mod model;
 mod node;
+pub(in crate::chunk) mod occlusion;
 mod prepare;
 mod slots;
 #[cfg(test)]
@@ -23,6 +27,9 @@ use bevy::{
 };
 
 use crate::chunk::*;
+pub(crate) use direct::TerrainPassLabel;
+use direct::{DirectOcclusion, direct_occlusion_supported, reset_direct_occlusion_frame};
+pub(in crate::chunk) use direct::{DirectOcclusionFrame, SkipOccludedTerrain};
 use model::STREAM_COUNT;
 pub(in crate::chunk) use node::{draw_function_ids, install_commands};
 use prepare::{ChunkHiddenEntities, GpuCull, extract_hidden_chunks, prepare_gpu_cull};
@@ -33,6 +40,10 @@ const CPU_CULLING_ENV: &str = "RUST_MCBE_CPU_CULLING";
 /// Whether opaque terrain is culled on the GPU on this device.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::chunk) struct GpuCullSupport(pub(in crate::chunk) bool);
+
+/// Whether direct terrain draws skip what read-back occlusion bits hid.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::chunk) struct DirectOcclusionSupport(pub(in crate::chunk) bool);
 
 pub(in crate::chunk) fn gpu_cull_supported(
     draw_mode: ChunkDrawMode,
@@ -70,6 +81,9 @@ pub(in crate::chunk) struct GpuCullFrame {
 pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     support: Option<Res<'w, GpuCullSupport>>,
     frame: Option<ResMut<'w, GpuCullFrame>>,
+    direct_support: Option<Res<'w, DirectOcclusionSupport>>,
+    direct: Option<ResMut<'w, DirectOcclusionFrame>>,
+    direct_state: Option<Res<'w, DirectOcclusion>>,
     views: Query<'w, 's, (Option<&'static Frustum>, Option<&'static RenderLayers>)>,
 }
 
@@ -100,6 +114,52 @@ impl GpuCullQueue<'_, '_> {
             frame.view = Some(view);
         }
     }
+
+    /// The direct-drawn view whose terrain occlusion is tested; probes keep it off.
+    pub(in crate::chunk) fn select_direct<'a>(
+        &mut self,
+        draw_mode: ChunkDrawMode,
+        probing: bool,
+        candidates: impl IntoIterator<Item = (Entity, &'a MainEntity, &'a ExtractedView, bool)>,
+    ) -> Option<Entity> {
+        self.direct.as_deref_mut()?.clear();
+        let supported = self
+            .direct_support
+            .as_deref()
+            .is_some_and(|support| support.0);
+        if probing || !supported || draw_mode != ChunkDrawMode::Direct {
+            return None;
+        }
+        select_gpu_cull_view(candidates, |entity| {
+            self.views
+                .get(entity)
+                .is_ok_and(|(frustum, layers)| gpu_cull_view_eligible(frustum, layers))
+        })
+    }
+
+    /// Starts the selected direct view's frame; `Some(true)` routes its solid terrain to the
+    /// terrain pass.
+    pub(in crate::chunk) fn begin_direct(
+        &mut self,
+        entity: Entity,
+        view: &ExtractedView,
+        solid: (CachedRenderPipelineId, DrawFunctionId),
+    ) -> Option<bool> {
+        let wants = self
+            .direct_state
+            .as_deref()
+            .is_some_and(|state| state.wants_verdict(entity, view));
+        Some(
+            self.direct
+                .as_deref_mut()?
+                .begin(entity, view, solid, wants),
+        )
+    }
+
+    /// The selected direct view's frame; `None` when the path is not installed.
+    pub(in crate::chunk) fn direct_frame(&mut self) -> Option<&mut DirectOcclusionFrame> {
+        self.direct.as_deref_mut()
+    }
 }
 
 pub(in crate::chunk) fn install(app: &mut App) {
@@ -126,10 +186,25 @@ pub(in crate::chunk) fn install(app: &mut App) {
         adapter.get_info().backend,
         forced_cpu,
     ));
+    let direct = DirectOcclusionSupport(direct_occlusion_supported(
+        draw_mode,
+        adapter.get_downlevel_capabilities().flags,
+        forced_cpu,
+    ));
     render_app
         .insert_resource(support)
+        .insert_resource(direct)
         .init_resource::<GpuCullFrame>()
-        .add_systems(Render, reset_gpu_cull_frame.in_set(RenderSystems::Cleanup));
+        .init_resource::<DirectOcclusionFrame>()
+        .add_systems(
+            Render,
+            (reset_gpu_cull_frame, reset_direct_occlusion_frame).in_set(RenderSystems::Cleanup),
+        );
+    if direct.0 {
+        direct::install(render_app, &device);
+        app.add_systems(Last, admit_depth_sampling);
+        return;
+    }
     if !support.0 {
         return;
     }

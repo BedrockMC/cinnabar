@@ -53,7 +53,7 @@ pub use anim::{
 };
 pub use bind::{
     BindState, CollectionItem, ControlLibrary, DataSource, EmptyLibrary, FactoryItem, bind,
-    bind_reporting, bind_shared, bind_stateful, scoped_key,
+    bind_incremental, bind_reporting, bind_shared, bind_stateful, rebind, scoped_key,
 };
 pub use catalog::{Catalog, LoadError, RawControl};
 pub use component::{
@@ -277,11 +277,15 @@ pub struct Resolution {
 
 /// Resolve a `namespace.name` reference against `catalog` in `context`.
 pub fn resolve(catalog: &Catalog, reference: &str, context: &Context) -> Resolution {
-    let root = context.root_env(catalog);
+    resolve_in(catalog, reference, &context.root_env(catalog))
+}
+
+/// [`resolve`] in a root scope already built from a catalog and context.
+fn resolve_in(catalog: &Catalog, reference: &str, root: &env::Env) -> Resolution {
     let mut resolver = Resolver::new(catalog);
     let control = match reference.split_once('.') {
         Some((namespace, name)) => {
-            let resolved = resolver.resolve(namespace, name, &root);
+            let resolved = resolver.resolve(namespace, name, root);
             if resolved.is_none() {
                 resolver.note(format!("unknown control `{reference}`"));
             }

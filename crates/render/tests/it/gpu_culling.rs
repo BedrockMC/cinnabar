@@ -2,11 +2,14 @@
 #[path = "../../src/chunk/constants.rs"]
 #[allow(dead_code, reason = "reuse the production quad index order")]
 mod chunk_constants;
+mod direct;
 mod hiz;
 #[path = "../../src/chunk/gpu_cull/kernels.rs"]
 mod kernels;
 #[path = "../../src/chunk/gpu_cull/model.rs"]
 mod model;
+#[path = "../../src/chunk/gpu_cull/occlusion.rs"]
+mod occlusion;
 
 use std::collections::BTreeSet;
 
@@ -33,15 +36,20 @@ type Args = [Vec<[u32; ARGS_WORDS as usize]>; STREAM_COUNT];
 
 struct Camera {
     eye: Vec3,
+    clip_from_view: Mat4,
     clip_from_world: Mat4,
     frustum: Frustum,
 }
 
 /// A square perspective view, built exactly as Bevy builds a camera frustum.
 fn camera(eye: Vec3, target: Vec3) -> Camera {
+    camera_with_aspect(eye, target, 1.0)
+}
+
+fn camera_with_aspect(eye: Vec3, target: Vec3, aspect: f32) -> Camera {
     let global =
         GlobalTransform::from(Transform::from_translation(eye).looking_at(target, Vec3::Y));
-    let projection = Mat4::perspective_infinite_reverse_rh(1.2, 1.0, 0.05);
+    let projection = Mat4::perspective_infinite_reverse_rh(1.2, aspect, 0.05);
     let clip_from_world = projection * Mat4::from(global.affine().inverse());
     let frustum = Frustum::from_clip_from_world_custom_far(
         &clip_from_world,
@@ -51,6 +59,7 @@ fn camera(eye: Vec3, target: Vec3) -> Camera {
     );
     Camera {
         eye,
+        clip_from_view: projection,
         clip_from_world,
         frustum,
     }
@@ -537,6 +546,7 @@ fn cuboid(low: [u8; 3], size: [u8; 3], material: u32) -> [PackedQuad; 6] {
     ]
 }
 
+#[derive(Default)]
 struct Terrain {
     quads: Vec<PackedQuad>,
     origins: Vec<u32>,
@@ -545,72 +555,69 @@ struct Terrain {
     chunks: Vec<([i32; 3], std::ops::Range<u32>, CubeQuadLayout)>,
 }
 
+impl Terrain {
+    /// Appends sub-chunk `key` as the next slot.
+    fn add(&mut self, key: [i32; 3], solids: Vec<PackedQuad>, cutout: Vec<PackedQuad>) {
+        let slot = self.records.len() as u32;
+        let origin = key.map(|value| value * 16);
+        let mut solids = solids;
+        let order = |quad: &PackedQuad| {
+            CubeQuadLayout::SOLID_FACE_ORDER
+                .iter()
+                .position(|&face| face == quad.face())
+        };
+        solids.sort_by_key(order);
+        let mut counts = [0; 6];
+        for quad in &solids {
+            counts[quad.face() as usize] += 1;
+        }
+        let layout = CubeQuadLayout::from_solid_counts(counts);
+        let start = self.quads.len() as u32;
+        let mut bounds = [[16; 3], [0; 3]];
+        for quad in solids.iter().chain(&cutout) {
+            let low = quad.origin().map(i32::from);
+            let extent = i32::from(quad.width().max(quad.height()));
+            for axis in 0..3 {
+                bounds[0][axis] = bounds[0][axis].min(low[axis]);
+                bounds[1][axis] = bounds[1][axis].max((low[axis] + extent).min(16));
+            }
+        }
+        self.quads.extend(solids);
+        self.quads.extend(cutout);
+        let end = self.quads.len() as u32;
+        self.origins.extend([
+            origin[0] as u32,
+            origin[1] as u32,
+            origin[2] as u32,
+            0,
+            start,
+            start,
+            0,
+            0,
+        ]);
+        let solid_ends = CubeQuadLayout::SOLID_FACE_ORDER.map(|face| layout.solid_range(face).end);
+        self.records.push(
+            CullRecord::new(&CullRecordSource {
+                origin,
+                base_vertex: slot as i32 * 4,
+                bounds,
+                cube: start..end,
+                solid_ends,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        self.chunks.push((origin, start..end, layout));
+    }
+}
+
 /// A wall of slabs hiding block-filled sub-chunks, with open sides, a floor and cutout sheets.
 fn terrain() -> Terrain {
-    let mut terrain = Terrain {
-        quads: Vec::new(),
-        origins: Vec::new(),
-        records: Vec::new(),
-        chunks: Vec::new(),
-    };
-    let add =
-        |terrain: &mut Terrain, key: [i32; 3], solids: Vec<PackedQuad>, cutout: Vec<PackedQuad>| {
-            let slot = terrain.records.len() as u32;
-            let origin = key.map(|value| value * 16);
-            let mut solids = solids;
-            let order = |quad: &PackedQuad| {
-                CubeQuadLayout::SOLID_FACE_ORDER
-                    .iter()
-                    .position(|&face| face == quad.face())
-            };
-            solids.sort_by_key(order);
-            let mut counts = [0; 6];
-            for quad in &solids {
-                counts[quad.face() as usize] += 1;
-            }
-            let layout = CubeQuadLayout::from_solid_counts(counts);
-            let start = terrain.quads.len() as u32;
-            let mut bounds = [[16; 3], [0; 3]];
-            for quad in solids.iter().chain(&cutout) {
-                let low = quad.origin().map(i32::from);
-                let extent = i32::from(quad.width().max(quad.height()));
-                for axis in 0..3 {
-                    bounds[0][axis] = bounds[0][axis].min(low[axis]);
-                    bounds[1][axis] = bounds[1][axis].max((low[axis] + extent).min(16));
-                }
-            }
-            terrain.quads.extend(solids);
-            terrain.quads.extend(cutout);
-            let end = terrain.quads.len() as u32;
-            terrain.origins.extend([
-                origin[0] as u32,
-                origin[1] as u32,
-                origin[2] as u32,
-                0,
-                start,
-                start,
-                0,
-                0,
-            ]);
-            let solid_ends =
-                CubeQuadLayout::SOLID_FACE_ORDER.map(|face| layout.solid_range(face).end);
-            terrain.records.push(
-                CullRecord::new(&CullRecordSource {
-                    origin,
-                    base_vertex: slot as i32 * 4,
-                    bounds,
-                    cube: start..end,
-                    solid_ends,
-                    ..Default::default()
-                })
-                .unwrap(),
-            );
-            terrain.chunks.push((origin, start..end, layout));
-        };
+    let mut terrain = Terrain::default();
     for x in -2..=2 {
         let slab = cuboid([0, 0, 8], [16, 16, 1], (x & 1) as u32);
         if x != 2 {
-            add(&mut terrain, [x, 4, -2], slab.to_vec(), Vec::new());
+            terrain.add([x, 4, -2], slab.to_vec(), Vec::new());
         }
         for z in [-4, -5] {
             for y in [4, 5] {
@@ -618,16 +625,33 @@ fn terrain() -> Terrain {
                     cuboid([5, 5, 5], [3, 3, 3], 0),
                     cuboid([10, 12, 9], [2, 2, 2], 1),
                 ];
-                add(&mut terrain, [x, y, z], blocks.concat(), Vec::new());
+                terrain.add([x, y, z], blocks.concat(), Vec::new());
             }
         }
     }
     for x in -1..=1 {
         let floor = cuboid([1, 13, 1], [14, 2, 14], 1);
         let sheet = vec![PackedQuad::new([3, 15, 3], Face::PositiveY, 4, 4, 0)];
-        add(&mut terrain, [x, 3, -1], floor.to_vec(), sheet);
+        terrain.add([x, 3, -1], floor.to_vec(), sheet);
     }
     terrain
+}
+
+/// The CPU direct path's draws of one slot's stream: facing solid runs, or the cutout tail.
+fn slot_draws(terrain: &Terrain, slot: usize, eye: [f64; 3], stream: CullStream) -> Vec<[u32; 5]> {
+    let (origin, cube, layout) = &terrain.chunks[slot];
+    let ranges = match stream {
+        CullStream::Solid => layout
+            .solid_runs(meshing::sub_chunk_facing_faces(*origin, eye))
+            .map(|run| cube.start + run.start..cube.start + run.end)
+            .collect::<Vec<_>>(),
+        _ => vec![cube.start + layout.solid_len()..cube.end],
+    };
+    ranges
+        .into_iter()
+        .filter(|range| !range.is_empty())
+        .map(|range| [6, range.end - range.start, 0, slot as u32 * 4, range.start])
+        .collect()
 }
 
 struct Raster {
@@ -636,10 +660,22 @@ struct Raster {
     solid_group: wgpu::BindGroup,
     cutout_group: wgpu::BindGroup,
     indices: wgpu::Buffer,
+    view: wgpu::Buffer,
 }
 
 impl Raster {
     fn new(gpu: &Gpu, terrain: &Terrain, camera: &Camera) -> Self {
+        Self::with_depth(gpu, terrain, camera, true, wgpu::TextureFormat::Rgba8Unorm)
+    }
+
+    /// `write_depth` off draws against a finished depth, for per-slot visibility queries.
+    fn with_depth(
+        gpu: &Gpu,
+        terrain: &Terrain,
+        camera: &Camera,
+        write_depth: bool,
+        color: wgpu::TextureFormat,
+    ) -> Self {
         let source = shader_source::standalone(include_str!("../../src/chunk.wgsl"), &[])
             .replace("@group(1) @binding(0)", "@group(0) @binding(20)");
         let module = gpu
@@ -665,7 +701,7 @@ impl Raster {
                     },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: DEPTH_FORMAT,
-                        depth_write_enabled: true,
+                        depth_write_enabled: write_depth,
                         depth_compare: wgpu::CompareFunction::GreaterEqual,
                         stencil: Default::default(),
                         bias: Default::default(),
@@ -675,7 +711,15 @@ impl Raster {
                         module: &module,
                         entry_point: Some(fragment),
                         compilation_options: Default::default(),
-                        targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: color,
+                            blend: None,
+                            write_mask: if write_depth {
+                                wgpu::ColorWrites::ALL
+                            } else {
+                                wgpu::ColorWrites::empty()
+                            },
+                        })],
                     }),
                     multiview: None,
                     cache: None,
@@ -716,7 +760,7 @@ impl Raster {
         let sampler = gpu.device.create_sampler(&Default::default());
         let view = gpu.buffer(
             &gpu_snapshot::view(camera.clip_from_world, camera.eye),
-            wgpu::BufferUsages::UNIFORM,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let group = |pipeline: &wgpu::RenderPipeline| {
             let entries = [
@@ -764,7 +808,14 @@ impl Raster {
                 &chunk_constants::STATIC_QUAD_INDICES,
                 wgpu::BufferUsages::INDEX,
             ),
+            view,
         }
+    }
+
+    fn set_camera(&self, gpu: &Gpu, camera: &Camera) {
+        let words = gpu_snapshot::view(camera.clip_from_world, camera.eye);
+        gpu.queue
+            .write_buffer(&self.view, 0, bytemuck::cast_slice(&words));
     }
 
     fn bind(&self, pass: &mut wgpu::RenderPass<'_>, stream: CullStream) {
@@ -839,22 +890,7 @@ fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
             for (stream, draws) in [CullStream::Solid, CullStream::Cutout].map(|stream| {
                 let draws = front_to_back
                     .iter()
-                    .flat_map(|&slot| {
-                        let (origin, cube, layout) = &terrain.chunks[slot];
-                        let ranges = match stream {
-                            CullStream::Solid => layout
-                                .solid_runs(meshing::sub_chunk_facing_faces(*origin, eye))
-                                .map(|run| cube.start + run.start..cube.start + run.end)
-                                .collect::<Vec<_>>(),
-                            _ => vec![cube.start + layout.solid_len()..cube.end],
-                        };
-                        ranges
-                            .into_iter()
-                            .filter(|range| !range.is_empty())
-                            .map(move |range| {
-                                [6, range.end - range.start, 0, slot as u32 * 4, range.start]
-                            })
-                    })
+                    .flat_map(|&slot| slot_draws(&terrain, slot, eye, stream))
                     .collect::<Vec<_>>();
                 (stream, draws)
             }) {
