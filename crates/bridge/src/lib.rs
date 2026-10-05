@@ -21,7 +21,9 @@ pub use account::{
 };
 pub use error::BridgeError;
 pub use framed::FramedStream;
-pub use packet_delay::{PacketDelayLease, set_packet_delay};
+pub use packet_delay::{
+    PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
+};
 pub use status::{
     Lifecycle, PackAcquisition, PackAdmission, PackApplication, PackDownstreamOutcome, PackOffer,
     StatusV1, TransferPending, read_status, report_pack_application,
