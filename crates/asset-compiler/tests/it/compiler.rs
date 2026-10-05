@@ -39,8 +39,8 @@ mod cake;
 
 #[path = "compiler/farmland.rs"]
 mod farmland;
-#[path = "compiler/farmland_registry.rs"]
-mod farmland_registry;
+#[path = "compiler/target_registry.rs"]
+mod target_registry;
 
 #[path = "compiler/resin_clump.rs"]
 mod resin_clump;
