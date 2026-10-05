@@ -107,14 +107,14 @@ type reverseFirstDisconnectSession struct {
 	reason error
 }
 
-func (s *reverseFirstDisconnectSession) ReadBatchRaw(func(uint32) bool) ([]minecraft.RawPacket, error) {
+func (s *reverseFirstDisconnectSession) ReadBatch() ([]packet.Packet, error) {
 	// Force the reverse write result to win; the reader becomes runnable only
 	// once the coordinator tears down the upstream session.
 	<-s.closed
 	return nil, s.reason
 }
 
-func (s *reverseFirstDisconnectSession) WritePacketRaw([]byte) error {
+func (s *reverseFirstDisconnectSession) WritePacket(packet.Packet) error {
 	return s.reason
 }
 
