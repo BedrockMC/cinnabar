@@ -23,7 +23,7 @@ const (
 	codePurchaseReused = -32032
 	codeStoreNotFound  = -32033
 
-	defaultStorePage = "store"
+	defaultStorePage = "home"
 )
 
 // Marketplace is the Minecraft Marketplace service behind the store_* methods; *store.Session implements it.
@@ -121,6 +121,7 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 		case errors.Is(err, store.ErrPurchaseReused):
 			return reply.fail(codePurchaseReused, "Purchase id reused")
 		case errors.Is(err, store.ErrUnknownPage):
+			server.logServiceFailure(method, err) // names the page keys the session config offers
 			return reply.fail(codeStoreNotFound, "Unknown page")
 		}
 		// Thumbnail misses are per image and bounded by the client; everything else names why the store failed.
