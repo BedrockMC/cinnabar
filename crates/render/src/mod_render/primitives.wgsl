@@ -86,7 +86,7 @@ struct Shade {
     glow: f32,
 }
 
-fn shade(uv: vec2<f32>, style: vec4<f32>, time: f32) -> Shade {
+fn shade(uv: vec2<f32>, style: vec4<f32>, time: f32, edge_feather: f32) -> Shade {
     let id = u32(style.x + 0.5);
     let progress = style.y;
     let r = length(uv);
@@ -179,6 +179,10 @@ fn shade(uv: vec2<f32>, style: vec4<f32>, time: f32) -> Shade {
                 * fract(uv.y * 0.5 - time * 1.7);
             s = Shade(clamp(shell + streak * 0.35 * smoothstep(1.0, 0.6, d), 0.0, 1.0), 0.15, 1.0);
         }
+        case 30u: {
+            let feather = max(edge_feather, 1e-5);
+            s = Shade(1.0 - smoothstep(1.0 - feather, 1.0, abs(uv.x)), 0.0, 0.0);
+        }
         default: {}
     }
     return s;
@@ -186,7 +190,7 @@ fn shade(uv: vec2<f32>, style: vec4<f32>, time: f32) -> Shade {
 
 @fragment
 fn mod_primitive_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let s = shade(in.uv, in.style, primitive_frame.time.x);
+    let s = shade(in.uv, in.style, primitive_frame.time.x, fwidth(in.uv.x));
     let coverage = clamp(s.coverage, 0.0, 1.0) * in.color.a;
     if coverage <= 0.002 {
         discard;
