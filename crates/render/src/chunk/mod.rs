@@ -87,6 +87,7 @@ mod draw;
 pub(crate) mod enhanced;
 mod extract;
 mod gpu;
+mod instance;
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
 mod plugin;
@@ -95,6 +96,7 @@ mod presentation;
 mod publication_test_support;
 mod queue;
 mod resource_geometry;
+pub use instance::ChunkRenderInstance;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
@@ -117,9 +119,9 @@ use api::{
     PublicationPermitSlot, evaluate_model_witness_frame,
 };
 pub use api::{
-    ChunkRenderInstance, ChunkUploadAcknowledgement, ChunkUploadAcknowledgements,
-    ChunkUploadBudget, ChunkUploadPriority, ChunkUploadToken, PresentedFrameAck,
-    PresentedFrameGate, RenderViewCohort, TargetRenderExpectation,
+    ChunkUploadAcknowledgement, ChunkUploadAcknowledgements, ChunkUploadBudget,
+    ChunkUploadPriority, ChunkUploadToken, PresentedFrameAck, PresentedFrameGate, RenderViewCohort,
+    TargetRenderExpectation,
 };
 pub use biome_tints::{
     BiomeTint, ChunkBiomeTints, MATERIAL_UV_REFLECT_U, MATERIAL_UV_REFLECT_V,
