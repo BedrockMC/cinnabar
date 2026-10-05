@@ -5,6 +5,7 @@ mod block_entities;
 mod block_selection;
 mod block_use;
 pub mod camera;
+mod desktop;
 mod environment;
 mod first_run;
 mod fullscreen;
@@ -45,6 +46,7 @@ pub mod settings_runtime;
 )]
 mod store;
 mod survival_mining;
+mod thread_budget;
 pub mod ui_runtime;
 mod window_icon;
 

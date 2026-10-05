@@ -135,8 +135,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
 
     let masks = VisibilityMasks::from_facts(&facts);
     let leaves = super::leaves::LeafOcclusion::new(palette_context);
-    let mut quads = Vec::new();
-    let mut cube_lighting = Vec::new();
+    let mut cube_streams = CubeQuadStreams::default();
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     for face in Face::ALL {
         let columns = exposed_columns(palette_context, face, &masks, &neighbour_facts, &leaves);
@@ -177,8 +176,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                 &mut rows,
                 &lighting_scratch,
                 &mut CubeMeshOutput::new(
-                    &mut quads,
-                    &mut cube_lighting,
+                    &mut cube_streams,
                     &mut diagnostic_geometry,
                     visuals.materials(),
                 ),
@@ -412,10 +410,12 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     } else {
         (Vec::new(), Vec::new())
     };
+    let (quads, cube_lighting, layout) = cube_streams.finish();
     ChunkMesh {
         cube_streams: Box::new(CubeStreams {
             cube_quads: quads.into_boxed_slice(),
             cube_lighting: cube_lighting.into_boxed_slice(),
+            layout,
             diagnostic_geometry: diagnostic_geometry.finish(),
         }),
         model_refs: model_refs.into_boxed_slice(),
@@ -447,8 +447,8 @@ use super::{
         model_template_flags, select_model_templates, snow_side_is_covered,
     },
     opaque::{
-        CubeMeshOutput, DiagnosticGeometryAccumulator, VisibilityMasks, block_coordinate,
-        exposed_columns, face_offset, greedy_slice,
+        CubeMeshOutput, CubeQuadStreams, DiagnosticGeometryAccumulator, VisibilityMasks,
+        block_coordinate, exposed_columns, face_offset, greedy_slice,
     },
 };
 use crate::{

@@ -29,9 +29,8 @@ impl WorldStream {
             });
 
         let occupied = self.admitted_mesh_jobs.load(Ordering::Acquire);
-        let worker_budget = budget.min(
-            super::admission::mesh_job_cap(rayon::current_num_threads()).saturating_sub(occupied),
-        );
+        let worker_budget =
+            budget.min(super::admission::mesh_worker_cap().saturating_sub(occupied));
         let mut resident_candidates = if probe_near {
             scheduler::near_camera_keys(view, self.authority.current_dimension())
                 .filter_map(|key| {
@@ -224,9 +223,11 @@ impl WorldStream {
             let runtime_assets = Arc::clone(self.authority.runtime_assets());
             let resolved_biome_tints = Arc::clone(self.authority.resolved_biome_tints());
             let tint_identity = self.biome_tint_identity();
-            workers::WORKERS.mesh.spawn(move || {
+            let dispatched_at = Instant::now();
+            workers::WORKERS.spawn(workers::Lane::Mesh, move || {
                 let started = Instant::now();
                 let queue_wait = queue_wait(pending.queued_at, started);
+                let dispatch_wait = started.saturating_duration_since(dispatched_at);
                 let source = Arc::clone(&snapshot.center);
                 let biome_sources = snapshot.biomes.clone();
                 let light_halo = snapshot.light_halo.clone();
@@ -255,6 +256,7 @@ impl WorldStream {
                     dependency_mask,
                     light_halo,
                     queue_wait,
+                    dispatch_wait,
                     duration: started.elapsed(),
                     urgent: pending.urgent,
                 });
@@ -500,7 +502,8 @@ impl WorldStream {
             .phase2_stages
             .mesh_jobs_completed
             .saturating_add(1);
-        self.stats.observe_mesh_queue_wait(completion.queue_wait);
+        self.stats
+            .observe_mesh_queue_wait(completion.queue_wait, completion.dispatch_wait);
         if self.mesh_jobs.in_flight.get(&completion.key) == Some(&completion.revision) {
             self.mesh_jobs.in_flight.remove(&completion.key);
             self.mesh_cancellations.remove(&completion.key);
