@@ -154,6 +154,18 @@ Preflight CPU-step percentiles are not game-frame percentiles. Metadata scans ha
 no terrain. Resident-slot and stale-work counters include boundary setup; production
 logs remain enabled. Decode and meshing timings include output destruction.
 
+`flight_costs` streams procedurally generated terrain (dirt over ore-flecked stone with
+sealed caves) into a settled radius-10 or radius-16 view while the camera flies along +X.
+Each 240 Hz frame submits the server's position, view centre and new columns, polls, and
+acknowledges meshes. The flight cases report main-thread stream time per frame, and the
+preflight line prints its p50, p99 and maximum. Eviction cases time only the server
+position update that retires the trailing row. Cave cases time one full
+connectivity search from the surface and from a sealed pocket.
+
+```sh
+cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench flight_costs
+```
+
 These are CPU baselines, not join-time or FPS evidence. They omit socket framing,
 real server terrain, GPU preparation/uploads/draws and the rest of the Bevy frame.
 Native performance acceptance still follows [live testing](docs/agents/live-testing.md).

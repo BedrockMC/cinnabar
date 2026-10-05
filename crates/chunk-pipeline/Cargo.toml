@@ -37,3 +37,8 @@ criterion.workspace = true
 name = "chunk_costs"
 harness = false
 required-features = ["benchmark-support"]
+
+[[bench]]
+name = "flight_costs"
+harness = false
+required-features = ["benchmark-support"]
