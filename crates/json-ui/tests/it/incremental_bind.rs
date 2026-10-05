@@ -103,6 +103,14 @@ impl<'c> Pair<'c> {
         assert_eq!(render.nodes, cold.nodes, "{step}: draws differ");
         assert_eq!(render.hits, cold.hits, "{step}: hit regions differ");
         assert_eq!(render.report, cold.report, "{step}: reports differ");
+        assert_eq!(
+            render.cancel_target, cold.cancel_target,
+            "{step}: cancel targets differ"
+        );
+        assert_eq!(
+            render.root_panel, cold.root_panel,
+            "{step}: root panels differ"
+        );
         self.laid = Some(render);
         Touched {
             rebuilt: state.rebuilt_paths(),
@@ -476,6 +484,27 @@ const SYNTHETIC: &str = r##"{
             } }
           ]
       } },
+      { "menu": {
+          "type": "panel", "size": [60, 40], "anchor_from": "top_right", "anchor_to": "top_right",
+          "focus_container": true, "collection_name": "cells",
+          "controls": [
+            { "back": {
+                "type": "button", "size": [20, 10],
+                "button_mappings": [
+                  { "from_button_id": "button.menu_cancel", "to_button_id": "button.menu_exit", "mapping_type": "global" }
+                ],
+                "bindings": [ { "binding_name": "#gate_on", "binding_name_override": "#visible" } ]
+            } },
+            { "slot": {
+                "type": "custom", "renderer": "inventory_item_renderer", "size": [16, 16],
+                "collection_index": 0, "offset": [0, 20]
+            } },
+            { "root_panel": {
+                "type": "panel", "size": [10, 10],
+                "bindings": [ { "binding_name": "#title_on", "binding_name_override": "#visible" } ]
+            } }
+          ]
+      } },
       { "gate": {
           "type": "panel", "size": [50, 20],
           "bindings": [ { "binding_name": "#gate_on", "binding_name_override": "#visible" } ],
@@ -671,7 +700,8 @@ fn collection_changes_rebuild_only_their_list() {
         ("line dropped", "/line", |screen| {
             screen.lines.remove(0);
         }),
-        ("cell added", "/cells", |screen| {
+        // The menu panel lists the same collection.
+        ("cell added", "/cells|/menu", |screen| {
             screen.cells.push("textures/b".into())
         }),
     ];
@@ -681,7 +711,8 @@ fn collection_changes_rebuild_only_their_list() {
         assert!(!paths.is_empty(), "{name}: nothing rebuilt");
         for path in &paths {
             assert!(
-                path.contains(list) || ancestor_of_subtree(&paths, path, list),
+                list.split('|')
+                    .any(|list| { path.contains(list) || ancestor_of_subtree(&paths, path, list) }),
                 "{name} rebuilt {path} outside {list}: {paths:?}"
             );
         }
