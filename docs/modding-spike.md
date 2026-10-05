@@ -215,6 +215,25 @@ cues in the app's `ModCueFeed`; `events.poll` returns last frame's cues, at most
 `MAX_INCOMING_CUES`. `input.read-controls` also reports held keys. All output commits
 only after a successful callback and is dropped on a trap or reload.
 
+## Several mods at once
+
+`CINNABAR_MOD_SET=/abs/mods.json` loads up to `mod_api::MAX_LOADED_MODS` components,
+each with its own grants (the `local-mod.json` names), budgets, trap quarantine and hot
+reload. A component that fails to load is skipped:
+
+```json
+{"version": 1, "mods": [
+  {"component": "/abs/camera.wasm", "grants": {"players": true, "camera": true, "controls": true}},
+  {"component": "/abs/hud.wasm", "grants": {"environment": true}}
+]}
+```
+
+File order settles conflicts: the earliest camera rig, rotation, time override and attack
+reach win; a key reserved by an earlier mod never reaches a later one; the first mod with
+a panel owns it; labels join with ` | `; commands and cues keep load order. Each mod polls
+every mod's previous-frame cues. The set takes precedence over `CINNABAR_MOD_COMPONENT`
+and the registration watcher, which still load a single mod.
+
 ## Attach a local component to a running client
 
 A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`

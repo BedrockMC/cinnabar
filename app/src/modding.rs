@@ -38,9 +38,11 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 #[cfg(feature = "local-mods")]
+mod multi;
+#[cfg(feature = "local-mods")]
 mod registration;
 
-/// The local mod's presentation cues committed this frame, for renderer-side effects.
+/// Every loaded mod's presentation cues committed this frame, in load order.
 #[cfg(feature = "local-mods")]
 #[derive(Resource, Default)]
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
@@ -49,8 +51,8 @@ pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 #[derive(Resource)]
 struct ModRuntime {
     host: ModHost,
+    companions: Vec<multi::Companion>,
     last_reload: Instant,
-    grants: ModGrants,
     controls: mod_host::ControlFrame,
     reload_on_main: bool,
     registration_identity: Option<[u8; 32]>,
@@ -62,7 +64,12 @@ struct ModRuntime {
 pub(crate) fn configure_from_environment(app: &mut App) {
     let path = std::env::var_os(COMPONENT_ENV);
     #[cfg(feature = "local-mods")]
-    if let Some(path) = path.as_deref() {
+    if let Some(set) = std::env::var_os(multi::SET_ENV) {
+        match multi::read_set(Path::new(&set)) {
+            Ok(mods) => configure_set(app, mods),
+            Err(error) => eprintln!("Local mod set disabled: {error}"),
+        }
+    } else if let Some(path) = path.as_deref() {
         configure(app, Some(Path::new(path)));
     } else {
         match launcher::install_layout::InstallLayout::discover()
@@ -110,38 +117,52 @@ fn configure(app: &mut App, path: Option<&Path>) {
 /// Grants are explicit and apply only to the selected personal component.
 #[cfg(feature = "local-mods")]
 fn configure_with_grants(app: &mut App, path: Option<&Path>, grants: ModGrants) {
-    let Some(path) = path else { return };
-    let controls = grants.controls;
-    match ModHost::load_with_grants(path, grants.clone()) {
-        Ok(host) => {
-            app.insert_resource(VisualTimeOverride(host.time_override()))
-                .insert_resource(ModRuntime {
-                    host,
-                    last_reload: Instant::now(),
-                    grants,
-                    controls: mod_host::empty_controls(),
-                    reload_on_main: true,
-                    registration_identity: None,
-                    registration_request: None,
-                    suspended: false,
-                })
-                .init_resource::<interaction::ModInteraction>();
-            if controls && let Some(path) = std::env::var_os(font::FONT_ENV) {
-                match font::load(Path::new(&path)).and_then(|font| {
-                    app.world_mut()
-                        .get_resource_mut::<UiPresentationRuntime>()
-                        .ok_or_else(|| "presentation is unavailable".to_owned())?
-                        .set_mod_panel_font(Some(std::sync::Arc::new(font)))
-                        .map_err(|error| error.to_string())
-                }) {
-                    Ok(()) => {}
-                    Err(error) => eprintln!("Optional personal-panel font unavailable: {error}"),
-                }
-            }
-            configure_systems(app, false);
-        }
-        Err(error) => eprintln!("Cinnabar extension {} disabled: {error:#}", path.display()),
+    if let Some(path) = path {
+        configure_set(app, vec![(path.to_owned(), grants)]);
     }
+}
+
+/// Loads components in order, each with its own grants; one failing to load leaves the rest.
+#[cfg(feature = "local-mods")]
+fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
+    let mut hosts = mods.into_iter().filter_map(|(path, grants)| {
+        ModHost::load_with_grants(&path, grants)
+            .inspect_err(|error| {
+                eprintln!("Cinnabar extension {} disabled: {error:#}", path.display());
+            })
+            .ok()
+    });
+    let Some(host) = hosts.next() else { return };
+    let companions: Vec<_> = hosts.map(|host| multi::Companion { host }).collect();
+    let controls = host.grants().controls
+        || companions
+            .iter()
+            .any(|companion| companion.host.grants().controls);
+    app.insert_resource(VisualTimeOverride(host.time_override()))
+        .insert_resource(ModRuntime {
+            host,
+            companions,
+            last_reload: Instant::now(),
+            controls: mod_host::empty_controls(),
+            reload_on_main: true,
+            registration_identity: None,
+            registration_request: None,
+            suspended: false,
+        })
+        .init_resource::<interaction::ModInteraction>();
+    if controls && let Some(path) = std::env::var_os(font::FONT_ENV) {
+        match font::load(Path::new(&path)).and_then(|font| {
+            app.world_mut()
+                .get_resource_mut::<UiPresentationRuntime>()
+                .ok_or_else(|| "presentation is unavailable".to_owned())?
+                .set_mod_panel_font(Some(std::sync::Arc::new(font)))
+                .map_err(|error| error.to_string())
+        }) {
+            Ok(()) => {}
+            Err(error) => eprintln!("Optional personal-panel font unavailable: {error}"),
+        }
+    }
+    configure_systems(app, false);
 }
 
 #[cfg(feature = "local-mods")]
@@ -206,17 +227,20 @@ fn drive_mod(
     if extension.suspended {
         return;
     }
-    if extension.reload_on_main && extension.last_reload.elapsed() >= RELOAD_INTERVAL {
+    if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
         extension.last_reload = Instant::now();
-        match extension.host.reload_if_changed() {
-            // A new instance starts without its predecessor's cues.
-            Ok(true) => {
-                if let Some(cues) = outputs.2.as_mut() {
-                    cues.0.clear();
+        let first = usize::from(!extension.reload_on_main);
+        for index in first..extension.host_count() {
+            match extension.host_mut(index).reload_if_changed() {
+                // A new instance never sees cues from before it existed.
+                Ok(true) => {
+                    if let Some(cues) = outputs.2.as_mut() {
+                        cues.0.clear();
+                    }
                 }
+                Ok(false) => {}
+                Err(error) => eprintln!("Cinnabar extension reload rejected: {error:#}"),
             }
-            Ok(false) => {}
-            Err(error) => eprintln!("Cinnabar extension reload rejected: {error:#}"),
         }
     }
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
@@ -230,58 +254,58 @@ fn drive_mod(
     let captured = windows.single().is_ok_and(|(window, cursor)| {
         cursor.is_some_and(|cursor| crate::camera::input_is_active(window, cursor))
     });
-    let snapshot = gameplay.snapshot(captured && !absorbed, &extension.grants);
-    let mobs = gameplay.mobs(snapshot.as_ref(), &extension.grants);
-    if let Some(feed) = outputs.2.as_ref() {
-        extension.host.deliver_cues(feed.0.clone());
-    }
-    let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
-    controls.gameplay = snapshot.is_some();
-    if extension.host.is_active()
-        && let Err(error) = extension
-            .host
-            .frame_with_world(pressed, snapshot, mobs, controls)
-    {
-        if let Some((generation, request_id)) = &extension.registration_request
-            && let Some(watcher) = watcher.as_ref()
-        {
-            watcher.quarantine(*generation, request_id.clone(), format!("{error:#}"));
-        }
-        eprintln!("Cinnabar extension callback failed: {error:#}");
-    }
-    if let Some(error) = extension.host.take_settings_error() {
-        eprintln!("Cinnabar extension preferences could not be saved: {error}");
-    }
+    let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let (network, camera, cues) = outputs;
+    let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
+    let registration = extension.registration_request.clone();
+    let merged = multi::run_frame(
+        &mut extension,
+        multi::FrameInput {
+            pressed,
+            controls: &controls,
+            previous_cues: &previous_cues,
+        },
+        |grants| {
+            let snapshot = gameplay.snapshot(captured && !absorbed, grants);
+            let mobs = gameplay.mobs(snapshot.as_ref(), grants);
+            (snapshot, mobs)
+        },
+        |index, error| {
+            if index == 0
+                && let Some((generation, request_id)) = &registration
+                && let Some(watcher) = watcher.as_ref()
+            {
+                watcher.quarantine(*generation, request_id.clone(), error.clone());
+            }
+            eprintln!("Cinnabar extension callback failed: {error}");
+        },
+    );
     if let Some(watcher) = watcher.as_ref() {
         watcher.remember_settings(Some(&extension.host));
     }
-    let output = extension.host.take_interaction();
-    interaction.attack_reach = output.attack_reach;
-    interaction.attack_pulse = output.attack_pulse && gameplay.pulse_attack();
-    if let Some(delta) = extension.host.take_camera_delta() {
+    interaction.attack_reach = merged.attack_reach;
+    interaction.attack_pulse = merged.attack_pulse && gameplay.pulse_attack();
+    if let Some(delta) = merged.delta {
         gameplay.apply(delta);
     }
-    let (network, camera, cues) = outputs;
-    send_commands(
-        network.as_deref(),
-        ui.session_id(),
-        extension.host.take_commands(),
-    );
+    let label = merged.label();
+    send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
-        cues.0 = extension.host.take_cues();
+        cues.0 = merged.cues;
     }
     if let Some(mut camera) = camera {
-        camera.set_rig(extension.host.camera_rig().map(camera_rig));
+        camera.set_rig(merged.rig.map(camera_rig));
     }
-    time_override.0 = extension.host.time_override();
-    if let Err(error) = presentation.set_mod_label(extension.host.label()) {
+    time_override.0 = merged.time_override;
+    if let Err(error) = presentation.set_mod_label(label.as_deref()) {
         eprintln!("Cinnabar extension HUD rejected: {error}");
     }
-    if let Err(error) = presentation.set_mod_panel(extension.host.panel()) {
+    let owner = extension.panel_owner();
+    if let Err(error) = presentation.set_mod_panel(extension.host(owner).panel()) {
         eprintln!("Cinnabar extension panel rejected: {error}");
-        extension.host.set_panel_open(false);
+        extension.host_mut(owner).set_panel_open(false);
     }
-    presentation.set_mod_panel_open(extension.host.panel_open());
+    presentation.set_mod_panel_open(extension.host(owner).panel_open());
 }
 
 /// Granted commands travel the session-fenced UI packet lane as vanilla command requests.

@@ -35,6 +35,8 @@ pub const MAX_CUE_NAME_BYTES: usize = 32;
 pub const MAX_CUE_VALUES: usize = 8;
 /// Cues delivered to one callback from every loaded mod.
 pub const MAX_INCOMING_CUES: usize = 64;
+/// Local mods running at once.
+pub const MAX_LOADED_MODS: usize = 4;
 
 pub mod bindings {
     wit_bindgen::generate!({
