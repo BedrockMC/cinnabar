@@ -36,6 +36,8 @@ pub use media_screen::{
     MAX_MEDIA_SCREENS, MediaFrame, MediaScreen, MediaScreenScene, media_screen_axes,
 };
 mod material_shader;
+mod mod_render;
+pub use mod_render::{ModPassLabel, ModRenderPlugin, ModRenderScene};
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;

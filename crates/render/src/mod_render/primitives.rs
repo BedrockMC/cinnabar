@@ -1,0 +1,377 @@
+//! Mod world primitives: one premultiplied, depth-tested, non-writing draw per view, after
+//! the world's own transparent geometry.
+
+use super::ModRenderScene;
+use bevy::{
+    asset::{load_internal_asset, uuid_handle},
+    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
+    ecs::{
+        query::ROQueryItem,
+        system::{SystemParamItem, lifetimeless::Read, lifetimeless::SRes},
+    },
+    prelude::*,
+    render::{
+        Render, RenderApp, RenderStartup, RenderSystems,
+        render_phase::{
+            AddRenderCommand, DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+        },
+        render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+            BindingType, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferId,
+            BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
+            DepthStencilState, FragmentState, PipelineCache, RenderPipeline,
+            RenderPipelineDescriptor, ShaderStages, ShaderType, Specializer, SpecializerKey,
+            TextureFormat, Variants, VertexState,
+        },
+        renderer::{RenderDevice, RenderQueue},
+        sync_world::MainEntity,
+        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+    },
+};
+use mod_render::geometry::ModVertex;
+use std::sync::Arc;
+
+const PRIMITIVE_SHADER: Handle<Shader> = uuid_handle!("8e1f4b6c-2d7a-4c93-b5e0-7a19c3d84f26");
+const VERTEX_BYTES: u64 = std::mem::size_of::<ModVertex>() as u64;
+/// After the world's own transparent geometry, before the camera overlay at `f32::MAX`.
+pub(crate) const PRIMITIVE_DISTANCE: f32 = f32::MAX / 2.0;
+
+pub(super) fn install(app: &mut App) {
+    load_internal_asset!(
+        app,
+        PRIMITIVE_SHADER,
+        "primitives.wgsl",
+        crate::shader_safety::from_wgsl
+    );
+    app.sub_app_mut(RenderApp)
+        .init_resource::<PrimitivePipeline>()
+        .add_render_command::<Transparent3d, DrawPrimitiveCommands>()
+        .add_systems(RenderStartup, init_gpu)
+        .add_systems(
+            Render,
+            (
+                prepare.in_set(RenderSystems::PrepareResources),
+                prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
+                queue
+                    .run_if(crate::panorama::world_passes_enabled)
+                    .in_set(RenderSystems::Queue),
+            ),
+        );
+}
+
+#[derive(Resource)]
+pub(crate) struct PrimitiveGpu {
+    vertices: Buffer,
+    capacity: u64,
+    uploaded: Arc<[ModVertex]>,
+    pub(crate) vertex_count: u32,
+    frame: Buffer,
+    bind_group: Option<BindGroup>,
+    view_buffer_id: Option<BufferId>,
+}
+
+fn vertex_buffer(device: &RenderDevice, vertices: u64) -> Buffer {
+    device.create_buffer(&BufferDescriptor {
+        label: Some("mod primitive vertices"),
+        size: vertices.max(6) * VERTEX_BYTES,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+    commands.insert_resource(PrimitiveGpu {
+        vertices: vertex_buffer(&device, 6),
+        capacity: 6,
+        uploaded: Arc::from([]),
+        vertex_count: 0,
+        frame: device.create_buffer(&BufferDescriptor {
+            label: Some("mod primitive frame"),
+            size: 16,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }),
+        bind_group: None,
+        view_buffer_id: None,
+    });
+}
+
+fn prepare(
+    scene: Option<Res<ModRenderScene>>,
+    time: Res<Time>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    mut gpu: ResMut<PrimitiveGpu>,
+) {
+    let Some(scene) = scene else { return };
+    if !Arc::ptr_eq(&gpu.uploaded, &scene.vertices) {
+        let needed = scene.vertices.len() as u64;
+        if needed > gpu.capacity {
+            let capacity = needed
+                .next_power_of_two()
+                .min(mod_render::geometry::MAX_VERTICES as u64);
+            gpu.vertices = vertex_buffer(&device, capacity);
+            gpu.capacity = capacity;
+            gpu.bind_group = None;
+        }
+        let count = needed.min(gpu.capacity) as usize;
+        if count > 0 {
+            queue.write_buffer(
+                &gpu.vertices,
+                0,
+                bytemuck::cast_slice(&scene.vertices[..count]),
+            );
+        }
+        gpu.vertex_count = count as u32;
+        gpu.uploaded = Arc::clone(&scene.vertices);
+    }
+    if gpu.vertex_count > 0 {
+        let frame = [time.elapsed_secs_wrapped(), time.delta_secs(), 0.0, 0.0];
+        queue.write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
+    }
+}
+
+struct PrimitiveSpecializer;
+
+#[derive(Resource)]
+pub(crate) struct PrimitivePipeline {
+    variants: Variants<RenderPipeline, PrimitiveSpecializer>,
+    pub(crate) layout: BindGroupLayoutDescriptor,
+}
+
+impl FromWorld for PrimitivePipeline {
+    fn from_world(_world: &mut World) -> Self {
+        let layout = BindGroupLayoutDescriptor::new(
+            "mod primitive layout",
+            &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: Some(ViewUniform::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(VERTEX_BYTES),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(16),
+                    },
+                    count: None,
+                },
+            ],
+        );
+        let descriptor = RenderPipelineDescriptor {
+            label: Some("mod primitive pipeline".into()),
+            layout: vec![layout.clone()],
+            vertex: VertexState {
+                shader: PRIMITIVE_SHADER,
+                entry_point: Some("mod_primitive_vertex".into()),
+                buffers: Vec::new(),
+                ..default()
+            },
+            fragment: Some(FragmentState {
+                shader: PRIMITIVE_SHADER,
+                entry_point: Some("mod_primitive_fragment".into()),
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::bevy_default(),
+                    blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
+            depth_stencil: Some(DepthStencilState {
+                format: CORE_3D_DEPTH_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: CompareFunction::GreaterEqual,
+                stencil: default(),
+                bias: default(),
+            }),
+            ..default()
+        };
+        Self {
+            variants: Variants::new(PrimitiveSpecializer, descriptor),
+            layout,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
+pub(crate) struct PrimitiveKey {
+    pub(crate) msaa: Msaa,
+    pub(crate) hdr: bool,
+}
+
+impl Specializer<RenderPipeline> for PrimitiveSpecializer {
+    type Key = PrimitiveKey;
+
+    fn specialize(
+        &self,
+        key: Self::Key,
+        descriptor: &mut RenderPipelineDescriptor,
+    ) -> Result<Canonical<Self::Key>, BevyError> {
+        descriptor.multisample.count = key.msaa.samples();
+        descriptor.fragment.as_mut().unwrap().targets[0]
+            .as_mut()
+            .unwrap()
+            .format = if key.hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+        Ok(key)
+    }
+}
+
+impl PrimitivePipeline {
+    pub(crate) fn specialize(
+        &mut self,
+        cache: &PipelineCache,
+        key: PrimitiveKey,
+    ) -> Result<bevy::render::render_resource::CachedRenderPipelineId, BevyError> {
+        self.variants.specialize(cache, key)
+    }
+}
+
+fn prepare_bind_group(
+    device: Res<RenderDevice>,
+    cache: Res<PipelineCache>,
+    pipeline: Res<PrimitivePipeline>,
+    view_uniforms: Res<ViewUniforms>,
+    mut gpu: ResMut<PrimitiveGpu>,
+) {
+    let Some(view_binding) = view_uniforms.uniforms.binding() else {
+        gpu.bind_group = None;
+        return;
+    };
+    let view_buffer = view_uniforms
+        .uniforms
+        .buffer()
+        .expect("a dynamic view binding always owns a GPU buffer");
+    if gpu.bind_group.is_some() && gpu.view_buffer_id == Some(view_buffer.id()) {
+        return;
+    }
+    gpu.bind_group = Some(device.create_bind_group(
+        "mod primitive bind group",
+        &cache.get_bind_group_layout(&pipeline.layout),
+        &[
+            BindGroupEntry {
+                binding: 0,
+                resource: view_binding,
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: gpu.vertices.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: gpu.frame.as_entire_binding(),
+            },
+        ],
+    ));
+    gpu.view_buffer_id = Some(view_buffer.id());
+}
+
+pub(crate) fn queue(
+    cache: Res<PipelineCache>,
+    mut pipeline: ResMut<PrimitivePipeline>,
+    scene: Option<Res<ModRenderScene>>,
+    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
+) {
+    // Queue precedes the upload, so this frame's scene decides; the draw reads the upload.
+    if scene.is_none_or(|scene| scene.vertices.is_empty()) {
+        return;
+    }
+    let draw_function = draw_functions.read().id::<DrawPrimitiveCommands>();
+    for (view_entity, main_entity, view, msaa) in &views {
+        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
+            continue;
+        };
+        let Ok(pipeline_id) = pipeline.specialize(
+            &cache,
+            PrimitiveKey {
+                msaa: *msaa,
+                hdr: view.hdr,
+            },
+        ) else {
+            continue;
+        };
+        phase.add(Transparent3d {
+            entity: (view_entity, *main_entity),
+            pipeline: pipeline_id,
+            draw_function,
+            distance: PRIMITIVE_DISTANCE,
+            batch_range: 0..1,
+            extra_index: PhaseItemExtraIndex::None,
+            indexed: false,
+        });
+    }
+}
+
+pub(crate) type DrawPrimitiveCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuModPrimitives as usize },
+    (SetItemPipeline, SetPrimitiveBindGroup, DrawPrimitives),
+>;
+
+pub(crate) struct SetPrimitiveBindGroup;
+
+impl<P: PhaseItem> RenderCommand<P> for SetPrimitiveBindGroup {
+    type Param = SRes<PrimitiveGpu>;
+    type ViewQuery = Read<ViewUniformOffset>;
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let Some(bind_group) = &gpu.into_inner().bind_group else {
+            return RenderCommandResult::Skip;
+        };
+        pass.set_bind_group(0, bind_group, &[view_offset.offset]);
+        RenderCommandResult::Success
+    }
+}
+
+pub(crate) struct DrawPrimitives;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawPrimitives {
+    type Param = SRes<PrimitiveGpu>;
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let count = gpu.into_inner().vertex_count;
+        if count == 0 {
+            return RenderCommandResult::Skip;
+        }
+        pass.draw(0..count, 0..1);
+        RenderCommandResult::Success
+    }
+}

@@ -41,6 +41,7 @@ mod liquid_geometry;
 mod liquid_raster;
 mod liquid_shader;
 mod material_variations;
+mod mod_render;
 mod native_sky;
 mod plugin;
 mod portal_overlay;

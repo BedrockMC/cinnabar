@@ -210,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "bedrock-client", "render", "protoco
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["assets", "meshing", "mod-api", "particles", "render-api", "render-model", "world"]
+allowed_dependencies = ["assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -240,10 +240,18 @@ path = "crates/mod-api"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
+# Sandboxed mod render contract: WGSL admission and camera-independent primitive geometry.
+[[crates]]
+name = "mod-render"
+path = "crates/mod-render"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
+
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["mod-api", "server-experience", "ui"]
+allowed_dependencies = ["mod-api", "mod-render", "server-experience", "ui"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -255,6 +263,12 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "time-changer-mod"
 path = "examples/mods/time-changer"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "render-sample-mod"
+path = "examples/mods/render-sample"
 allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 

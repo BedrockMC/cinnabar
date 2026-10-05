@@ -105,6 +105,45 @@ interface events {
     poll: func() -> list<cue>;
 }
 
+/// Local custom rendering: sandboxed WGSL post-process passes and bounded world-space primitives.
+interface render {
+    use gameplay.{vector3};
+    /// Linear colour; alpha scales coverage.
+    record rgba { r: f32, g: f32, b: f32, a: f32 }
+    /// Procedural ground styles animated by `progress` in 0–1.
+    enum decal-style { telegraph, disc, crater, shockwave, dust }
+    record decal { center: vector3, radius: f32, color: rgba, progress: f32, style: decal-style }
+    /// Camera-facing strip that tapers and fades from the first point (head) to the last.
+    record ribbon { points: list<vector3>, width: f32, color: rgba }
+    /// Glowing animated strip from start to end; intensity scales its white-hot core.
+    record beam { start: vector3, end: vector3, width: f32, color: rgba, intensity: f32 }
+    enum billboard-pattern { solid, soft-disc, ring, spark, silhouette, sphere, aura }
+    /// Camera-facing quad; upright quads keep their vertical axis.
+    record billboard {
+        position: vector3,
+        width: f32,
+        height: f32,
+        color: rgba,
+        pattern: billboard-pattern,
+        upright: bool,
+    }
+    record primitives {
+        decals: list<decal>,
+        ribbons: list<ribbon>,
+        beams: list<beam>,
+        billboards: list<billboard>,
+    }
+    /// `source` defines `fn effect(uv: vec2<f32>) -> vec3<f32>`, the new scene colour, against the host prelude.
+    record pass-spec { name: string, order: s32, source: string, depth: bool }
+    /// Validates a pass; passes run after the scene and before the HUD, by order then name.
+    register-pass: func(spec: pass-spec) -> result<_, string>;
+    remove-pass: func(name: string) -> result<_, string>;
+    /// Retained enable flag and up to 16 floats exposed to the shader as `param(i)`.
+    update-pass: func(name: string, enabled: bool, params: list<f32>) -> result<_, string>;
+    /// Appends to this callback's primitives; each successful callback replaces the drawn set.
+    draw: func(primitives: primitives) -> result<_, string>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
     import hud;
@@ -114,6 +153,7 @@ world extension {
     import events;
     import panel;
     import settings;
+    import render;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.

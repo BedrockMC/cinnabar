@@ -43,37 +43,7 @@ struct Registration {
     #[serde(default)]
     font: Option<PathBuf>,
     #[serde(default)]
-    grants: Grants,
-}
-
-#[derive(Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub(super) struct Grants {
-    environment: bool,
-    players: bool,
-    camera: bool,
-    controls: bool,
-    interaction: bool,
-    settings: bool,
-    entities: bool,
-    commands: Vec<String>,
-    packet_delay: bool,
-}
-
-impl From<&Grants> for ModGrants {
-    fn from(grants: &Grants) -> Self {
-        Self {
-            environment: grants.environment,
-            players: grants.players,
-            camera: grants.camera,
-            controls: grants.controls,
-            interaction: grants.interaction,
-            settings: grants.settings,
-            entities: grants.entities,
-            commands: grants.commands.clone(),
-            packet_delay: grants.packet_delay,
-        }
-    }
+    grants: ModGrants,
 }
 
 impl Registration {
@@ -118,7 +88,7 @@ fn build_candidate_with_settings(
         component,
         font: font_bytes,
     } = snapshot;
-    let grants = ModGrants::from(&registration.grants);
+    let grants = registration.grants.clone();
     let font = if grants.controls {
         font_bytes
             .as_deref()
@@ -521,6 +491,7 @@ fn install(world: &mut World, update: Update) {
                         label: None,
                         label_inputs: Vec::new(),
                         label_rebuilds: 0,
+                        render_sources: Vec::new(),
                         last_reload: Instant::now(),
                         controls: mod_host::empty_controls(),
                         reload_on_main: false,
@@ -630,6 +601,9 @@ fn clear_owned_state(world: &mut World) -> Option<ModHost> {
 }
 
 fn clear_presentation(world: &mut World) {
+    if let Some(mut scene) = world.get_resource_mut::<render::ModRenderScene>() {
+        scene.clear();
+    }
     if let Some(mut cues) = world.get_resource_mut::<super::ModCueFeed>() {
         cues.0.clear();
     }

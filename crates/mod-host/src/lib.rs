@@ -16,6 +16,8 @@ pub use mod_api::{
     MAX_LOADED_MODS, MAX_MOB_RANGE_BLOCKS, MAX_MOB_TYPE_BYTES,
 };
 #[cfg(feature = "execution")]
+pub use mod_render;
+#[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
@@ -63,8 +65,10 @@ pub(crate) const FRAME_FUEL: u64 = 100_000;
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Explicit per-instance authority; optional capabilities are denied by default.
+/// Field names are the registration and set-file grant names.
 #[cfg(feature = "execution")]
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ModGrants {
     /// Allows this instance to replace visual time only.
     pub environment: bool,
@@ -78,6 +82,10 @@ pub struct ModGrants {
     pub interaction: bool,
     /// Allows the selected component's bounded companion settings file.
     pub settings: bool,
+    /// Allows sandboxed post passes and bounded world primitives.
+    pub render: bool,
+    /// Lets render passes read scene depth.
+    pub render_depth: bool,
     /// Allows current-frame reads of nearby non-player actors.
     pub entities: bool,
     /// Command names this instance may request; empty denies command requests.
@@ -198,6 +206,11 @@ impl ModHost {
     /// Consumes the last successful frame's rotation once, without entering the guest.
     pub fn take_camera_delta(&mut self) -> Option<CameraDelta> {
         self.instance.take_camera_delta()
+    }
+
+    /// Committed render output and a process-unique generation that changes with it.
+    pub fn render(&self) -> (&mod_render::RenderOutput, u64) {
+        self.instance.render()
     }
 
     /// Returns only the last successfully committed plain-text label.

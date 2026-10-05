@@ -8,7 +8,7 @@ use mod_host::{
 };
 use serde::Deserialize;
 
-use super::{ModRuntime, registration::Grants};
+use super::ModRuntime;
 
 /// Selects an ordered set of components, each with its own grants.
 pub(super) const SET_ENV: &str = "CINNABAR_MOD_SET";
@@ -31,7 +31,7 @@ struct ModSet {
 struct SetEntry {
     component: PathBuf,
     #[serde(default)]
-    grants: Grants,
+    grants: ModGrants,
 }
 
 /// Reads a bounded set file; its order is the load order.
@@ -63,7 +63,7 @@ pub(super) fn read_set(path: &Path) -> Result<Vec<(PathBuf, ModGrants)>, String>
     Ok(set
         .mods
         .into_iter()
-        .map(|entry| (entry.component, ModGrants::from(&entry.grants)))
+        .map(|entry| (entry.component, entry.grants))
         .collect())
 }
 
@@ -114,6 +114,13 @@ impl ModRuntime {
             self.label_rebuilds += 1;
         }
         self.label.as_deref()
+    }
+
+    /// Every mod's render output with its generation, in load order.
+    pub(super) fn render_outputs(
+        &self,
+    ) -> impl Iterator<Item = (&mod_host::mod_render::RenderOutput, u64)> {
+        (0..self.host_count()).map(|index| self.host(index).render())
     }
 
     pub(super) fn reserved_keys(&self) -> Vec<String> {
