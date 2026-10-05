@@ -78,13 +78,14 @@ pub(crate) struct SkinSlots {
     admissions: u64,
     residency: Arc<ActorSkinResidency>,
     dirty: bool,
+    assigned: Vec<u32>,
 }
 
 impl SkinSlots {
     /// The stable slot of each standard-raster skin, admitting new ones; no skin in `skins` is
     /// evicted. Every skin must be [`STANDARD_SKIN_BYTES`] long and there are at most
     /// [`MAX_RENDERED_PLAYERS`].
-    pub(crate) fn assign(&mut self, skins: &[SkinRgba8]) -> Vec<u32> {
+    pub(crate) fn assign(&mut self, skins: &[SkinRgba8]) -> &[u32] {
         debug_assert!(skins.len() <= MAX_RENDERED_PLAYERS);
         self.frame += 1;
         // Mark every resident skin of this frame before admitting any, so none is evicted.
@@ -93,21 +94,30 @@ impl SkinSlots {
                 self.touch(slot);
             }
         }
-        let mut slots = Vec::with_capacity(skins.len());
+        let mut slots = std::mem::take(&mut self.assigned);
+        slots.clear();
         for skin in skins {
             let slot = match self.index.get(skin) {
                 Some(&slot) => slot,
                 None => {
                     let (class, texels) = native_class(skin);
                     let Some(layer) = self.claim(class) else {
-                        return self.repack(skins);
+                        self.assigned = slots;
+                        self.repack(skins);
+                        return &self.assigned;
                     };
                     self.admit(skin, class, layer, texels)
                 }
             };
             slots.push(slot);
         }
-        slots
+        self.assigned = slots;
+        &self.assigned
+    }
+
+    /// The slots of the latest [`Self::assign`].
+    pub(crate) fn assigned(&self) -> &[u32] {
+        &self.assigned
     }
 
     fn touch(&mut self, slot: u32) {
@@ -196,13 +206,12 @@ impl SkinSlots {
 
     /// Reassigns this frame's skins to exactly sized arrays, dropping every other skin; only
     /// reached when unused capacity in other classes holds the budget.
-    fn repack(&mut self, skins: &[SkinRgba8]) -> Vec<u32> {
-        let frame = std::mem::take(&mut self.frame);
-        let admissions = self.admissions;
+    fn repack(&mut self, skins: &[SkinRgba8]) {
         *self = Self {
-            frame,
-            admissions,
+            frame: self.frame,
+            admissions: self.admissions,
             dirty: true,
+            assigned: std::mem::take(&mut self.assigned),
             ..Self::default()
         };
         let mut unique = Vec::new();
@@ -221,7 +230,9 @@ impl SkinSlots {
             self.admit(&skin, class, next[class], texels);
             next[class] += 1;
         }
-        skins.iter().map(|skin| self.index[skin]).collect()
+        self.assigned.clear();
+        self.assigned
+            .extend(skins.iter().map(|skin| self.index[skin]));
     }
 }
 
@@ -306,12 +317,26 @@ mod tests {
     }
 
     #[test]
+    fn warm_frames_over_an_unchanged_skin_set_allocate_nothing() {
+        let skins = [skin(1, 64), skin(2, 128), skin(3, STANDARD_SKIN_SIDE)];
+        let mut slots = SkinSlots::default();
+        slots.assign(&skins);
+        slots.residency();
+        let before = crate::alloc_count::thread_allocations();
+        for _ in 0..8 {
+            std::hint::black_box(slots.assign(&skins));
+            std::hint::black_box(slots.residency());
+        }
+        assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+    }
+
+    #[test]
     fn a_visible_set_change_keeps_every_resident_slot() {
         let skins = [skin(1, 64), skin(2, 128), skin(3, 256)];
         let mut slots = SkinSlots::default();
-        let first = slots.assign(&skins);
+        let first = slots.assign(&skins).to_vec();
         let residency = Arc::clone(slots.residency());
-        let again = slots.assign(&[skins[2].clone(), skins[0].clone()]);
+        let again = slots.assign(&[skins[2].clone(), skins[0].clone()]).to_vec();
         assert_eq!(again, [first[2], first[0]]);
         assert!(Arc::ptr_eq(slots.residency(), &residency));
     }
@@ -347,11 +372,11 @@ mod tests {
         // Sixteen standard rasters fill the retention allowance.
         let standard: Vec<_> = (0..17).map(|seed| skin(seed, STANDARD_SKIN_SIDE)).collect();
         let mut slots = SkinSlots::default();
-        let first = slots.assign(&standard[..16]);
+        let first = slots.assign(&standard[..16]).to_vec();
         assert_eq!(slots.residency().classes[0].len(), 16);
 
         // The new skin takes the one layer this frame does not use.
-        let second = slots.assign(&standard[1..17]);
+        let second = slots.assign(&standard[1..17]).to_vec();
         assert_eq!(second[..15], first[1..]);
         assert_eq!(second[15], first[0]);
         assert!(!slots.index.contains_key(&standard[0]));
@@ -359,7 +384,7 @@ mod tests {
         // With every layer in use, the array grows instead of evicting.
         let mut all = standard[1..17].to_vec();
         all.push(skin(99, STANDARD_SKIN_SIDE));
-        let third = slots.assign(&all);
+        let third = slots.assign(&all).to_vec();
         assert_eq!(third[..16], second[..]);
         assert_eq!(third[16], pack_skin_slot(0, 16));
         assert_eq!(slots.residency().classes[0].len(), 32);
@@ -377,7 +402,7 @@ mod tests {
             PLAYER_SKIN_BUDGET_BYTES
         );
         skins[0] = skin(500, 64);
-        let assigned = slots.assign(&skins);
+        let assigned = slots.assign(&skins).to_vec();
         let residency = slots.residency();
         assert!(residency.allocated_bytes() <= PLAYER_SKIN_BUDGET_BYTES);
         for (skin, slot) in skins.iter().zip(assigned) {

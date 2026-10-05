@@ -9,6 +9,8 @@ pub use render_api::fancy_actor_shade;
 
 mod actor;
 mod actor_render;
+#[cfg(test)]
+mod alloc_count;
 mod atmosphere;
 mod atmosphere_render;
 mod block_entity;
