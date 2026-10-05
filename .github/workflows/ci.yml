@@ -111,15 +111,21 @@ jobs:
           cargo tree -e features -p bedrock-client --target x86_64-unknown-linux-gnu --locked | grep -F 'bevy feature "x11"'
       - name: Enforce architecture boundaries
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The checks below are independent, so each reports even when an earlier one fails.
+      - name: Lint Rust workspace
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Lint off-by-default features
+        if: ${{ !cancelled() }}
         run: |
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
           cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control --locked -- -D warnings
           cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
       - name: Test local WASM mod and developer control adapters
+        if: ${{ !cancelled() }}
         run: cargo test -p bedrock-client --features local-mods,developer-control --lib --locked -- modding developer_control
       - name: Test acceptance dry run and protocol provenance
+        if: ${{ !cancelled() }}
         run: bash scripts/tests/acceptance_test.sh
 
   rust-tests:
@@ -215,15 +221,22 @@ jobs:
         run: |
           go test ./... -count=1
           go vet ./...
-      - name: Test and vet pinned fixture generators
+      - name: Test and vet pinned chunk fixture generator
         if: runner.os == 'Linux'
+        working-directory: tools/chunkfix
         env:
           GOWORK: "off"
         run: |
-          for module in chunkfix bedsimtrace; do
-            go -C "tools/$module" test ./... -count=1
-            go -C "tools/$module" vet ./...
-          done
+          go test ./... -count=1
+          go vet ./...
+      - name: Test and vet pinned bedsim movement trace generator
+        if: runner.os == 'Linux'
+        working-directory: tools/bedsimtrace
+        env:
+          GOWORK: "off"
+        run: |
+          go test ./... -count=1
+          go vet ./...
 
   # Pull requests only; full runs cover Windows and macOS through rust-tests and go.
   platform:
@@ -286,7 +299,7 @@ jobs:
           cargo nextest run $PLATFORM_TEST_PACKAGES --locked --no-fail-fast
       # The client's asset-carrier integration tests skip without local carriers, so only its library runs.
       - name: Test client library
-        if: matrix.client
+        if: ${{ !cancelled() && matrix.client }}
         run: cargo nextest run -p bedrock-client --lib --locked --no-fail-fast
 
   packaging:
