@@ -99,7 +99,6 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## core/store/client_test.go
 - // Authored to the reference client's inventory parser; not a captured payload.
-- // Authored to the reference client's page parser; rows carry queries, not offers.
 
 ## crates/assets/src/biome.rs
 - // whose constructor defaults surfaceOpacity to .65. Loading that component
