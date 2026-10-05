@@ -442,6 +442,20 @@ impl RuntimeEntityAssets {
         })
     }
 
+    /// [`Self::from_compiled`] plus the catalog's carrier encoding, if it has one. The identity then
+    /// matches what a decode of that encoding reports.
+    pub fn from_compiled_encoded(
+        compiled: CompiledEntityAssets,
+    ) -> Result<(Self, Option<Box<[u8]>>), AssetError> {
+        use sha2::{Digest, Sha256};
+        let blob = encode_entity_blob(&compiled).ok();
+        let assets = Self {
+            carrier_identity: blob.as_deref().map(|blob| Sha256::digest(blob).into()),
+            ..Self::from_compiled(compiled)?
+        };
+        Ok((assets, blob))
+    }
+
     /// Validates a compiled catalog and wraps it without a blob round trip.
     pub fn from_compiled(compiled: CompiledEntityAssets) -> Result<Self, AssetError> {
         let geometry_parents = validate_compiled(&compiled)?;
@@ -475,7 +489,7 @@ impl RuntimeEntityAssets {
         })
     }
 
-    /// The SHA-256 of the carrier this was decoded from; `None` when built from a compiled catalog.
+    /// The SHA-256 of the carrier this was decoded from or encoded as; `None` for a bare compiled catalog.
     #[must_use]
     pub const fn carrier_identity(&self) -> Option<[u8; 32]> {
         self.carrier_identity

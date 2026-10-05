@@ -18,6 +18,9 @@ fn state(grants: ModGrants) -> State {
         camera_writes: 0,
         pending_camera: None,
         camera_delta: None,
+        packet_delay_ms: 0,
+        pending_packet_delay: None,
+        packet_delay_writes: 0,
         controls: ControlState::new("{\"cps\":12}".into()),
     }
 }
