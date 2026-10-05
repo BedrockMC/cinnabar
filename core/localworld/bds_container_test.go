@@ -449,3 +449,25 @@ func TestOverlappingRedetectKeepsTheNewestResult(t *testing.T) {
 		t.Fatalf("world = %+v, %v", world, err)
 	}
 }
+
+// A Flat world asks for Dragonfly outright, which no Docker probe can change, so it never waits on one.
+func TestExplicitDragonflyCreateSkipsPendingDetection(t *testing.T) {
+	m, p, gate := pendingManager(t)
+	m.runtimeWait = time.Minute
+	reply := gate.next(t)
+	created := make(chan error, 1)
+	go func() {
+		_, err := m.Create(Spec{Name: "flat", Generator: GeneratorFlat, Backend: BackendDragonfly})
+		created <- err
+	}()
+	select {
+	case err := <-created:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("explicit Dragonfly create waited on the Docker probe")
+	}
+	reply <- dockerUp
+	awaitSettled(t, p)
+}

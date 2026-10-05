@@ -153,13 +153,14 @@ func (r Runners) Start(ctx context.Context, spec StartSpec) (Instance, error) {
 func (m *Manager) List() ([]World, error) { return m.store.List() }
 
 // Create saves a new world; a BDS world (every normal world) is refused where BDS cannot run.
-// It first waits out a runtime detection in flight, so no world is saved against a guessed backend.
+// Unless Dragonfly was asked for, it first waits out a runtime detection in flight, so no world is saved
+// against a guessed backend.
 func (m *Manager) Create(spec Spec) (World, error) {
 	normalized, err := spec.normalize()
 	if err != nil {
 		return World{}, err
 	}
-	if m.setup != nil {
+	if m.setup != nil && normalized.Backend != BackendDragonfly {
 		ctx, cancel := context.WithTimeout(context.Background(), m.runtimeWait)
 		err := m.setup.AwaitRuntime(ctx)
 		cancel()
