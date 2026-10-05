@@ -92,16 +92,8 @@ impl WorldStream {
                     .difference(&stored_keys)
                     .copied()
                     .collect::<BTreeSet<_>>();
-                let old_keys = self
-                    .resident
-                    .column(key)
-                    .copied()
-                    .collect::<BTreeSet<_>>();
-                let old_air = self
-                    .known_air
-                    .column(key)
-                    .copied()
-                    .collect::<BTreeSet<_>>();
+                let old_keys = self.resident.column(key).copied().collect::<BTreeSet<_>>();
+                let old_air = self.known_air.column(key).copied().collect::<BTreeSet<_>>();
                 let Ok(applied) = self.authority.commit_level_chunk(key, decoded) else {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
