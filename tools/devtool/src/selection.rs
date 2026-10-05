@@ -117,8 +117,9 @@ pub fn select_packages(changed_paths: &[&str], packages: &[Package]) -> Selectio
     Selection::Packages(selected.into_iter().collect())
 }
 
-/// Returns the Go modules owning changed paths (all workspace modules for `go.work`) and
-/// whether the packaging tests apply.
+/// Returns the Go modules owning changed paths and whether the packaging tests apply.
+/// `go.work` and any workspace module's `go.mod` or `go.sum` select every workspace module,
+/// since their requirements and replaces resolve together.
 #[must_use]
 pub fn select_extra_checks(changed_paths: &[&str], go_modules: &[GoModule]) -> ExtraChecks {
     let mut selected = BTreeSet::new();
@@ -126,13 +127,23 @@ pub fn select_extra_checks(changed_paths: &[&str], go_modules: &[GoModule]) -> E
     for path in changed_paths {
         let path = normalize(path);
         packaging |= is_within(&path, "packaging");
-        if matches!(path.as_str(), "go.work" | "go.work.sum") {
-            selected.extend(go_modules.iter().filter(|module| module.in_workspace));
-        } else if let Some(owner) = go_modules
+        let owner = go_modules
             .iter()
             .filter(|module| module.dir.is_empty() || is_within(&path, &module.dir))
-            .max_by_key(|module| module.dir.len())
-        {
+            .max_by_key(|module| module.dir.len());
+        let workspace_manifest = owner.is_some_and(|module| {
+            module.in_workspace
+                && ["go.mod", "go.sum"].iter().any(|name| {
+                    path == if module.dir.is_empty() {
+                        (*name).to_owned()
+                    } else {
+                        format!("{}/{name}", module.dir)
+                    }
+                })
+        });
+        if workspace_manifest || matches!(path.as_str(), "go.work" | "go.work.sum") {
+            selected.extend(go_modules.iter().filter(|module| module.in_workspace));
+        } else if let Some(owner) = owner {
             selected.insert(owner);
         }
     }
@@ -288,6 +299,24 @@ mod tests {
             ]
         );
         assert!(!checks.packaging);
+    }
+
+    #[test]
+    fn workspace_module_manifests_select_every_workspace_module() {
+        for path in ["core/go.mod", "tools/registrygen/go.sum"] {
+            assert_eq!(
+                select_extra_checks(&[path], &go_modules()).go_modules,
+                vec![
+                    GoModule::new("core", true),
+                    GoModule::new("tools/registrygen", true)
+                ],
+                "{path}"
+            );
+        }
+        assert_eq!(
+            select_extra_checks(&["tools/localserver/go.mod"], &go_modules()).go_modules,
+            vec![GoModule::new("tools/localserver", false)]
+        );
     }
 
     #[test]
