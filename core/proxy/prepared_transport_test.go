@@ -258,6 +258,12 @@ func BenchmarkJoinTransportOverlap(b *testing.B) {
 
 // Authentication slower than the upstream's login deadline must not fail the join on the expired prefix.
 func TestPreparedTransportRedialsAfterUpstreamLoginTimeout(t *testing.T) {
+	for _, authDelay := range []time.Duration{160 * time.Millisecond, time.Second} {
+		t.Run(authDelay.String(), func(t *testing.T) { redialAfterLoginTimeout(t, authDelay) })
+	}
+}
+
+func redialAfterLoginTimeout(t *testing.T, authDelay time.Duration) {
 	listener, err := minecraft.ListenConfig{
 		AuthenticationDisabled: true,
 		LoginTimeout:           150 * time.Millisecond,
@@ -266,7 +272,13 @@ func TestPreparedTransportRedialsAfterUpstreamLoginTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	serving, stopServing := context.WithCancel(t.Context())
+	defer func() {
+		stopServing()
+		_ = listener.Close()
+		// Later tests assert that no listener connection outlives its owner.
+		waitForGoroutineStack(t, "minecraft.(*Listener).handleConn", false, 5*time.Second)
+	}()
 	go func() {
 		for {
 			conn, err := listener.Accept()
@@ -274,8 +286,8 @@ func TestPreparedTransportRedialsAfterUpstreamLoginTimeout(t *testing.T) {
 				return
 			}
 			go func() {
-				_ = conn.(*minecraft.Conn).StartGame(minecraft.GameData{})
-				time.Sleep(time.Second)
+				_ = conn.(*minecraft.Conn).StartGameContext(serving, minecraft.GameData{})
+				<-serving.Done()
 				_ = conn.Close()
 			}()
 		}
@@ -285,7 +297,7 @@ func TestPreparedTransportRedialsAfterUpstreamLoginTimeout(t *testing.T) {
 	address := listener.Addr().String()
 	connection, err := dialWithPreparedTransport(ctx, minecraft.RakNet{}, address, func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
 		// Stands in for credential acquisition that outlasts the upstream login deadline.
-		time.Sleep(time.Second)
+		time.Sleep(authDelay)
 		return minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "fixture"}, ErrorLog: slog.New(slog.DiscardHandler)}.DialContextNetwork(ctx, network, address)
 	})
 	if err != nil {
