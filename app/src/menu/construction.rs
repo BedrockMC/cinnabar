@@ -129,6 +129,8 @@ impl MenuRuntime {
             settings_dirty: false,
             settings_retry_at: None,
             settings_apply: true,
+            session_overrides: Vec::new(),
+            transient_toggles: false,
             language_choices,
             language_pending,
             language_asset_path,

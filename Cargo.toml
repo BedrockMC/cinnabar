@@ -15,6 +15,7 @@ members = [
     "crates/experience-runtime",
     "examples/experiences/probe",
     "crates/input",
+    "crates/developer-control",
     "crates/json-ui",
     "crates/meshing",
     "crates/mod-api",
@@ -43,6 +44,8 @@ members = [
     "tools/phase2-evidence",
     "tools/jsonui-editor",
     "tools/jsonui-mcp",
+    "tools/mcp-stdio",
+    "tools/cinnabar-mcp",
     "tools/cxb",
 ]
 resolver = "3"

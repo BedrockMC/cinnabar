@@ -24,6 +24,10 @@ use crate::local_worlds::{MAX_SEED_CHARS, MAX_WORLD_NAME_CHARS};
 use client_ui::ui_runtime::{PlatformClipboard, presentation::UiPresentationRuntime};
 use launcher::menu::view::MenuCaret;
 
+/// Vanilla's fixed desktop option hotkeys.
+pub(crate) const HOTKEY_OPTIONS: [(KeyCode, &str); 2] =
+    [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")];
+
 #[derive(Resource)]
 pub(crate) struct MenuClipboard(
     Box<dyn FnMut(usize) -> Option<String> + Send + Sync + 'static>,
@@ -415,10 +419,14 @@ pub(crate) fn drive_menu_input(
             .is_none_or(|runtime| !runtime.ui_focused(&player_runtime))
     {
         // Vanilla desktop input uses fixed F1/F8 shortcuts.
-        for (key, option) in [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")] {
+        for (key, option) in HOTKEY_OPTIONS {
             if keys.just_pressed(key) {
                 let value = 1 - menu.settings_options.value(option);
-                menu.set_named_option(option, value);
+                if menu.transient_toggles {
+                    menu.set_session_option(option, Some(value));
+                } else {
+                    menu.set_named_option(option, value);
+                }
             }
         }
     }
