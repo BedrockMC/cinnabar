@@ -1,8 +1,10 @@
 use std::mem::size_of;
 mod artwork;
 mod pipeline;
+mod skins;
 use artwork::{GpuArtwork, draw_spans};
 use pipeline::*;
+use skins::GpuSkinArrays;
 
 use crate::actor::{
     ActorDrawFrame, ActorDrawWitness, ActorGpuInstance, ActorPrepareWitness, ActorPresentationGate,
@@ -43,7 +45,7 @@ use bevy::{
         view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
-use render_model::{ActorRigVertex, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE};
+use render_model::ActorRigVertex;
 
 const ACTOR_SHADER_HANDLE: Handle<Shader> = uuid_handle!("09d34708-6fd4-4c65-b27e-ce22f172cc73");
 #[cfg(test)]
@@ -132,8 +134,7 @@ struct ActorGpu {
     geometry_span_buffer: Option<Buffer>,
     instance_count: u32,
     maximum_vertex_count: u32,
-    skin_texture: Option<Texture>,
-    skin_view: Option<TextureView>,
+    skins: GpuSkinArrays,
     sampler: Sampler,
     bind_group: Option<BindGroup>,
     frame_generation: u64,
@@ -143,34 +144,18 @@ struct ActorGpu {
     manifest: std::sync::Arc<[crate::actor::ActorDrawManifestEntry]>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ActorSkinUploadPlan {
-    layer_count: u32,
-}
-
-fn actor_skin_upload_plan(frame: &ActorRenderFrame) -> Option<ActorSkinUploadPlan> {
-    if frame.rig.instances.is_empty()
-        || !frame.skins_rgba8.len().is_multiple_of(STANDARD_SKIN_BYTES)
-    {
-        return None;
-    }
-    let layer_count = frame.skins_rgba8.len() / STANDARD_SKIN_BYTES;
-    if layer_count > render_model::MAX_RENDERED_PLAYERS
-        || frame
+/// Whether every player-page instance samples a resident skin slot.
+fn player_skins_resident(frame: &ActorRenderFrame) -> bool {
+    !frame.rig.instances.is_empty()
+        && frame
             .rig
             .instances
             .iter()
             .enumerate()
-            .any(|(index, instance)| {
-                frame.instance_pages.get(index).copied().unwrap_or(0) == 0
-                    && instance.texture_layer as usize >= layer_count
+            .all(|(index, instance)| {
+                frame.instance_pages.get(index).copied().unwrap_or(0) != 0
+                    || frame.skins.resident(instance.texture_layer).is_some()
             })
-    {
-        return None;
-    }
-    Some(ActorSkinUploadPlan {
-        layer_count: u32::try_from(layer_count).ok()?,
-    })
 }
 
 fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -232,8 +217,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         geometry_span_buffer: None,
         instance_count: 0,
         maximum_vertex_count: 0,
-        skin_texture: None,
-        skin_view: None,
+        skins: GpuSkinArrays::new(&render_device),
         sampler,
         bind_group: None,
         frame_generation: u64::MAX,
@@ -264,7 +248,7 @@ fn prepare_actor_resources(
         gpu.artwork_identity = frame.artwork.identity();
         gpu.frame_generation = u64::MAX;
     }
-    let skin_upload_plan = actor_skin_upload_plan(&frame);
+    let skins_resident = player_skins_resident(&frame);
     let structurally_valid = !rig.instances.is_empty()
         && rig.instances.len() <= crate::actor::MAX_ACTOR_RENDER_INSTANCES
         && rig.previous_bones.len() == rig.current_bones.len()
@@ -272,7 +256,7 @@ fn prepare_actor_resources(
             <= crate::actor::MAX_ACTOR_RENDER_INSTANCES * render_model::MAX_RENDER_BONES_PER_ACTOR
         && rig.manifest.len() == rig.instances.len()
         && rig.maximum_vertex_count != 0
-        && skin_upload_plan.is_some()
+        && skins_resident
         && frame.instance_pages.len() == rig.instances.len();
     if gpu.geometry_revision != rig.geometry_revision {
         gate.clear();
@@ -351,82 +335,34 @@ fn prepare_actor_resources(
         }
         gpu.frame_generation = rig.frame_generation;
     }
-    if gpu.skin_revision != frame.skin_revision
-        || (structurally_valid && gpu.skin_texture.is_none())
-    {
+    if gpu.skin_revision != frame.skin_revision || !gpu.skins.is_synced(&frame.skins) {
         gate.clear();
         tracker.clear();
-        let Some(plan) = skin_upload_plan else {
+        if !skins_resident {
             gpu.instance_count = 0;
             gpu.skin_revision = frame.skin_revision;
             gpu.bind_group = None;
             witness.observe_prepare(ActorPrepareWitness {
                 input_instances: rig.instances.len(),
                 input_manifest: rig.manifest.len(),
-                skin_bytes: frame.skins_rgba8.len(),
+                skin_bytes: frame.skin_bytes(),
                 skin_plan: false,
                 valid: structurally_valid,
                 prepared_instances: gpu.instance_count,
                 maximum_vertices: gpu.maximum_vertex_count,
             });
             return;
-        };
-        if gpu.skin_texture.is_none() {
-            // wgpu zero-initialises the array; only packed layers are written below.
-            let texture = render_device.create_texture(&TextureDescriptor {
-                label: Some("bounded normalized server player skins"),
-                size: Extent3d {
-                    width: STANDARD_SKIN_SIDE as u32,
-                    height: STANDARD_SKIN_SIDE as u32,
-                    depth_or_array_layers: render_model::MAX_RENDERED_PLAYERS as u32,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            let view = texture.create_view(&TextureViewDescriptor {
-                label: Some("bounded normalized server player skin array"),
-                dimension: Some(TextureViewDimension::D2Array),
-                ..default()
-            });
-            gpu.skin_texture = Some(texture);
-            gpu.skin_view = Some(view);
         }
-        if plan.layer_count != 0 {
-            render_queue.write_texture(
-                TexelCopyTextureInfo {
-                    texture: gpu
-                        .skin_texture
-                        .as_ref()
-                        .expect("player allocation initialized"),
-                    mip_level: 0,
-                    origin: default(),
-                    aspect: default(),
-                },
-                &frame.skins_rgba8,
-                TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(STANDARD_SKIN_SIDE as u32 * 4),
-                    rows_per_image: Some(STANDARD_SKIN_SIDE as u32),
-                },
-                Extent3d {
-                    width: STANDARD_SKIN_SIDE as u32,
-                    height: STANDARD_SKIN_SIDE as u32,
-                    depth_or_array_layers: plan.layer_count,
-                },
-            );
+        if gpu.skins.sync(&frame.skins, &render_device, &render_queue) {
+            gpu.bind_group = None;
         }
         gpu.skin_revision = frame.skin_revision;
-        gpu.bind_group = None;
     }
     witness.observe_prepare(ActorPrepareWitness {
         input_instances: rig.instances.len(),
         input_manifest: rig.manifest.len(),
-        skin_bytes: frame.skins_rgba8.len(),
-        skin_plan: skin_upload_plan.is_some(),
+        skin_bytes: frame.skin_bytes(),
+        skin_plan: skins_resident,
         valid: structurally_valid,
         prepared_instances: gpu.instance_count,
         maximum_vertices: gpu.maximum_vertex_count,
@@ -449,10 +385,6 @@ fn prepare_actor_bind_group(
         return;
     };
     let Some(geometry_span_buffer) = gpu.geometry_span_buffer.as_ref() else {
-        gpu.bind_group = None;
-        return;
-    };
-    let Some(skin_view) = gpu.skin_view.as_ref() else {
         gpu.bind_group = None;
         return;
     };
@@ -521,6 +453,18 @@ fn prepare_actor_bind_group(
                             gpu.neutral_material.as_entire_binding()
                         },
                     },
+                    BindGroupEntry {
+                        binding: 9,
+                        resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                    },
+                    BindGroupEntry {
+                        binding: 10,
+                        resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                    },
+                    BindGroupEntry {
+                        binding: 11,
+                        resource: BindingResource::TextureView(&gpu.skins.placeholder),
+                    },
                 ],
             )
         })
@@ -555,7 +499,7 @@ fn prepare_actor_bind_group(
             },
             BindGroupEntry {
                 binding: 6,
-                resource: BindingResource::TextureView(skin_view),
+                resource: BindingResource::TextureView(gpu.skins.view(0)),
             },
             BindGroupEntry {
                 binding: 7,
@@ -564,6 +508,18 @@ fn prepare_actor_bind_group(
             BindGroupEntry {
                 binding: 8,
                 resource: gpu.player_material.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 9,
+                resource: BindingResource::TextureView(gpu.skins.view(1)),
+            },
+            BindGroupEntry {
+                binding: 10,
+                resource: BindingResource::TextureView(gpu.skins.view(2)),
+            },
+            BindGroupEntry {
+                binding: 11,
+                resource: BindingResource::TextureView(gpu.skins.view(3)),
             },
         ],
     ));

@@ -33,6 +33,8 @@ const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
 #[cfg(feature = "local-mods")]
 const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
 #[cfg(feature = "local-mods")]
+const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
+#[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
@@ -103,6 +105,7 @@ fn configure(app: &mut App, path: Option<&Path>) {
                     .collect()
             })
             .unwrap_or_default(),
+        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1"),
     };
     configure_with_grants(app, path, grants);
 }
@@ -172,6 +175,7 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );
+    app.add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
@@ -412,3 +416,5 @@ mod gameplay;
 mod input;
 #[cfg(feature = "local-mods")]
 pub(crate) mod interaction;
+#[cfg(feature = "local-mods")]
+mod packet_delay;

@@ -92,18 +92,8 @@ impl WorldStream {
                     .difference(&stored_keys)
                     .copied()
                     .collect::<BTreeSet<_>>();
-                let old_keys = self
-                    .resident
-                    .iter()
-                    .copied()
-                    .filter(|resident| resident.chunk() == key)
-                    .collect::<BTreeSet<_>>();
-                let old_air = self
-                    .known_air
-                    .iter()
-                    .copied()
-                    .filter(|resident| resident.chunk() == key)
-                    .collect::<BTreeSet<_>>();
+                let old_keys = self.resident.column(key).copied().collect::<BTreeSet<_>>();
+                let old_air = self.known_air.column(key).copied().collect::<BTreeSet<_>>();
                 let Ok(applied) = self.authority.commit_level_chunk(key, decoded) else {
                     self.record_normalization_error(NormalizationErrorReason::BlockMutationFailure);
                     return;
@@ -112,8 +102,12 @@ impl WorldStream {
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
-                self.resident.retain(|resident| resident.chunk() != key);
-                self.known_air.retain(|resident| resident.chunk() != key);
+                for old in &old_keys {
+                    self.resident.remove(old);
+                }
+                for old in &old_air {
+                    self.known_air.remove(old);
+                }
                 for stale in old_keys.difference(&new_keys) {
                     self.set_connectivity(*stale, None);
                 }
@@ -474,6 +468,7 @@ impl WorldStream {
                 self.block_entity_visuals.clear();
                 self.authority.reset_dimension(sequence, change.dimension);
                 let resolved = self.authority.resolve_position(change.position);
+                self.local_player_chunk = None;
                 self.publisher
                     .reset_for_dimension(resolved.position.map(floor_to_i32));
                 self.last_retention_center = None;
@@ -499,6 +494,7 @@ impl WorldStream {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
                 let resolved = if respawn.ready_to_spawn() {
                     let resolved = self.authority.resolve_position(respawn.position);
+                    self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
                     self.reevaluate_chunk_retention();
                     resolved
@@ -524,6 +520,7 @@ impl WorldStream {
                     self.publisher.source_capture_sequence = None;
                 }
                 let resolved = self.authority.resolve_position(movement.position);
+                self.local_player_chunk = None;
                 if movement.mode.is_teleport() {
                     self.provisionally_rebase_for_local_teleport(resolved.position);
                 }
@@ -552,8 +549,8 @@ impl WorldStream {
                 {
                     return;
                 }
+                // A correction names a past tick; retention waits for physics to reconcile it.
                 let resolved = self.authority.resolve_position(correction.position);
-                self.reevaluate_chunk_retention();
                 self.authority.push_committed_control(
                     CommittedControlEvent::PlayerMovementCorrection {
                         sequence,
