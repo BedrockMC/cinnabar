@@ -10,8 +10,7 @@ use std::{
 
 use futures_lite::{Stream, StreamExt, future};
 use zbus::{
-    MatchRule,
-    blocking::{Connection, MessageIterator, Proxy},
+    Connection, MatchRule, MessageStream, Proxy,
     message::Type,
     zvariant::{OwnedObjectPath, OwnedValue, Value},
 };
@@ -19,9 +18,11 @@ use zbus::{
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const REQUEST: &str = "org.freedesktop.portal.Request";
-/// The user may still be browsing; past this the tool fallbacks take over.
+/// Whole-request deadlines, covering connect, the call and the Response; the chooser allows for
+/// a user still browsing. Past them the tool fallbacks take over.
 const CHOOSER_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const OPEN_URI_TIMEOUT: Duration = Duration::from_secs(30);
+const NOTIFY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Responses buffered while the call is in flight; other apps' requests can share the bus.
 const RESPONSE_QUEUE: usize = 64;
 
@@ -30,9 +31,7 @@ type Results = HashMap<String, OwnedValue>;
 /// Opens `uri` in the desktop's default handler, as `xdg-open` would; a dismissed app chooser
 /// counts as handled so callers do not retry elsewhere.
 pub(crate) fn open_uri(uri: &str) -> zbus::Result<()> {
-    let connection = Connection::session()?;
     let (code, _) = request(
-        &connection,
         "org.freedesktop.portal.OpenURI",
         "OpenURI",
         uri,
@@ -52,7 +51,6 @@ pub(crate) fn pick_file(
     filter_name: &str,
     patterns: &[String],
 ) -> zbus::Result<Option<PathBuf>> {
-    let connection = Connection::session()?;
     let globs = patterns
         .iter()
         .map(|pattern| (0u32, pattern.as_str()))
@@ -60,7 +58,6 @@ pub(crate) fn pick_file(
     let mut options = HashMap::new();
     options.insert("filters", Value::from(vec![(filter_name, globs)]));
     let (code, results) = request(
-        &connection,
         "org.freedesktop.portal.FileChooser",
         "OpenFile",
         title,
@@ -84,34 +81,38 @@ fn chosen_file(code: u32, mut results: Results) -> zbus::Result<Option<PathBuf>>
 
 /// Shows a desktop notification, as `notify-send` would.
 pub(crate) fn notify(summary: &str, body: &str) -> zbus::Result<()> {
-    let connection = Connection::session()?;
-    let proxy = Proxy::new(
-        &connection,
-        "org.freedesktop.Notifications",
-        "/org/freedesktop/Notifications",
-        "org.freedesktop.Notifications",
-    )?;
-    let hints: HashMap<&str, Value> = HashMap::new();
-    let _: u32 = proxy.call(
-        "Notify",
-        &(
-            launcher::PRODUCT_NAME,
-            0u32,
-            "",
-            summary,
-            body,
-            Vec::<&str>::new(),
-            hints,
-            -1i32,
-        ),
-    )?;
-    Ok(())
+    async_io::block_on(with_deadline("Notify", NOTIFY_TIMEOUT, async {
+        let connection = Connection::session().await?;
+        let proxy = Proxy::new(
+            &connection,
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+        )
+        .await?;
+        let hints: HashMap<&str, Value> = HashMap::new();
+        let _: u32 = proxy
+            .call(
+                "Notify",
+                &(
+                    launcher::PRODUCT_NAME,
+                    0u32,
+                    "",
+                    summary,
+                    body,
+                    Vec::<&str>::new(),
+                    hints,
+                    -1i32,
+                ),
+            )
+            .await?;
+        Ok(())
+    }))
 }
 
 /// Calls a portal method shaped `(parent_window, argument, options)`; returns its response code
 /// (0 success, 1 cancelled, 2 other) and results, or an error once `timeout` passes.
 fn request(
-    connection: &Connection,
     interface: &str,
     method: &str,
     argument: &str,
@@ -125,33 +126,45 @@ fn request(
         NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
     );
     options.insert("handle_token", Value::from(token));
-    // Every Response is buffered from before the call, so one that beats the returned handle
-    // (older portals ignore the token and choose their own path) is still matched.
-    let rule = MatchRule::builder()
-        .msg_type(Type::Signal)
-        .interface(REQUEST)?
-        .member("Response")?
-        .path_namespace(format!("{PORTAL_PATH}/request"))?
-        .build();
-    let responses = MessageIterator::for_match_rule(rule, connection, Some(RESPONSE_QUEUE))?
-        .into_inner()
-        .map(|message| {
-            let message = message?;
-            let path = message.header().path().map(ToString::to_string);
-            Ok((path, message))
-        });
-    let portal = Proxy::new(connection, PORTAL, PORTAL_PATH, interface)?;
-    let handle: OwnedObjectPath = portal.call(method, &("", argument, options))?;
-    let response = async_io::block_on(future::or(
-        response_for(responses, handle.as_str()),
-        async {
-            async_io::Timer::after(timeout).await;
-            Err(zbus::Error::Failure(format!(
-                "{method} got no response within {timeout:?}"
-            )))
-        },
-    ))?;
-    response.body().deserialize()
+    async_io::block_on(with_deadline(method, timeout, async {
+        let connection = Connection::session().await?;
+        // Every Response is buffered from before the call, so one that beats the returned
+        // handle (older portals ignore the token and choose their own path) is still matched.
+        let rule = MatchRule::builder()
+            .msg_type(Type::Signal)
+            .interface(REQUEST)?
+            .member("Response")?
+            .path_namespace(format!("{PORTAL_PATH}/request"))?
+            .build();
+        let responses = MessageStream::for_match_rule(rule, &connection, Some(RESPONSE_QUEUE))
+            .await?
+            .map(|message| {
+                let message = message?;
+                let path = message.header().path().map(ToString::to_string);
+                Ok((path, message))
+            });
+        let portal = Proxy::new(&connection, PORTAL, PORTAL_PATH, interface).await?;
+        let handle: OwnedObjectPath = portal.call(method, &("", argument, options)).await?;
+        response_for(responses, handle.as_str())
+            .await?
+            .body()
+            .deserialize()
+    }))
+}
+
+/// Runs `work`, failing once `timeout` passes so a silent bus peer cannot block the caller.
+async fn with_deadline<T>(
+    what: &str,
+    timeout: Duration,
+    work: impl Future<Output = zbus::Result<T>>,
+) -> zbus::Result<T> {
+    future::or(work, async {
+        async_io::Timer::after(timeout).await;
+        Err(zbus::Error::Failure(format!(
+            "{what} got no answer within {timeout:?}"
+        )))
+    })
+    .await
 }
 
 /// The first event addressed to `handle`, skipping other requests' responses.
@@ -190,6 +203,19 @@ fn file_path(uri: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_deadline_fails_a_request_that_never_answers() {
+        let silent = with_deadline(
+            "OpenFile",
+            Duration::from_millis(20),
+            future::pending::<zbus::Result<()>>(),
+        );
+        let error = async_io::block_on(silent).unwrap_err().to_string();
+        assert!(error.contains("OpenFile got no answer"), "{error}");
+        let prompt = with_deadline("OpenFile", Duration::from_secs(60), async { Ok(7) });
+        assert_eq!(async_io::block_on(prompt).unwrap(), 7);
+    }
 
     #[test]
     fn a_response_that_arrives_before_the_handle_is_known_still_matches() {
