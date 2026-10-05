@@ -17,7 +17,8 @@ const REQUEST: &str = "org.freedesktop.portal.Request";
 
 type Results = HashMap<String, OwnedValue>;
 
-/// Opens `uri` in the desktop's default handler, as `xdg-open` would.
+/// Opens `uri` in the desktop's default handler, as `xdg-open` would; a dismissed app chooser
+/// counts as handled so callers do not retry elsewhere.
 pub(crate) fn open_uri(uri: &str) -> zbus::Result<()> {
     let connection = Connection::session()?;
     let (code, _) = request(
@@ -27,12 +28,11 @@ pub(crate) fn open_uri(uri: &str) -> zbus::Result<()> {
         uri,
         HashMap::new(),
     )?;
-    match code {
-        0 => Ok(()),
-        code => Err(zbus::Error::Failure(format!(
-            "OpenURI ended with response {code}"
-        ))),
-    }
+    opened(code)
+}
+
+fn opened(code: u32) -> zbus::Result<()> {
+    response("OpenURI", code).map(|_| ())
 }
 
 /// Returns the chosen local file; `None` when the user dismissed the chooser.
@@ -48,14 +48,18 @@ pub(crate) fn pick_file(
         .collect::<Vec<_>>();
     let mut options = HashMap::new();
     options.insert("filters", Value::from(vec![(filter_name, globs)]));
-    let (code, mut results) = request(
+    let (code, results) = request(
         &connection,
         "org.freedesktop.portal.FileChooser",
         "OpenFile",
         title,
         options,
     )?;
-    if code != 0 {
+    chosen_file(code, results)
+}
+
+fn chosen_file(code: u32, mut results: Results) -> zbus::Result<Option<PathBuf>> {
+    if !response("OpenFile", code)? {
         return Ok(None);
     }
     let uris = results
@@ -128,6 +132,18 @@ fn request(
     response.body().deserialize()
 }
 
+/// Whether the user completed the request; `false` when they dismissed it, `Err` when the
+/// portal failed, so callers can fall back to another route.
+fn response(method: &str, code: u32) -> zbus::Result<bool> {
+    match code {
+        0 => Ok(true),
+        1 => Ok(false),
+        code => Err(zbus::Error::Failure(format!(
+            "{method} ended with response {code}"
+        ))),
+    }
+}
+
 /// The Request object a portal creates for `token`, per the portal's documented path scheme.
 fn request_path(unique_name: &str, token: &str) -> String {
     let sender = unique_name.trim_start_matches(':').replace('.', "_");
@@ -148,6 +164,30 @@ mod tests {
             request_path(":1.42", "cinnabar_7_0"),
             "/org/freedesktop/portal/desktop/request/1_42/cinnabar_7_0"
         );
+    }
+
+    #[test]
+    fn open_uri_treats_a_dismissed_chooser_as_handled_and_failures_as_errors() {
+        assert!(opened(0).is_ok());
+        assert!(opened(1).is_ok());
+        assert!(opened(2).is_err());
+    }
+
+    #[test]
+    fn file_chooser_separates_cancel_from_failure() {
+        let uris = |uris: &[&str]| {
+            let value = Value::from(uris.iter().map(|uri| uri.to_string()).collect::<Vec<_>>());
+            Results::from([("uris".to_owned(), OwnedValue::try_from(value).unwrap())])
+        };
+        assert_eq!(
+            chosen_file(0, uris(&["file:///packs/a.mcpack"])).unwrap(),
+            Some(PathBuf::from("/packs/a.mcpack"))
+        );
+        assert_eq!(
+            chosen_file(1, uris(&["file:///packs/a.mcpack"])).unwrap(),
+            None
+        );
+        assert!(chosen_file(2, Results::new()).is_err());
     }
 
     #[test]
