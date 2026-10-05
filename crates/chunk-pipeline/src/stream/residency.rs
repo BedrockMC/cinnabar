@@ -108,7 +108,7 @@ impl WorldStream {
             self.mesh_dependency_masks
                 .retain(|key, _| !columns.contains(&key.chunk()));
             self.connectivity
-                .retain(|key, _| !columns.contains(&key.chunk()));
+                .retain(|key| !columns.contains(&key.chunk()));
         }
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
