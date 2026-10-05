@@ -177,10 +177,12 @@ fn args_regions_are_disjoint_and_fit_the_buffer() {
 /// The GPU path is selected only where multi-draw-indirect-count is native.
 #[test]
 fn only_count_capable_indirect_devices_cull_on_the_gpu() {
-    let count = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT;
+    let count = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT | WgpuFeatures::INDIRECT_FIRST_INSTANCE;
     let compute = DownlevelFlags::COMPUTE_SHADERS;
     let mdi = ChunkDrawMode::MultiDrawIndirect;
     assert!(gpu_cull_supported(mdi, count, compute, false));
+    let no_first_instance = WgpuFeatures::MULTI_DRAW_INDIRECT_COUNT;
+    assert!(!gpu_cull_supported(mdi, no_first_instance, compute, false));
     assert!(!gpu_cull_supported(mdi, count, compute, true));
     assert!(!gpu_cull_supported(
         mdi,

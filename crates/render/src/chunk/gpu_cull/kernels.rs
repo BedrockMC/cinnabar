@@ -108,6 +108,18 @@ impl CullStorage {
     }
 }
 
+/// Mip sizes for a depth target: level 0 is half the next power of two on each axis, so
+/// every level halves exactly, matches the hardware mip chain, and drops no edge pixel.
+pub fn pyramid_sizes(depth_size: [u32; 2]) -> Vec<[u32; 2]> {
+    let mut sizes = vec![depth_size.map(|side| side.max(2).next_power_of_two() / 2)];
+    while let Some(&[width, height]) = sizes.last()
+        && (width > 1 || height > 1)
+    {
+        sizes.push([(width / 2).max(1), (height / 2).max(1)]);
+    }
+    sizes
+}
+
 /// Reverse-Z farthest-depth pyramid over a depth target of `depth_size` pixels.
 pub struct HizPyramid {
     pub depth_size: [u32; 2],
@@ -120,12 +132,7 @@ pub struct HizPyramid {
 
 impl HizPyramid {
     pub fn new(device: &wgpu::Device, depth_size: [u32; 2]) -> Self {
-        let mut sizes = vec![depth_size.map(|side| side.div_ceil(2).max(1))];
-        while let Some(&[width, height]) = sizes.last()
-            && (width > 1 || height > 1)
-        {
-            sizes.push([width.div_ceil(2), height.div_ceil(2)]);
-        }
+        let sizes = pyramid_sizes(depth_size);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("terrain hi-z pyramid"),
             size: wgpu::Extent3d {
