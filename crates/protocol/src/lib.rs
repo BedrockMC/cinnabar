@@ -4,8 +4,11 @@ mod actor;
 mod audio;
 mod blob_cache;
 mod block_edit;
+mod boss;
 mod camera;
 mod codec;
+mod credits;
+mod dimension;
 mod disconnect;
 mod experience;
 mod interaction;
@@ -20,6 +23,7 @@ mod packet;
 mod particle;
 mod permissions;
 mod raw_text;
+mod respawn;
 mod settings;
 mod socket_transport;
 pub mod store_control;
@@ -33,10 +37,14 @@ pub use experience::{
     is_experience_packet,
 };
 
+pub use credits::{ShowCreditsEvent, credits_finished_packet};
+
+pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_screen_packet};
+
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
-    ActorEffectEvent, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata,
-    ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
+    ActorEffectEvent, ActorEvent, ActorInterpolation, ActorKind, ActorLinkEvent, ActorLinkType,
+    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
     ActorStatusKind, ActorTakeItemEvent, CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET,
     MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
@@ -45,7 +53,7 @@ pub use actor::{
     MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
     MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES, MAX_STANDARD_SKIN_SIDE,
     PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
-    SkinAnimationKind, SkinGeometrySource, StandardSkin, expand_legacy_skin_rgba8,
+    SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -61,6 +69,7 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
 };
 pub use block_edit::{map_info_request_packet, sign_edit_packet};
+pub use boss::boss_registration_response;
 pub use camera::{
     CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
     CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
@@ -73,7 +82,7 @@ pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
     click_block_packet, click_block_transaction_packet, destroy_block_packet, release_item_packet,
-    respawn_request_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
@@ -146,6 +155,7 @@ pub use jolyne::GameData;
 pub use jolyne::stream::client::ClientSkin;
 pub use jolyne::stream::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use jolyne::{GAME_VERSION, PROTOCOL_VERSION};
+pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 /// The vendored wire crates, so no other manifest declares their pinned paths.
 #[cfg(feature = "wire-test-support")]
@@ -199,24 +209,25 @@ pub use ui::{
 };
 pub use valentine::bedrock::context::BedrockSession;
 pub use world::{
-    ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent, BiomeDefinitionsEvent,
-    BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent, ChangeDimensionEvent,
-    ChunkResyncEvent, CustomBlock, CustomBlockVisuals, CustomBlocks, CustomBox, CustomHashedState,
-    CustomMaterialInstance, CustomPermutation, CustomSelection, CustomStateAxis, CustomStateValue,
-    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
-    DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HASHED_AIR_NETWORK_ID,
-    HeightmapDiagnostic, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS,
-    MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_DIMENSION_DEFINITIONS, MAX_SUB_CHUNK_REQUESTS,
-    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, OVERWORLD_CLOCK_ID,
-    OVERWORLD_CLOCK_NAME, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic,
-    SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable,
+    ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
+    BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
+    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockVisuals, CustomBlocks,
+    CustomBox, CustomHashedState, CustomMaterialInstance, CustomPermutation, CustomSelection,
+    CustomStateAxis, CustomStateValue, CustomTransformation, CustomVisualComponents,
+    DaylightCycleUpdateEvent, DimensionHeightDiagnostic, DimensionRange, GameRulesEvent,
+    HASHED_AIR_NETWORK_ID, HeightmapDiagnostic, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE,
+    MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_DIMENSION_DEFINITIONS,
+    MAX_SUB_CHUNK_REQUESTS, MapDataEvent, MovePlayerEvent, MovePlayerMode,
+    MovementCorrectionSubject, NETHER_DIMENSION_ID, OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME,
+    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT,
+    SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
     WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, WorldWireError,
-    air_network_id, block_name_sort_key, block_state_network_hash, dimension_change_ack_packet,
-    dimension_loading_screen_packet, into_world_event, is_hardcore, request_sub_chunk_column,
-    rewind_history_size, server_authoritative_block_breaking, vanilla_dimension_range,
+    air_network_id, block_name_sort_key, block_state_network_hash, into_world_event, is_hardcore,
+    request_sub_chunk_column, rewind_history_size, server_authoritative_block_breaking,
+    vanilla_dimension_range,
 };
 
 mod movement_transport;

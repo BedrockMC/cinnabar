@@ -82,9 +82,9 @@ pub fn assert_installed_geometry(
     let dynamic = presentation.textures.dynamic_start();
     assert_eq!(
         presentation.textures.pages()[dynamic + MODEL_PAGE].dimensions(),
-        [render::UI_MODEL_ATLAS_SIDE; 2]
+        [render_model::UI_MODEL_ATLAS_SIDE; 2]
     );
-    assert!(presentation.textures.plan().bytes() <= render::MAX_UI_TEXTURE_BYTES);
+    assert!(presentation.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), entities)
         .unwrap();

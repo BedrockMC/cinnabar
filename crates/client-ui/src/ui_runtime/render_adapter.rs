@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use render::{
+use render_model::{
     UiRenderBatch, UiRenderInput, UiRenderRejectReason, UiRenderTextureArray, UiRenderVertex,
     UiScissor,
 };
@@ -66,12 +66,13 @@ pub fn adapt_ui_draw_list(
                 color: vertex.color,
                 style_flags: u32::from(vertex.style_flags)
                     | if vertex.alpha_test {
-                        render::UI_STYLE_ALPHA_TEST
+                        render_model::UI_STYLE_ALPHA_TEST
                     } else {
                         0
                     },
                 alpha_cutoff: vertex.alpha_cutoff,
                 model_light: vertex.model_light,
+                overlay_color: vertex.overlay_color,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -102,8 +103,8 @@ pub fn adapt_ui_draw_list(
                 first_index,
                 index_count,
                 match batch.blend {
-                    ui::UiBlendMode::Alpha => render::UI_BLEND_ALPHA,
-                    ui::UiBlendMode::Invert => render::UI_BLEND_INVERT,
+                    ui::UiBlendMode::Alpha => render_model::UI_BLEND_ALPHA,
+                    ui::UiBlendMode::Invert => render_model::UI_BLEND_INVERT,
                 },
             )
             .with_depth_test(batch.depth_test)
@@ -199,6 +200,7 @@ mod tests {
                     alpha_test: false,
                     alpha_cutoff: -1.0,
                     model_light: 1.0,
+                    overlay_color: [0.0; 4],
                 })
                 .collect(),
             indices: vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7],
@@ -230,7 +232,7 @@ mod tests {
             &draw_list,
             Arc::new(
                 UiRenderTextureArray::new(
-                    vec![render::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    vec![render_model::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
                     1,
                 )
                 .unwrap(),
@@ -249,7 +251,7 @@ mod tests {
         assert_eq!(input.batches[0].index_count, 6);
         assert!(input.vertices.iter().all(|vertex| vertex.style_flags == 0));
         // The surviving batch keeps its declared blend on the render side.
-        assert_eq!(input.batches[0].blend_mode, render::UI_BLEND_INVERT);
+        assert_eq!(input.batches[0].blend_mode, render_model::UI_BLEND_INVERT);
     }
 
     #[test]
@@ -285,7 +287,7 @@ mod tests {
             &draw,
             Arc::new(
                 UiRenderTextureArray::new(
-                    vec![render::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    vec![render_model::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
                     1,
                 )
                 .unwrap(),
@@ -304,10 +306,10 @@ mod tests {
             input
                 .vertices
                 .iter()
-                .all(|vertex| { vertex.style_flags & render::UI_STYLE_ALPHA_TEST != 0 })
+                .all(|vertex| { vertex.style_flags & render_model::UI_STYLE_ALPHA_TEST != 0 })
         );
         assert_eq!(
-            render::UI_STYLE_ALPHA_TEST
+            render_model::UI_STYLE_ALPHA_TEST
                 & u32::from(ui::UI_STYLE_GRAYSCALE | ui::UI_STYLE_BILINEAR | ui::UI_STYLE_GLINT),
             0
         );
@@ -330,6 +332,7 @@ mod tests {
                     style_flags: 0,
                     alpha_test: false,
                     model_light: 0.718_629,
+                    overlay_color: [0.8, 0.248_176, 0.0, 0.7],
                 })
                 .into(),
             vec![0, 1, 2].into(),
@@ -359,7 +362,7 @@ mod tests {
             &tree.build_draw_list().unwrap(),
             Arc::new(
                 UiRenderTextureArray::new(
-                    vec![render::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    vec![render_model::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
                     1,
                 )
                 .unwrap(),
@@ -375,6 +378,7 @@ mod tests {
         assert_eq!(input.vertices[0].clip_z, 0.75);
         assert_eq!(input.vertices[0].clip_w, 2.0);
         assert_eq!(input.vertices[0].alpha_cutoff, 0.1);
+        assert_eq!(input.vertices[0].overlay_color, [0.8, 0.248_176, 0.0, 0.7]);
         assert_eq!(input.vertices[0].uv, [8.5, 4.5]);
         assert_eq!(
             input.vertices[0].model_light.to_bits(),

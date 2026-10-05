@@ -8,6 +8,7 @@ use super::{
     TRANSPARENT_REF_SLOT_BYTES, TransparentSortCandidate, transparent_indirect_args,
 };
 use crate::chunk::*;
+use std::cell::RefCell;
 
 // Transparent ordering does not need a new CPU sort for sub-pixel camera
 // movement. Quantising only the cache key keeps the exact camera matrix in
@@ -42,26 +43,42 @@ pub(in crate::chunk) fn transparent_snapshot_addresses_are_resident<'a, 'b>(
     {
         return false;
     }
-    let resident_allocations = resident_allocations
-        .into_iter()
-        .filter(|allocation| allocation.tint_identity == active_tint_identity)
-        .collect::<Vec<_>>();
-    let retired_allocations = retired_allocations
-        .into_iter()
-        .filter(|allocation| allocation.tint_identity == active_tint_identity)
-        .collect::<Vec<_>>();
-    snapshot.key.visible_allocations.iter().all(|identity| {
-        let active = resident_allocations
-            .iter()
-            .any(|allocation| transparent_resident_allocation_contains(identity, allocation));
-        active
-            || retired_allocations.iter().any(|allocation| {
-                allocation.key == identity.key
-                    && allocation.generation == identity.mesh_generation
-                    && allocation.metadata_index == identity.metadata_index
-                    && allocation.liquid_range.as_ref() == Some(&identity.liquid_range)
-                    && allocation.liquid_lighting_range.as_ref() == Some(&identity.lighting_range)
-            })
+    if snapshot.key.visible_allocations.is_empty() {
+        return true;
+    }
+    // `ViewSortKey` keeps visible identities sorted by key with each key at most once, so every
+    // allocation can satisfy only the identity it binary-searches to.
+    let visible = &snapshot.key.visible_allocations;
+    thread_local! {
+        static SATISFIED: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
+    }
+    SATISFIED.with_borrow_mut(|satisfied| {
+        satisfied.clear();
+        satisfied.resize(visible.len(), false);
+        let mut remaining = visible.len();
+        let mut mark =
+            |allocation: &GpuChunkAllocation,
+             matches: fn(&TransparentAllocationIdentity, &GpuChunkAllocation) -> bool| {
+                if allocation.tint_identity != active_tint_identity {
+                    return;
+                }
+                let Ok(index) =
+                    visible.binary_search_by(|identity| identity.key.cmp(&allocation.key))
+                else {
+                    return;
+                };
+                if !satisfied[index] && matches(&visible[index], allocation) {
+                    satisfied[index] = true;
+                    remaining -= 1;
+                }
+            };
+        for allocation in resident_allocations {
+            mark(allocation, transparent_resident_allocation_contains);
+        }
+        for allocation in retired_allocations {
+            mark(allocation, transparent_allocation_is_exact);
+        }
+        remaining == 0
     })
 }
 

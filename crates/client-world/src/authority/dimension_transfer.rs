@@ -1,5 +1,5 @@
 use super::*;
-use world::SubChunkKey;
+use world::{SUB_CHUNK_SIDE, SubChunkKey};
 
 impl WorldAuthority {
     /// Tests the surrounding area using the dimension's loading Y for out-of-range anchors.
@@ -11,14 +11,15 @@ impl WorldAuthority {
         let Some(range) = self.dimension_range(dimension) else {
             return false;
         };
-        let minimum_y = range.base_sub_chunk_y * 16;
-        let maximum_y = minimum_y + (range.sub_chunk_count as i32) * 16;
+        let side = SUB_CHUNK_SIDE as i32;
+        let minimum_y = range.base_sub_chunk_y * side;
+        let maximum_y = minimum_y + (range.sub_chunk_count as i32) * side;
         let anchor_y = i32::from((position[1] as i32) as i16);
         if anchor_y < minimum_y || anchor_y >= maximum_y {
             position[1] = world::dimension_loading_fallback_y(dimension) as f32;
         }
-        let lower = position.map(|value| ((value - 16.0).floor() as i32).div_euclid(16));
-        let upper = position.map(|value| ((value + 16.0).floor() as i32).div_euclid(16));
+        let lower = position.map(|value| ((value - side as f32).floor() as i32).div_euclid(side));
+        let upper = position.map(|value| ((value + side as f32).floor() as i32).div_euclid(side));
         let lower_y = lower[1].max(range.base_sub_chunk_y);
         let upper_y = upper[1].min(range.base_sub_chunk_y + range.sub_chunk_count as i32 - 1);
         for x in lower[0]..=upper[0] {

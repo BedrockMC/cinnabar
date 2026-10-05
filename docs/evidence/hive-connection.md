@@ -53,7 +53,8 @@ every pinned vanilla typed state, both runtime ID modes, early login definitions
 inline placement, request origins, pending decode ordering and invalid ranges.
 Transfer regressions cover sentinel acknowledgements, metadata and packet
 roundtrips, readiness boundaries, authoritative air, current-position changes,
-prediction freeze, timeout ordering, queue backpressure and production app wiring.
+prediction holds with continuous stationary input ticks, timeout ordering,
+queue backpressure and production app wiring.
 Custom identity regressions cover named states, missing visual resources,
 incomplete definitions beside valid neighbors, admitted ranges, offset overflow,
 asset precedence and snapshots retained across registry replacement.
@@ -79,8 +80,14 @@ performance parity. Its complete replay report ended on the local client's exit.
 
 Persistent legacy-state upgrades, default-state reconciliation and unknown
 property handling remain incomplete in `plan.md`. This work does not close the
-broader terrain or server-pack visual parity gates. LoadingEnd currently follows
-the local acknowledgement without the JSON-UI dimension-loading presentation and
-navigation/resource lifecycle; that timing remains explicitly incomplete.
-The local readiness delay currently uses a later app frame; the vanilla
-readiness updater's exact scheduling clock remains unverified.
+broader terrain or server-pack visual parity gates. The local readiness delay
+currently uses a later app frame; the vanilla readiness updater's exact scheduling
+clock remains unverified.
+
+On 2026-10-05, current dev was integrated after the user reported the account
+unbanned. Transfer ownership was consolidated into the app coordinator, retaining
+the server acknowledgement and loaded-area gates. Input ticks continue while
+prediction is held; LoadingEnd now waits for the JSON-UI loading presentation and
+a fresh destination frame. Three reproduced regressions cover named overworld
+probe heights, raised custom air columns and synced-block range freezing.
+Renewed live acceptance is in progress.

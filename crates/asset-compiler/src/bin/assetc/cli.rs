@@ -70,8 +70,11 @@ pub(super) enum Command {
     /// Compile bounded bitmap-font metrics and raw RGBA8 texture pages.
     FontAssets {
         /// Root of the pinned vanilla resource pack.
+        #[arg(long, required_unless_present = "font", conflicts_with = "font")]
+        pack: Option<PathBuf>,
+        /// Outline font pinned by the source manifest, rasterized with its own advances.
         #[arg(long)]
-        pack: PathBuf,
+        font: Option<PathBuf>,
         /// Tracked manifest that pins the local resource-pack source.
         #[arg(long)]
         source_manifest: PathBuf,
@@ -158,7 +161,7 @@ pub(super) enum Command {
         #[arg(long)]
         report: PathBuf,
     },
-    /// Compile unconditional neutral binary-alpha actor artwork.
+    /// Compile actor artwork from geometry and material contracts.
     ActorAssets {
         #[arg(long)]
         pack: PathBuf,
@@ -290,5 +293,14 @@ pub(super) enum Command {
         /// Ignored/local deterministic JSON report path.
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Download (when missing), verify and unpack the pinned sample pack below `.local/assets`.
+    VanillaPack {
+        /// Tracked manifest pinning the pack; its paths resolve against the current directory.
+        #[arg(long)]
+        source_manifest: PathBuf,
+        /// Confirms acceptance of the Minecraft EULA.
+        #[arg(long)]
+        accept_eula: bool,
     },
 }

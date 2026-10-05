@@ -124,7 +124,7 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
         }
         WeatherAssets { out, .. } | HudExtrasAssets { out, .. } => outputs.push(out),
         AudioBank { out, report, .. } => outputs.extend([out.as_path(), report.as_path()]),
-        LanguageAssets { .. } => return Ok(()),
+        LanguageAssets { .. } | VanillaPack { .. } => return Ok(()),
     }
     match command {
         EntityAssets { out, .. } => {
@@ -140,6 +140,7 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
         } => inputs.extend(clouds_override.as_deref()),
         IconAssets { block_assets, .. } => inputs.extend(block_assets.as_deref()),
         AudioPcmAssets { catalog, .. } => inputs.push(catalog),
+        FontAssets { font, .. } => inputs.extend(font.as_deref()),
         OutlineFontAssets {
             font,
             fallback_font,

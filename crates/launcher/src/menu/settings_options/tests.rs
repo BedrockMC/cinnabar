@@ -220,3 +220,15 @@ fn loaded_supplemental_bindings_cannot_conflict_with_gameplay_controls() {
         SettingsOptions::default().named_key_control("key.inventory")
     );
 }
+
+#[test]
+fn always_sprint_defaults_off_and_persists_into_runtime_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.user_settings().gameplay.always_sprint);
+    settings.set(index("always_sprint"), 1);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.user_settings().gameplay.always_sprint);
+    let legacy =
+        SettingsOptions::decode(br#"{"values":{"keyboard_mouse_sensitivity":75}}"#).unwrap();
+    assert!(!legacy.user_settings().gameplay.always_sprint);
+}

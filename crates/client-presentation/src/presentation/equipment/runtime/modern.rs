@@ -79,7 +79,8 @@ impl EquipmentRuntime {
             *rig
         } else {
             let rig = self.build_item_mesh(|rig| {
-                render::attachable_geometry(&assets, geometry_index as usize, rig, texture).ok()
+                render_model::attachable_geometry(&assets, geometry_index as usize, rig, texture)
+                    .ok()
             })?;
             self.attachable_meshes.insert(key, rig);
             rig
@@ -98,6 +99,7 @@ impl EquipmentRuntime {
                 0,
             ),
             camera_space: false,
+            alpha_mode: render::HandItemAlphaMode::Cutout,
         })
     }
 }
@@ -165,7 +167,7 @@ mod tests {
         let parent = RenderBoneTransform {
             rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).to_array(),
             translation_scale: [1.0, 2.0, 3.0, 2.0],
-            axis_scale: render::UNIT_AXIS_SCALE,
+            axis_scale: render_model::UNIT_AXIS_SCALE,
         };
         let local = BoneTransform {
             rotation: Quat::from_rotation_z(0.3).to_array(),
@@ -188,7 +190,7 @@ mod tests {
         let a = RenderBoneTransform {
             rotation: Quat::IDENTITY.to_array(),
             translation_scale: [0.0, 0.0, 0.0, 1.0],
-            axis_scale: render::UNIT_AXIS_SCALE,
+            axis_scale: render_model::UNIT_AXIS_SCALE,
         };
         let b = RenderBoneTransform {
             translation_scale: [4.0, 0.0, 0.0, 1.0],

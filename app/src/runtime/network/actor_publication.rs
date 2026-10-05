@@ -4,6 +4,7 @@ use crate::{
     player_runtime::PlayerRuntime,
     runtime::world::ClientWorld,
 };
+use bevy::time::Real;
 use bevy::{ecs::system::SystemParam, prelude::*};
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 pub(crate) use client_presentation::actor_publication::{
@@ -27,6 +28,7 @@ pub(crate) struct ActorObservations<'w> {
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
     movement: Option<Res<'w, MovementTicker>>,
+    time: Res<'w, Time<Real>>,
     cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
@@ -51,6 +53,7 @@ pub(crate) fn prepare_actor_render_frame(
         item_use,
         movement,
         cave,
+        time,
         profiler,
     } = observations;
     let _timer = profiler
@@ -93,6 +96,13 @@ pub(crate) fn prepare_actor_render_frame(
             menu.as_deref(),
             ui_presentation.as_deref(),
         ),
+        custom_emote: ui
+            .as_deref()
+            .and_then(|ui| ui.emotes().playback())
+            .map(|playback| {
+                let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                (playback.emote, playback.elapsed(now))
+            }),
         hide_hand: menu
             .as_ref()
             .is_some_and(|menu| menu.settings_snapshot().0.value("hide_hand") != 0),
@@ -108,6 +118,9 @@ pub(crate) fn prepare_actor_render_frame(
     client_presentation::actor_publication::prepare_actor_render_frame(
         ActorWorld {
             stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
             entity_assets: entity_assets.as_deref(),
             pack_entities: pack_entities.clone(),
             session_items: session_items.clone(),
@@ -153,3 +166,7 @@ pub(crate) fn prepare_actor_render_frame(
         params,
     );
 }
+
+#[cfg(test)]
+#[path = "actor_publication/tests/custom_emotes.rs"]
+mod custom_emotes;

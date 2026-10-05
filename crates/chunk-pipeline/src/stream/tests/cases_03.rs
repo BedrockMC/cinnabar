@@ -1117,6 +1117,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
                 source_cohort: None,
             },
             super::CommittedControlEvent::ChangeDimension {
+                sequence: 3,
                 change,
                 resolved: super::server_position::ResolvedServerPosition {
                     position: change.position,

@@ -52,10 +52,10 @@ impl EquipmentRuntime {
         indices
             .into_iter()
             .filter_map(|index| {
-                render::equipment_geometry(
+                render_model::equipment_geometry(
                     assets,
                     index as usize,
-                    render::pack_equipment_rig_id(index),
+                    render_model::pack_equipment_rig_id(index),
                 )
             })
             .collect()
@@ -129,7 +129,7 @@ impl EquipmentRuntime {
         }
         let from_pack = find_geometry_index(&pack.assets, identifier).and_then(|index| {
             Some(Arc::new(ArmorGeometry {
-                rig: render::pack_equipment_rig_id(index),
+                rig: render_model::pack_equipment_rig_id(index),
                 names: geometry_bone_names(&pack.assets, index as usize)?,
                 pivots: geometry_bone_pivots(&pack.assets, index as usize)?,
             }))

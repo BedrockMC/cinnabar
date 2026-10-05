@@ -16,7 +16,6 @@ use super::plan::{self, Action, COMPILED, Step, VANILLA_MANIFEST};
 
 pub(super) const STAMP_FILE: &str = "prepared.json";
 const SCHEMA: u32 = 1;
-const FONT_CACHE: &str = ".local/assets/ui-font/";
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub(super) struct Stamp {
@@ -83,7 +82,6 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
         needs_pack: false,
         outputs: Vec::new(),
     };
-    let mut needs_font = false;
     for (index, step) in steps.iter().enumerate() {
         let Action::Assetc(args) = &step.action else {
             continue;
@@ -99,19 +97,14 @@ pub(super) fn select(steps: &[Step], kit: &Path, prepared: &Path) -> Result<Sele
         let stale = stamp.carriers.get(&key) != Some(&identity);
         if stale {
             selection.needs_pack |= args.iter().any(|arg| arg.starts_with(&pack_dir));
-            needs_font |= args.iter().any(|arg| arg.starts_with(FONT_CACHE));
             selection.outputs.push(key.clone());
         }
         selection.run[index] = stale;
         selection.identities.insert(key, identity);
     }
     for (index, step) in steps.iter().enumerate() {
-        if let Action::Script(name) = step.action {
-            selection.run[index] = match name {
-                "fetch-vanilla-assets" => selection.needs_pack,
-                "fetch-ui-font" => needs_font,
-                _ => true,
-            };
+        if step.action == Action::UnpackPack {
+            selection.run[index] = selection.needs_pack;
         }
     }
     Ok(selection)
@@ -238,7 +231,7 @@ mod tests {
 
     fn kit(dir: &Dir) -> PathBuf {
         let kit = dir.path().join("kit");
-        for sub in ["assets", "data", "scripts"] {
+        for sub in ["assets", "data"] {
             fs::create_dir_all(kit.join(sub)).unwrap();
         }
         fs::create_dir_all(kit.join("bin")).unwrap();
@@ -262,11 +255,9 @@ mod tests {
         fs::write(kit.join(VANILLA_MANIFEST), json).unwrap();
     }
 
-    fn set_font(kit: &Path, commit: &str) {
-        let json = format!(
-            r#"{{"commit":"{commit}","font_file":"F.ttf","fallback_commit":"bb","fallback_font_file":"N.otf"}}"#
-        );
-        fs::write(kit.join("assets/ui-font-source.json"), json).unwrap();
+    fn set_font(kit: &Path, tag: &str) {
+        let json = format!(r#"{{"font_file":"CinnanglesSans-{tag}.ttf"}}"#);
+        fs::write(kit.join("assets/cinnangles-sans-source.json"), json).unwrap();
     }
 
     /// Publishes every required carrier with a stamp matching the kit as it is now.
@@ -303,7 +294,7 @@ mod tests {
         .unwrap();
         let (labels, _) = running(&kit, &prepared);
         assert!(labels.contains(&"Compiling world assets"));
-        assert!(labels.contains(&"Compiling the UI font"));
+        assert!(labels.contains(&"Compiling Cinnangles Sans"));
     }
 
     #[test]
@@ -335,7 +326,7 @@ mod tests {
         assert!(needs_pack);
         assert!(labels.contains(&"Compiling world assets"));
         assert!(labels.contains(&"Compiling item icons"));
-        assert!(!labels.contains(&"Compiling the UI font"));
+        assert!(!labels.contains(&"Compiling Cinnangles Sans"));
     }
 
     #[test]
@@ -346,10 +337,7 @@ mod tests {
         set_font(&kit, "cc");
         assert_eq!(
             running(&kit, &prepared),
-            (
-                vec!["Downloading the open UI font", "Compiling the UI font"],
-                false
-            )
+            (vec!["Compiling Cinnangles Sans"], false)
         );
         prepare(&kit, &prepared);
         fs::write(kit.join("data/block-registry-v2193.bin"), b"changed").unwrap();

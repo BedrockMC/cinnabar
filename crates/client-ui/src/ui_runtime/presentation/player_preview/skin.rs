@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use render::ActorSkinPixels;
+use render_model::ActorSkinPixels;
 
 /// The local player's validated skin; off-world the launcher's paper doll wears the menu skin.
 pub fn local_preview_skin(
     stream: Option<&chunk_pipeline::WorldStream>,
-    menu_skin: &render::ActorSkinPixels,
+    menu_skin: &render_model::ActorSkinPixels,
 ) -> Option<Arc<[u8]>> {
     let pixels = match stream {
         Some(stream) => match &stream
@@ -18,14 +18,14 @@ pub fn local_preview_skin(
             protocol::PlayerSkin::Standard(skin) => ActorSkinPixels {
                 width: skin.width,
                 height: skin.height,
-                rgba8: Arc::clone(&skin.rgba8),
+                rgba8: skin.rgba8.clone(),
             },
             _ => return None,
         },
         None => ActorSkinPixels {
             width: menu_skin.width,
             height: menu_skin.height,
-            rgba8: Arc::clone(&menu_skin.rgba8),
+            rgba8: menu_skin.rgba8.clone(),
         },
     };
     validated_ui_skin(&pixels)
@@ -34,7 +34,7 @@ pub fn local_preview_skin(
 /// Native model UVs address the supplied skin's texels directly. Square HD
 /// skins retain their dimensions and allocation; legacy half-height skins use
 /// the shared Bedrock limb expansion, still at the original texel density.
-pub fn validated_ui_skin(skin: &render::ActorSkinPixels) -> Option<Arc<[u8]>> {
+pub fn validated_ui_skin(skin: &render_model::ActorSkinPixels) -> Option<Arc<[u8]>> {
     let width = skin.width;
     if !width.is_power_of_two()
         || width < render_api::CLASSIC_SKIN_SIDE as u32
@@ -50,7 +50,7 @@ pub fn validated_ui_skin(skin: &render::ActorSkinPixels) -> Option<Arc<[u8]>> {
         return None;
     }
     Some(if side == height {
-        Arc::clone(&skin.rgba8)
+        Arc::clone(skin.rgba8.pixels())
     } else {
         render_api::expand_legacy_skin_rgba8(&skin.rgba8, side).into()
     })
@@ -66,13 +66,13 @@ mod tests {
         let mut rgba = vec![0; side * side * 4];
         let fine = (11 * side + 13) * 4;
         rgba[fine..fine + 4].copy_from_slice(&[17, 43, 199, 255]);
-        let skin = render::ActorSkinPixels {
+        let skin = render_model::ActorSkinPixels {
             width: side as u32,
             height: side as u32,
             rgba8: rgba.into(),
         };
         let validated = validated_ui_skin(&skin).expect("supported HD skin");
-        assert!(Arc::ptr_eq(&skin.rgba8, &validated));
+        assert!(Arc::ptr_eq(skin.rgba8.pixels(), &validated));
         assert_eq!(validated.len(), side * side * 4);
         assert_eq!(&validated[fine..fine + 4], &[17, 43, 199, 255]);
     }
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn legacy_skin_expands_without_changing_texel_density() {
         let side = render_api::CLASSIC_SKIN_SIDE * 2;
-        let source = render::ActorSkinPixels {
+        let source = render_model::ActorSkinPixels {
             width: side as u32,
             height: side as u32 / 2,
             rgba8: vec![255; side * side / 2 * 4].into(),
@@ -102,7 +102,7 @@ mod tests {
             (render_api::MAX_STANDARD_SKIN_SIDE * 2, valid_side, 0),
             (valid_side, valid_side / 4, 0),
         ] {
-            let skin = render::ActorSkinPixels {
+            let skin = render_model::ActorSkinPixels {
                 width,
                 height,
                 rgba8: vec![0; bytes].into(),

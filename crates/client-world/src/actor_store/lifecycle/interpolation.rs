@@ -15,36 +15,51 @@ impl ActorStore {
 
     /// Keeps motion and status exact while separating frame and simulation evaluation cadence.
     fn advance_interpolation(&mut self, ticks: u32, frame: bool) {
-        for tick in 0..ticks {
-            for actor in self.actors.values_mut() {
-                let current = actor.current_pose();
-                actor.previous_pose = current;
-                let mut next = actor.received_pose;
-                // Native MovementInterpolator tick clears StateVector velocity
-                // before decrementing any positive interpolation count, including its last tick.
-                if actor.interpolation_ticks_remaining > 0 {
-                    actor.status.native_velocity = [0.0; 3];
+        let refresh_view = frame && ticks == 0 && self.local_view_dirty;
+        if ticks > 0 || refresh_view {
+            self.local_view_dirty = false;
+        }
+        for tick in 0..ticks.max(u32::from(refresh_view)) {
+            if !refresh_view {
+                for actor in self.actors.values_mut() {
+                    let current = actor.current_pose();
+                    actor.previous_pose = current;
+                    let mut next =
+                        if actor.interpolation_ticks_remaining == 0 && actor.is_dying_dragon() {
+                            current
+                        } else {
+                            actor.received_pose
+                        };
+                    // Native MovementInterpolator tick clears StateVector velocity
+                    // before decrementing any positive interpolation count, including its last tick.
+                    if actor.interpolation_ticks_remaining > 0 {
+                        actor.status.native_velocity = [0.0; 3];
+                    }
+                    // The final step lands exactly on the target.
+                    if actor.interpolation_ticks_remaining > 1 {
+                        // Each step closes 1/n of the remaining gap; angles take the short way.
+                        let divisor = actor.interpolation_ticks_remaining as f32;
+                        let target = actor.received_pose;
+                        next.position = std::array::from_fn(|axis| {
+                            current.position[axis]
+                                + (target.position[axis] - current.position[axis]) / divisor
+                        });
+                    }
+                    actor.interpolate_movement_rotation(current, &mut next);
+                    actor.interpolation_ticks_remaining =
+                        actor.interpolation_ticks_remaining.saturating_sub(1);
+                    actor.set_current_pose(next);
+                    actor.advance_movement_interpolation();
+                    actor.status.tick();
                 }
-                // The final step lands exactly on the target.
-                if actor.interpolation_ticks_remaining > 1 {
-                    // Each step closes 1/n of the remaining gap; angles take the short way.
-                    let divisor = f32::from(actor.interpolation_ticks_remaining);
-                    let target = actor.received_pose;
-                    next.position = std::array::from_fn(|axis| {
-                        current.position[axis]
-                            + (target.position[axis] - current.position[axis]) / divisor
-                    });
-                    let step = |from: f32, to: f32| from + wrap_degrees(to - from) / divisor;
-                    next.pitch = step(current.pitch, target.pitch);
-                    next.yaw = step(current.yaw, target.yaw);
-                    next.head_yaw = step(current.head_yaw, target.head_yaw);
-                }
-                actor.interpolation_ticks_remaining =
-                    actor.interpolation_ticks_remaining.saturating_sub(1);
-                actor.set_current_pose(next);
-                actor.status.tick();
+                self.seat_riders();
             }
-            self.seat_riders();
+            if !refresh_view {
+                self.advance_dragon_animation();
+                self.advance_dragon_beams();
+                self.advance_dragon_particles();
+                self.advance_synchronized_audio();
+            }
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
@@ -71,13 +86,7 @@ impl ActorStore {
             let local_view_bobbing = self.local_view_bobbing;
             let local_hands = self.local_hands.clone();
             let view = self.animation_view.as_ref();
-            self.animation.advance_tick(
-                actors,
-                view,
-                local_runtime,
-                !frame || tick + 1 == ticks,
-                !frame || tick == 0,
-                |actor| {
+            let context = |actor: &ActorSnapshot| {
                 let lifetime = ActorLifetimeId {
                     session_id,
                     dimension,
@@ -116,8 +125,12 @@ impl ActorStore {
                         .and_then(|runtime_id| actors.get(runtime_id))
                         .map(|actor| &actor.kind)
                 };
-                let (has_rider, has_player_rider) = rider_contexts.get(&actor.unique_id).copied().unwrap_or_default();
+                let (has_rider, has_player_rider) = rider_contexts
+                    .get(&actor.unique_id)
+                    .copied()
+                    .unwrap_or_default();
                 crate::actor_animation::ActorTickContext {
+                    frame_alpha: 0.0,
                     animation_elapsed_ticks: frame.then_some(ticks),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
@@ -157,15 +170,25 @@ impl ActorStore {
                         ActorKind::Entity { .. } => false,
                     },
                 }
-            });
-            self.actions.advance_tick();
+            };
+            if refresh_view {
+                if let Some(runtime_id) = local_runtime {
+                    self.animation
+                        .refresh_local_view(actors, runtime_id, context);
+                }
+            } else {
+                self.animation.advance_tick(
+                    actors,
+                    view,
+                    local_runtime,
+                    !frame || tick + 1 == ticks,
+                    !frame || tick == 0,
+                    context,
+                );
+                self.actions.advance_tick();
+            }
         }
     }
-}
-
-/// Wraps an angle to the shortest signed turn.
-fn wrap_degrees(degrees: f32) -> f32 {
-    (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
 /// Worn stacks in helmet, chestplate, leggings, boots, body order.

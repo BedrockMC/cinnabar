@@ -4,8 +4,9 @@ use assets::IconSprite;
 use bevy::math::{Quat, Vec3};
 use render::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId, EquipmentRaster, RenderBoneTransform,
+    ActorRigSubmission, EquipmentRaster,
 };
+use render_model::{EntityRigId, RenderBoneTransform};
 
 use super::{
     armor::{bone_map, hidden_bone, pack_tint, remap_pose},
@@ -29,7 +30,7 @@ fn bone(translation: [f32; 3], scale: f32) -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [translation[0], translation[1], translation[2], scale],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 
@@ -119,6 +120,7 @@ fn equipment_layer_shares_the_body_identity_transform_and_generations() {
     }]);
     let location = locations[0].unwrap();
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -319,6 +321,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     let body = ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {
@@ -407,6 +410,7 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
     runtime.register_skin_rig(rig, names.clone());
     let pose: Arc<[RenderBoneTransform]> = names.iter().map(|_| bone([0.0; 3], 1.0)).collect();
     ActorRigSubmission {
+        material: Default::default(),
         culling_bounds: Default::default(),
         input: ActorRigRenderInput {
             identity: ActorRenderIdentity {

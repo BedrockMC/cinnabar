@@ -9,8 +9,11 @@ use client_world::{
 use protocol::{ActorKind, PlayerSkin, StandardSkin};
 use render::{
     ActorCullView, ActorRenderIdentity, ActorRenderScene, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS,
-    RenderBoneTransform, STANDARD_SKIN_BYTES,
+    ActorRigSubmission,
+};
+use render_model::{
+    EntityRigId as RenderEntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    STANDARD_SKIN_BYTES,
 };
 use semantic_input::PerspectiveMode;
 
@@ -38,16 +41,15 @@ fn render_bone() -> RenderBoneTransform {
     RenderBoneTransform {
         rotation: [0.0, 0.0, 0.0, 1.0],
         translation_scale: [0.0, 0.0, 0.0, 1.0],
-        axis_scale: render::UNIT_AXIS_SCALE,
+        axis_scale: render_model::UNIT_AXIS_SCALE,
     }
 }
 
 fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
-    ActorSnapshot {
+    let mut actor = super::actor_snapshot(protocol::ActorSpawnEvent {
+        dimension: 0,
         unique_id: runtime_id as i64,
         runtime_id,
-        spawn_revision: 3,
-        movement_revision,
         kind: ActorKind::Player {
             uuid: [runtime_id as u8; 16],
             username: "player".into(),
@@ -57,30 +59,24 @@ fn actor(runtime_id: u64, movement_revision: u64) -> ActorSnapshot {
         pitch: 0.0,
         yaw: 90.0,
         head_yaw: 90.0,
-        previous_pose: ActorPose {
-            position: [2.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 0.0,
-            head_yaw: 0.0,
-        },
-        received_pose: ActorPose {
-            position: [4.0, 64.0, -2.0],
-            pitch: 0.0,
-            yaw: 90.0,
-            head_yaw: 90.0,
-        },
-        interpolation_ticks_remaining: 0,
         body_yaw: 90.0,
-        on_ground: Some(true),
-        teleported: false,
-        player_mode: None,
-        source_tick: Some(41),
-        metadata: Default::default(),
-        attributes: Default::default(),
-        int_properties: Default::default(),
-        float_properties: Default::default(),
-        status: Default::default(),
-    }
+        held_item: Default::default(),
+        metadata: Arc::from([]),
+        attributes: Arc::from([]),
+        properties: Arc::from([]),
+        links: Arc::from([]),
+    });
+    actor.spawn_revision = 3;
+    actor.movement_revision = movement_revision;
+    actor.on_ground = Some(true);
+    actor.source_tick = Some(41);
+    actor.previous_pose = ActorPose {
+        position: [2.0, 64.0, -2.0],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+    };
+    actor
 }
 
 fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
@@ -91,8 +87,8 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,
-            width: render::STANDARD_SKIN_SIDE as u32,
-            height: render::STANDARD_SKIN_SIDE as u32,
+            width: render_model::STANDARD_SKIN_SIDE as u32,
+            height: render_model::STANDARD_SKIN_SIDE as u32,
             rgba8: vec![value; STANDARD_SKIN_BYTES].into(),
         }),
     }
@@ -137,6 +133,7 @@ fn rig<'a>(
 fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
     ActorRigPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: Default::default(),
             input: ActorRigRenderInput {
                 identity: ActorRenderIdentity {
@@ -374,17 +371,17 @@ fn unchanged_skin_layers_reuse_one_packed_payload() {
 #[test]
 fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
     let mut pack = SkinLayerPack::default();
-    let one: Arc<[u8]> = vec![1; STANDARD_SKIN_BYTES].into();
-    let two: Arc<[u8]> = vec![2; STANDARD_SKIN_BYTES].into();
-    let first = pack.pack(vec![Arc::clone(&one), Arc::clone(&two)]);
-    let shared = pack.pack(vec![Arc::clone(&one), Arc::clone(&two)]);
+    let one: protocol::SkinRgba8 = vec![1; STANDARD_SKIN_BYTES].into();
+    let two: protocol::SkinRgba8 = vec![2; STANDARD_SKIN_BYTES].into();
+    let first = pack.pack(vec![one.clone(), two.clone()]);
+    let shared = pack.pack(vec![one.clone(), two.clone()]);
     let copies = pack.pack(vec![one.to_vec().into(), two.to_vec().into()]);
     assert!(Arc::ptr_eq(&first, &shared));
     assert!(Arc::ptr_eq(&first, &copies));
     assert_eq!(pack.rebuilds(), 1);
-    let reordered = pack.pack(vec![Arc::clone(&two), Arc::clone(&one)]);
-    assert_eq!(&reordered[..STANDARD_SKIN_BYTES], two.as_ref());
-    assert_eq!(&reordered[STANDARD_SKIN_BYTES..], one.as_ref());
+    let reordered = pack.pack(vec![two.clone(), one.clone()]);
+    assert_eq!(&reordered[..STANDARD_SKIN_BYTES], &*two);
+    assert_eq!(&reordered[STANDARD_SKIN_BYTES..], &*one);
     let mut expected = one.to_vec();
     expected[STANDARD_SKIN_BYTES - 1] = 3;
     let changed = pack.pack(vec![two, expected.clone().into()]);
@@ -398,9 +395,9 @@ fn skin_layer_packing_keeps_equal_copies_and_detects_changed_pixels() {
 #[test]
 fn skin_layer_packing_releases_replaced_equal_source_pixels() {
     let mut pack = SkinLayerPack::default();
-    let source: Arc<[u8]> = vec![11; STANDARD_SKIN_BYTES].into();
-    let obsolete = Arc::downgrade(&source);
-    let replacement: Arc<[u8]> = source.to_vec().into();
+    let source: protocol::SkinRgba8 = vec![11; STANDARD_SKIN_BYTES].into();
+    let obsolete = Arc::downgrade(source.pixels());
+    let replacement: protocol::SkinRgba8 = source.to_vec().into();
     let first = pack.pack(vec![source]);
     assert!(obsolete.upgrade().is_some());
     let second = pack.pack(vec![replacement]);
@@ -623,7 +620,6 @@ fn local_canonical_body_lags_the_view_yaw_by_the_rigs_head_offset() {
 
 #[test]
 fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
-    let bones = [model_bone([0.0; 3])];
     for identifier in [
         "minecraft:arrow",
         "minecraft:ender_pearl",
@@ -633,24 +629,43 @@ fn projectile_animation_rotation_is_not_multiplied_by_mob_body_yaw() {
         actor.kind = ActorKind::Entity {
             identifier: identifier.into(),
         };
-        let rig = ActorRigSnapshot {
-            previous_body_yaw: 90.0,
-            body_yaw: 90.0,
-            ..rig(42, &bones, &bones)
-        };
-        let presentation =
-            entity_rig_presentation(&rig, &actor, &render::ActorArtworkPages::default(), 1.0)
+        for pitch in [-90.0_f32, -35.0, 0.0, 90.0] {
+            let rotation = (Quat::from_rotation_y(73.0_f32.to_radians())
+                * Quat::from_rotation_x(pitch.to_radians()))
+            .to_array();
+            let bones = [BoneTransform {
+                rotation,
+                ..model_bone([0.0; 3])
+            }];
+            for body_yaw in [-120.0, 0.0, 90.0] {
+                let rig = ActorRigSnapshot {
+                    previous_body_yaw: body_yaw,
+                    body_yaw,
+                    ..rig(42, &bones, &bones)
+                };
+                let presentation = entity_rig_presentation(
+                    &rig,
+                    &actor,
+                    &render::ActorArtworkPages::default(),
+                    1.0,
+                )
                 .unwrap();
-        let rows = presentation.submission.world_from_actor;
-        let basis = if identifier == "minecraft:arrow" {
-            -1.0
-        } else {
-            1.0
-        };
-        assert!((rows[0][0] - basis).abs() < 1e-6, "{identifier}");
-        assert!(rows[0][2].abs() < 1e-6, "{identifier}");
-        assert!(rows[2][0].abs() < 1e-6, "{identifier}");
-        assert!((rows[2][2] - basis).abs() < 1e-6, "{identifier}");
+                let rows = presentation.submission.world_from_actor;
+                assert_eq!(presentation.world_yaw_degrees, 0.0, "{identifier}");
+                assert!((rows[0][0] + 1.0).abs() < 1e-6, "{identifier}");
+                assert!(rows[0][2].abs() < 1e-6, "{identifier}");
+                assert!(rows[2][0].abs() < 1e-6, "{identifier}");
+                assert!((rows[2][2] + 1.0).abs() < 1e-6, "{identifier}");
+                assert_eq!(
+                    presentation.submission.input.current_bones[0].rotation, rotation,
+                    "{identifier} keeps its authored rotation at pitch {pitch}"
+                );
+                assert_eq!(
+                    presentation.submission.input.previous_bones[0].rotation,
+                    rotation
+                );
+            }
+        }
     }
 }
 

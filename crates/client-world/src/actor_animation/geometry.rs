@@ -112,6 +112,8 @@ pub(super) fn resolve_binding(
     }
     let mut motion = MotionState::spawn(actor.body_yaw, actor.head_yaw);
     motion.horse = super::horse::AnimationState::new(random_seed);
+    let samples_camera_poses =
+        super::render_frame::camera::needs_camera_sampling(assets, geometry_binding, &controllers);
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -128,6 +130,7 @@ pub(super) fn resolve_binding(
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
+        view_context: None,
         rest: current.clone(),
         rest_completed_tick: 0,
         rest_reset_generation: 0,
@@ -150,6 +153,10 @@ pub(super) fn resolve_binding(
         skin: None,
         skin_layers: Vec::new(),
         variables,
+        samples_render_frames: samples_camera_poses
+            || super::render_frame::needs_frame_sampling(assets, rig_binding),
+        samples_camera_poses,
+        render_frame: None,
         clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
@@ -422,6 +429,10 @@ pub(super) fn reselect_geometry(
         return;
     };
     state.rig = EntityRigId(rig_id);
+    state.samples_camera_poses =
+        super::render_frame::camera::needs_camera_sampling(assets, selected, &controllers);
+    state.samples_render_frames = state.samples_camera_poses
+        || super::render_frame::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;
     state.bones = bones;
     state.bone_names = bone_names;

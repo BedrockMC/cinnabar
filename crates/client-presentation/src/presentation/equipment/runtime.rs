@@ -8,13 +8,16 @@ use assets::{
 };
 use bevy::prelude::Resource;
 use render::{
-    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigGeometry,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, BlockEntityAtlas, EntityRigId,
-    EquipmentRaster, RenderBoneTransform, SkullKind, equipment_rig_id, find_geometry_index,
+    ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPages, ActorRigRenderInput, ActorRigRoute,
+    ActorRigSubmission, BlockEntityAtlas, EquipmentRaster, SkullKind, skull_geometry,
+};
+use render_model::{
+    ActorRigGeometry, EntityRigId, RenderBoneTransform, equipment_rig_id, find_geometry_index,
     geometry_bone_names, geometry_bone_pivots, held_sprite_vertices, item_mesh_rig_id,
-    skull_geometry, textured_cube_vertices,
+    textured_cube_vertices,
 };
 
+mod alpha;
 mod diagnostics;
 mod modern;
 mod pack;
@@ -93,6 +96,7 @@ pub struct EquipmentRuntime {
     placements: Vec<Option<Placement>>,
     /// Block visual id to its carried or fallback sheet's index in `placements`.
     block_sheets: BTreeMap<u32, usize>,
+    block_alpha: BTreeMap<u32, render::HandItemAlphaMode>,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
@@ -161,6 +165,7 @@ impl EquipmentRuntime {
                     .map(|sheet| (sheet.visual.0, sheet.sprite as usize)),
             );
         }
+        let block_alpha = alpha::block_alpha_modes(world.as_deref(), &block_sheets);
         let packed = icons
             .sprites()
             .iter()
@@ -239,6 +244,7 @@ impl EquipmentRuntime {
             icons,
             placements: atlas.placements,
             block_sheets,
+            block_alpha,
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
             body_bones: BTreeMap::new(),
@@ -440,6 +446,7 @@ impl EquipmentRuntime {
         Some(FirstPersonItem {
             presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
             camera_space: true,
+            alpha_mode: self.first_person_alpha_mode(item, block),
         })
     }
 
@@ -470,6 +477,7 @@ impl EquipmentRuntime {
         Some(FirstPersonItem {
             presentation: layer_presentation(body, LAYER_OFF_HAND, mesh, poses, location, 0),
             camera_space: true,
+            alpha_mode: self.first_person_alpha_mode(item, block),
         })
     }
 
@@ -646,6 +654,7 @@ pub(super) fn layer_presentation(
     identity.layer = layer;
     EquipmentPresentation {
         submission: ActorRigSubmission {
+            material: Default::default(),
             culling_bounds: body.culling_bounds,
             input: ActorRigRenderInput {
                 identity,

@@ -23,6 +23,10 @@ const PACK_ENV: &str = "CINNABAR_FORM_PACK_DIR";
 #[path = "pack_harness/declared_paths_tests.rs"]
 mod declared_paths_tests;
 
+#[cfg(test)]
+#[path = "pack_harness/selector_layout_tests.rs"]
+mod selector_layout_tests;
+
 /// Resolves the installed placeholder text used by the input harness.
 pub fn menu_translation(runtime: &UiRuntime, key: &str) -> Option<Arc<str>> {
     runtime.translation(key)
@@ -68,9 +72,9 @@ pub fn carrier() -> Option<Arc<RuntimeUiAssets>> {
 
 pub fn font() -> Arc<RuntimeFontCatalog> {
     let manifest = assets::canonical_source_manifest_sha256(include_bytes!(
-        "../../../../../../assets/ui-font-source.json"
+        "../../../../../../assets/cinnangles-sans-source.json"
     ));
-    std::fs::read(local("assets/compiled/ui-monocraft-v1.mcbefont"))
+    std::fs::read(local("assets/compiled/ui-cinnangles-sans-v1.mcbefont"))
         .ok()
         .and_then(|bytes| RuntimeFontCatalog::decode(&bytes, manifest).ok())
         .map_or_else(fixture_font, Arc::new)
@@ -273,7 +277,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
 
 /// Retained nodes from the last published menu frame, including clipping and text.
 pub fn menu_nodes(presentation: &UiPresentationRuntime) -> &[UiNode] {
-    &presentation.last_menu.as_ref().expect("menu frame").nodes
+    &presentation.last_frame.as_ref().expect("menu frame").nodes
 }
 
 /// Every text node with its bounds and its clip parent's bounds, for diagnosis.

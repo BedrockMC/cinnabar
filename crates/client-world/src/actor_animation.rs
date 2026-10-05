@@ -19,9 +19,8 @@ const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
 pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
-/// Ordinary actor rendering only interpolates completed tick snapshots. Native held
-/// attachables instead evaluate render-time item queries under the actor evaluation budget.
-pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = 0;
+/// World-wide ceiling for authored render-time layer expressions; pose histories stay tick-owned.
+pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = MAX_MOLANG_OPS_PER_WORLD_TICK;
 pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
@@ -176,6 +175,13 @@ struct PackCatalog {
 }
 
 #[derive(Debug)]
+struct PoseStep {
+    evaluate: bool,
+    reset_motion_history: bool,
+    refresh_view: bool,
+}
+
+#[derive(Debug)]
 struct ActorRigState {
     /// Resolved from the session pack catalog rather than the vanilla one.
     pack: bool,
@@ -198,6 +204,7 @@ struct ActorRigState {
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     ui_pose: Option<Vec<BoneTransform>>,
     ui_animation: Option<hud::UiAnimationState>,
+    view_context: Option<bool>,
     rest: Vec<BoneTransform>,
     rest_completed_tick: u64,
     rest_reset_generation: u64,
@@ -219,6 +226,9 @@ struct ActorRigState {
     skin: Option<skin::SkinModel>,
     skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
+    samples_render_frames: bool,
+    samples_camera_poses: bool,
+    render_frame: Option<render_frame::FrameState>,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
     culled: bool,
@@ -286,6 +296,7 @@ struct EvaluatedState {
     controllers: Vec<ControllerState>,
     clip_clocks: clock::ClipClocks,
     variables: MolangVariables,
+    render_frame: Option<render_frame::FrameState>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -450,21 +461,76 @@ impl ActorAnimationStore {
         reset_motion_history: bool,
         context: impl Fn(&ActorSnapshot) -> ActorTickContext,
     ) {
-        self.completed_tick = self.completed_tick.saturating_add(1);
+        self.evaluate_tick(
+            actors,
+            view,
+            exempt,
+            PoseStep {
+                evaluate,
+                reset_motion_history,
+                refresh_view: false,
+            },
+            context,
+        );
+    }
+
+    /// Changes the local draw context without advancing motion or clip time.
+    pub(crate) fn refresh_local_view(
+        &mut self,
+        actors: &HashMap<u64, ActorSnapshot>,
+        runtime_id: u64,
+        context: impl Fn(&ActorSnapshot) -> ActorTickContext,
+    ) {
+        self.evaluate_tick(
+            actors,
+            None,
+            Some(runtime_id),
+            PoseStep {
+                evaluate: true,
+                reset_motion_history: false,
+                refresh_view: true,
+            },
+            context,
+        );
+    }
+
+    fn evaluate_tick(
+        &mut self,
+        actors: &HashMap<u64, ActorSnapshot>,
+        view: Option<&ActorAnimationView>,
+        exempt: Option<u64>,
+        step: PoseStep,
+        context: impl Fn(&ActorSnapshot) -> ActorTickContext,
+    ) {
+        let PoseStep {
+            evaluate,
+            reset_motion_history,
+            refresh_view,
+        } = step;
+        if !refresh_view {
+            self.completed_tick = self.completed_tick.saturating_add(1);
+        }
         let Some(assets) = self.assets.clone() else {
             return;
         };
         let mut world_left = MAX_MOLANG_OPS_PER_WORLD_TICK;
         let mut stack = Vec::new();
         // Start where the world budget ran out last tick so no actor starves every tick.
-        let lifetimes = match evaluate.then(|| self.first_starved.take()).flatten() {
-            Some(start) => self
-                .rigs
-                .range(start..)
-                .chain(self.rigs.range(..start))
-                .map(|(lifetime, _)| *lifetime)
-                .collect::<Vec<_>>(),
-            None => self.rigs.keys().copied().collect(),
+        let lifetimes = if refresh_view {
+            exempt
+                .and_then(|id| self.runtime_to_lifetime.get(&id).copied())
+                .into_iter()
+                .collect()
+        } else {
+            match evaluate.then(|| self.first_starved.take()).flatten() {
+                Some(start) => self
+                    .rigs
+                    .range(start..)
+                    .chain(self.rigs.range(..start))
+                    .map(|(lifetime, _)| *lifetime)
+                    .collect::<Vec<_>>(),
+                None => self.rigs.keys().copied().collect(),
+            }
         };
         let mut starved = None;
         for lifetime in lifetimes {
@@ -505,7 +571,12 @@ impl ActorAnimationStore {
                 self.stats.invalid_skin_geometries =
                     self.stats.invalid_skin_geometries.saturating_add(1);
             }
-            advance_motion(state, actor, &context, reset_motion_history);
+            if !refresh_view {
+                advance_motion(state, actor, &context, reset_motion_history);
+            }
+            let view_changed = state
+                .view_context
+                .is_some_and(|old| old != context.is_local_first_person);
             if !evaluate {
                 continue;
             }
@@ -617,17 +688,18 @@ impl ActorAnimationStore {
                     state.clip_clocks = evaluated.clip_clocks;
                     state.scale = evaluated.scale;
                     state.variables = evaluated.variables;
+                    state.render_frame = evaluated.render_frame;
                     skin_layers::carry(
                         &state.skin_layers,
                         &mut evaluated.skin_layers,
-                        state.reset_pending || resumed,
+                        state.reset_pending || resumed || view_changed,
                     );
                     state.skin_layers = evaluated.skin_layers;
                     if let Some(mut render) = evaluated.render {
                         render::carry_layer_poses(
                             &state.render,
                             &mut render,
-                            state.reset_pending || resumed,
+                            state.reset_pending || resumed || view_changed,
                         );
                         state.render = render;
                     }
@@ -639,12 +711,17 @@ impl ActorAnimationStore {
                         state.reset_generation = self.next_reset_generation;
                         self.next_reset_generation = self.next_reset_generation.saturating_add(1);
                         state.animation_epoch = self.completed_tick;
-                    } else if resumed {
+                    } else if resumed || view_changed {
                         state.previous.clone_from(&evaluated.pose);
                         state.current = evaluated.pose;
                     } else {
                         state.previous = std::mem::replace(&mut state.current, evaluated.pose);
                     }
+                    if view_changed {
+                        state.reset_generation = self.next_reset_generation;
+                        self.next_reset_generation = self.next_reset_generation.saturating_add(1);
+                    }
+                    state.view_context = Some(context.is_local_first_person);
                     state.completed_tick = self.completed_tick;
                 }
                 Err(EvalError::ActorBudget) => {
@@ -666,7 +743,7 @@ impl ActorAnimationStore {
                 }
             }
         }
-        if evaluate {
+        if evaluate && !refresh_view {
             self.first_starved = starved;
         }
     }
@@ -813,6 +890,7 @@ fn resolve_rig(
 
 mod attachable;
 mod clock;
+pub(crate) mod custom_emotes;
 mod evaluation;
 mod geometry;
 mod horse;
@@ -821,6 +899,8 @@ mod motion;
 mod pose;
 mod query;
 mod render;
+mod render_frame;
+pub use render_frame::ActorRenderFrame;
 mod skin;
 mod skin_layers;
 mod tick;
@@ -845,3 +925,6 @@ mod tests;
 #[cfg(test)]
 #[path = "actor_animation/crystal_tests.rs"]
 mod crystal_tests;
+
+#[cfg(test)]
+mod dragon_tests;

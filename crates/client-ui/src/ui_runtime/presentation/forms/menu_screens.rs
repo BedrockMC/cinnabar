@@ -147,7 +147,9 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
         };
         data.set_global("#disconnect_text", text(body));
         "disconnect.disconnect_screen"
-    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state {
+    } else if let AuthState::AwaitingCode { uri, code } = &view.auth_state
+        && !view.feeds.account_adding
+    {
         data.set_global("#url", text(uri.clone()));
         data.set_global("#code", text(code.clone()));
         "xbl_console_signin.xbl_console_signin"
@@ -282,7 +284,11 @@ fn local_world_progress(
     match progress.fraction {
         Some(fraction) => {
             flags(data, &["#loading_bar_visible"]);
-            data.set_global("#loading_bar_percentage", Scalar::Num(f64::from(fraction)));
+            // The fancy bar binds this as its `#clip_ratio`: the share clipped away.
+            data.set_global(
+                "#loading_bar_percentage",
+                Scalar::Num(1.0 - f64::from(fraction)),
+            );
             data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
             data.set_global(
                 "#loading_bar_current_amount",
@@ -321,15 +327,11 @@ fn store_screen(
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
-    let profile = &view.feeds.profile;
-    let gamertag = if profile.gamertag.is_empty() {
-        view.display_name.clone()
-    } else {
-        profile.gamertag.clone()
-    };
+    let gamertag = super::accounts::current_name(view).to_owned();
     data.set_global("#playername", text(gamertag.clone()));
     data.set_global("#gamertag_label", text(gamertag));
-    let portrait = !profile.picture_path.is_empty() || !view.feeds.home.persona_head.is_empty();
+    let portrait = super::accounts::current_picture(view).is_some()
+        || !view.feeds.home.persona_head.is_empty();
     data.set_global("#show_gamerpic", Scalar::Bool(portrait));
     flags(
         data,
@@ -402,6 +404,13 @@ pub(super) fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::Accounts => (
+            "Accounts".into(),
+            String::new(),
+            "Close".into(),
+            "Close".into(),
+            MenuAction::DismissDialog,
+        ),
         MenuDialog::SettingsResetGroup(group) => {
             return super::settings_reset::dialog_model(group, translate);
         }
@@ -710,6 +719,7 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         "button.menu_servers" => MenuAction::Navigate(MenuScreen::Servers),
         "button.signin" => MenuAction::StartSignIn,
         "button.sign_out" => MenuAction::SignOut,
+        "button.menu_profile" if view.screen == MenuScreen::Home => MenuAction::OpenAccounts,
         "button.menu_profile" | "button.to_profile_screen" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }

@@ -54,6 +54,8 @@ pub struct DestroyTarget {
     pub position: [i32; 3],
     pub face: u8,
     pub runtime_id: u32,
+    /// Session wire identity frozen with the observed block.
+    pub wire_runtime_id: u32,
     pub relative_hit: [f32; 3],
     pub block: Option<BlockDestroyInfo>,
     /// Everything except `on_ground`, which is taken from each stepped tick.
@@ -123,7 +125,7 @@ impl SurvivalTickPayload {
                 selected_item: target.selection.item,
                 player_position,
                 relative_hit: target.relative_hit,
-                block_runtime_id: u64::from(target.runtime_id),
+                block_runtime_id: u64::from(target.wire_runtime_id),
             })
         });
         let interactions = PlayerAuthInputInteractions {

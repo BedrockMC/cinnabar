@@ -1,6 +1,77 @@
 use super::*;
 
 #[test]
+fn block_interactions_encode_the_current_session_palette() {
+    for hashes in [false, true] {
+        let mut authority = WorldAuthority::new(
+            WorldBootstrap {
+                local_player_unique_id: 1,
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: hashes,
+            },
+            Arc::new(RuntimeAssets::diagnostic()),
+            None,
+            [0.0; 3],
+            None,
+        );
+        authority
+            .set_sequential_id_remap(assets::SequentialIdRemap::from_palette(vec![0, 4, 1, 6], 7));
+        if hashes {
+            assert_eq!(authority.block_network_id(4), Some(4));
+            assert_eq!(authority.block_network_id(0x8000_0001), Some(0x8000_0001));
+            assert_eq!(authority.block_network_id(u32::MAX), Some(u32::MAX));
+        } else {
+            assert_eq!(authority.block_network_id(4), Some(1));
+            assert_eq!(authority.block_network_id(6), Some(3));
+            assert_eq!(authority.block_network_id(2), None);
+            authority.set_sequential_id_remap(assets::SequentialIdRemap::default());
+            assert_eq!(authority.block_network_id(4), Some(4));
+        }
+    }
+}
+
+#[test]
+fn credits_admission_targets_the_live_local_runtime_actor() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 2,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, runtime_id) in [(7, 72), (8, 41)] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Ui(UiEvent::ShowCredits(protocol::ShowCreditsEvent {
+                    runtime_id,
+                })),
+                Some(sequence),
+            )
+            .unwrap();
+    }
+    let events = authority.take_committed_ui();
+    assert!(matches!(
+        events.as_slice(),
+        [CommittedUiEvent::Ui {
+            sequence: 8,
+            event: UiEvent::ShowCredits(protocol::ShowCreditsEvent { runtime_id: 41 })
+        }]
+    ));
+}
+
+#[test]
 fn biome_tint_revision_overflow_keeps_the_previous_atomic_snapshot() {
     let mut authority = WorldAuthority::new(
         WorldBootstrap {
@@ -71,6 +142,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
             },
         ]),
         skipped: 0,
+        ..Default::default()
     };
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         let mut authority = custom_identity_authority(mode);
@@ -197,6 +269,7 @@ fn custom_identity_snapshots_preserve_incomplete_offsets_and_survive_replacement
             plain_identity_block("example:last"),
         ]),
         skipped: 0,
+        ..Default::default()
     };
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         let mut authority = custom_identity_authority(mode);
@@ -240,6 +313,7 @@ fn custom_identity_registry_stops_at_admitted_range_and_offset_overflow() {
             plain_identity_block("example:last"),
         ]),
         skipped: 0,
+        ..Default::default()
     };
     authority.set_custom_block_ids(10..11);
     authority.set_custom_block_identities(&definitions);
@@ -258,6 +332,7 @@ fn custom_identity_registry_stops_at_admitted_range_and_offset_overflow() {
     let overflowing = CustomBlocks {
         blocks: Arc::from([overflowing, plain_identity_block("example:after_overflow")]),
         skipped: 0,
+        ..Default::default()
     };
     authority.set_custom_block_ids(10..12);
     authority.set_custom_block_identities(&overflowing);

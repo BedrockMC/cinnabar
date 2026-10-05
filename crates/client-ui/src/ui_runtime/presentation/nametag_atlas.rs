@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use assets::RuntimeFontCatalog;
-use render::{NAMETAG_ATLAS_SIDE, NametagAtlasRect};
+use render_model::{NAMETAG_ATLAS_SIDE, NametagAtlasRect};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_LINE_HEIGHT_64, TextLayoutCache,
     TextLayoutRequest, TextStyle, UiScale,

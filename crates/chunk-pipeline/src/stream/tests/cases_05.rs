@@ -469,8 +469,9 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
 
     assert!(!stream.loaded_columns.contains(&key.chunk()));
     assert!(!stream.requests.requested.contains_key(&key.chunk()));
-    assert!(!stream.resident.contains(&key));
-    assert!(!stream.known_air.contains(&key));
+    // The unfilled slot lights as air while the column stays out of collision authority.
+    assert!(stream.resident.contains(&key));
+    assert!(stream.known_air.contains(&key));
     assert!(stream.requests.deadlines.is_empty());
     assert_eq!(stream.pending_request_count(), 0);
     let stats = stream.stats();
@@ -488,8 +489,7 @@ fn omitted_sub_chunk_y_retries_at_deadline_then_completes_after_bound() {
     apply_sub_chunk_result(&mut stream, key, super::PreparedSubChunkResult::AllAir);
     assert_eq!(stream.stats().normalization_errors, errors_before + 1);
     assert!(!stream.loaded_columns.contains(&key.chunk()));
-    assert!(!stream.resident.contains(&key));
-    assert!(!stream.known_air.contains(&key));
+    assert!(stream.known_air.contains(&key));
 }
 
 #[test]
@@ -586,7 +586,7 @@ fn explicit_transient_reply_disarms_old_deadline_and_preserves_retry_bound() {
     stream.expire_sub_chunk_deadlines(second_retry_sent_at + super::SUB_CHUNK_RESPONSE_TIMEOUT);
 
     assert!(!stream.loaded_columns.contains(&key.chunk()));
-    assert!(!stream.known_air.contains(&key));
+    assert!(stream.known_air.contains(&key));
     let stats = stream.stats();
     assert_eq!(stats.sub_chunk_timeouts, 2);
     assert_eq!(stats.sub_chunk_retries_scheduled, 2);

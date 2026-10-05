@@ -14,6 +14,15 @@ use crate::{menu::MenuRuntime, settings_runtime::RuntimeSettings};
 const SETTINGS_RETRY: Duration = Duration::from_secs(1);
 
 impl MenuRuntime {
+    /// Persists slot equipment without republishing unrelated video/input preferences.
+    pub(crate) fn set_emote_slot_preferences(
+        &mut self,
+        slots: [Option<String>; super::EMOTE_SLOT_COUNT],
+    ) {
+        if Arc::make_mut(&mut self.settings_options).set_emote_slots(slots) {
+            self.settings_dirty = true;
+        }
+    }
     /// Publishes normalized glint factors to the shared UI renderer.
     pub(crate) fn ui_glint_settings(&self) -> render::UiGlintSettings {
         render::UiGlintSettings {

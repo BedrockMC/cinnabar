@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bevy::window::PresentMode;
-use render::{VisibilityKeyDelta, VisibilityKeyDigest};
+use render_model::{VisibilityKeyDelta, VisibilityKeyDigest};
 
 use crate::AcceptanceRuntimeConfig;
 
@@ -165,7 +165,7 @@ pub const fn requested_present_mode(no_vsync: bool) -> PresentMode {
 
 pub fn acceptance_runtime_metadata_marker(
     config: AcceptanceRuntimeConfig,
-    graphics: &render::GraphicsAdapterMetadata,
+    graphics: &render_model::GraphicsAdapterMetadata,
 ) -> String {
     format!(
         "{ACCEPTANCE_RUNTIME_METADATA}={}",
@@ -187,9 +187,9 @@ pub fn world_publication_snapshot_marker(
     upload_queue_items: usize,
     upload_queue_bytes: u64,
     gpu_upload_bytes: u64,
-    visibility: render::VisibilityDiagnosticSnapshot,
+    visibility: render_model::VisibilityDiagnosticSnapshot,
     config: AcceptanceRuntimeConfig,
-    graphics: &render::GraphicsAdapterMetadata,
+    graphics: &render_model::GraphicsAdapterMetadata,
 ) -> String {
     let milliseconds = |duration: Duration| duration.as_secs_f64() * 1_000.0;
     let visibility_valid = visibility.frame_generation != 0;

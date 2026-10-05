@@ -54,6 +54,7 @@ pub(super) fn emit_mesh(
                 alpha_test: vertex.alpha_test,
                 alpha_cutoff: material.alpha_cutoff.unwrap_or(-1.0),
                 model_light: vertex.model_light,
+                overlay_color: vertex.overlay_color,
             });
         }
         batches.push(UiDrawBatch {

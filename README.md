@@ -14,7 +14,7 @@ networking.
 
 ## Download
 
-Builds of `main` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
+Daily builds of `dev` for macOS, Windows and Linux: [nightly](https://github.com/bedrock-mc/cinnabar/releases/tag/nightly).
 Stable: [latest release](https://github.com/bedrock-mc/cinnabar/releases/latest). First launch fetches
 the vanilla resource pack after you accept the Minecraft EULA; the release notes cover unsigned builds.
 
@@ -140,7 +140,7 @@ stdio MCP server:
 ```json
 { "mcpServers": { "jsonui": {
   "command": "/path/to/cinnabar/target/debug/jsonui-mcp",
-  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-monocraft-v1.mcbefont"]
+  "args": ["--font", "/path/to/cinnabar/.local/assets/compiled/ui-cinnangles-sans-v1.mcbefont"]
 } } }
 ```
 

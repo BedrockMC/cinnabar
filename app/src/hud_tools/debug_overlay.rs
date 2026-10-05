@@ -14,7 +14,8 @@ use bevy::{
     time::Real,
     window::{CursorOptions, PrimaryWindow},
 };
-use render::{ChunkRenderQueue, UiRenderStats, VisibilityDiagnostics};
+use render::UiRenderStatsResource;
+use render::{ChunkRenderQueue, VisibilityDiagnostics};
 
 use crate::{
     app::ClientFrameSet,
@@ -95,7 +96,7 @@ struct DebugContext<'w, 's> {
     visibility: Option<Res<'w, CaveVisibilityCache>>,
     graphics: Option<Res<'w, VisibilityDiagnostics>>,
     queue: Option<Res<'w, ChunkRenderQueue>>,
-    ui_stats: Option<Res<'w, UiRenderStats>>,
+    ui_stats: Option<Res<'w, UiRenderStatsResource>>,
     camera_settings: Option<Res<'w, CameraSettingsAuthority>>,
     window: Query<'w, 's, (&'static Window, &'static CursorOptions), With<PrimaryWindow>>,
 }

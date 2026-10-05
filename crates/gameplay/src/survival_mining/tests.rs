@@ -17,6 +17,7 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
         position,
         face: 1,
         runtime_id: 9,
+        wire_runtime_id: 9,
         relative_hit: [0.5, 1.0, 0.5],
         block: sim::block_destroy_info(block),
         conditions: DestroyConditions {
@@ -192,7 +193,8 @@ fn server_target_change_is_one_continue_and_release_aborts_with_progress_percent
 
 #[test]
 fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transaction() {
-    let dirt = target([4, 5, 6], "minecraft:dirt", None);
+    let mut dirt = target([4, 5, 6], "minecraft:dirt", None);
+    dirt.wire_runtime_id = 7;
     let mut machine = DestroyMachine::default();
     assert_eq!(
         kinds(&held(&mut machine, &dirt, Client)),
@@ -211,6 +213,7 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
         interactions.block_interaction,
         Some(protocol::BlockItemInteraction::Destroy(ref request))
             if request.block_position == [4, 5, 6] && request.selected_slot == 2
+                && request.block_runtime_id == 7 && dirt.runtime_id == 9
     ));
     for _ in 0..DESTROY_DELAY_TICKS {
         held(&mut machine, &dirt, Client);

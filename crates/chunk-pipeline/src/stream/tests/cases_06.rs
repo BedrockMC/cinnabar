@@ -1169,6 +1169,7 @@ fn player_spawn_move_player_and_absolute_move_share_feet_space() {
                 teleported: true,
                 player_mode: None,
                 source_tick: None,
+                interpolation: Default::default(),
             })),
         )
         .unwrap();

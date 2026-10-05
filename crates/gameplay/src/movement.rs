@@ -14,7 +14,6 @@ pub mod coordination;
 mod correction_shape;
 mod diagnostics;
 pub mod diagnostics_config;
-mod dimension_transfer;
 mod effects;
 mod encoding;
 mod evidence;
@@ -23,6 +22,7 @@ mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod respawn;
 mod speed_authority;
 mod state;
 mod teleport_ack;
@@ -141,7 +141,6 @@ pub struct MovementTicker {
     reanchor_epoch: u64,
     terminal_drain: bool,
     pending_control_fence: bool,
-    dimension_transfer: Option<dimension_transfer::DimensionTransfer>,
     teleport_ack_enabled: bool,
     pending_teleport_ack: Option<teleport_ack::TeleportAckPending>,
     teleport_acks_expired: u64,
@@ -183,7 +182,6 @@ impl MovementTicker {
             reanchor_epoch: 0,
             terminal_drain: false,
             pending_control_fence: false,
-            dimension_transfer: None,
             teleport_ack_enabled: teleport_ack::enabled_from_env(),
             pending_teleport_ack: None,
             teleport_acks_expired: 0,
@@ -220,7 +218,6 @@ impl MovementTicker {
         self.next_admission_id = 0;
         self.terminal_drain = false;
         self.pending_control_fence = false;
-        self.dimension_transfer = None;
         self.pending_teleport_ack = None;
     }
 
@@ -234,7 +231,6 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.terminal_drain = false;
         self.pending_control_fence = false;
-        self.dimension_transfer = None;
         self.pending_teleport_ack = None;
     }
 
@@ -612,7 +608,6 @@ impl MovementTicker {
 
     pub fn can_advance_physics_frame(&self) -> bool {
         !self.pending_control_fence
-            && self.dimension_transfer.is_none()
             && self.accepting_physics_admissions()
             && self.pending_count()
                 <= OUTBOX_CAPACITY.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME)
@@ -924,4 +919,4 @@ mod zeqa_tests;
 pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
-pub use frame::{LocomotionState, PhysicsFrameInput};
+pub use frame::{LocomotionState, PhysicsFrameHold, PhysicsFrameInput};

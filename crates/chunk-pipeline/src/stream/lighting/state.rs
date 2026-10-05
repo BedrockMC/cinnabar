@@ -442,9 +442,11 @@ impl WorldStream {
                     continue;
                 };
                 let neighbour = ChunkKey::new(center.dimension, x, z);
-                if self.publisher.required_columns.contains(&neighbour)
-                    && !self.loaded_columns.contains(&neighbour)
-                {
+                // Requests that ended without data still settle the column: its empty slots are air.
+                let settled = self.loaded_columns.contains(&neighbour)
+                    || (self.requests.collision_failures.contains(&neighbour)
+                        && !self.requests.requested.contains_key(&neighbour));
+                if self.publisher.required_columns.contains(&neighbour) && !settled {
                     return false;
                 }
             }
