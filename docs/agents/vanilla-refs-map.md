@@ -2233,6 +2233,9 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/client-ui/src/ui_runtime/presentation/primitives.rs
 - Translation and command-output rows apply the same `Localization::_get` expansion to marked keys and their arguments before formatting.
 
+## crates/client-ui/src/ui_runtime/raw_text_resolution.rs
+- Current 1.26.50.26 game-mode feedback builds `gameMode.changed` with a parameter vector through `TextObjectLocalizedTextWithParams` (artifact 6: `0xcaf2a70`, `0x51cdef0`, `0x5214cb0`, `0x34b0d00`, `0x34b1110`). Translation arguments pass through the I18n parameter formatter; ordinary rawtext text objects remain literal. The named `TextObjectLocalizedTextWithParams::asString` counterpart resolves its child strings before parameter formatting.
+
 ## crates/inventory/src/inventory_ledger/crafting.rs
 - Creative output preserves every block runtime identifier bit in the declared prototype, including high-bit hashed IDs. The pinned protocol's signed stack field and unsigned craft-result field name the same identity.
 

@@ -3,7 +3,7 @@
 //! and the local reader. Split from the runtime root to honor the
 //! production line budget.
 
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use super::UiRuntime;
 
@@ -78,11 +78,17 @@ impl UiRuntime {
                 _ => None,
             }
         };
-        document.resolve(&protocol::RawTextResolver {
-            reader_name,
-            translate: &translate,
-            score: &score,
-            selector: &selector,
-        })
+        document.resolve_with_localized_arguments(
+            &protocol::RawTextResolver {
+                reader_name,
+                translate: &translate,
+                score: &score,
+                selector: &selector,
+            },
+            &|text| match json_ui::localize_text(text, &translate) {
+                Cow::Borrowed(_) => None,
+                Cow::Owned(localized) => Some(localized),
+            },
+        )
     }
 }
