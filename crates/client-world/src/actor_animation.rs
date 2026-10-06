@@ -713,7 +713,7 @@ mod geometry;
 mod horse;
 mod hud;
 mod java;
-pub use java::JavaMotion;
+pub use java::{JavaMotion, java_mounted_body_yaw};
 mod motion;
 mod particles;
 mod pose;

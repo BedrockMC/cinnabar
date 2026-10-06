@@ -84,6 +84,7 @@ impl ActorStore {
                 .filter(|_| self.local_first_person);
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
+            let local_flying = self.local_flying;
             let local_hands = self.local_hands.clone();
             let view = self.animation_view.as_ref();
             let context = |actor: &ActorSnapshot| {
@@ -150,6 +151,7 @@ impl ActorStore {
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     view_bobbing: is_local.then_some(local_view_bobbing),
                     is_local,
+                    is_local_flying: is_local && local_flying,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

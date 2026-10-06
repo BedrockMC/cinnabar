@@ -19,9 +19,12 @@
   exercise held-item swaps, use, both third-person views, cape motion and local emotes.
 - Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
   none); held attachables Java never had, the third-person bow pull frames and first-person
-  item lighting are vanilla. Living-mount body yaw and the local creative-flight cape walk
-  phase lack the needed actor observation. Native side-by-side comparison with Java 1.7.10
-  is pending.
+  item lighting are vanilla. Unclassified custom mounts retain ordinary player body yaw.
+- Living mount heading and active creative-flight cape phase now use their own observed
+  state, with regression witnesses for wraparound, live local look, dismounting, phase
+  freezing and walking resumption. Fixed Java 1.7.10 model/matrix fixtures and Windows
+  rendered motion checks validate the covered state product; full game-frame pixel
+  equality, lighting and the retained vanilla exceptions above are not asserted.
 
 ## Compatibility landing
 

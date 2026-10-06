@@ -586,6 +586,8 @@ pub struct LocalPlayerFeed {
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
+    /// Active flight from the client's completed movement mode, rather than server abilities.
+    pub flying: bool,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -652,6 +654,7 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     local_view_dirty: bool,
     local_view_bobbing: bool,
+    local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
@@ -686,6 +689,7 @@ mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod mount;
 mod movement_interpolation;
 mod placement;
 mod projectile;

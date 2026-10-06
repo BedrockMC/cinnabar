@@ -499,6 +499,7 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         position: [0.0, 64.0, 0.0],
         velocity: [0.0; 3],
         on_ground: true,
+        flying: false,
         yaw: 30.0,
         head_yaw: 30.0,
         pitch: 40.0,

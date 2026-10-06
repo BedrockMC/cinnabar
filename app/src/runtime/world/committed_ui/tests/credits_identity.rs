@@ -16,6 +16,7 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
         position: [0.0, 70.0, 0.0],
         velocity: [0.0; 3],
         on_ground: true,
+        flying: false,
         yaw: 0.0,
         head_yaw: 0.0,
         pitch: 0.0,
