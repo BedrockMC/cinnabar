@@ -28,6 +28,16 @@ impl UiRuntime {
             event.message = Arc::from(protocol::format_translation(&template, &parameters));
             event.parameters = Arc::from([]);
         }
+        self.apply_resolved_text(event, fifo_sequence, event_millis)
+    }
+
+    /// Routes resolved component text without repeating packet localization.
+    pub(super) fn apply_resolved_text(
+        &mut self,
+        event: TextEvent,
+        fifo_sequence: u64,
+        event_millis: u64,
+    ) -> Result<UiApplyOutcome, UiRuntimeError> {
         if matches!(
             event.kind,
             TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip

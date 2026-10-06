@@ -28,9 +28,11 @@ pub(super) fn prepare(
             visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
         });
         let model = match definition.map(|definition| definition.route) {
-            Some(ItemVisualDefinitionRoute::BlockItem { block_visual }) => blocks
-                .get(&block_visual.0)
-                .map(|source| block(*source, hand_pivots)),
+            Some(ItemVisualDefinitionRoute::BlockItem { block_visual })
+                if blocks.contains_key(&block_visual.0) =>
+            {
+                Some(block(blocks[&block_visual.0], hand_pivots))
+            }
             Some(ItemVisualDefinitionRoute::EmptyHand) => None,
             _ => {
                 let Some(sprite) = icons.sprites().get(entry.sprite as usize) else {
@@ -211,55 +213,4 @@ fn authored(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn held_block_is_the_shared_six_face_cube_not_a_gui_thumbnail() {
-        let source = IconRef {
-            page: 7,
-            uv: [
-                10,
-                20,
-                10 + assets::BLOCK_ITEM_SHEET_SIZE[0],
-                20 + assets::BLOCK_ITEM_SHEET_SIZE[1],
-            ],
-            glint: false,
-        };
-        let model = block(source, [[0.0; 3]; 2]);
-        assert_eq!(model.source, source);
-        assert_eq!(model.vertices.len(), 36);
-        for axis in 0..3 {
-            assert!(
-                model
-                    .vertices
-                    .iter()
-                    .any(|vertex| vertex.position[axis] == -0.5)
-            );
-            assert!(
-                model
-                    .vertices
-                    .iter()
-                    .any(|vertex| vertex.position[axis] == 0.5)
-            );
-        }
-        assert!(
-            model
-                .placements
-                .iter()
-                .all(|placement| matches!(placement, PreviewHeldPlacement::Block))
-        );
-        for (face, vertices) in model.vertices.chunks_exact(6).enumerate() {
-            let icon = super::super::sheet_faces(source)[face];
-            assert_eq!(
-                vertices[0].uv,
-                [
-                    f32::from(icon.uv[0] - source.uv[0])
-                        / f32::from(assets::BLOCK_ITEM_SHEET_SIZE[0]),
-                    f32::from(icon.uv[1] - source.uv[1])
-                        / f32::from(assets::BLOCK_ITEM_SHEET_SIZE[1]),
-                ]
-            );
-        }
-    }
-}
+mod tests;

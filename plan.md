@@ -6060,3 +6060,10 @@ The 1920×1080 headless macOS/Metal local gallery verifies all six kinds, text b
 color updates, actor following without instance rebuilds, and complete removal.
 Synthetic CPU/upload benchmarks and this gallery do not qualify the release hardware frame,
 streaming or hitch budgets, or establish native 100k-shape performance.
+
+## Entity-only held item geometry
+
+Block items without a cube sheet retain their compiled icon in both player-preview
+hands, matching the existing world equipment fallback. Inventory banners retain their
+colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
+the fallback availability regression is fixed, but it does not close that parity gate.
