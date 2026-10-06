@@ -29,7 +29,7 @@ pub(super) struct Changes(Vec<u64>);
 
 /// The data a key names.
 #[derive(Clone, Copy)]
-enum Data {
+pub(super) enum Data {
     Global = 1,
     Item,
     Length,
@@ -54,7 +54,7 @@ fn bits(hash: u64) -> [(usize, u64); 2] {
 }
 
 impl Reads {
-    fn add(&mut self, kind: Data, name: &str, index: Option<usize>) {
+    pub(super) fn add(&mut self, kind: Data, name: &str, index: Option<usize>) {
         for (word, bit) in bits(data_hash(kind, name, index)) {
             self.0[word] |= bit;
         }
@@ -372,15 +372,6 @@ impl Binder<'_> {
                         reads.add(Data::Item, key, Some(index));
                     }
                     reads.add(Data::Defaults, key, None);
-                    // Whether the enclosing item registers its own list, and how long it is,
-                    // decides which list this reads (see `attach_item`).
-                    if let Some((parent, index)) = scope.cursor.path.last() {
-                        reads.add(
-                            Data::Length,
-                            &super::scoped_key(parent, *index, collection),
-                            None,
-                        );
-                    }
                     if source
                         .properties()
                         .any(|name| name == "#collection_total_items")
