@@ -275,13 +275,15 @@ pub(super) struct HandInputs<'a> {
     pub(super) motion: Mat4,
 }
 
+type ArmKey = (client_world::ActorLifetimeId, u32, u64);
+
 /// Frame-to-frame state of Java's first-person hand.
 #[derive(Default)]
 pub(super) struct HandCache {
     /// The main-hand item still drawn through an equip dip.
     shown: Option<WornItem>,
-    /// The empty hand's rest pose, by rig and rest pose.
-    arm: Option<((u32, usize), Arc<[RenderBoneTransform]>)>,
+    /// The empty hand's rest pose, by actor lifetime, rig and rest generation.
+    arm: Option<(ArmKey, Arc<[RenderBoneTransform]>)>,
 }
 
 impl HandCache {
@@ -367,7 +369,7 @@ pub(super) fn hand_source(
     });
     // Java draws the arm only with an empty hand; an undrawable item shows it too. The pose is
     // fixed, so it is retargeted once per rig.
-    let key = (rig.rig.0, rig.rest.as_ptr() as usize);
+    let key = (rig.actor, rig.rig.0, rig.rest_reset_generation);
     let arm = main_layer.is_none().then(|| {
         let bones = match &cache.arm {
             Some((cached, bones)) if *cached == key => Arc::clone(bones),
