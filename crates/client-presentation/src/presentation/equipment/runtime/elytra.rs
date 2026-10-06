@@ -4,6 +4,16 @@ use client_world::AttachableAnimationInput;
 
 use super::*;
 
+/// Vanilla's `elytra` material derives `entity_alphatest`: alpha-tested and double-sided.
+const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRenderMaterialState {
+    alpha_test: true,
+    cull: false,
+    blend: false,
+    depth_write: true,
+    emissive: false,
+    additive: false,
+};
+
 impl EquipmentRuntime {
     /// Samples the authored worn controller and places its model beneath the owner's body bone.
     pub(super) fn push_elytra(
@@ -60,6 +70,7 @@ impl EquipmentRuntime {
                     pose.to_vec(),
                     Arc::clone(&layer.hidden_bones),
                     layer.material,
+                    layer.material_state,
                     layer.source,
                 )
             })
@@ -91,18 +102,14 @@ impl EquipmentRuntime {
         }
         let ids =
             std::iter::once(super::super::ELYTRA_LAYER).chain(super::super::ELYTRA_GROUP_LAYERS);
-        for (layer_id, (index, pose, hidden, material, source)) in ids.zip(groups) {
+        for (layer_id, (index, pose, hidden, material, state, source)) in ids.zip(groups) {
             let material = render::ActorMaterial {
                 kind: if item.enchanted {
                     assets::EntityRenderMaterial::Glint
                 } else {
                     material
                 },
-                state: Some(assets::EntityRenderMaterialState {
-                    alpha_test: true,
-                    cull: false,
-                    ..Default::default()
-                }),
+                state: Some(state.unwrap_or(WING_MATERIAL_STATE)),
                 glint: render::ActorGlint {
                     time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
                         * client_world::ACTOR_TICK_DURATION.as_secs_f32(),
