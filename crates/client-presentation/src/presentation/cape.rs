@@ -270,7 +270,7 @@ pub fn apply_capes<'a>(
 fn replace_elytra_texture(batch: &mut ActorPresentationBatch, runtime_id: u64, layer: u32) {
     for submission in &mut batch.submissions {
         let identity = submission.input.identity;
-        if identity.runtime_id == runtime_id && identity.layer == super::equipment::ELYTRA_LAYER {
+        if identity.runtime_id == runtime_id && super::equipment::is_elytra_layer(identity.layer) {
             submission.texture_layer = layer;
             batch.artwork.remove(&identity);
         }

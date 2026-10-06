@@ -451,6 +451,114 @@ fn worn_wings_queue_geometry_their_render_controller_selects() {
     assert!(runtime.take_pending_geometries().is_empty());
 }
 
+/// Rewrites one JSON file of a synthetic pack in place.
+fn edit_json(
+    files: &mut [(Box<str>, Vec<u8>)],
+    path: &str,
+    edit: impl FnOnce(&mut serde_json::Value),
+) {
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(file, _)| file.as_ref() == path)
+        .unwrap();
+    let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    edit(&mut document);
+    *bytes = serde_json::to_vec(&document).unwrap();
+}
+
+/// Each material group draws its own bones; the enchantment texture slot adds no draw.
+#[test]
+fn worn_wings_draw_every_material_group_once() {
+    let mut files = wing_pack();
+    edit_json(&mut files, "attachables/elytra.json", |document| {
+        let description = &mut document["minecraft:attachable"]["description"];
+        description["materials"] =
+            serde_json::json!({"default":"entity_alphatest","alt":"entity_emissive_alpha"});
+        description["textures"]["enchanted"] =
+            serde_json::json!(assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
+    });
+    edit_json(&mut files, "render_controllers/wings.json", |document| {
+        let controller = &mut document["render_controllers"]["controller.render.wings"];
+        controller["materials"] =
+            serde_json::json!([{"*":"Material.default"},{"right_wing":"Material.alt"}]);
+        controller["textures"] = serde_json::json!(["Texture.default", "Texture.enchanted"]);
+    });
+    files.push((
+        format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER).into(),
+        wing_texture(),
+    ));
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    for enchanted in [false, true] {
+        let draws = layers(&mut runtime, &body, &owner, &worn(enchanted), 1);
+        assert_eq!(draws.len(), 2, "enchanted={enchanted}");
+        assert_ne!(
+            draws[0].submission.input.identity,
+            draws[1].submission.input.identity
+        );
+        let bones = |index: usize| &draws[index].submission.input.current_bones;
+        assert_ne!(bones(0)[1], bones(1)[1], "groups own different wings");
+        assert_ne!(bones(0)[2], bones(1)[2], "groups own different wings");
+    }
+}
+
+/// Two controllers blending at once compose with their own progress, even when one
+/// controller's incoming clip carries no weight.
+#[test]
+fn simultaneous_worn_blends_keep_each_controllers_progress() {
+    let mut files = wing_pack();
+    edit_json(&mut files, "attachables/elytra.json", |document| {
+        let description = &mut document["minecraft:attachable"]["description"];
+        description["animations"] = serde_json::json!({
+            "left":"controller.animation.left","right":"controller.animation.right",
+            "left_folded":"animation.wings.left_folded","left_flight":"animation.wings.left_flight",
+            "right_folded":"animation.wings.right_folded","right_flight":"animation.wings.right_flight"
+        });
+        description["scripts"]["animate"] = serde_json::json!(["left", "right"]);
+    });
+    edit_json(&mut files, "animations/wings.json", |document| {
+        document["animations"] = serde_json::json!({
+            "animation.wings.left_folded":{"loop":true,"bones":{"left_wing":{"rotation":[40,0,0]}}},
+            "animation.wings.left_flight":{"loop":true,"bones":{"left_wing":{"rotation":[0,0,0]}}},
+            "animation.wings.right_folded":{"loop":true,"bones":{"right_wing":{"rotation":[40,0,0]}}},
+            "animation.wings.right_flight":{"loop":true,"bones":{"right_wing":{"rotation":[0,0,0]}}}
+        });
+    });
+    edit_json(&mut files, "animation_controllers/wings.json", |document| {
+        let controller = |side: &str, seconds: f32, flight: serde_json::Value| {
+            serde_json::json!({"initial_state":"folded","states":{
+                "folded":{"animations":[format!("{side}_folded")],
+                    "transitions":[{"flight":"query.is_gliding"}],
+                    "blend_transition":seconds,"blend_via_shortest_path":true},
+                "flight":{"animations":[flight],"transitions":[{"folded":"!query.is_gliding"}],
+                    "blend_transition":seconds,"blend_via_shortest_path":true}
+            }})
+        };
+        document["animation_controllers"] = serde_json::json!({
+            "controller.animation.left":controller("left", 0.1, serde_json::json!({"left_flight":"0"})),
+            "controller.animation.right":controller("right", 0.2, serde_json::json!("right_flight"))
+        });
+    });
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    let mut owner = owner();
+    let input = worn(false);
+    layers(&mut runtime, &body, &owner, &input, 1);
+    owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 32));
+    layers(&mut runtime, &body, &owner, &input, 2);
+    let draws = layers(&mut runtime, &body, &owner, &input, 3);
+    let bones = &draws[0].submission.input.current_bones;
+    // One tick into the blends: the 0.1 s controller is halfway, the 0.2 s one a quarter.
+    for (bone, degrees) in [(1, 20.0), (2, 30.0)] {
+        let expected = render_model::equipment::authored_rotation([degrees, 0.0, 0.0]);
+        assert!(
+            bevy::math::Quat::from_array(bones[bone].rotation).abs_diff_eq(expected, 1e-5),
+            "bone {bone} must reach {degrees} degrees"
+        );
+    }
+}
+
 #[test]
 fn worn_wings_follow_the_supplied_body_pose_without_changing_the_pack_pose() {
     let (mut runtime, _) = pack_runtime(wing_pack());
