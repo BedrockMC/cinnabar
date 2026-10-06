@@ -7,7 +7,10 @@ use world::SubChunkKey;
 
 use super::*;
 
-fn grid(entries: impl IntoIterator<Item = (SubChunkKey, FaceConnectivity)>) -> ConnectivityGrid {
+/// Builds the same connectivity grid used by the retained traversal.
+pub(super) fn grid(
+    entries: impl IntoIterator<Item = (SubChunkKey, FaceConnectivity)>,
+) -> ConnectivityGrid {
     entries.into_iter().collect()
 }
 
@@ -206,7 +209,8 @@ fn oracle_fill(
     }
 }
 
-fn oracle(
+/// Computes the reference visible set without retaining state between updates.
+pub(super) fn oracle(
     camera: SubChunkKey,
     map: &HashMap<SubChunkKey, FaceConnectivity>,
 ) -> HashSet<SubChunkKey> {
@@ -216,21 +220,24 @@ fn oracle(
 }
 
 /// Deterministic xorshift so failures reproduce without a rand dependency.
-struct Rng(u64);
+pub(super) struct Rng(pub(super) u64);
 
 impl Rng {
-    fn next(&mut self) -> u64 {
+    /// Returns the next reproducible random value.
+    pub(super) fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
         self.0
     }
 
-    fn below(&mut self, bound: u64) -> i32 {
+    /// Selects an integer below the nonzero bound.
+    pub(super) fn below(&mut self, bound: u64) -> i32 {
         (self.next() % bound) as i32
     }
 
-    fn connectivity(&mut self) -> FaceConnectivity {
+    /// Mixes open, sealed and arbitrary directed face matrices.
+    pub(super) fn connectivity(&mut self) -> FaceConnectivity {
         match self.next() % 4 {
             0 => FaceConnectivity::all(),
             1 => FaceConnectivity::none(),
@@ -405,7 +412,7 @@ fn visible_sets_compare_by_members() {
 }
 
 /// Applies either publication path while keeping the same retained traversal state.
-fn update_incrementally(
+pub(super) fn update_incrementally(
     camera: SubChunkKey,
     grid: &ConnectivityGrid,
     scratch: &mut CaveVisibilityScratch,
@@ -434,7 +441,7 @@ fn incremental_addition_does_not_revisit_the_resident_graph() {
         &mut visible,
         &mut replacement
     ));
-    assert!(scratch.explored_exits > 10_000);
+    assert!(scratch.work.explored_exits > 10_000);
 
     let fresh = SubChunkKey::new(0, 13, 10, 0);
     map.insert(fresh, FaceConnectivity::all());
@@ -446,7 +453,7 @@ fn incremental_addition_does_not_revisit_the_resident_graph() {
         &mut visible,
         &mut replacement
     ));
-    assert_eq!(scratch.explored_exits, 6);
+    assert_eq!(scratch.work.explored_exits, 6);
     assert_eq!(scratch.added_visible(), &[fresh]);
     assert_eq!(visible.iter().collect::<HashSet<_>>(), oracle(camera, &map));
 
@@ -458,7 +465,7 @@ fn incremental_addition_does_not_revisit_the_resident_graph() {
         &mut visible,
         &mut replacement
     ));
-    assert_eq!(scratch.explored_exits, 0);
+    assert_eq!(scratch.work.explored_exits, 0);
     assert!(scratch.added_visible().is_empty());
 }
 
@@ -494,7 +501,7 @@ fn incremental_additions_keep_exactly_one_support_shell() {
         &mut replacement
     ));
     assert!(!visible.contains(&key(3)) && !visible.contains(&key(4)));
-    assert_eq!(scratch.explored_exits, 0);
+    assert_eq!(scratch.work.explored_exits, 0);
 }
 
 #[test]
@@ -624,4 +631,26 @@ fn cave_visibility_bench() {
             );
         }
     }
+}
+
+/// Crossing an open boundary preserves the existing reachable region.
+#[test]
+fn camera_boundary_preserves_the_existing_search() {
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let next = SubChunkKey::new(0, 1, 0, 0);
+    let grid = grid([
+        (first, FaceConnectivity::all()),
+        (next, FaceConnectivity::all()),
+    ]);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    update_incrementally(first, &grid, &mut scratch, &mut visible, &mut replacement);
+    assert!(!update_incrementally(
+        next,
+        &grid,
+        &mut scratch,
+        &mut visible,
+        &mut replacement
+    ));
 }

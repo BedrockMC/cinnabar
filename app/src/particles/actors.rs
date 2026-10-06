@@ -6,7 +6,7 @@ mod tests;
 
 #[derive(Debug)]
 pub(super) enum ActorParticleCommand {
-    Start(ActorEffectKey, SpawnRequest),
+    Start(ActorEffectKey, Box<SpawnRequest>),
     Stop(u64),
 }
 
@@ -42,13 +42,13 @@ pub(super) fn queue_actor_particles(
             if system.actor_emitters.admit(key) {
                 queue.push(ActorParticleCommand::Start(
                     key,
-                    SpawnRequest {
+                    Box::new(SpawnRequest {
                         effect: effect.to_owned(),
                         position: actor.position,
                         bound: bound.then_some((actor.runtime_id, [0.0; 3])),
                         seed: actor.runtime_id ^ actor.spawn_revision.rotate_left(32),
                         ..SpawnRequest::default()
-                    },
+                    }),
                 ));
             }
         }
