@@ -56,7 +56,7 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 - Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
 - Elytra capes, first-person item lighting, the third-person bow pull frames, and the cast rod drawn as a stick are not Java's.
 - Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
-- Recognized living mounts supply the displayed player's body heading. Head lag clamps to ±85°; above 50° the body moves another fifth toward the head, reducing extreme relative head output to ±68°. Mount yaw takes the short interpolation path. The cape retains the player's ordinary body yaw. Nonliving vehicles and unclassified custom mounts keep the ordinary player body basis.
+- Recognized living mounts supply the displayed player's body heading. Head lag clamps to ±85°; above 50° the body moves another fifth toward the head, reducing extreme relative head output to ±68°. Mount yaw takes the short interpolation path. The cape retains the player's ordinary body yaw. Nonliving vehicles and unclassified mount identities keep the ordinary player body basis.
 - Active local creative flight freezes the cape's walking phase while its trailing motion and limbs continue. The phase resumes after landing; permission to fly alone does not freeze it.
 - No hurt particles: Java 1.7 has none tied to the animation.
 
@@ -68,3 +68,10 @@ pose/transform states and 20 exact use-clock states. Native model
 readbacks and Cinnabar Windows/DX12 captures check the visible pose and geometry. Numeric
 comparisons allow floating-point roundoff; these checks do not assert matching lighting,
 modern item behavior, custom mount classification, or full game-frame pixel equality.
+
+The combined PR revision passes 802 tests across client-world, client-presentation and
+render-model, with 12 existing ignored cases. Touched-crate checks and the optimized
+developer-control client build pass using sccache. Windows/DX12 hidden captures exercise
+flight, landing, horse/boat mounting, yaw wraparound, dismounting, first-person use and
+held-item swaps, both third-person views, and local emote coexistence. These are animation
+and geometry witnesses, not a performance benchmark or full-client pixel comparison.
