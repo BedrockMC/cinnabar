@@ -3,11 +3,13 @@ use bevy::math::{EulerRot, Quat, Vec3};
 
 #[test]
 fn java_fixed_lights_follow_world_look_and_bob_but_not_arm_sway() {
-    let mut motion = crate::camera::FirstPersonHandMotion::default();
-    motion.hurt = Mat4::from_rotation_z(0.2);
+    let mut motion = crate::camera::FirstPersonHandMotion {
+        hurt: Mat4::from_rotation_z(0.2),
+        sway_pitch_radians: 0.7,
+        sway_yaw_radians: -0.3,
+        ..Default::default()
+    };
     motion.bob.pitch_radians = 0.1;
-    motion.sway_pitch_radians = 0.7;
-    motion.sway_yaw_radians = -0.3;
     let look = Quat::from_euler(EulerRot::YXZ, 2.0, -0.4, 0.0);
     let lights = java_light_matrix(Some(&motion), look);
     let expected = motion.hurt

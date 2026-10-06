@@ -160,9 +160,18 @@ fn capeless_player_keeps_the_pack_wings_texture_without_adding_a_skin_layer() {
 #[test]
 fn java_cape_motion_cannot_replace_worn_wing_pose_or_glint() {
     let mut batch = batch();
+    let mut extra = batch.submissions[1].clone();
+    let location = batch.artwork[&extra.input.identity];
+    extra.input.identity.layer = (0..=u8::MAX)
+        .find(|&layer| {
+            layer != ELYTRA_LAYER && crate::presentation::equipment::is_elytra_layer(layer)
+        })
+        .unwrap();
+    batch.artwork.insert(extra.input.identity, location);
+    batch.submissions.push(extra);
     let profile = profile(true);
     let cape = fixture_cape();
-    let before = batch.submissions[1].clone();
+    let before = batch.submissions[1..].to_vec();
     let java_calls = std::cell::Cell::new(0);
     apply_capes(
         &mut batch,
@@ -186,14 +195,15 @@ fn java_cape_motion_cannot_replace_worn_wing_pose_or_glint() {
         0,
         "worn wings suppress Java cape evaluation"
     );
-    assert_eq!(batch.submissions.len(), 2);
-    let wing = &batch.submissions[1];
-    assert_eq!(wing.input, before.input);
-    assert_eq!(wing.world_from_actor, before.world_from_actor);
-    assert_eq!(wing.material, before.material);
-    assert_eq!(
-        &batch.skin_layers[wing.texture_layer as usize][..4],
-        &[9, 8, 7, 255]
-    );
-    assert!(!batch.artwork.contains_key(&wing.input.identity));
+    assert_eq!(batch.submissions.len(), 3);
+    for (wing, before) in batch.submissions[1..].iter().zip(before) {
+        assert_eq!(wing.input, before.input);
+        assert_eq!(wing.world_from_actor, before.world_from_actor);
+        assert_eq!(wing.material, before.material);
+        assert_eq!(
+            &batch.skin_layers[wing.texture_layer as usize][..4],
+            &[9, 8, 7, 255]
+        );
+        assert!(!batch.artwork.contains_key(&wing.input.identity));
+    }
 }

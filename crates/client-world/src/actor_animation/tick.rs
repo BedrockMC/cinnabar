@@ -650,6 +650,8 @@ pub(super) struct WeightedClip {
 /// A clip on one side of a shortest-path controller blend, sampled at full weight.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ControllerBlend {
+    /// The blending controller's slot; each controller's sides compose on their own.
+    pub(super) controller: usize,
     pub(super) incoming: bool,
     /// Progress from the outgoing to the incoming state.
     pub(super) amount: f32,
@@ -711,7 +713,13 @@ impl ControllerWalk<'_, '_, '_, '_> {
             let amount = (elapsed / source.blend_transition.get()).clamp(0.0, 1.0);
             if amount < 1.0 {
                 if source.blend_via_shortest_path {
-                    let blend = |incoming| Some(ControllerBlend { incoming, amount });
+                    let blend = |incoming| {
+                        Some(ControllerBlend {
+                            controller: slot,
+                            incoming,
+                            amount,
+                        })
+                    };
                     self.animations(previous, weight, depth, started, blend(false))?;
                     return self.animations(
                         state,
