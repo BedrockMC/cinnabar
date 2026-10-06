@@ -270,7 +270,7 @@ fn watchdog(pid: u32, child: &SharedChild, cancelled: &AtomicBool, over: &Atomic
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::media::ranges::tests::{MemoryChunks, descriptor_for};
+    use crate::media::ranges::tests::descriptor_for;
 
     /// Held by every test that claims the process-wide decoder slot, until it is free again.
     pub(crate) static DECODER_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -291,6 +291,8 @@ pub(crate) mod tests {
     #[cfg(unix)]
     #[test]
     fn a_helper_that_dies_reports_failure_and_frees_the_decoder_slot() {
+        use crate::media::ranges::tests::MemoryChunks;
+
         let _slot = DECODER_SLOT.lock();
         let bytes = vec![0u8; 1000];
         let mut command = Command::new("/bin/sh");
