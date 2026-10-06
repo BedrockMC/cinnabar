@@ -14,6 +14,7 @@ use super::{
     bob::{HandSwayState, ViewEffect, WalkBobState, walk_bob_effect},
     fov::CameraFovInputs,
     hurt::CameraHurtState,
+    java::{JavaCameraState, JavaCameraTick, java_hurt_roll},
     overlay::{
         HeadMedium, PortalProgress, ScreenEffectInputs, ScreenOverlays, VisionEffects,
         compute_overlays, probe_head_medium,
@@ -96,6 +97,7 @@ pub fn advance_presentation_state(
     mut bob: ResMut<WalkBobState>,
     mut sway: ResMut<HandSwayState>,
     mut hurt: ResMut<CameraHurtState>,
+    mut java: ResMut<JavaCameraState>,
     mut hand: ResMut<FirstPersonHandMotion>,
 ) {
     let dt = time.delta_secs();
@@ -106,6 +108,40 @@ pub fn advance_presentation_state(
     hurt.advance(dt);
     let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     sway.advance(pitch, yaw, dt);
+    if settings.feel().java_animations {
+        let look = [-pitch.to_degrees(), -yaw.to_degrees()];
+        if let Some(physics) = physics
+            && let Some(state) = physics.state()
+        {
+            let sneaking = physics
+                .latest_sneak_sprint()
+                .is_some_and(|(sneaking, _)| sneaking);
+            let vector = |v: sim::Vec3| bevy::math::DVec3::new(v.x, v.y, v.z);
+            java.advance(JavaCameraTick {
+                tick: state.tick,
+                position: vector(state.position),
+                velocity: vector(state.velocity).as_vec3(),
+                on_ground: state.on_ground,
+                walks: !matches!(
+                    physics.mode(),
+                    sim::MovementMode::Flying | sim::MovementMode::Riding
+                ) && !(state.on_ground && sneaking),
+                look,
+            });
+        }
+        let alpha = physics.map_or(1.0, |physics| physics.tick_alpha());
+        hand.bob = if settings.feel().view_bobbing {
+            java.bob(alpha)
+        } else {
+            ViewEffect::NONE
+        };
+        hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
+            Quat::from_mat4(&java_hurt_roll(hurt.progress())),
+            settings.feel().damage_bob,
+        ));
+        (hand.sway_pitch_radians, hand.sway_yaw_radians) = java.sway(alpha, look);
+        return;
+    }
     hand.bob = if settings.feel().view_bobbing {
         walk_bob_effect(bob.walk_distance(), bob.bob())
     } else {

@@ -1,6 +1,7 @@
 mod commit;
 mod emote_geometry;
 mod hand;
+mod java;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
 #[cfg(test)]
 use hand::hand_camera_from_rig;
@@ -197,6 +198,8 @@ pub struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
+    /// The main-hand item Java's first-person hand still draws through an equip dip.
+    java_shown: Local<'s, Option<crate::presentation::equipment::WornItem>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
@@ -239,6 +242,7 @@ pub fn prepare_actor_render_frame(
         mut hand_scene,
         mut hand_revision,
         hand_motion,
+        mut java_shown,
         mut equipment,
         mut dropped_items,
         profiler,
@@ -325,6 +329,9 @@ pub fn prepare_actor_render_frame(
     }
     layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let java_mode = settings.feel().java_animations;
+    // Players Java poses this frame, which its grips then hold items for.
+    let mut java_posed = Vec::new();
     let mut local_feed = input.local_feed;
     if let Some(feed) = local_feed.as_mut() {
         feed.first_person = first_person;
@@ -445,14 +452,26 @@ pub fn prepare_actor_render_frame(
                         .authority()
                         .actor_player_profile(rig.actor.runtime_id);
                     let presentation = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
+                        let local = rig.actor.runtime_id == local_runtime_id;
+                        let java_pose = (java_mode
+                            && !(local && (first_person || input.custom_emote.is_some())))
+                        .then(|| {
+                            let local = local.then_some(&input.local_equipment);
+                            java::third_person(stream, &rig, actor, local, step.partial_tick)
+                        })
+                        .flatten();
                         crate::presentation::actors::actor_rig_presentation_cached(
-                            &rig,
+                            java_pose.as_ref().map_or(&rig, |(java_rig, _)| java_rig),
                             actor,
                             profile,
                             step.partial_tick,
                             &mut poses,
                         )
                         .map(|mut presentation| {
+                            if let Some((_, bones)) = &java_pose {
+                                java::apply_pose(&mut presentation, bones, local, actor);
+                                java_posed.push(rig.actor.runtime_id);
+                            }
                             if let Some(geometry) = rig.skin_geometry {
                                 // The pose drives the skin's own bones, so only its model fits.
                                 match skin_rigs.rig(geometry, |built| {
@@ -514,6 +533,27 @@ pub fn prepare_actor_render_frame(
             let equipment = equipment.as_deref_mut()?;
             let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
+            let motion = hand_motion
+                .as_deref()
+                .map_or(Mat4::IDENTITY, hand_motion_matrix);
+            if java_mode
+                && let Some(source) = java::hand_source(
+                    java::HandInputs {
+                        stream,
+                        presentation: presentation.clone(),
+                        equipment_input: &equipment_input,
+                        consume_ticks,
+                        item_animation,
+                        alpha: step.partial_tick,
+                        artwork,
+                        motion,
+                    },
+                    equipment,
+                    &mut java_shown,
+                )
+            {
+                return Some(source);
+            }
             let hand = stream.authority().actor_rig(local_runtime_id).map_or(
                 FirstPersonHand {
                     swing: 0.0,
@@ -535,6 +575,7 @@ pub fn prepare_actor_render_frame(
                         stream.authority().actor(local_runtime_id)?,
                         &rig,
                         render_input,
+                        None,
                     )
                 });
                 let layer = modern.or_else(|| {
@@ -544,15 +585,7 @@ pub fn prepare_actor_render_frame(
                         equipment.first_person_offhand(&presentation.submission, item)
                     }
                 })?;
-                let page = usize::from(layer.presentation.location.page()).checked_sub(1)?;
-                let page = artwork.pages().get(page)?;
-                let (width, height) = page.dimensions();
-                let atlas = HandItemAtlas {
-                    width,
-                    height,
-                    layers: page.layers(),
-                    rgba8: page.shared_pixels(),
-                };
+                let atlas = hand::item_atlas(&layer, artwork)?;
                 Some((layer, atlas))
             });
             // Provisional: vanilla draws every held item; an undrawable one shows the bare arm.
@@ -572,9 +605,8 @@ pub fn prepare_actor_render_frame(
                 presentation,
                 body,
                 items,
-                motion: hand_motion
-                    .as_deref()
-                    .map_or(Mat4::IDENTITY, hand_motion_matrix),
+                motion,
+                java_body_camera: None,
             })
         })
     } else {
@@ -597,6 +629,9 @@ pub fn prepare_actor_render_frame(
         let local = canonical_local
             .map(|mut local| {
                 place_local_actor_at_render_feet(&mut local, visibility.feet());
+                if java_posed.contains(&local_runtime_id) {
+                    java::lift(&mut local.submission.world_from_actor, false);
+                }
                 local
             })
             .or_else(|| {
@@ -702,11 +737,18 @@ pub fn prepare_actor_render_frame(
         // Equipment rides each selected body's pose, so culled bodies never build layers.
         crate::presentation::actors::attach_layers(&mut batch, |body| {
             let runtime_id = body.input.identity.runtime_id;
-            let input = if runtime_id == local_runtime_id {
+            let mut input = if runtime_id == local_runtime_id {
                 local_equipment(stream, runtime_id, &input.local_equipment)
             } else {
                 remote_input(stream, runtime_id)
             };
+            if java_posed.contains(&runtime_id) {
+                let using = stream
+                    .authority()
+                    .actor(runtime_id)
+                    .is_some_and(|actor| actor.is_using_item());
+                input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
+            }
             equipment.layers_for(body, &input)
         });
     }

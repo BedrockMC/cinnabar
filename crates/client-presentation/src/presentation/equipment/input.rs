@@ -69,6 +69,7 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         armor: armor_slots(stream.authority().actor_armor(runtime_id)),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
+        java: None,
     }
 }
 
@@ -110,6 +111,7 @@ pub fn local_input(
         .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
+        java: None,
     }
 }
 

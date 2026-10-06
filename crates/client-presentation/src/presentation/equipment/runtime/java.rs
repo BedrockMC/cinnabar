@@ -1,0 +1,166 @@
+//! Java 1.7 held-item placement: third-person grips on the posed arm and first-person items
+//! under Java's hand stack.
+
+use bevy::math::{Mat4, Quat, Vec3, Vec4};
+use render_model::java_animation::{
+    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_rod, is_java_sword, is_java_tool,
+};
+
+use super::*;
+
+const BOW: &str = "minecraft:bow";
+
+/// A bone at rest about `pivot` (rig blocks), leaving placement to the instance.
+pub(super) fn rest_bone(pivot: [f32; 3]) -> RenderBoneTransform {
+    RenderBoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [pivot[0], pivot[1], pivot[2], 1.0],
+        axis_scale: render_model::UNIT_AXIS_SCALE,
+    }
+}
+
+impl EquipmentRuntime {
+    /// The main-hand item in Java's third-person grip on the hand bone; `false` when the body
+    /// lacks the arm bones or the item has no drawable mesh.
+    pub(super) fn push_java_held(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        bones: &BodyBones,
+        grip: JavaGrip,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) -> bool {
+        let (Some(arm), Some(hand)) = (bones.right_arm, bones.right_item) else {
+            return false;
+        };
+        let pose = &body.input.current_bones;
+        let (Some(arm_bone), Some(hand_bone)) = (pose.get(arm), pose.get(hand)) else {
+            return false;
+        };
+        let Some(arm_rotation) = Vec4::from_array(arm_bone.rotation)
+            .try_normalize()
+            .map(Quat::from_vec4)
+        else {
+            return false;
+        };
+        let Some((mesh, location, block)) = self.held_mesh(item, true) else {
+            return false;
+        };
+        let grip_kind = if block {
+            JavaHeldItem::Block
+        } else if &*item.identifier == BOW {
+            JavaHeldItem::Bow
+        } else if is_java_tool(&item.identifier) {
+            JavaHeldItem::Tool {
+                rotate_around: is_java_rod(&item.identifier),
+                blocking: grip.blocking && is_java_sword(&item.identifier),
+            }
+        } else {
+            JavaHeldItem::Flat
+        };
+        let mesh_kind = if block {
+            JavaItemMesh::Block
+        } else {
+            JavaItemMesh::Sprite
+        };
+        // The hand bone rides the arm at rest, so the arm-frame grip shifts back by its offset.
+        let translation = |bone: &RenderBoneTransform| Vec3::from_slice(&bone.translation_scale[..3]);
+        let offset = arm_rotation.inverse() * (translation(hand_bone) - translation(arm_bone))
+            / (arm_bone.translation_scale[3] * arm_bone.axis_scale[0]);
+        let display = ItemDisplay::from_matrix(
+            Mat4::from_translation(-offset) * java::third_person_item(grip_kind, mesh_kind),
+        );
+        let (Some(previous), Some(current)) = (
+            body.input
+                .previous_bones
+                .get(hand)
+                .and_then(|bone| attach_to_bone(*bone, display)),
+            attach_to_bone(*hand_bone, display),
+        ) else {
+            return false;
+        };
+        let poses = self
+            .poses
+            .share(body, LAYER_MAIN_HAND, [&[previous], &[current]]);
+        layers.push(layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0));
+        true
+    }
+
+    /// Whether vanilla draws this item through a held attachable Java never had (crossbow,
+    /// trident, shield, spyglass); Java's hand leaves those to vanilla.
+    pub fn is_vanilla_attachable(&self, identifier: &str) -> bool {
+        !java_draws_attachable(identifier)
+            && self
+                .binding_source(identifier)
+                .and_then(|(catalog, _)| {
+                    catalog.binding(identifier).map(|binding| {
+                        matches!(
+                            binding.category,
+                            EquipmentCategory::Held | EquipmentCategory::Shield
+                        )
+                    })
+                })
+                .unwrap_or(false)
+    }
+
+    /// The main-hand item placed by Java's first-person stack in camera space.
+    pub fn first_person_java_item(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        hand: JavaHand,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, block) = self.held_mesh(item, true)?;
+        let mesh_kind = if block {
+            JavaItemMesh::Block
+        } else {
+            JavaItemMesh::Sprite
+        };
+        let camera = java::first_person_item(hand, mesh_kind, is_java_rod(&item.identifier));
+        let rest = [rest_bone([0.0; 3])];
+        let poses = self
+            .poses
+            .share(body, FIRST_PERSON_ITEM_LAYER, [&rest, &rest]);
+        Some(FirstPersonItem {
+            presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
+            camera_space: true,
+            alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: camera.is_finite().then_some(camera),
+        })
+    }
+}
+
+/// Camera from a raster attachable's rig frame under Java's first-person stack.
+pub(super) fn java_raster_camera(hand: JavaHand, image_to_rig: Mat4, width: u16, height: u16) -> Mat4 {
+    java::first_person_item(hand, JavaItemMesh::Raster { width, height }, false)
+        * image_to_rig.inverse()
+}
+
+/// Whether Java's first-person stack draws this attachable (its raster pull frames) itself.
+pub fn java_draws_attachable(identifier: &str) -> bool {
+    identifier == BOW
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The raster camera undoes the image placement before Java's slab mapping.
+    #[test]
+    fn raster_camera_composes_through_the_image_frame() {
+        let hand = JavaHand {
+            swing: 0.0,
+            equip: 1.0,
+            using: None,
+        };
+        let image_to_rig = Mat4::from_translation(Vec3::new(0.1, 0.2, 0.3))
+            * Mat4::from_rotation_y(1.0)
+            * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
+        let point = Vec4::new(3.5, 0.0, 9.5, 1.0);
+        let through = java_raster_camera(hand, image_to_rig, 16, 16) * (image_to_rig * point);
+        let direct =
+            java::first_person_item(hand, JavaItemMesh::Raster { width: 16, height: 16 }, false)
+                * point;
+        assert!(through.abs_diff_eq(direct, 1e-5));
+    }
+}

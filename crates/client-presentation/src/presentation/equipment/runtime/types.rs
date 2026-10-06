@@ -42,6 +42,15 @@ pub struct ActorEquipmentInput {
     pub armor: [Option<WornItem>; 4],
     pub sneaking: bool,
     pub sleeping: bool,
+    /// Java 1.7 grips the main hand, when that mode poses this actor.
+    pub java: Option<JavaGrip>,
+}
+
+/// How Java's third-person hand holds the main-hand item.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct JavaGrip {
+    /// A sword in use is held as a block.
+    pub blocking: bool,
 }
 
 /// One extra instance plus the artwork page/layer its texture lives on.
@@ -55,6 +64,8 @@ pub struct FirstPersonItem {
     pub presentation: EquipmentPresentation,
     pub camera_space: bool,
     pub alpha_mode: render::HandItemAlphaMode,
+    /// Camera from item space under Java's hand stack; the item's bones then sit at rest.
+    pub java_camera: Option<bevy::math::Mat4>,
 }
 
 /// Which first-person arms the player render controller shows.
@@ -94,6 +105,7 @@ pub(super) struct ElytraStance {
 
 pub(super) struct BodyBones {
     pub(super) names: Vec<Box<str>>,
+    pub(super) right_arm: Option<usize>,
     pub(super) right_item: Option<usize>,
     pub(super) left_item: Option<usize>,
     pub(super) head: Option<usize>,

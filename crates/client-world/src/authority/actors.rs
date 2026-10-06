@@ -203,6 +203,17 @@ impl WorldAuthority {
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
+    /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
+    /// other bones keep their animated offsets from their parents.
+    pub fn actor_retargeted_pose(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: &[Option<crate::BoneTransform>],
+    ) -> Option<Vec<crate::BoneTransform>> {
+        self.actors
+            .actor_retargeted_pose(runtime_id, partial_tick, targets)
+    }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()

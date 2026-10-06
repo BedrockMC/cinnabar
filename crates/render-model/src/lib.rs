@@ -8,6 +8,7 @@ mod dropped_item;
 mod entity_shadow;
 pub mod equipment;
 mod item_geometry;
+pub mod java_animation;
 mod nametag;
 mod panorama;
 mod ui;
@@ -20,7 +21,7 @@ pub use actor::{
     DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
-    append_entity_cube_vertices, attachable_geometry, default_actor_skin_rgba8,
+    append_entity_cube_vertices, attachable_geometry, attachable_raster_frame, default_actor_skin_rgba8,
     diagnostic_geometry, entity_geometry, equipment_geometry, equipment_rig_id,
     find_geometry_index, geometry_bone_names, geometry_bone_pivots, geometry_from_geometry_index,
     geometry_from_runtime_assets, install_default_player_skin, is_equipment_rig_id,

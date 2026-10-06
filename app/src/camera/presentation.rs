@@ -44,6 +44,7 @@ pub(crate) fn advance_presentation_state(
     bob: ResMut<WalkBobState>,
     sway: ResMut<HandSwayState>,
     hurt: ResMut<CameraHurtState>,
+    java: ResMut<client_presentation::camera::java::JavaCameraState>,
     hand: ResMut<FirstPersonHandMotion>,
 ) {
     client_presentation::camera::presentation::advance_presentation_state(
@@ -56,6 +57,7 @@ pub(crate) fn advance_presentation_state(
         bob,
         sway,
         hurt,
+        java,
         hand,
     );
 }

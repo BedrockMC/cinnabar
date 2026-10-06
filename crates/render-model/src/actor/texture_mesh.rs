@@ -2,7 +2,10 @@
 //!
 //! Unlike cubes, these meshes start in the image's X/Z plane with Y-down depth.
 
-use assets::{EquipmentTexture, RuntimeEntityAssets};
+use assets::{
+    EntityGeometry, EntityGeometryBone, EntityGeometryTextureMesh, EquipmentTexture,
+    RuntimeEntityAssets,
+};
 use glam::{Mat4, Vec3};
 
 use super::{
@@ -39,30 +42,11 @@ pub fn attachable_geometry(
             )?;
         }
         for mesh in &bone.texture_meshes {
-            let pivot = Vec3::from_array(mesh.local_pivot.map(|v| v.get()));
-            let position = Vec3::from_array(mesh.position.map(|v| v.get()));
-            let authored_bone_pivot =
-                Vec3::from_array(bone.pivot.map_or([0.0; 3], |p| p.map(|v| v.get())));
-            let [x, y, z] = mesh.rotation.map(|v| v.get().to_radians());
-            let sx = f32::from(geometry.texture_width) / f32::from(texture.width);
-            let sz = f32::from(geometry.texture_height) / f32::from(texture.height);
-            // Bone matrices subtract the bind pivot; our vertices retain absolute model
-            // coordinates, so native's bone-local subtraction is left to that matrix.
-            let matrix = Mat4::from_translation(Vec3::from_array(bone_bind_pivot(bone)))
-                * Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0) / 16.0)
-                * Mat4::from_translation(position - authored_bone_pivot)
-                * Mat4::from_rotation_z(z)
-                * Mat4::from_rotation_y(y)
-                * Mat4::from_rotation_x(x)
-                * Mat4::from_translation(-pivot)
-                * Mat4::from_scale(
-                    Vec3::new(sx, sx.max(sz), sz) * Vec3::from_array(mesh.scale.map(|v| v.get())),
-                );
             append_pixels(
                 &mut vertices,
                 texture,
                 index as u32,
-                matrix,
+                raster_matrix(geometry, bone, mesh, texture),
                 mesh.use_pixel_depth,
             )?;
         }
@@ -75,6 +59,55 @@ pub fn attachable_geometry(
         vertices,
         bones.iter().map(bone_bind_pivot).collect::<Vec<_>>(),
     )
+}
+
+/// Image pixels (column, depth, row) to the rig frame in blocks for one raster mesh.
+fn raster_matrix(
+    geometry: &EntityGeometry,
+    bone: &EntityGeometryBone,
+    mesh: &EntityGeometryTextureMesh,
+    texture: &EquipmentTexture,
+) -> Mat4 {
+    let pivot = Vec3::from_array(mesh.local_pivot.map(|v| v.get()));
+    let position = Vec3::from_array(mesh.position.map(|v| v.get()));
+    let authored_bone_pivot = Vec3::from_array(bone.pivot.map_or([0.0; 3], |p| p.map(|v| v.get())));
+    let [x, y, z] = mesh.rotation.map(|v| v.get().to_radians());
+    let sx = f32::from(geometry.texture_width) / f32::from(texture.width);
+    let sz = f32::from(geometry.texture_height) / f32::from(texture.height);
+    // Bone matrices subtract the bind pivot; our vertices retain absolute model
+    // coordinates, so native's bone-local subtraction is left to that matrix.
+    Mat4::from_translation(Vec3::from_array(bone_bind_pivot(bone)))
+        * Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0) / 16.0)
+        * Mat4::from_translation(position - authored_bone_pivot)
+        * Mat4::from_rotation_z(z)
+        * Mat4::from_rotation_y(y)
+        * Mat4::from_rotation_x(x)
+        * Mat4::from_translation(-pivot)
+        * Mat4::from_scale(
+            Vec3::new(sx, sx.max(sz), sz) * Vec3::from_array(mesh.scale.map(|v| v.get())),
+        )
+}
+
+/// For a geometry drawing exactly one raster mesh: that mesh's image-to-rig matrix and every
+/// bone's bind pivot (rig blocks).
+pub fn attachable_raster_frame(
+    assets: &RuntimeEntityAssets,
+    geometry_index: usize,
+    texture: &EquipmentTexture,
+) -> Option<(Mat4, Vec<[f32; 3]>)> {
+    let geometry = assets.geometries().get(geometry_index)?;
+    let bones = resolve_geometry_bones(assets, geometry_index).ok()?;
+    let mut meshes = bones
+        .iter()
+        .flat_map(|bone| bone.texture_meshes.iter().map(move |mesh| (bone, mesh)));
+    let (bone, mesh) = meshes.next()?;
+    if meshes.next().is_some() || bones.iter().any(|bone| !bone.cubes.is_empty()) {
+        return None;
+    }
+    Some((
+        raster_matrix(geometry, bone, mesh, texture),
+        bones.iter().map(bone_bind_pivot).collect(),
+    ))
 }
 
 fn append_pixels(

@@ -52,7 +52,9 @@ pub(super) fn publish_hand_rig(
     let placement = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
     let mut submissions = Vec::new();
     if let Some(mut body) = source.body {
-        body.world_from_actor = placement;
+        body.world_from_actor = source
+            .java_body_camera
+            .map_or(placement, |camera| camera_space_rows(source.motion * camera));
         // The hand skin is a single-layer array; the third-person layer index does not apply.
         body.texture_layer = 0;
         submissions.push(body);
@@ -61,10 +63,10 @@ pub(super) fn publish_hand_rig(
     for (index, entry) in source.items.into_iter().enumerate() {
         if let Some((layer, item_atlas)) = entry {
             let mut item = layer.presentation.submission;
-            item.world_from_actor = if layer.camera_space {
-                camera_space_rows(source.motion)
-            } else {
-                placement
+            item.world_from_actor = match layer.java_camera {
+                Some(camera) => camera_space_rows(source.motion * camera),
+                None if layer.camera_space => camera_space_rows(source.motion),
+                None => placement,
             };
             item.texture_layer = layer.presentation.location.layer()
                 | render::HAND_ITEM_LAYER_FLAG
@@ -115,6 +117,24 @@ pub(super) struct HandSource {
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
     /// View-space hurt tilt, walk bob and sway applied before the rig placement.
     pub(super) motion: Mat4,
+    /// Camera from the body's rig frame under Java's empty-hand stack.
+    pub(super) java_body_camera: Option<Mat4>,
+}
+
+/// The artwork page an item layer samples, as the hand pass binds it.
+pub(super) fn item_atlas(
+    layer: &FirstPersonItem,
+    artwork: &render::ActorArtworkPages,
+) -> Option<HandItemAtlas> {
+    let page = usize::from(layer.presentation.location.page()).checked_sub(1)?;
+    let page = artwork.pages().get(page)?;
+    let (width, height) = page.dimensions();
+    Some(HandItemAtlas {
+        width,
+        height,
+        layers: page.layers(),
+        rgba8: page.shared_pixels(),
+    })
 }
 
 /// Vanilla's hand stack order: hurt tilt, walk bob, then sway about X and Y.

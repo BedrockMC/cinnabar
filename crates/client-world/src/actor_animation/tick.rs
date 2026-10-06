@@ -145,6 +145,20 @@ pub(super) fn advance_motion(
         state.off_hand_animation[0].arm_height,
     );
     state.off_hand_animation[1].arm_height = off_hand_arm_height;
+    state.java.advance(&super::java::JavaTick {
+        delta: position_delta,
+        yaw: actor.yaw,
+        swinging: motion.attack_time() > 0.0,
+        hurt_time: actor.status.hurt_time,
+        held: &context.main_hand,
+        using: item_use_ticks > 0,
+        riding: context.is_riding,
+        vanilla_posture: swim_amount > 0.0
+            || query::actor_flag(actor, query::FLAG_GLIDING)
+            || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
+            || query::actor_flag(actor, query::FLAG_EMOTING)
+            || actor.is_sleeping(),
+    });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
     }
