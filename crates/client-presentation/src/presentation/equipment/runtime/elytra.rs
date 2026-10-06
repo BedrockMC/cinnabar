@@ -44,62 +44,27 @@ impl EquipmentRuntime {
         else {
             return;
         };
-        let Some(selected) = evaluated.render.first() else {
-            return;
-        };
-        let index = selected.geometry.unwrap_or(evaluated.geometry);
-        let pose = if selected.pose.is_empty() {
-            evaluated.pose
-        } else {
-            &selected.pose
-        }
-        .to_vec();
-        let hidden = Arc::clone(&selected.hidden_bones);
+        // Each material group draws apart; later texture slots are samplers of that draw.
+        let groups: Vec<_> = evaluated
+            .render
+            .iter()
+            .filter(|layer| layer.texture_slot == 0)
+            .map(|layer| {
+                let pose = if layer.pose.is_empty() {
+                    evaluated.pose
+                } else {
+                    &layer.pose
+                };
+                (
+                    layer.geometry.unwrap_or(evaluated.geometry),
+                    pose.to_vec(),
+                    Arc::clone(&layer.hidden_bones),
+                    layer.material,
+                    layer.source,
+                )
+            })
+            .collect();
         let model_scale = evaluated.axis_scale.map(|axis| axis * evaluated.scale);
-        let material = render::ActorMaterial {
-            kind: if item.enchanted {
-                assets::EntityRenderMaterial::Glint
-            } else {
-                selected.material
-            },
-            state: Some(assets::EntityRenderMaterialState {
-                alpha_test: true,
-                cull: false,
-                ..Default::default()
-            }),
-            glint: render::ActorGlint {
-                time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
-                    * client_world::ACTOR_TICK_DURATION.as_secs_f32(),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let Some(source) = assets.sources().get(selected.source as usize) else {
-            return;
-        };
-        let texture = source
-            .path
-            .strip_suffix(".png")
-            .or_else(|| source.path.strip_suffix(".tga"));
-        let Some(location) = texture.and_then(|texture| self.texture_location(texture, from_pack))
-        else {
-            return;
-        };
-        let Some(geometry) = assets.geometries().get(index as usize) else {
-            return;
-        };
-        let Some(geometry) = self.armor_geometry_for(&geometry.identifier, from_pack) else {
-            return;
-        };
-        if registered != Some(index) && !self.selected_geometries.contains(&geometry.rig) {
-            let Some(mesh) =
-                render_model::equipment_geometry(&assets, index as usize, geometry.rig)
-            else {
-                return;
-            };
-            self.pending.push(mesh);
-            self.selected_geometries.insert(geometry.rig);
-        }
         let Some((_, bones)) = self.body_bones_for(body.input.rig) else {
             return;
         };
@@ -124,24 +89,72 @@ impl EquipmentRuntime {
         for (axis, scale) in model_scale.into_iter().enumerate() {
             parent.axis_scale[axis] *= scale;
         }
-        let Some(pose) = pose
-            .iter()
-            .enumerate()
-            .map(|(index, bone)| {
-                if hidden.contains(&(index as u32)) {
-                    Some(hidden_bone())
+        let ids =
+            std::iter::once(super::super::ELYTRA_LAYER).chain(super::super::ELYTRA_GROUP_LAYERS);
+        for (layer_id, (index, pose, hidden, material, source)) in ids.zip(groups) {
+            let material = render::ActorMaterial {
+                kind: if item.enchanted {
+                    assets::EntityRenderMaterial::Glint
                 } else {
-                    modern::compose_parent(parent, *bone)
-                }
-            })
-            .collect::<Option<Vec<_>>>()
-        else {
-            return;
-        };
-        let poses = self.poses.share(body, LAYER_CHESTPLATE, [&pose, &pose]);
-        let mut layer =
-            layer_presentation(body, LAYER_CHESTPLATE, geometry.rig, poses, location, 0);
-        layer.submission.material = material;
-        layers.push(layer);
+                    material
+                },
+                state: Some(assets::EntityRenderMaterialState {
+                    alpha_test: true,
+                    cull: false,
+                    ..Default::default()
+                }),
+                glint: render::ActorGlint {
+                    time_seconds: (animation.rig.completed_tick as f32 + animation.frame_alpha)
+                        * client_world::ACTOR_TICK_DURATION.as_secs_f32(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let Some(source) = assets.sources().get(source as usize) else {
+                continue;
+            };
+            let texture = source
+                .path
+                .strip_suffix(".png")
+                .or_else(|| source.path.strip_suffix(".tga"));
+            let Some(location) =
+                texture.and_then(|texture| self.texture_location(texture, from_pack))
+            else {
+                continue;
+            };
+            let Some(geometry) = assets.geometries().get(index as usize) else {
+                continue;
+            };
+            let Some(geometry) = self.armor_geometry_for(&geometry.identifier, from_pack) else {
+                continue;
+            };
+            if registered != Some(index) && !self.selected_geometries.contains(&geometry.rig) {
+                let Some(mesh) =
+                    render_model::equipment_geometry(&assets, index as usize, geometry.rig)
+                else {
+                    continue;
+                };
+                self.pending.push(mesh);
+                self.selected_geometries.insert(geometry.rig);
+            }
+            let Some(pose) = pose
+                .iter()
+                .enumerate()
+                .map(|(index, bone)| {
+                    if hidden.contains(&(index as u32)) {
+                        Some(hidden_bone())
+                    } else {
+                        modern::compose_parent(parent, *bone)
+                    }
+                })
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let poses = self.poses.share(body, layer_id, [&pose, &pose]);
+            let mut layer = layer_presentation(body, layer_id, geometry.rig, poses, location, 0);
+            layer.submission.material = material;
+            layers.push(layer);
+        }
     }
 }

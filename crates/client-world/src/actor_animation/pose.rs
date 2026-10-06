@@ -60,9 +60,9 @@ pub(super) fn sample_clips(
     for weighted in clips {
         budget.charge_work()?;
         if let (Some(blend), Some(sides)) = (pending, sides.as_mut())
-            && weighted
-                .blend
-                .is_none_or(|next| blend.incoming && !next.incoming)
+            && weighted.blend.is_none_or(|next| {
+                next.controller != blend.controller || (blend.incoming && !next.incoming)
+            })
         {
             compose_blend(&mut local, sides, blend.amount);
             pending = None;
