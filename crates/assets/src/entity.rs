@@ -21,13 +21,14 @@ pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_ME
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
 pub use v4::{
-    CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
-    EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
-    EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
-    EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
-    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    CompiledMolangExpression, ENTITY_ALPHA_TEST_THRESHOLD, EntityAnimationChannel,
+    EntityAnimationClip, EntityAnimationController, EntityAnimationInterpolation,
+    EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
+    EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
+    EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
@@ -39,7 +40,7 @@ pub use v4::{
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
     MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
-    MolangSymbolKind, molang_call, molang_program_stack,
+    MolangSymbolKind, entity_render_pattern_matches, molang_call, molang_program_stack,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
