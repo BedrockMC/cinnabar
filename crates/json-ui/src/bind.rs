@@ -516,8 +516,14 @@ impl<'a> Binder<'a> {
             (None, true) => return,
             (None, false) => -1,
         };
+        // A collection panel inside a factory item reads that item's own list when one is registered;
+        // otherwise the key its factory or grid entered with stands.
+        let key = self.collection_key(&collection, scope);
         let cursor = Arc::make_mut(&mut scope.cursor);
         cursor.indices.insert(collection.clone(), index);
+        if key != collection {
+            cursor.keys.insert(collection.clone(), key);
+        }
         cursor.items.push((collection, index));
     }
 
