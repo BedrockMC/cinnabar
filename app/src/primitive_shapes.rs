@@ -1,7 +1,7 @@
 //! Composes committed debug drawing with the session, player pose and active font.
 
 use crate::{app::ClientFrameSet, local_player::LocalViewPose, runtime::world::ClientWorld};
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemParam, prelude::*};
 use client_presentation::{
     actor_publication::ActorFramePartialTick, primitive_shapes::PrimitiveShapePublisher,
 };
@@ -14,13 +14,19 @@ pub(crate) fn configure(app: &mut App) {
         .add_systems(Update, publish.in_set(ClientFrameSet::WorldPublication));
 }
 
+/// The clock and viewer pose a frame's shapes are placed with.
+#[derive(SystemParam)]
+struct FrameClock<'w> {
+    time: Res<'w, Time>,
+    partial: Res<'w, ActorFramePartialTick>,
+    view: Res<'w, LocalViewPose>,
+}
+
 /// Shares retained state across render extraction without cloning or walking shape records.
 fn publish(
     mut world: ResMut<ClientWorld>,
     mut scene: ResMut<PrimitiveShapesScene>,
-    time: Res<Time>,
-    partial: Res<ActorFramePartialTick>,
-    view: Res<LocalViewPose>,
+    clock: FrameClock,
     mut presentation: ResMut<UiPresentationRuntime>,
     runtime: Res<UiRuntime>,
     mut publisher: Local<PrimitiveShapePublisher>,
@@ -28,9 +34,9 @@ fn publish(
     publisher.publish(
         world.stream.as_mut(),
         &mut scene,
-        time.elapsed_secs(),
-        partial.0,
-        Some(view.feet_translation().to_array()),
+        clock.time.elapsed_secs(),
+        clock.partial.0,
+        Some(clock.view.feet_translation().to_array()),
     );
     let mut store = scene.store.lock().expect("primitive store lock poisoned");
     presentation.prepare_primitive_text(&mut store, &runtime);
