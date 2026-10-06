@@ -149,7 +149,8 @@ pub fn pack_cells(cells: &[CellGlyph], first_page: u16, side: u32, max_pages: us
             cell.codepoint,
         )
     });
-    let mut rasters: HashMap<([u32; 2], &[u8]), (u16, [u16; 4])> = HashMap::new();
+    type Placement = (u16, [u16; 4]); // page, uv
+    let mut rasters: HashMap<([u32; 2], &[u8]), Placement> = HashMap::new();
     let mut atlas = GlyphAtlas::default();
     let mut cursor = [0u32; 2];
     let mut row_height = 0u32;

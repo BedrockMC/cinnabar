@@ -225,9 +225,18 @@
   14.53/19.24/35.82/257.54 ms; the 871 estimate interval is 253.87–261.76 ms.
   Radius-16 metadata scan is 1.33 ms; mixed cube mesh is 0.50 ms; full light solves
   are 0.40–0.48 ms. Local Criterion data is saved as `chunks` under `target/criterion/`.
-- Incomplete native performance acceptance: socket framing, GPU preparation/uploads,
-  draws and complete Bevy frames are outside these CPU measurements. No client
-  optimisation or parity gate is claimed. Commands and boundaries are in the README.
+- Moving-FPS fixes on top of incremental cave visibility and column residency: trailing-row
+  eviction finds tracked columns one key per column, retires mesh records by key, and dirties
+  neighbours per column, so its cost follows the retired edge rather than the view. The
+  per-frame world-stream allocation is half the display interval, between 1 and 3 ms, so a
+  streaming backlog cannot halve high refresh rates. Chunk uploads merge abutting arena
+  writes into one staged write per run. The F3 overlay keeps its bindings and layout and
+  rebinds only changed lines.
+- Incomplete: release streaming throughput at high refresh rates is unmeasured. Per-job
+  light/mesh dispatch snapshots and whole-frame UI rebuilds on any change remain. Cave camera
+  crossings now reuse reached exits after a bounded exact proof; streamed additions survive journal
+  rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
+  No parity or performance gate is claimed; commands and boundaries are in the README.
 
 ## GPU terrain culling with Hi-Z occlusion
 
@@ -5953,3 +5962,10 @@ or window focus loss returns to the prior perspective. Windows/DX12 1280x720 hid
 capture verifies the Freelook/F settings row. Routed tests cover independent rotation,
 release/focus restoration, persistence and existing-F migration. A manual in-world
 orbit acceptance pass remains incomplete.
+
+## Desktop chat web links
+
+- Requested desktop extension: recognize HTTP(S) links locally in displayed chat,
+  including bare web domains, and require an in-game Open/Cancel prompt before
+  handing a selected URL to the default browser. Chat messages and server packets
+  are unchanged. This Java-style interaction is not a closed Bedrock parity gate.

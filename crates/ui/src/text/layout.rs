@@ -292,7 +292,7 @@ impl Lines<'_> {
         if self.request.wrap.chop == WordChop::Hyphen {
             let style = style(self);
             let candidate = self.candidate(&hyphen)?;
-            self.push(hyphen, style, candidate, resume)?;
+            self.push(hyphen, style, candidate, usize::MAX)?;
         }
         Ok(resume)
     }
@@ -398,6 +398,11 @@ impl Lines<'_> {
             id,
             key,
             glyphs: self.glyphs.into_boxed_slice(),
+            source_indices: self
+                .marks
+                .into_iter()
+                .map(|mark| (mark.source != usize::MAX).then_some(mark.source))
+                .collect(),
             line_count: u16::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?,
             size_64: [checked_u32(maximum_width_64)?, checked_u32(height_64)?],
             ellipsized: self.ellipsized,
