@@ -14,7 +14,7 @@ impl EquipmentRuntime {
         animation: EquipmentAnimation<'_>,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
-        let Some((_, from_pack)) = self.binding_source(&item.identifier) else {
+        let Some((catalog, from_pack)) = self.binding_source(&item.identifier) else {
             return;
         };
         let assets = if from_pack {
@@ -22,6 +22,11 @@ impl EquipmentRuntime {
         } else {
             Arc::clone(&self.assets)
         };
+        // The scene registers only each binding's catalog default model.
+        let registered = catalog
+            .binding(&item.identifier)
+            .filter(|binding| binding.geometry.resolution == EntityDependencyResolution::Catalog)
+            .and_then(|binding| find_geometry_index(&assets, &binding.geometry.identifier));
         let runtime = if from_pack {
             &mut self.pack.as_mut().unwrap().attachables
         } else {
@@ -43,7 +48,6 @@ impl EquipmentRuntime {
             return;
         };
         let index = selected.geometry.unwrap_or(evaluated.geometry);
-        let alternate = index != evaluated.geometry;
         let pose = if selected.pose.is_empty() {
             evaluated.pose
         } else {
@@ -87,8 +91,7 @@ impl EquipmentRuntime {
         let Some(geometry) = self.armor_geometry_for(&geometry.identifier, from_pack) else {
             return;
         };
-        // The scene registers only each binding's default model.
-        if alternate && !self.selected_geometries.contains(&geometry.rig) {
+        if registered != Some(index) && !self.selected_geometries.contains(&geometry.rig) {
             let Some(mesh) =
                 render_model::equipment_geometry(&assets, index as usize, geometry.rig)
             else {
