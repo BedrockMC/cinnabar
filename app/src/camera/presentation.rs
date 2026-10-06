@@ -40,6 +40,7 @@ pub(crate) fn advance_presentation_state(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    client_world: Option<Res<ClientWorld>>,
     physics: Option<Res<LocalPhysicsController>>,
     bob: ResMut<WalkBobState>,
     sway: ResMut<HandSwayState>,
@@ -51,6 +52,11 @@ pub(crate) fn advance_presentation_state(
         time,
         settings,
         view,
+        client_world.as_deref().map(
+            |world| client_presentation::observations::WorldObservation {
+                stream: world.stream.as_ref(),
+            },
+        ),
         physics
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),

@@ -235,7 +235,7 @@ pub enum JavaItemMesh {
     Sprite,
     /// Our centred unit block cube.
     Block,
-    /// A raster extrusion in image pixels (column, depth, row) of a `width`×`height` image.
+    /// A raster in image columns/rows with extrusion depth normalized to 0..1.
     Raster { width: u16, height: u16 },
 }
 

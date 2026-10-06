@@ -27,7 +27,7 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | Rule | Behaviour |
 | --- | --- |
 | Swing timing | 6 ticks; Haste `6 - (1 + amp)`, Mining Fatigue `6 + 2(1 + amp)`; restarts only past its first half; the frame value wraps forward from 5/6 to 1. |
-| Equip | Moves 0.4 a tick toward 1 (same item) or 0; the new item is adopted below 0.1, and the old item stays drawn until then. A block placement drops it to 0 before that tick's rise; starting a use does not. |
+| Equip | Moves 0.4 a tick toward 1 (same item) or 0; the new item is adopted below 0.1, and the old item stays drawn until then, including transitions to authored or modern hands. The selected item's use clock never animates the retained outgoing item. A block placement drops it to 0 before that tick's rise; starting a use does not. |
 | Use counts | Java's in-use count is `duration - use_ticks + 1` for our consecutive using ticks. Eat/drink reads `count - frame + 1`; bow draw is `duration - that`, so `use_ticks - 2 + frame`. |
 | First-person prefix | Eat/drink raise, or (not in use) `T(-0.4·sin(√s·π), 0.2·sin(2√s·π), -0.2·sin(s·π))`; then `T(0.56, -0.52 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(-20·sin(s²π))`, `Rz(-20·sin(√s·π))`, `Rx(-80·sin(√s·π))`, `S(0.4)`. In use there is no swing translate, so block-hitting keeps only the swing turns. |
 | Eat/drink raise | `t` as above, `r = 1 - t/duration`, `k = 1 - (1 - r)^27`: `T(0, |0.1·cos(t/4·π)|` when `r > 0.2`, `0)`, `T(0.6k, -0.5k, 0)`, `Ry(90k)`, `Rx(10k)`, `Rz(30k)`. |
@@ -40,7 +40,7 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | View bob | Walk phase `w = -(d + (d - d_prev)·frame)` (one tick ahead); `T(0.5·sin(wπ)·b, -|cos(wπ)·b|, 0)`, `Rz(3·sin(wπ)·b)`, `Rx(5·|cos(wπ - 0.2)·b|)`, `Rx(fall)`. `d += 0.6` per block walked (not flying, riding or sneaking on the ground); `b` eases 40% a tick to the capped 0.1 horizontal speed on the ground; `fall` eases 80% to `15·atan(-0.2·vy)` in the air. |
 | Hurt roll | `Rz(-14·sin(h⁴π))`, `h` the hurt time left over 10 ticks; never a direction. |
 | Limbs | Amount eases 40% a tick to `min(4·step, 1)` and the swing accumulates it; a hurt sets the amount to 1.5. The frame reads `swing - amount·(1 - frame)` and the clamped interpolated amount. |
-| Body yaw | Turns 30% toward the walk direction (moving more than 0.05 blocks a tick) or the look while swinging; head lag clamps to ±75, and past 50 degrees the body is pulled a fifth of the lag back. |
+| Body yaw | Turns 30% toward the walk direction (moving more than 0.05 blocks a tick) or the look while swinging; head lag clamps to ±75, and past 50 degrees the body is pulled a fifth of the lag back. Local head look reads the current render-frame input against that interpolated body heading; remote look remains interpolated between ticks. |
 | Pose | Arms `X = cos(0.6662·limb (+π right))·amount`, legs `1.4·` the opposite; riding `-36°` arms, `-72°`/`±18°` legs; holding `X·0.5 - 18°·n` (n = 1, 3 blocking); attack `body Y = 0.2·sin(2π√s)` with the arm points circling the body and the right arm lifted by `1.2·sin(π(1 - (1 - s)⁴)) - 0.75·sin(sπ)·(head X - 0.7)`, `Z = -0.4·sin(sπ)`; sneak body 0.5 rad, arms +0.4, legs at (y 9, z 4), head y 1 (otherwise legs z 0.1); idle `Z ±= 0.05·cos(0.09·age) + 0.05`, `X ±= 0.05·sin(0.067·age)`; bow aim arms `X = -90° + head X`, `Y = -0.1/+0.5 + head Y`. Parts are separate: the head and arms do not follow the body. |
 | Third-person grips | After `T(-1/16, 7/16, 1/16)`: cube `T(0, 0.1875, -0.3125)`, `Rx(20)`, `Ry(45)`, `S(-0.375, -0.375, 0.375)`; bow `T(0, 0.125, 0.3125)`, `Ry(-20)`, `S(0.625, -0.625, 0.625)`, `Rx(-100)`, `Ry(45)`; tools (swords, pickaxes, axes, shovels, hoes, sticks, bones, rods) rods first `Rz(180)`, `T(0, -0.125, 0)`, blocking `T(0.05, 0, -0.1)`, `Ry(-50)`, `Rx(-10)`, `Rz(-60)`, then `T(0, 0.1875, 0)`, `S(0.625, -0.625, 0.625)`, `Rx(-100)`, `Ry(45)`; other items `T(0.25, 0.1875, -0.1875)`, `S(0.375)`, `Rz(60)`, `Rx(-90)`, `Rz(20)`. |
 | Placement | Sneaking players draw 0.125 lower (the local player 0.08, its eased step offset). The red hurt flash covers body and armour but not held items. |
@@ -50,7 +50,10 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 ## Kept vanilla or left out
 
 - Swimming, crawling, gliding, sleeping and emoting keep vanilla poses: Java 1.7 has none.
+- Server-authored player rigs and first-person attachables retain their own poses. Uploaded custom/slim skins remain eligible; local emotes drive their animated skin layers with the same sampled pose as the body.
 - Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
 - Elytra capes, first-person item lighting, the third-person bow pull frames, the cast rod drawn as a stick, the local sneak camera drop and the death camera roll are not Java's.
 - Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
+- Mounted players retain the ordinary player body-yaw rule; Java's living-mount body yaw with its ±85° head limit is not applied. The native riding limb pose is applied. Actor observations do not currently distinguish living from nonliving mounts.
+- Local creative flight still advances the cape's walk phase: the local actor feed does not carry the predicted flying state. Camera walk bob already excludes flight.
 - No hurt particles: Java 1.7 has none tied to the animation.

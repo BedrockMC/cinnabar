@@ -88,8 +88,8 @@ fn raster_matrix(
         )
 }
 
-/// For a geometry drawing exactly one raster mesh: that mesh's image-to-rig matrix and every
-/// bone's bind pivot (rig blocks).
+/// For one raster mesh: image columns, unit extrusion depth and rows to the rig frame,
+/// followed by every bone's bind pivot (rig blocks).
 pub fn attachable_raster_frame(
     assets: &RuntimeEntityAssets,
     geometry_index: usize,
@@ -105,9 +105,25 @@ pub fn attachable_raster_frame(
         return None;
     }
     Some((
-        raster_matrix(geometry, bone, mesh, texture),
+        unit_depth_frame(
+            raster_matrix(geometry, bone, mesh, texture),
+            texture,
+            mesh.use_pixel_depth,
+        ),
         bones.iter().map(bone_bind_pivot).collect(),
     ))
+}
+
+fn raster_depth(texture: &EquipmentTexture, use_pixel_depth: bool) -> f32 {
+    if use_pixel_depth {
+        f32::from(texture.width.max(texture.height)) / 16.0
+    } else {
+        1.0
+    }
+}
+
+fn unit_depth_frame(image_to_rig: Mat4, texture: &EquipmentTexture, use_pixel_depth: bool) -> Mat4 {
+    image_to_rig * Mat4::from_scale(Vec3::new(1.0, raster_depth(texture, use_pixel_depth), 1.0))
 }
 
 fn append_pixels(
@@ -129,11 +145,7 @@ fn append_pixels(
             && (z as usize) < height
             && texture.rgba8[(z as usize * width + x as usize) * 4 + 3] >= 2
     };
-    let depth = if use_pixel_depth {
-        width.max(height) as f32 / 16.0
-    } else {
-        1.0
-    };
+    let depth = raster_depth(texture, use_pixel_depth);
     for z in 0..height {
         for x in 0..width {
             if !opaque(x as isize, z as isize) {
@@ -196,6 +208,50 @@ fn append_pixels(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn java_raster_keeps_one_sixteenth_depth_at_every_texture_resolution() {
+        use crate::java_animation::{JavaHand, JavaItemMesh, first_person_item};
+
+        for (width, height) in [(16, 16), (32, 64), (128, 128)] {
+            let texture = EquipmentTexture {
+                identifier: "test:bow".into(),
+                width,
+                height,
+                rgba8: vec![255; usize::from(width) * usize::from(height) * 4].into(),
+            };
+            for use_pixel_depth in [false, true] {
+                let image_to_rig = Mat4::from_translation(Vec3::new(0.2, 0.7, -0.1))
+                    * Mat4::from_rotation_x(0.4)
+                    * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
+                let mut vertices = Vec::new();
+                append_pixels(&mut vertices, &texture, 0, image_to_rig, use_pixel_depth).unwrap();
+                let hand = JavaHand {
+                    swing: 0.0,
+                    equip: 1.0,
+                    using: None,
+                };
+                let native = first_person_item(hand, JavaItemMesh::Raster { width, height }, false)
+                    * unit_depth_frame(image_to_rig, &texture, use_pixel_depth).inverse();
+                let frame = first_person_item(hand, JavaItemMesh::Sprite, false);
+                let expected_front = frame.transform_point3(Vec3::ZERO);
+                let expected_back = frame.transform_point3(Vec3::new(0.0, 0.0, -1.0 / 16.0));
+                let front = image_to_rig.transform_point3(Vec3::new(0.0, 0.0, f32::from(height)));
+                let back = image_to_rig.transform_point3(Vec3::new(
+                    0.0,
+                    raster_depth(&texture, use_pixel_depth),
+                    f32::from(height),
+                ));
+                assert!(
+                    vertices
+                        .iter()
+                        .any(|v| Vec3::from_array(v.position).abs_diff_eq(back, 1e-5))
+                );
+                assert!(native.transform_point3(front).distance(expected_front) < 1e-5);
+                assert!(native.transform_point3(back).distance(expected_back) < 1e-5);
+            }
+        }
+    }
 
     #[test]
     fn raster_depth_and_alpha_follow_native_tessellator() {

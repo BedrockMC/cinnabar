@@ -1,6 +1,7 @@
 //! First-person hand frame publication, including independent main/offhand artwork.
 
 use super::*;
+use crate::presentation::equipment::ActorEquipmentInput;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
 /// below the camera; the pack's first-person arm offsets are authored for that facing.
@@ -119,6 +120,107 @@ pub(super) struct HandSource {
     pub(super) motion: Mat4,
     /// Camera from the body's rig frame under Java's empty-hand stack.
     pub(super) java_body_camera: Option<Mat4>,
+}
+
+/// Inputs shared by the built-in hand stacks and authored attachables.
+pub(super) struct HandInputs<'a> {
+    pub(super) stream: &'a WorldStream,
+    pub(super) presentation: ActorRigPresentation,
+    pub(super) equipment_input: &'a ActorEquipmentInput,
+    pub(super) owner_equipment: &'a ActorEquipmentInput,
+    pub(super) consume_ticks: Option<u32>,
+    pub(super) item_animation: Option<client_world::AttachableAnimationInput<'static>>,
+    pub(super) alpha: f32,
+    pub(super) artwork: &'a render::ActorArtworkPages,
+    pub(super) motion: Mat4,
+}
+
+pub(super) fn vanilla_hand_source(
+    inputs: HandInputs<'_>,
+    equipment: &mut EquipmentRuntime,
+    hand: FirstPersonHand,
+) -> Option<HandSource> {
+    let HandInputs {
+        stream,
+        presentation,
+        equipment_input,
+        owner_equipment,
+        item_animation,
+        alpha,
+        artwork,
+        motion,
+        ..
+    } = inputs;
+    let runtime_id = presentation.submission.input.identity.runtime_id;
+    let rig = stream.authority().actor_rig(runtime_id)?;
+    let items = std::array::from_fn(|index| {
+        let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
+        let modern = item_animation.and_then(|mut render_input| {
+            render_input.frame_alpha = alpha;
+            let render_input =
+                attachable_hand_input(equipment_input, owner_equipment, render_input, index == 1);
+            equipment.first_person_attachable(
+                &presentation.submission,
+                item,
+                stream.authority().actor(runtime_id)?,
+                &rig,
+                render_input,
+                None,
+            )
+        });
+        let layer = modern.or_else(|| {
+            if index == 0 {
+                equipment.first_person_item(&presentation.submission, item, hand)
+            } else {
+                equipment.first_person_offhand(&presentation.submission, item)
+            }
+        })?;
+        let atlas = item_atlas(&layer, artwork)?;
+        Some((layer, atlas))
+    });
+    let arms = FirstPersonArms::for_hands(
+        equipment_input
+            .main
+            .as_ref()
+            .map(|item| item.identifier.as_ref()),
+        equipment_input
+            .off
+            .as_ref()
+            .map(|item| item.identifier.as_ref()),
+    )
+    .with_undrawn_main(items[0].is_some());
+    let body = equipment.mask_first_person(&presentation.submission, arms);
+    (body.is_some() || items.iter().any(Option::is_some)).then_some(HandSource {
+        presentation,
+        body,
+        items,
+        motion,
+        java_body_camera: None,
+    })
+}
+
+/// An outgoing main draw stays idle in its retained item frame; the offhand reads the actual
+/// owner's equipment and main-hand use timing.
+pub(super) fn attachable_hand_input<'a>(
+    rendered: &'a ActorEquipmentInput,
+    owner: &'a ActorEquipmentInput,
+    timing: client_world::AttachableAnimationInput<'a>,
+    off_hand: bool,
+) -> client_world::AttachableAnimationInput<'a> {
+    let selected = rendered.main.as_ref().map(|item| &item.identifier)
+        == owner.main.as_ref().map(|item| &item.identifier);
+    let timing = if off_hand || selected {
+        timing
+    } else {
+        client_world::AttachableAnimationInput {
+            animation_frame: 0,
+            use_elapsed_ticks: None,
+            hand_charged: false,
+            ..timing
+        }
+    };
+    let equipment = if off_hand { owner } else { rendered };
+    equipment.attachable_input(timing.for_hand(off_hand))
 }
 
 /// The artwork page an item layer samples, as the hand pass binds it.

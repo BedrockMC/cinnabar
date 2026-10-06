@@ -545,10 +545,11 @@ pub fn prepare_actor_render_frame(
                 .as_deref()
                 .map_or(Mat4::IDENTITY, hand_motion_matrix);
             if java_mode {
-                let inputs = java::HandInputs {
+                let inputs = hand::HandInputs {
                     stream,
                     presentation: presentation.clone(),
                     equipment_input: &equipment_input,
+                    owner_equipment: &equipment_input,
                     consume_ticks,
                     item_animation,
                     alpha: step.partial_tick,
@@ -567,52 +568,21 @@ pub fn prepare_actor_render_frame(
                 },
                 |rig| hand_progress(rig.hand, consume_ticks, step.partial_tick),
             );
-            let items = std::array::from_fn(|index| {
-                let item = [equipment_input.main.as_ref(), equipment_input.off.as_ref()][index]?;
-                let rig = stream.authority().actor_rig(local_runtime_id)?;
-                let modern = item_animation.and_then(|mut render_input| {
-                    render_input.frame_alpha = step.partial_tick;
-                    let render_input =
-                        equipment_input.attachable_input(render_input.for_hand(index == 1));
-                    equipment.first_person_attachable(
-                        &presentation.submission,
-                        item,
-                        stream.authority().actor(local_runtime_id)?,
-                        &rig,
-                        render_input,
-                        None,
-                    )
-                });
-                let layer = modern.or_else(|| {
-                    if index == 0 {
-                        equipment.first_person_item(&presentation.submission, item, hand)
-                    } else {
-                        equipment.first_person_offhand(&presentation.submission, item)
-                    }
-                })?;
-                let atlas = hand::item_atlas(&layer, artwork)?;
-                Some((layer, atlas))
-            });
-            // Provisional: vanilla draws every held item; an undrawable one shows the bare arm.
-            let arms = FirstPersonArms::for_hands(
-                equipment_input
-                    .main
-                    .as_ref()
-                    .map(|item| item.identifier.as_ref()),
-                equipment_input
-                    .off
-                    .as_ref()
-                    .map(|item| item.identifier.as_ref()),
+            hand::vanilla_hand_source(
+                hand::HandInputs {
+                    stream,
+                    presentation,
+                    equipment_input: &equipment_input,
+                    owner_equipment: &equipment_input,
+                    consume_ticks,
+                    item_animation,
+                    alpha: step.partial_tick,
+                    artwork,
+                    motion,
+                },
+                equipment,
+                hand,
             )
-            .with_undrawn_main(items[0].is_some());
-            let body = equipment.mask_first_person(&presentation.submission, arms);
-            (body.is_some() || items.iter().any(Option::is_some)).then_some(HandSource {
-                presentation,
-                body,
-                items,
-                motion,
-                java_body_camera: None,
-            })
         })
     } else {
         None
@@ -787,13 +757,12 @@ pub fn prepare_actor_render_frame(
             artwork,
             |runtime_id| {
                 let rig = stream.authority().actor_rig(runtime_id)?;
-                Some(match java::posed(&java_posed, runtime_id) {
-                    Some(posed) => client_world::ActorRigSnapshot {
-                        skin_layers: &posed.skin_layers,
-                        ..rig
-                    },
-                    None => rig,
-                })
+                let emote = (runtime_id == local_runtime_id)
+                    .then_some(local_emote_pose.as_ref())
+                    .flatten();
+                let java_layers =
+                    java::posed(&java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());
+                Some(emote_geometry::skin_layer_snapshot(rig, emote, java_layers))
             },
             &mut skin_rigs,
             |geometry| new_geometries.push(geometry),

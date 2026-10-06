@@ -93,6 +93,7 @@ pub fn advance_presentation_state(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    client_world: Option<crate::observations::WorldObservation<'_>>,
     physics: Option<&dyn crate::observations::PhysicsObservation>,
     mut bob: ResMut<WalkBobState>,
     mut sway: ResMut<HandSwayState>,
@@ -110,6 +111,17 @@ pub fn advance_presentation_state(
     sway.advance(pitch, yaw, dt);
     if settings.feel().java_animations {
         let look = [-pitch.to_degrees(), -yaw.to_degrees()];
+        let alive = client_world
+            .as_ref()
+            .and_then(|world| world.stream)
+            .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+            .is_none_or(|actor| {
+                !actor.status.dead
+                    && actor
+                        .attributes
+                        .get("minecraft:health")
+                        .is_none_or(|health| health.current > 0.0)
+            });
         if let Some(physics) = physics
             && let Some(state) = physics.state()
         {
@@ -120,8 +132,10 @@ pub fn advance_presentation_state(
             java.advance(JavaCameraTick {
                 tick: state.tick,
                 position: vector(state.position),
-                velocity: vector(state.velocity).as_vec3(),
+                velocity: vector(state.velocity),
                 on_ground: state.on_ground,
+                alive,
+                riding: matches!(physics.mode(), sim::MovementMode::Riding),
                 walks: !matches!(
                     physics.mode(),
                     sim::MovementMode::Flying | sim::MovementMode::Riding
