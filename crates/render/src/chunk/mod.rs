@@ -88,7 +88,7 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod gpu_cull;
-pub(crate) use gpu_cull::TerrainPassLabel;
+pub(crate) use gpu_cull::{GpuCullLateLabel, TerrainPassLabel, admit_depth_sampling};
 mod instance;
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;
@@ -102,7 +102,7 @@ pub use instance::ChunkRenderInstance;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
-mod transparent;
+pub(crate) mod transparent;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
@@ -250,10 +250,6 @@ pub use textures::{
 #[allow(unused_imports)]
 use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
 #[allow(unused_imports)]
-use transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws, transparent_liquid_phase_distance,
-};
-#[allow(unused_imports)]
 use transparent::model::{
     TransparentModelAddressIdentity, TransparentModelAllocationIdentity,
     TransparentModelCandidateCache, TransparentModelSortBatch, TransparentModelSortCandidate,
@@ -274,7 +270,6 @@ use transparent::retirement::{
     transparent_snapshot_references_allocation,
     transparent_snapshot_references_resident_allocation, transparent_view_missing_witness_keys,
 };
-
 pub use transparent::sort::{
     DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME, MAX_MODEL_WITNESS_KEYS, MAX_TRANSPARENT_DRAW_REFS,
     MAX_TRANSPARENT_VIEWS, MAX_TRANSPARENT_WITNESS_KEYS, PackedTransparentDrawRef,
@@ -287,7 +282,7 @@ pub use transparent::sort::{
 use transparent::sort::{
     INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
     MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
-    TransparentGroupInput, TransparentGroupOrder, TransparentLiquidPhaseGroup,
+    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, TransparentLiquidPhaseGroup,
     TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
     TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
     ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,

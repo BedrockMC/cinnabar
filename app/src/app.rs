@@ -61,7 +61,8 @@ use crate::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
             NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, receive_network_events, spawn_network,
+            publish_actor_render_frame, publish_entity_shadows, receive_network_events,
+            spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
@@ -241,7 +242,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            publish_actor_render_frame.in_set(ClientFrameSet::ActorPublication),
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
         )
         .add_systems(
             Update,
@@ -416,6 +419,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
     crate::runtime::network::set_compile_cache_dir(layout.compiled_pack_cache_dir());
+    crate::runtime::network::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -602,6 +606,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             address,
             None,
             client_blob_cache.enables_upstream_client_cache(),
+            false,
         )
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
@@ -863,6 +868,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::ScreenOverlayRenderPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
+        render::EntityShadowRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,

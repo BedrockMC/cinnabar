@@ -35,7 +35,7 @@ impl DecoderLease {
         DECODER_ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
-            .then_some(Self(()))
+            .then(|| Self(()))
     }
 
     /// Whether a new decoder could start now.
@@ -268,13 +268,30 @@ fn watchdog(pid: u32, child: &SharedChild, cancelled: &AtomicBool, over: &Atomic
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::media::ranges::tests::{MemoryChunks, descriptor_for};
+
+    /// Held by every test that claims the process-wide decoder slot, until it is free again.
+    pub(crate) static DECODER_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn a_refused_acquisition_leaves_the_owner_holding_the_slot() {
+        let _slot = DECODER_SLOT.lock();
+        let owner = DecoderLease::acquire().unwrap();
+        assert!(DecoderLease::acquire().is_none());
+        assert!(
+            !DecoderLease::free(),
+            "a refused claim released the owner's slot"
+        );
+        drop(owner);
+        assert!(DecoderLease::free());
+    }
 
     #[cfg(unix)]
     #[test]
     fn a_helper_that_dies_reports_failure_and_frees_the_decoder_slot() {
+        let _slot = DECODER_SLOT.lock();
         let bytes = vec![0u8; 1000];
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "head -c 4 >/dev/null; exit 3"]);

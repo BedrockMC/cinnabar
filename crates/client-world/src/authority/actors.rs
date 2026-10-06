@@ -105,6 +105,17 @@ impl WorldAuthority {
     pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         self.actors.set_fluids(samples);
     }
+    /// Records `(runtime_id, submerged)` breathing-point samples that hide entity shadows.
+    pub fn set_actor_breathing_liquids(&mut self, samples: &[(u64, bool)]) {
+        self.actors.set_breathing_liquids(samples);
+    }
+    /// Every actor's entity-shadow caster at `partial_tick`, local player included.
+    pub fn actor_shadow_casters(
+        &self,
+        partial_tick: f32,
+    ) -> impl Iterator<Item = crate::ActorShadowCaster> + '_ {
+        self.actors.shadow_casters(partial_tick)
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.actors.set_camera_rotation(rotation);
@@ -195,6 +206,12 @@ impl WorldAuthority {
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
+    }
+    /// Borrows controller states that completed authored actor animation evaluation.
+    pub fn actor_particle_controllers(
+        &self,
+    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+        self.actors.actor_particle_controllers()
     }
     /// Returns counters from the authoritative actor animation runtime.
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {

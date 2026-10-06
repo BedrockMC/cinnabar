@@ -26,14 +26,14 @@ import (
 func countingServiceDeps(exchanges *atomic.Int32, deviceIDs chan<- string) derivedDeps {
 	return derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
-		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID string) service.TokenSource {
+		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID, sessionID string) service.TokenSource {
 			if deviceIDs != nil {
 				deviceIDs <- deviceID
 			}
 			return fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
 				exchanges.Add(1)
 				return testServiceToken(time.Now().Add(time.Hour)), nil
-			})(env, tickets, token, deviceID)
+			})(env, tickets, token, deviceID, sessionID)
 		},
 	}
 }

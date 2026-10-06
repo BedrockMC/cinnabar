@@ -159,6 +159,10 @@ impl WorldStream {
     pub fn set_actor_fluids(&mut self, samples: &[(u64, bool, bool)]) {
         self.authority.set_actor_fluids(samples)
     }
+    /// Records `(runtime_id, submerged)` breathing-point samples that hide entity shadows.
+    pub fn set_actor_breathing_liquids(&mut self, samples: &[(u64, bool)]) {
+        self.authority.set_actor_breathing_liquids(samples)
+    }
     /// Sets the view `[pitch, yaw]` (degrees) that camera-facing billboard rigs sample per tick.
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.authority.set_actor_camera_rotation(rotation)

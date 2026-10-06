@@ -1,3 +1,6 @@
+#[path = "../../src/chunk/constants.rs"]
+#[allow(dead_code, reason = "reuse the production quad index order")]
+mod chunk_constants;
 #[path = "support/gpu_snapshot.rs"]
 mod gpu_snapshot;
 #[path = "../../src/material_shader.rs"]
@@ -28,6 +31,7 @@ mod cloud_config;
 mod cloud_render;
 mod dragon_death_rays;
 mod end_sky;
+mod entity_shadow;
 mod gpu_culling;
 mod item_particle_lighting;
 mod leaf_colour;

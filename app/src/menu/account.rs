@@ -126,7 +126,6 @@ impl MenuRuntime {
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
         self.featured = catalog.featured;
-        self.gatherings = catalog.gatherings;
         self.realms = catalog.realms;
         self.friends = catalog.friends.into_iter().map(Into::into).collect();
         // Service errors may contain URLs, response bodies, or account material.
@@ -377,6 +376,7 @@ mod tests {
         assert_eq!(
             offline_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -413,6 +413,7 @@ mod tests {
         assert_eq!(
             authenticated_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),
@@ -444,6 +445,7 @@ mod tests {
         assert_eq!(
             enabled_args,
             [
+                OsString::from("-control-status"),
                 OsString::from("-socket-dir"),
                 OsString::from("run with spaces"),
                 OsString::from("-upstream"),

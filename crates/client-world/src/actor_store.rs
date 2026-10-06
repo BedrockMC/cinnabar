@@ -19,15 +19,18 @@ pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
-// Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
+// Metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
-const SCALE_METADATA_KEY: u32 = 38;
+/// Raw server actor scale, applied independently of the visual definition's scale.
+pub const SCALE_METADATA_KEY: u32 = 38;
 const NAMETAG_METADATA_KEY: u32 = 4;
-const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
-const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
-/// `minecraft:collision_box` in the vanilla `player.json` definition.
-const PLAYER_COLLISION_WIDTH: f32 = 0.6;
-const PLAYER_COLLISION_HEIGHT: f32 = 1.8;
+pub(crate) const VARIANT_METADATA_KEY: u32 = 2;
+/// Unscaled actor collision width supplied by the server.
+pub const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
+/// Unscaled actor collision height supplied by the server.
+pub const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
+const DEFAULT_ACTOR_COLLISION_WIDTH: f32 = 0.6;
+const DEFAULT_ACTOR_COLLISION_HEIGHT: f32 = 1.8;
 pub(crate) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
@@ -39,6 +42,7 @@ const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SWIMMING: u32 = 57;
 const ACTOR_FLAG_USING_ITEM: u32 = 4;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
+pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
@@ -307,19 +311,31 @@ impl ActorSnapshot {
         self.head_yaw = pose.head_yaw;
     }
 
-    /// Feet-anchored `(min, max)` box from the width and height metadata; a player
-    /// missing either falls back to its definition's collision box.
+    /// Feet-anchored `(min, max)` box with server scale applied once.
+    /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
         let player = matches!(self.kind, ActorKind::Player { .. });
-        let dimension = |key, player_default| match self.metadata.get(&key) {
+        let dimension = |key, default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
                 Some(*value)
             }
-            _ => player.then_some(player_default),
+            Some(ActorMetadataValue::Float(_)) => player.then_some(default),
+            _ => Some(default),
         };
-        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY, PLAYER_COLLISION_WIDTH)? * 0.5;
-        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY, PLAYER_COLLISION_HEIGHT)?;
+        let scale = self.render_scale();
+        let half_width = dimension(
+            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            DEFAULT_ACTOR_COLLISION_WIDTH,
+        )? * scale
+            * 0.5;
+        let height = dimension(
+            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            DEFAULT_ACTOR_COLLISION_HEIGHT,
+        )? * scale;
+        if !half_width.is_finite() || !height.is_finite() {
+            return None;
+        }
         let [x, y, z] = self.position;
         Some((
             [x - half_width, y, z - half_width],
@@ -366,11 +382,11 @@ impl ActorSnapshot {
     }
 
     /// The server-set render scale (metadata `Scale`), multiplying the model's own scale; an
-    /// absent, non-finite or non-positive value reads 1.
+    /// absent, non-finite or negative value reads 1. Zero hides the body while retaining its actor.
     #[must_use]
     pub fn render_scale(&self) -> f32 {
         match self.metadata.get(&SCALE_METADATA_KEY) {
-            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale > 0.0 => *scale,
+            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }
     }
@@ -511,6 +527,7 @@ pub struct PlayerProfile {
 /// when the flag word holding it was absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MovementFlagUpdate {
+    pub immobile: Option<bool>,
     pub sneaking: Option<bool>,
     pub sprinting: Option<bool>,
     pub gliding: Option<bool>,
@@ -546,6 +563,7 @@ impl MovementFlagUpdate {
             flags.map(|flags| flags & (1_u64 << bit) != 0)
         };
         Some(Self {
+            immobile: bit(ACTOR_FLAG_IMMOBILE),
             sneaking: bit(ACTOR_FLAG_SNEAKING),
             sprinting: bit(ACTOR_FLAG_SPRINTING),
             gliding: bit(ACTOR_FLAG_GLIDING),
@@ -673,6 +691,7 @@ mod placement;
 mod projectile;
 pub(crate) mod properties;
 mod query;
+mod shadow;
 mod synchronized_audio;
 mod terrain_interlock;
 
@@ -686,8 +705,10 @@ pub use hurt::{
     HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
+pub(crate) use placement::FLAG_BABY;
 pub use placement::{ActorFluidProbe, RideSeat, SeatDefaults, SeatRequirement};
 pub use properties::PropertyDefault;
+pub use shadow::ActorShadowCaster;
 
 fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
     match skin {
@@ -741,3 +762,12 @@ mod velocity_tests;
 
 #[cfg(test)]
 mod movement_duration_tests;
+
+#[cfg(test)]
+mod scale_tests;
+
+#[cfg(test)]
+mod bounds_tests;
+
+#[cfg(test)]
+mod movement_flags_tests;

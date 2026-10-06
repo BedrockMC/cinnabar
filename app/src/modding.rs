@@ -30,6 +30,10 @@ const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 #[cfg(feature = "local-mods")]
 const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
 #[cfg(feature = "local-mods")]
+const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
+#[cfg(feature = "local-mods")]
+const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
+#[cfg(feature = "local-mods")]
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
 #[cfg(feature = "local-mods")]
 const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
@@ -38,6 +42,8 @@ const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
 const COMMANDS_ENV: &str = "CINNABAR_MOD_COMMANDS";
 #[cfg(feature = "local-mods")]
 const PACKET_DELAY_ENV: &str = "CINNABAR_MOD_PACKET_DELAY";
+#[cfg(feature = "local-mods")]
+const PACKET_DELAY_VISUAL_ENV: &str = "CINNABAR_MOD_PACKET_DELAY_VISUAL";
 #[cfg(feature = "local-mods")]
 const DEMO_KEY: KeyCode = KeyCode::F8;
 #[cfg(feature = "local-mods")]
@@ -114,6 +120,8 @@ fn configure(app: &mut App, path: Option<&Path>) {
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
         render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
+        block_highlights: std::env::var(BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1"),
+        fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
         render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
         entities: std::env::var(ENTITIES_ENV).is_ok_and(|value| value == "1"),
         commands: std::env::var(COMMANDS_ENV)
@@ -125,7 +133,8 @@ fn configure(app: &mut App, path: Option<&Path>) {
                     .collect()
             })
             .unwrap_or_default(),
-        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1"),
+        packet_delay: std::env::var(PACKET_DELAY_ENV).is_ok_and(|value| value == "1")
+            || std::env::var(PACKET_DELAY_VISUAL_ENV).is_ok_and(|value| value == "1"),
     };
     configure_with_grants(app, path, grants);
 }
@@ -188,6 +197,9 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 
 #[cfg(feature = "local-mods")]
 fn configure_systems(app: &mut App, watching: bool) {
+    ghost::configure(app);
+    block_highlights::configure(app);
+    fullbright::configure(app);
     app.init_resource::<ModCueFeed>()
         .add_plugins(::render::ModRenderPlugin)
         .add_systems(Update, render::grant_depth_sampling);
@@ -216,10 +228,19 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );
-    app.add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
+    app.init_resource::<packet_delay::RealPositionSnapshot>()
+        .add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
 }
 
 /// Runs the bounded guest and publishes only its validated presentation output.
+/// Where a mod's network, camera and cue output lands.
+#[cfg(feature = "local-mods")]
+type ModOutputs<'w> = (
+    Option<Res<'w, crate::runtime::network::NetworkHandle>>,
+    Option<ResMut<'w, crate::camera::CameraSettingsAuthority>>,
+    Option<ResMut<'w, ModCueFeed>>,
+);
+
 #[allow(
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
@@ -238,11 +259,7 @@ fn drive_mod(
     interaction: Option<ResMut<interaction::ModInteraction>>,
     watcher: Option<Res<registration::Watcher>>,
     render_scene: Option<ResMut<::render::ModRenderScene>>,
-    mut outputs: (
-        Option<Res<crate::runtime::network::NetworkHandle>>,
-        Option<ResMut<crate::camera::CameraSettingsAuthority>>,
-        Option<ResMut<ModCueFeed>>,
-    ),
+    mut outputs: ModOutputs,
 ) {
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
         (extension, time_override, interaction)
@@ -456,12 +473,18 @@ mod tests {
 mod time_changer_tests;
 
 #[cfg(feature = "local-mods")]
+pub(crate) mod block_highlights;
+#[cfg(feature = "local-mods")]
+pub(super) mod fullbright;
+#[cfg(feature = "local-mods")]
 mod gameplay;
+#[cfg(feature = "local-mods")]
+pub(crate) mod ghost;
 #[cfg(feature = "local-mods")]
 mod input;
 #[cfg(feature = "local-mods")]
 pub(crate) mod interaction;
 #[cfg(feature = "local-mods")]
-mod packet_delay;
+pub(crate) mod packet_delay;
 #[cfg(feature = "local-mods")]
 mod render;

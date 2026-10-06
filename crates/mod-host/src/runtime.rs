@@ -14,6 +14,8 @@ wasmtime::component::bindgen!({
 });
 
 const MAX_IMPORT_WRITES: u32 = 8;
+#[path = "block_highlights.rs"]
+mod block_highlights;
 #[path = "controls.rs"]
 mod controls;
 #[path = "gameplay.rs"]
@@ -30,6 +32,8 @@ struct State {
     grants: ModGrants,
     time_override: Option<u32>,
     pending_time: Option<Option<u32>>,
+    fullbright: bool,
+    pending_fullbright: Option<bool>,
     environment_writes: u32,
     snapshot: Option<GameplaySnapshot>,
     gameplay_reads: u32,
@@ -39,9 +43,12 @@ struct State {
     packet_delay_ms: u32,
     pending_packet_delay: Option<u32>,
     packet_delay_writes: u32,
+    show_real_position: bool,
+    pending_show_real_position: Option<bool>,
     controls: controls::ControlState,
     world: gameplay::WorldState,
     render: render::RenderState,
+    block_highlights: block_highlights::HighlightState,
 }
 
 impl State {
@@ -62,6 +69,8 @@ impl State {
             grants,
             time_override: None,
             pending_time: None,
+            fullbright: false,
+            pending_fullbright: None,
             environment_writes: 0,
             snapshot: None,
             gameplay_reads: 0,
@@ -71,9 +80,12 @@ impl State {
             packet_delay_ms: 0,
             pending_packet_delay: None,
             packet_delay_writes: 0,
+            show_real_position: false,
+            pending_show_real_position: None,
             controls: controls::ControlState::new(settings),
             world: gameplay::WorldState::default(),
             render: render::RenderState::new(),
+            block_highlights: block_highlights::HighlightState::default(),
         }
     }
 }
@@ -94,6 +106,18 @@ impl cinnabar::extension::hud::Host for State {
 }
 
 impl cinnabar::extension::environment::Host for State {
+    fn set_fullbright(&mut self, enabled: bool) -> Result<Result<(), String>> {
+        self.environment_writes += 1;
+        if self.environment_writes > MAX_IMPORT_WRITES {
+            bail!("environment import budget exhausted");
+        }
+        if !self.grants.fullbright {
+            return Ok(Err("fullbright capability denied".into()));
+        }
+        self.pending_fullbright = Some(enabled);
+        Ok(Ok(()))
+    }
+
     /// Stages a fixed visual clock only with explicit authority and a valid tick.
     fn set_time_override(&mut self, ticks: Option<u32>) -> Result<Result<(), String>> {
         self.environment_writes += 1;
@@ -171,8 +195,11 @@ impl Instance {
         state.camera_delta = None;
         state.pending_packet_delay = None;
         state.packet_delay_writes = 0;
+        state.pending_show_real_position = None;
+        state.pending_fullbright = None;
         state.controls.begin_frame();
         state.render.begin_frame();
+        state.block_highlights.begin_frame();
         state.world.begin_frame();
         if !self.active {
             return Ok(());
@@ -198,14 +225,19 @@ impl Instance {
             self.store.data_mut().label = None;
             self.store.data_mut().pending_time = None;
             self.store.data_mut().time_override = None;
+            self.store.data_mut().fullbright = false;
+            self.store.data_mut().pending_fullbright = None;
             self.store.data_mut().snapshot = None;
             self.store.data_mut().pending_camera = None;
             self.store.data_mut().camera_delta = None;
             self.store.data_mut().controls.revoke();
             self.store.data_mut().render.revoke();
+            self.store.data_mut().block_highlights.revoke();
             self.store.data_mut().world = gameplay::WorldState::default();
             self.store.data_mut().packet_delay_ms = 0;
             self.store.data_mut().pending_packet_delay = None;
+            self.store.data_mut().show_real_position = false;
+            self.store.data_mut().pending_show_real_position = None;
             bail!("mod quarantined after a guest trap: {error:#}");
         }
         commit(&mut self.store);
@@ -239,6 +271,15 @@ impl Instance {
 
     pub(super) fn packet_delay_ms(&self) -> u32 {
         self.store.data().packet_delay_ms
+    }
+    pub(super) fn fullbright(&self) -> bool {
+        self.store.data().fullbright
+    }
+    pub(super) fn block_highlights(&self) -> Option<&mod_api::BlockHighlightSpec> {
+        self.store.data().block_highlights.committed.as_ref()
+    }
+    pub(super) fn show_real_position(&self) -> bool {
+        self.store.data().show_real_position
     }
 
     /// Reads the committed presentation clock without entering the component.
@@ -290,10 +331,17 @@ fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.controls.commit();
     state.render.commit();
+    state.block_highlights.commit();
     state.world.commit();
     state.camera_delta = state.pending_camera.take();
     if let Some(delay) = state.pending_packet_delay.take() {
         state.packet_delay_ms = delay;
+    }
+    if let Some(show) = state.pending_show_real_position.take() {
+        state.show_real_position = show;
+    }
+    if let Some(enabled) = state.pending_fullbright.take() {
+        state.fullbright = enabled;
     }
     if let Some(ticks) = state.pending_time.take() {
         state.time_override = ticks;

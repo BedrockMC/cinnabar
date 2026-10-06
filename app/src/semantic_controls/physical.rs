@@ -396,8 +396,8 @@ fn gamepad_button_codes(gamepad: &Gamepad) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, collect_raw_input, input_source_gates,
-        keyboard_usage, mouse_button_code, select_lowest_by_key,
+        KEYBOARD_USAGES, PendingDeviceFrame, TRANSLATED_GAMEPAD_BUTTONS, collect_raw_input,
+        input_source_gates, keyboard_usage, mouse_button_code, select_lowest_by_key,
     };
     use bevy::prelude::{KeyCode, MouseButton};
     use bevy::{
@@ -411,42 +411,6 @@ mod tests {
     };
 
     use crate::semantic_controls::SemanticTouchTargets;
-
-    /// Exactly the keys this translation layer claims to support. A default
-    /// binding naming a usage outside this set is dead input: the player
-    /// presses the key, nothing happens, and nothing reports why.
-    const TRANSLATED_KEYS: &[KeyCode] = &[
-        KeyCode::KeyA,
-        KeyCode::KeyD,
-        KeyCode::KeyS,
-        KeyCode::KeyW,
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9,
-        KeyCode::Escape,
-        KeyCode::Space,
-        KeyCode::Tab,
-        KeyCode::Enter,
-        KeyCode::ArrowUp,
-        KeyCode::ArrowDown,
-        KeyCode::ArrowLeft,
-        KeyCode::ArrowRight,
-        KeyCode::F5,
-        KeyCode::ControlLeft,
-        KeyCode::ShiftLeft,
-        KeyCode::AltLeft,
-        KeyCode::SuperLeft,
-        KeyCode::ControlRight,
-        KeyCode::ShiftRight,
-        KeyCode::AltRight,
-        KeyCode::SuperRight,
-    ];
 
     const TRANSLATED_MOUSE_BUTTONS: &[MouseButton] = &[
         MouseButton::Left,
@@ -465,9 +429,9 @@ mod tests {
     /// Touch reachability is tracked as an open gap, not proven here.
     #[test]
     fn default_binding_reachability_is_explicit_for_every_device_family() {
-        let usages = TRANSLATED_KEYS
+        let usages = KEYBOARD_USAGES
             .iter()
-            .filter_map(|key| keyboard_usage(*key))
+            .filter_map(|(key, _)| keyboard_usage(*key))
             .collect::<Vec<_>>();
         let buttons = TRANSLATED_MOUSE_BUTTONS
             .iter()
@@ -512,9 +476,9 @@ mod tests {
     /// mapping typo cannot quietly alias two keys onto one action.
     #[test]
     fn translated_keys_map_to_distinct_usages() {
-        let mut usages = TRANSLATED_KEYS
+        let mut usages = KEYBOARD_USAGES
             .iter()
-            .filter_map(|key| keyboard_usage(*key))
+            .filter_map(|(key, _)| keyboard_usage(*key))
             .collect::<Vec<_>>();
         let translated = usages.len();
         usages.sort_unstable();

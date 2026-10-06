@@ -113,7 +113,7 @@ pub(in crate::chunk) fn draw_function_ids(
 pub(in crate::chunk) struct GpuCullEarlyLabel;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub(in crate::chunk) struct GpuCullLateLabel;
+pub(crate) struct GpuCullLateLabel;
 
 pub(super) fn install_graph(world: &mut World) {
     let early = bevy::render::render_graph::ViewNodeRunner::new(EarlyCullNode, world);
@@ -136,6 +136,16 @@ pub(super) fn install_graph(world: &mut World) {
         GpuCullLateLabel,
         Node3d::MainTransmissivePass,
     ));
+    // A missing destination would leave a dangling output edge in the graph.
+    if graph
+        .get_node_state(crate::entity_shadow_render::EntityShadowLabel)
+        .is_ok()
+    {
+        let _ = graph.try_add_node_edge(
+            GpuCullLateLabel,
+            crate::entity_shadow_render::EntityShadowLabel,
+        );
+    }
 }
 
 /// Culls with last frame's visibility before the main opaque pass draws the result.

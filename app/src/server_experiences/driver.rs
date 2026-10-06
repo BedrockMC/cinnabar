@@ -226,7 +226,7 @@ fn present_media(
         .settings
         .as_ref()
         .is_some_and(|settings| settings.media_muted);
-    let mut screens = (Vec::new(), 0);
+    let mut scene = scene;
     if let Some(live) = &mut service.live {
         // Consent already covers playback here; the autoplay preference awaits a settings UI.
         live.media_mut()
@@ -239,13 +239,20 @@ fn present_media(
             muted,
             local_us,
         );
-        screens = (live.screens(), live.gpu_budget_bytes());
-    }
-    if let Some(mut scene) = scene
-        && (!screens.0.is_empty() || !scene.screens.is_empty())
+        let budget = live.gpu_budget_bytes();
+        // Writes only on change, so an unchanged scene neither allocates nor re-extracts.
+        if let Some(screens) = live.changed_screens()
+            && let Some(scene) = scene.as_mut()
+            && (!screens.is_empty() || !scene.screens.is_empty())
+        {
+            scene.screens.clear();
+            scene.screens.extend_from_slice(screens);
+            scene.gpu_budget_bytes = budget;
+        }
+    } else if let Some(scene) = scene.as_mut()
+        && !scene.screens.is_empty()
     {
-        scene.screens = screens.0;
-        scene.gpu_budget_bytes = screens.1;
+        scene.screens.clear();
     }
 }
 
