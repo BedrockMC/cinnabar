@@ -808,16 +808,38 @@ mod tests {
                 }
             })
             .collect();
+        let row = |role: &'static str, offers: &[protocol::store_control::StoreOffer]| {
+            launcher::store::DisplayRow {
+                id: None,
+                title: String::new(),
+                role,
+                offers: offers.to_vec(),
+                continuation: None,
+            }
+        };
+        // A plain page, and one leading with two hero rows whose feature tiles decode larger.
+        let layouts = [
+            vec![row("StoreRow", &offers)],
+            vec![
+                row("HeroRow", &offers[..5]),
+                row("HeroRow", &offers[5..10]),
+                row("StoreRow", &offers[10..]),
+            ],
+        ];
+        for rows in layouts {
+            assert_store_page_packs(rows, images.clone());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn assert_store_page_packs(
+        rows: Vec<launcher::store::DisplayRow>,
+        images: HashMap<String, String>,
+    ) {
         let mut view = crate::menu::MenuView::new(true, "Fixture Player".into());
         view.screen = crate::menu::MenuScreen::Store;
         view.store = Some(Arc::new(crate::store::StoreSnapshot {
-            rows: vec![launcher::store::DisplayRow {
-                id: None,
-                title: String::new(),
-                role: "StoreRow",
-                offers,
-                continuation: None,
-            }],
+            rows,
             images,
             ..crate::store::StoreSnapshot::empty()
         }));
@@ -837,7 +859,6 @@ mod tests {
             .iter()
             .filter(|(path, _)| !packed.refs.contains_key(path))
             .collect();
-        std::fs::remove_dir_all(dir).unwrap();
         assert!(
             missing.is_empty(),
             "{} of {} thumbnails left out",

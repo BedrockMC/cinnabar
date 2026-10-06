@@ -91,13 +91,15 @@ impl StoreSnapshot {
                 .chain(detail.screenshot_urls.iter())
                 .map(|url| (url, StoreArt::Feature))
         });
-        let rows = self.rows.iter().flat_map(|row| {
+        // The first hero row's first offer is its half-width feature tile; later hero tiles stay
+        // card-sized so a page's art still fits the atlas.
+        let feature = self.rows.iter().position(|row| row.role == "HeroRow");
+        let rows = self.rows.iter().enumerate().flat_map(move |(at, row)| {
             row.offers
                 .iter()
                 .enumerate()
                 .filter_map(move |(index, offer)| {
-                    // A hero row's first offer is its half-width feature tile.
-                    let art = if row.role == "HeroRow" && index == 0 {
+                    let art = if Some(at) == feature && index == 0 {
                         StoreArt::Feature
                     } else {
                         StoreArt::Card
