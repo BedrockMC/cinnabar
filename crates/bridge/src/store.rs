@@ -105,15 +105,11 @@ pub struct StoreSearchResults {
     pub truncated: bool,
 }
 
-/// A catalog search; empty fields are omitted.
+/// A store search, or its continuation; empty fields are omitted.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct StoreSearch {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub term: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub filter: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub order_by: String,
     #[serde(skip_serializing_if = "is_zero")]
     pub count: u32,
     #[serde(skip_serializing_if = "String::is_empty")]
