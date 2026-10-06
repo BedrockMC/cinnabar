@@ -32,6 +32,7 @@ mod sanitize;
 mod source;
 mod vanilla_refs;
 mod versions;
+pub use molang::{BlockMolang, BlockStateValue};
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub use pack::{
@@ -111,6 +112,7 @@ pub fn compile_entity_assets_with_report(
     collect_family(root, "animations", &["json"], &mut selected)?;
     collect_family(root, "animation_controllers", &["json"], &mut selected)?;
     collect_family(root, "render_controllers", &["json"], &mut selected)?;
+    collect_optional_family(root, "materials", &["material"], &mut selected)?;
     collect_family(
         root,
         "textures/entity",
@@ -502,6 +504,14 @@ fn parse_source(
             symbols,
             EntityAssetKind::Attachable,
         );
+    }
+    if relative_path.starts_with("materials/") && relative_path.ends_with(".material") {
+        let value = parse_fully_unique_json(absolute_path, bytes)?;
+        return value
+            .get("materials")
+            .and_then(Value::as_object)
+            .map(|_| ())
+            .ok_or_else(|| invalid("entity material definitions must be an object"));
     }
     if relative_path.starts_with("textures/") {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {

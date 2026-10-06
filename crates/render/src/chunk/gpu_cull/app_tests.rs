@@ -154,6 +154,26 @@ fn count_capable_devices_run_the_two_phase_cull_through_the_render_graph() {
         Msaa::Sample4,
         camera_transform(),
     );
+    // The chunk-only renderer has no shadow plugin; every queued edge must still resolve.
+    let graph = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<bevy::render::render_graph::RenderGraph>()
+        .get_sub_graph(bevy::core_pipeline::core_3d::graph::Core3d)
+        .unwrap();
+    assert!(
+        graph
+            .get_node_state(crate::entity_shadow_render::EntityShadowLabel)
+            .is_err()
+    );
+    let outputs: Vec<_> = graph
+        .iter_node_outputs(node::GpuCullLateLabel)
+        .unwrap()
+        .collect();
+    assert!(outputs.iter().any(|(_, state)| state.label
+        == bevy::render::render_graph::RenderLabel::intern(
+            &bevy::core_pipeline::core_3d::graph::Node3d::MainTransmissivePass
+        )));
     insert_meshes(&mut app, &KEYS);
     let keys = KEYS;
     for _ in 0..4 {

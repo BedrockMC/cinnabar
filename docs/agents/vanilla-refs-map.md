@@ -82,11 +82,11 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - /// Whether the culler hides the box from `low` to `high` in `dimension`: as vanilla's
 - /// `isAABBVisible`, only when the cache matches graph `generation` and every sub-chunk the
 
+## core/catalog/home.go
+- Live events removed: `/api/v1.0/config/public` (GatheringServiceGetPublicGatheringsRequestHandler) exists only in the 26.30 Edu reconstruction; it is absent from the iOS 1.26.50.04 binary strings and the 1.26.50.26 Windows reconstruction, and the live service returns 404.
+
 ## core/catalog/profile_overview.go
 - // Vanilla reference: OreUI J b2, Ik, Rk, xk (docs/profile-parity.md).
-
-## core/launcher/feeds.go
-- homeTTL        = 15 * time.Minute // vanilla GatheringManager re-queues its /config/public refresh every 15 min
 
 ## core/proxy/resource_pack_admission.go
 - ConnectStageRealm      ConnectStage = "realm"      // RealmsConnectProgressHandler: the Realm lookup
@@ -94,12 +94,18 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - ConnectStagePacks      ConnectStage = "packs"      // ResourcePackProgressHandler
 
 ## core/proxy/targets.go
+- remoteServerNetwork / gophertunnel AddressNetwork: MinecraftGame::joinMultiplayerWithAddress (bool false via joinRemoteServerWithAddress; ConnectionType 1/2/8) -> ClientNetworkSystem::probeTransportLayer (URL list, port 0 => 19132 0x4abc) -> TransportProber::start (3 s "TransportProber::timeout") / _tryNextUrl (GET {url}/v1/join, Method variant index 2, 2xx) -> $_0 continuation: error => _joinMultiplayerAfterTransportLayerDetermined(..., 0 RakNet), success => host replaced by URL, TransportLayer 2 (NetherNet). 26.50 adds an https-only fast path and TofuServerIdentityVerifier for http:// results.
+- HTTP signaling: ClientNetherNetConnector::connect (types 1/2/8 build HttpSignalingClient, remote id from HttpSignalingClientAnon::createRandomNetworkID), HttpSignalingClient::SendSignal (POST "{}/v1/join/{}", application/sdp, body = payload after 2nd space; response => "CONNECTRESPONSE <id> <body>", error => ESessionError 0x1a), NetherNet::HttpSignalingServer::onRequest/_handleJoin (GET /v1/join => 200 "OK" in 26.30, JSON status in 26.50; 400 "Missing SDP offer in request body").
+- No fallback after selection: NetworkSystem::onOutgoingConnectionFailed only notifies; RemoteConnectorComposite::getActiveConnector picks NetherNetConnector iff session transport == 2.
+- Transfers: WorldTransferInitiator::initiateTransferToServer builds ConnectionType 8 -> WorldTransferHandler::handleTransferToServer -> ClientInstance::startExternalNetworkWorld("transferServer"), the Play-screen external-server entry.
+- Undecodable batches are dropped, not fatal (gophertunnel ErrBatchDropped): CompressedNetworkPeer::_receivePacket returns DataStatus 2 for an unknown header byte or a zlib/snappy failure; 26.50 FUN_1404b0b50 also returns 2 when the byte is neither 0xff nor the negotiated algorithm. NetworkSystem::runEvents::$_0 (26.30) and FUN_1418a075c's loop (26.50) treat any non-zero receivePacket status as "stop this connection for the tick", with no disconnect.
+- Server trust (core/proxy/server_trust.go, gophertunnel FirstUseTrust, oreui modal::server_trust_modal): FUN_1408bf550 (probe continuation) builds TofuServerIdentityVerifier (FUN_141190820/FUN_141190a20) with a callback, capturing the probed URL (the modal's %1$s); the callback FUN_1408c07a0 trusts "https://" URLs at once and otherwise pushes ServerTrustModalScreenController (FUN_1408c0c20, modal FUN_145501670: permissions.servertrust.title/message/button.trust/button.doNotTrust). TofuServerIdentityVerifier::verify (FUN_141190bb0) gets the a=identity `assertion` (empty when absent: FUN_1418cf960 returns nullopt, so verify is false) and parses {"fingerprints","token"}, taking the key from the token's cpk; known keys hit a sorted set (FUN_1411eda10 equal_range) and move to the end of the LRU vector, persisted by FUN_141190050 as {"keys":[...]} under the static key "trusted_server_public_keys" (loader FUN_14118f120); FUN_14118f8e0 inserts and evicts past 0xc80 bytes (100 keys). Negotiator side: FUN_140e246d0 hands FUN_140e0fd40's parsed a=identity (or none) to the verifier; a false result logs "Rejecting answer from %s: application declined the server identity".
+- No Minecraft-layer AES over NetherNet: EncryptedNetworkPeer::enableEncryption returns early when the inner peer isEncrypted() (WebRTCNetworkPeer::isEncrypted returns true).
 - // the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
 - // transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
 
 ## core/store/client_test.go
 - // Authored to the reference client's inventory parser; not a captured payload.
-- // Authored to the reference client's page parser; rows carry queries, not offers.
 
 ## crates/assets/src/biome.rs
 - // whose constructor defaults surfaceOpacity to .65. Loading that component
@@ -795,6 +801,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/meshing/tests/it/support/liquid_contacts.rs
 - // BlockType with Air, not its opacity. Deferred model 1 instead compares material;
 
+## crates/pack-compiler/src/animation.rs
+- /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
+- /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
+
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.
 
@@ -1237,6 +1247,17 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Immediate motion writes only the incoming vector to StateVector velocity offsets
 - 0x18/0x20. It does not call other functions or write history, input flags, ground
 - state or rotation.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/modal.rs
+- Index bundle modal `Ug` (`Ug.Overlay`, `Ug.Header` over title bar `gm`, `Ug.Content`, `Ug.Text`,
+  `Ug.Buttons`) and the modal menu `SV`/`CV`/`wV`.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/widgets.rs
+- `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
+- `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+- Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
 
 ## docs/evidence/desktop-video-settings.md
 - `GuiData::GUI_SCALE_VALUES` is `[1, 2, 3, 4, 5, 6, 7, 8]`. Desktop minimum
@@ -2161,3 +2182,17 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## tools/registrygen/block_v2193_light_test.go
 - // 1.26.50.26 TopSnowBlock sets dampening to zero; the
 - // inherited getter and per-height component override do not change it.
+
+## crates/render-model/src/entity_shadow.rs
+- Volume mesh: `PrefabMeshGenerator::buildShadowVolume` (13 segments, rings 0.25 at y −3 and 0.75 at y 0.01; scaled per instance by radius in `_insertVanillaShadows`).
+- Colour: `ShadowColor` uniform built in `LevelRendererPlayer::createViewRenderObject` from `DimensionClientUtils::getInterpolatedSkyColor` and `getSunriseColor` (constants 0.5/0.4 tint, Rec. 709 luminance, 0.7 grey, 0.03 span).
+- Blend and overlap: `ShadowVolume` back/front stencil passes then the `ShadowOverlay` pass (`shadow_back`, `shadow_front`, `shadow_overlay` materials).
+
+## crates/client-world/src/actor_store/shadow.rs
+- Radius: `Actor::getShadowRadius` (AABBShapeComponent width) and overrides on Ghast, HappyGhast, Creaking, Spider (CaveSpider), EvocationFang, Armadillo, Horse, EnderDragon, Tadpole, IronGolem, Shulker, Turtle, Slime (LavaSlime, SulfurCube), TripodCamera, EnderCrystal, Boat (ChestBoat), Parrot, Player, and the zero-radius classes (ArmorStand, AreaEffectCloud, FishingHook, Minecart family, ExperienceOrb, LeashKnot, EyeOfEnder, LightningBolt, PrimedTnt, FallingBlockActor, FireworksRocketActor, Painting).
+- Admission: `createViewRenderObject` caster loop: `isAlive`, radius > 0, `!isOnFire`, `!isUnderLiquid(Any)` at attach location 7, `!isInvisible`, ActorType projectile bit, vehicle `isInvisible`.
+- Drop: `RelativeShadowOffsetComponent` (Ghast −0.875, HappyGhast −0.5) × ActorDataBoundingBoxComponent height × scale.
+- Projectile identifiers: `VanillaActorRegistryAnon` factory table (types with bit 0x400000).
+
+## crates/sim/src/simulator/water.rs
+- `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.

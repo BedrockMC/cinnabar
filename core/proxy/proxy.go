@@ -53,6 +53,8 @@ type Config struct {
 	// falls back to Upstream. Upstream may then be empty.
 	LocalTarget LocalTargetFunc
 	PacketDelay *PacketDelay
+	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
+	ServerTrust minecraft.ServerTrust
 }
 
 const maxInitialTransferHops = 8
@@ -88,13 +90,14 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
 	prepared.connectProgress = cfg.ConnectProgress
+	prepared.serverTrust = cfg.ServerTrust
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	transfers := cfg.Transfers
 	if transfers == nil {
 		transfers = new(TransferState)
 	}
 	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, address, cfg.Account, logger)
+		return resolveUpstreamTarget(ctx, address, cfg.Account, logger, cfg.ServerTrust)
 	}
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
@@ -251,8 +254,8 @@ func shouldSurfacePreparationError(err error, serveCtx context.Context) bool {
 		return false
 	}
 	var admissionErr *PackAdmissionError
-	if errors.As(err, &admissionErr) {
-		return false
+	if errors.As(err, &admissionErr) || errors.Is(err, minecraft.ErrServerNotTrusted) {
+		return false // the player declined; the join ends but the core stays up
 	}
 	var cancellationErr *preparationCancellationError
 	return !errors.As(err, &cancellationErr)
@@ -364,12 +367,12 @@ func connectUpstream(
 }
 
 // networkForAddress keeps the resolved transport for the target itself; a server transfer
-// names a plain host:port, which is always RakNet.
-func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft.Network {
+// names a plain host:port, which vanilla joins like any addressed server, whatever the target was.
+func networkForAddress(target *resolvedUpstreamTarget, address string, trust minecraft.ServerTrust) minecraft.Network {
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return remoteRakNet()
+	return remoteServerNetwork(slog.Default(), trust)
 }
 
 func dialFollowingTransfers(
@@ -518,7 +521,7 @@ func relayPackets(
 	}
 	results := make(chan result, 2)
 	go func() {
-		results <- result{"downstream to upstream", pumpPacketsWithDelay(pumpCtx, delay, downstream, upstream, true)}
+		results <- result{"downstream to upstream", pumpPacketsWithDelay(pumpCtx, delay, downstream, upstream, true, session)}
 	}()
 	go func() {
 		results <- result{"upstream to downstream", pumpPacketsWithDelay(pumpCtx, delay, upstream, downstream, false)}
@@ -602,7 +605,7 @@ func pumpPackets(
 	return pumpPacketsWithDelay(context.Background(), nil, source, destination, fromDownstream)
 }
 
-func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, destination packetSession, fromDownstream bool) (err error) {
+func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, destination packetSession, fromDownstream bool, sessions ...uint64) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = panicTypeError("relaying packets", recovered)
@@ -624,6 +627,24 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 	if upstreamIdentity.DisplayName != "" {
 		inspect = isText
 	}
+	var ownID, session uint64
+	if fromDownstream && delay != nil {
+		ownID = ownRuntimeID(source, destination)
+		session, _ = delay.PositionSnapshot()
+		if len(sessions) != 0 {
+			session = sessions[0]
+		}
+		inspect = func(id uint32) bool {
+			if upstreamIdentity.DisplayName != "" && isText(id) {
+				return true
+			}
+			if !isOwnMovement(id) {
+				return false
+			}
+			_, enabled := delay.positionToken()
+			return enabled
+		}
+	}
 	reader := newDelayedPacketReader(ctx, delay, source, destination, !fromDownstream, relayIdleFlush, inspect)
 	defer reader.Close()
 	// Packets buffered before the relay began leave as their own batch.
@@ -636,14 +657,22 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 		if err != nil {
 			return err
 		}
+		epoch, tracking := delay.positionToken()
+		var position *ForwardedPosition
 		for _, raw := range batch {
 			if err := forwardPacket(destination, raw, upstreamIdentity); err != nil {
 				return attributeRelayError(err, fromDownstream)
+			}
+			if tracking && fromDownstream {
+				if candidate := ownMovementPosition(raw, ownID); candidate != nil {
+					position = candidate
+				}
 			}
 		}
 		if err := reader.Flush(); err != nil {
 			return err
 		}
+		delay.commitPosition(session, epoch, position)
 	}
 }
 

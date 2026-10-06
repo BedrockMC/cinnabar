@@ -189,3 +189,24 @@ fn historical_server_moves_keep_the_current_grid() {
         }
     }
 }
+
+#[test]
+fn server_position_retention_replaces_a_stale_local_grid() {
+    let mut stream = stream();
+    assert!(stream.retain_local([320.5, 70.0, 0.5]));
+    stream
+        .submit(
+            2,
+            WorldEvent::MovePlayer(MovePlayerEvent {
+                runtime_id: 1,
+                position: [1600.5, 70.0, 0.5],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    assert_eq!(stream.last_retention_center, Some(ChunkKey::new(0, 20, 0)));
+    assert!(stream.retain_for_server_position());
+    assert_eq!(stream.local_player_chunk, None);
+    assert_eq!(stream.last_retention_center, Some(ChunkKey::new(0, 100, 0)));
+    assert!(!stream.retain_for_server_position());
+}

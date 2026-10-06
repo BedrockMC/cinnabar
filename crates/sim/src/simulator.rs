@@ -3,6 +3,7 @@ mod controls;
 mod effects;
 mod environment;
 mod flight;
+mod immobile;
 mod input;
 mod mode;
 #[cfg(test)]
@@ -25,7 +26,7 @@ pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
-pub use water::sample_water_head;
+pub use water::{sample_liquid_submersion, sample_water_head};
 
 pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
     state::validate(state)
@@ -132,6 +133,9 @@ impl Simulator {
         state::validate(state)?;
         input::validate(input)?;
         let controls = controls::process(input);
+        if input.immobile {
+            return immobile::tick(state, input.mode, controls, world.registry_identity());
+        }
         let mut next = state.clone();
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();

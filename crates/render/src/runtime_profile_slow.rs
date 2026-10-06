@@ -566,7 +566,7 @@ mod tests {
             frame.advance(
                 now + Duration::from_millis(at),
                 stages,
-                at % 2 == 0,
+                at.is_multiple_of(2),
                 false,
                 &budgets,
                 0,

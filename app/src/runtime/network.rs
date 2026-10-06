@@ -395,6 +395,7 @@ pub(crate) fn receive_network_events(
                 stream.set_startup_terrain_announced(terrain_before_spawn);
                 stream.set_custom_block_ids(custom_block_ids.unwrap_or_default());
                 stream.set_sequential_id_remap(id_remap);
+                stream.set_custom_block_identities(&custom_blocks);
                 stream.set_light_diagnostic_custom_blocks(custom_blocks.clone());
                 stream.set_pack_entities(packs.entities.as_ref().map(|pack| {
                     (
@@ -927,6 +928,7 @@ mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
     ActorFramePartialTick, HandRigBuilder, prepare_actor_render_frame, publish_actor_render_frame,
+    publish_entity_shadows,
 };
 
 #[cfg(test)]

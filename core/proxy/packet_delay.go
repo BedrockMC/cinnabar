@@ -16,21 +16,32 @@ const (
 // PacketDelay owns a short lease for application-packet latency in both relay directions.
 // Its zero value forwards immediately. Transport acknowledgements and login are unaffected.
 type PacketDelay struct {
-	mu      sync.Mutex
-	delay   time.Duration
-	expires time.Time
-	changed chan struct{}
-	release uint64
-	session uint64
+	mu            sync.Mutex
+	delay         time.Duration
+	expires       time.Time
+	changed       chan struct{}
+	release       uint64
+	session       uint64
+	showPosition  bool
+	position      *ForwardedPosition
+	positionEpoch uint64
 }
 
 func (delay *PacketDelay) Set(delayMS uint32) error {
+	return delay.SetWithPosition(delayMS, false)
+}
+
+func (delay *PacketDelay) SetWithPosition(delayMS uint32, showPosition bool) error {
 	if delayMS > MaxPacketDelayMS {
 		return errors.New("packet delay exceeds limit")
 	}
 	delay.mu.Lock()
 	defer delay.mu.Unlock()
 	duration := time.Duration(delayMS) * time.Millisecond
+	if duration == 0 || !showPosition || delay.showPosition != showPosition || !time.Now().Before(delay.expires) {
+		delay.clearPositionLocked()
+	}
+	delay.showPosition = showPosition && duration != 0
 	if duration == 0 && delay.delay != 0 {
 		delay.release++
 	}
@@ -76,6 +87,8 @@ func (delay *PacketDelay) endSession(session uint64) {
 }
 
 func (delay *PacketDelay) resetLocked() {
+	delay.showPosition = false
+	delay.clearPositionLocked()
 	delay.delay = 0
 	delay.release++
 	delay.expires = time.Time{}
@@ -99,6 +112,8 @@ func (delay *PacketDelay) snapshot(now time.Time) (time.Duration, time.Time, <-c
 		delay.changed = make(chan struct{})
 	}
 	if delay.delay != 0 && !now.Before(delay.expires) {
+		delay.showPosition = false
+		delay.clearPositionLocked()
 		delay.delay = 0
 		delay.release++
 		delay.notifyLocked()

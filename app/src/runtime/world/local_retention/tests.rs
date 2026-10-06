@@ -107,11 +107,41 @@ fn retention_uses_physics_and_requires_the_current_publication_owner() {
         [320.5, 70.0, 0.0]
     ));
     assert_eq!(stream.resolved_server_position().position, [0.5, 70.0, 0.5]);
+}
+
+/// Server moves must still recenter terrain when no local physics will publish a position.
+#[test]
+fn inactive_physics_retains_around_the_committed_server_position() {
+    let (mut stream, physics) = fixture();
+    let owner = CameraOwner::current(&stream, 4);
+    assert!(retain_completed_player_terrain(
+        &mut stream,
+        &physics,
+        Some(&publication(owner, 10)),
+        4
+    ));
+    stream
+        .submit(
+            2,
+            WorldEvent::MovePlayer(protocol::MovePlayerEvent {
+                runtime_id: 1,
+                position: [1600.5, 70.0, 0.5],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    stream.take_committed_controls();
     let inactive = LocalPhysicsController::default();
+    assert!(retain_completed_player_terrain(
+        &mut stream,
+        &inactive,
+        None,
+        4
+    ));
     assert!(!retain_completed_player_terrain(
         &mut stream,
         &inactive,
-        Some(&current),
+        None,
         4
     ));
 }

@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -30,6 +31,7 @@ import (
 	"github.com/df-mc/go-xsapi/v2/xal/xasd"
 	"github.com/df-mc/go-xsapi/v2/xal/xasu"
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/service"
@@ -745,8 +747,8 @@ func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource
 
 // fakeServices stands in for the native service-token source: a valid token is reused, otherwise
 // exchange issues the next one.
-func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token, string) service.TokenSource {
-	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token, _ string) service.TokenSource {
+func fakeServices(exchange func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error)) func(*service.AuthorizationEnvironment, service.SessionTicketSource, *service.Token, string, string) service.TokenSource {
+	return func(env *service.AuthorizationEnvironment, _ service.SessionTicketSource, token *service.Token, _, _ string) service.TokenSource {
 		return &fakeServiceSource{env: env, token: token, exchange: exchange}
 	}
 }
@@ -811,7 +813,7 @@ func TestAccountSharesOnePlayFabSessionUntilClosed(t *testing.T) {
 				HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
 			})
 		},
-		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token, _ string) service.TokenSource {
+		services: func(_ *service.AuthorizationEnvironment, source service.SessionTicketSource, _ *service.Token, _, _ string) service.TokenSource {
 			return fakeServiceSourceFunc(func(ctx context.Context) (*service.Token, error) {
 				ticket, err := source.SessionTicket(ctx)
 				tickets = append(tickets, ticket)
@@ -851,4 +853,72 @@ type fakeServiceSourceFunc func(context.Context) (*service.Token, error)
 
 func (f fakeServiceSourceFunc) ServiceToken(ctx context.Context) (*service.Token, error) {
 	return f(ctx)
+}
+
+// Every service token source an account rebuilds, and its multiplayer mint, name one Session-Id.
+func TestAccountKeepsOneSessionIDAcrossRebuilds(t *testing.T) {
+	var mu sync.Mutex
+	sessions := map[string][]string{}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		sessions[r.URL.Path] = append(sessions[r.URL.Path], r.Header.Get("Session-Id"))
+		mu.Unlock()
+		now := time.Now().UTC().Truncate(time.Second)
+		if r.URL.Path == "/api/v1.0/multiplayer/session/start" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{
+				"issuedAt": now, "signedToken": "multiplayer-token", "validUntil": now.Add(time.Hour),
+			}})
+			return
+		}
+		payload, _ := json.Marshal(map[string]any{"pmid": uuid.NewString(), "iat": now.Unix(), "exp": now.Add(time.Hour).Unix()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": &service.Token{
+			AuthorizationHeader: "MCToken header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature",
+			ValidUntil:          now.Add(time.Hour),
+		}})
+	}))
+	defer server.Close()
+	deps := defaultDerivedDeps()
+	deps.discover = func(context.Context) (*service.AuthorizationEnvironment, error) {
+		env := testEnvironment()
+		env.ServiceURI, _ = url.Parse(server.URL)
+		env.HTTPClient = server.Client()
+		return env, nil
+	}
+	var logins atomic.Int32
+	deps.login = func(ctx context.Context, env *service.AuthorizationEnvironment, _ xsapi.TokenAndSignaturer) (*playfab.Client, error) {
+		return playfab.Login(ctx, env.PlayFabTitleID, fakeIdentityProvider{&logins}, playfab.ClientConfig{
+			HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
+		})
+	}
+	account := newAccount(context.Background(), "", oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
+	defer account.Close()
+
+	token, err := account.ServiceToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.InvalidateServiceToken(token)
+	if _, err := account.ServiceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := account.refreshServiceAhead(context.Background(), 2*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if _, err := account.MultiplayerToken(context.Background(), &key.PublicKey); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	starts, mints := sessions["/api/v1.0/session/start"], sessions["/api/v1.0/multiplayer/session/start"]
+	if len(starts) != 3 || len(mints) != 1 {
+		t.Fatalf("requests = %v, want three service exchanges and one mint", sessions)
+	}
+	if _, err := uuid.Parse(starts[0]); err != nil {
+		t.Fatalf("Session-Id %q is not a UUID", starts[0])
+	}
+	if starts[1] != starts[0] || starts[2] != starts[0] || mints[0] != starts[0] {
+		t.Fatalf("Session-Ids = (exchanges %q, mint %q), want one per account", starts, mints)
+	}
 }

@@ -75,7 +75,7 @@ impl WorldStream {
         let mut changed = self.resident_keys_in_columns(&columns);
         let removing_all = changed.len() == self.resident.len();
         for &column in &columns {
-            if let Some(range) = vanilla_dimension_range(column.dimension) {
+            if let Some(range) = self.authority.dimension_range(column.dimension) {
                 for offset in 0..range.sub_chunk_count {
                     let key =
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
@@ -264,6 +264,12 @@ impl WorldStream {
         self.reevaluate_chunk_retention()
     }
 
+    /// Retains terrain around the committed server position while no local physics owns the player.
+    pub fn retain_for_server_position(&mut self) -> bool {
+        self.local_player_chunk = None;
+        self.reevaluate_chunk_retention()
+    }
+
     /// Local physics advances the player grid between server corrections.
     fn player_chunk(&self) -> ChunkKey {
         if let Some(chunk) = self.local_player_chunk {
@@ -379,7 +385,7 @@ impl WorldStream {
         if self.light_source_is_known(key) {
             return false;
         }
-        let Some(range) = vanilla_dimension_range(key.dimension) else {
+        let Some(range) = self.authority.dimension_range(key.dimension) else {
             return false;
         };
         let end = range
