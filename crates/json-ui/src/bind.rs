@@ -520,17 +520,21 @@ impl<'a> Binder<'a> {
             (None, true) => return None,
             (None, false) => -1,
         };
-        // A collection panel inside a factory item reads that item's own list when one is registered;
-        // otherwise the key its factory or grid entered with stands.
-        let candidate = scope
+        // A factory or grid instance already entered its own list; a collection panel's child inside a
+        // factory item reads that item's own list when one is registered, else the shared one.
+        let entered = scope
             .cursor
             .path
             .last()
+            .is_some_and(|(key, _)| scope.cursor.keys.get(&collection) == Some(key));
+        let candidate = (!entered)
+            .then(|| scope.cursor.path.last())
+            .flatten()
             .map(|(parent, at)| scoped_key(parent, *at, &collection));
-        let key = self.collection_key(&collection, scope);
+        let key = (!entered).then(|| self.collection_key(&collection, scope));
         let cursor = Arc::make_mut(&mut scope.cursor);
         cursor.indices.insert(collection.clone(), index);
-        if key != collection {
+        if let Some(key) = key.filter(|key| *key != collection) {
             cursor.keys.insert(collection.clone(), key);
         }
         cursor.items.push((collection, index));

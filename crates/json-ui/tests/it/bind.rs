@@ -563,6 +563,30 @@ fn a_collection_panel_reads_its_enclosing_items_list() {
     );
 }
 
+// A factory item's own collection bindings keep the list its factory entered, even when the item
+// holds a nested list of the same name.
+#[test]
+fn a_factory_item_keeps_its_entered_list_beside_a_same_named_nested_list() {
+    let row = ctrl(
+        "row",
+        Some("label"),
+        json!({
+            "text": "#title",
+            "bindings": [
+                { "binding_type": "collection", "binding_collection_name": "rows", "binding_name": "#title" }
+            ],
+        }),
+    );
+    let lib = StubLibrary([("ns.row".to_owned(), row)].into_iter().collect());
+    let panel = factory_panel("rows", "rows", &[("r", ControlRef::new("ns", "row"))]);
+    let title = |text: &str| CollectionItem::new("r").with("#title", Scalar::Text(text.into()));
+    let mut data = DataSource::new();
+    data.set_collection("rows", vec![title("outer")]);
+    data.set_scoped_collection("rows", 0, "rows", vec![title("inner")]);
+    let bound = bind(&panel, &data, &lib);
+    assert_eq!(prop(&bound.children[0], "text"), &json!("outer"));
+}
+
 // A container cell outside any grid reads its collection's first item, as the
 // furnace's fuel and ingredient slots do.
 #[test]
