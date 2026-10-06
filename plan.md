@@ -64,6 +64,13 @@
 
 ## Compatibility landing
 
+- Education construction terrain restores allow, deny and all border wall states
+  from the pinned current palette, using the textures already in the fetched pack.
+  Collision and light read the pinned metadata sources; no guessed shapes or
+  sequential palette IDs are added. Linux captures at 1280×720 with GUI scale 2
+  show textured allow/deny cubes and connected border shapes. Broader Education
+  parity remains incomplete.
+
 - The owner accepted the final live macOS Metal build and authorized landing the
   accumulated server compatibility changes. Formatting and architecture checks
   pass. Known test compilation errors were corrected; further local tests and
@@ -6053,3 +6060,10 @@ The 1920×1080 headless macOS/Metal local gallery verifies all six kinds, text b
 color updates, actor following without instance rebuilds, and complete removal.
 Synthetic CPU/upload benchmarks and this gallery do not qualify the release hardware frame,
 streaming or hitch budgets, or establish native 100k-shape performance.
+
+## Entity-only held item geometry
+
+Block items without a cube sheet retain their compiled icon in both player-preview
+hands, matching the existing world equipment fallback. Inventory banners retain their
+colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
+the fallback availability regression is fixed, but it does not close that parity gate.
