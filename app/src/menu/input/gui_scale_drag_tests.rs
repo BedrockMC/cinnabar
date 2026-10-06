@@ -102,6 +102,112 @@ fn relayout(app: &mut App) {
 }
 
 #[test]
+fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
+    let Some(presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping settings_slider_drag_keeps_tracking_outside_hover_until_released: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let index = u16::try_from(
+        super::super::settings_options::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == "field_of_view")
+            .unwrap(),
+    )
+    .unwrap();
+    let definition = &super::super::settings_options::SETTINGS_OPTIONS[usize::from(index)];
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(menu)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                resolution: WindowResolution::new(PHYSICAL[0], PHYSICAL[1]),
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.update();
+    let view = app.world().resource::<MenuRuntime>().view();
+    let track =
+        app.world_mut()
+            .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+                presentation.set_menu_view(Some(view));
+                for _ in 0..32 {
+                    presentation
+                        .build(
+                            world.resource::<crate::player_runtime::PlayerRuntime>(),
+                            &UiRuntime::new(1),
+                            0,
+                            PHYSICAL,
+                            DpiScale::new(1.0).unwrap(),
+                        )
+                        .unwrap();
+                    if let Some(track) = presentation.settings_slider_track(index) {
+                        return track;
+                    }
+                    assert!(presentation.scroll_menu(
+                        UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap(),
+                        -20.0,
+                        false
+                    ));
+                }
+                panic!("the field of view slider enters the viewport after scrolling");
+            });
+    let middle = Vec2::new(
+        (track.min().x() + track.max().x()) / 2.0,
+        (track.min().y() + track.max().y()) / 2.0,
+    );
+    pointer(&mut app, window, middle, Some(ButtonState::Pressed));
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .get(usize::from(index)),
+        definition.min
+    );
+    pointer(
+        &mut app,
+        window,
+        Vec2::new(PHYSICAL[0] as f32 - 1.0, PHYSICAL[1] as f32 - 1.0),
+        None,
+    );
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .get(usize::from(index)),
+        definition.max
+    );
+    pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Released));
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .get(usize::from(index)),
+        definition.max
+    );
+}
+
+#[test]
 fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
     let Some(presentation) = engine_presentation() else {
         eprintln!(

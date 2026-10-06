@@ -184,7 +184,7 @@ func validate(value manifest) error {
 		if err != nil {
 			return err
 		}
-		if value.ProjectionBindings.Block.SHA256 != "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53" ||
+		if value.ProjectionBindings.Block.SHA256 != "8faf1f3b8cfea2954ddf01b68edde076abf4cc0b1e9f9b099360250d7d42bb88" ||
 			value.ProjectionBindings.Light.SHA256 != lightHash {
 			return errors.New("ready foundation must bind the exact block and light projections")
 		}

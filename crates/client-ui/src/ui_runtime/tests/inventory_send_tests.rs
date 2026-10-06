@@ -35,6 +35,62 @@ fn open_personal_inventory(ledger: &mut PlayerInventoryLedger) {
 }
 
 #[test]
+fn drop_key_admits_creative_grid_and_recipe_book_items() {
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryCellHit;
+    for hit in [
+        InventoryCellHit::CreativeGrid(0),
+        InventoryCellHit::RecipeBook(0),
+    ] {
+        let mut player = player_state::PlayerState::new(1);
+        player
+            .facts
+            .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+        let mut runtime = UiRuntime::new(1);
+        let ledger = runtime.inventory_ledger_mut(&mut player);
+        ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        open_personal_inventory(ledger);
+        ledger.apply_registry(&protocol::ItemRegistryEvent {
+            entries: Arc::from([protocol::ItemRegistryEntry {
+                identifier: Arc::from("minecraft:apple"),
+                network_id: 1,
+                component_based: false,
+                version: protocol::ItemRegistryVersion::None,
+                component_digest: [0; 32],
+                negotiated_max_stack_size: None,
+                canonical_empty_component_data: true,
+                item_tags: Arc::from([]),
+            }]),
+        });
+        ledger.apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+            groups: Arc::from([protocol::CreativeGroup {
+                category: protocol::CreativeCategory::Construction,
+                name: Arc::from(""),
+                icon: None,
+            }]),
+            items: Arc::from([protocol::CreativeItem {
+                creative_network_id: 44,
+                stack: stack(1, 1, -1),
+                group: 0,
+            }]),
+            skipped: 0,
+        }));
+        crate::ui_runtime::interaction::dispatch_inventory_key(
+            &mut player,
+            &mut runtime,
+            Some(hit),
+            bevy::prelude::KeyCode::KeyQ,
+            false,
+            None,
+            true,
+        )
+        .expect("catalog drop owns the bound key")
+        .unwrap();
+        assert_eq!(runtime.inventory_ledger(&player).pending_request_count(), 1);
+        assert!(runtime.inventory_ledger(&player).cursor_stack().is_none());
+    }
+}
+
+#[test]
 fn bounded_transport_pressure_does_not_consume_or_duplicate_the_request() {
     let mut player_runtime = player_state::PlayerState::new(1);
 

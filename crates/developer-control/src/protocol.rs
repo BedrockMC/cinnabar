@@ -50,6 +50,10 @@ pub struct InputCommand {
     /// Selects hotbar slot 1..=9 through its binding.
     pub hotbar: Option<u8>,
     pub look: Option<Look>,
+    /// Logical window coordinates; changes only the client's cached pointer.
+    pub cursor: Option<[f32; 2]>,
+    /// Text delivered to the focused editor through keyboard messages.
+    pub text: Option<String>,
     #[serde(default)]
     pub release_all: bool,
     /// Releases everything and hands the window back to the real keyboard and mouse.

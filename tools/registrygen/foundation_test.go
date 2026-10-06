@@ -288,7 +288,7 @@ func validReadyFoundation() string {
     "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"}
   }`, `,
   "projection_bindings": {
-    "block": {"sha256": "04984b63037cda766e9a41b81bb1314e0c649b6f999bb27d56730decb3c7be53"},
+    "block": {"sha256": "8faf1f3b8cfea2954ddf01b68edde076abf4cc0b1e9f9b099360250d7d42bb88"},
     "biome": {"sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"},
     "light": {"sha256": "`+lightHash+`"}
   }`, 1)

@@ -617,7 +617,9 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                     let adjacent_primary_air = primary_is_air(classifier, neighbourhood, adjacent);
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
-                        || (!cell.depth_writing && !adjacent_primary_air)
+                        || (!cell.depth_writing
+                            && !adjacent_primary_air
+                            && !sampler.open(neighbourhood, adjacent, &[opposite_face(face)]))
                     {
                         continue;
                     }
@@ -645,7 +647,9 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
-                    && (cell.depth_writing || primary_is_air(classifier, neighbourhood, below))
+                    && (cell.depth_writing
+                        || primary_is_air(classifier, neighbourhood, below)
+                        || sampler.open(neighbourhood, below, &[Face::PositiveY]))
                 {
                     push_quad(pack(
                         origin,
@@ -695,10 +699,8 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     (addressed, lighting)
 }
 
-/// Classic water (lighting model != deferred) admits side/bottom faces
-/// only beside primary Air, even when a non-Air block has a transparent face.
-/// Other liquids retain the ordinary face mask. Side reverse winding also
-/// requires primary Air, independently of any additional liquid layer.
+/// Primary air controls reverse winding, independently of additional liquid layers.
+/// Thin non-occluding primary geometry does not remove the contacting water face.
 fn primary_is_air(
     classifier: BlockClassifier,
     neighbourhood: &MeshNeighbourhood<'_>,

@@ -59,6 +59,8 @@ pub struct InputPlan {
     pub tap: Vec<Control>,
     pub tap_frames: u32,
     pub look: Option<Look>,
+    pub cursor: Option<[f32; 2]>,
+    pub text: Option<String>,
     pub release_control: bool,
 }
 
@@ -74,12 +76,20 @@ impl InputPlan {
             tap: parse(&command.press)?,
             tap_frames: command.press_frames.unwrap_or(DEFAULT_PRESS_FRAMES).max(1),
             look: command.look,
+            cursor: command.cursor,
+            text: command.text.clone(),
             release_control: command.release_control,
         };
         if let Some(look) = &command.look
             && !(look.yaw.is_finite() && look.pitch.is_finite())
         {
             return Err("look angles must be finite".into());
+        }
+        if command
+            .cursor
+            .is_some_and(|point| !point.into_iter().all(f32::is_finite))
+        {
+            return Err("cursor coordinates must be finite".into());
         }
         if let Some(movement) = command.movement {
             plan.axis(movement.forward, "key.forward", "key.back")?;
@@ -207,6 +217,11 @@ mod tests {
             ..InputCommand::default()
         };
         assert!(InputPlan::from_command(&control).is_err());
+        let cursor = InputCommand {
+            cursor: Some([f32::NAN, 10.0]),
+            ..InputCommand::default()
+        };
+        assert!(InputPlan::from_command(&cursor).is_err());
     }
 
     #[test]

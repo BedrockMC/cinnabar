@@ -7,7 +7,7 @@ use bevy::{
     ecs::message::MessageCursor,
     input::{
         ButtonState, InputSystems,
-        keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey},
+        keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey, NativeKeyCode},
         mouse::MouseButtonInput,
     },
     prelude::*,
@@ -48,6 +48,8 @@ pub(super) struct Driver {
     events: VecDeque<(Physical, ButtonState)>,
     look: Option<Look>,
     tween: Option<LookTween>,
+    cursor: Option<Vec2>,
+    text: VecDeque<String>,
     /// The OS focus last reported, restored when control is handed back.
     real_focus: Option<bool>,
     focus_cursor: MessageCursor<WindowFocused>,
@@ -98,12 +100,21 @@ pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, 
     if plan.look.is_some() {
         driver.look = plan.look;
     }
+    if let Some(point) = plan.cursor {
+        driver.cursor = Some(Vec2::from_array(point));
+    }
+    if let Some(text) = plan.text {
+        driver.text.push_back(text);
+    }
     let held = driver
         .held
         .iter()
         .map(|(physical, _)| format!("{physical:?}"))
         .collect::<Vec<_>>();
     if plan.release_control {
+        let mut driver = world.resource_mut::<Driver>();
+        driver.cursor = None;
+        driver.text.clear();
         world.remove_resource::<DrivenInput>();
         if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
             menu.set_transient_toggles(false);
@@ -203,6 +214,9 @@ fn inject(
         let window = window.bypass_change_detection();
         driver.real_focus.get_or_insert(window.focused);
         window.focused = true;
+        if let Some(point) = driver.cursor {
+            window.set_cursor_position(Some(point));
+        }
         let cursor = cursor.bypass_change_detection();
         cursor.grab_mode = CursorGrabMode::Locked;
         cursor.visible = false;
@@ -242,6 +256,16 @@ fn inject(
                 });
             }
         }
+    }
+    while let Some(text) = driver.text.pop_front() {
+        keys.write(KeyboardInput {
+            key_code: KeyCode::Unidentified(NativeKeyCode::Unidentified),
+            logical_key: Key::Character(text.clone().into()),
+            state: ButtonState::Pressed,
+            text: Some(text.into()),
+            repeat: false,
+            window: entity,
+        });
     }
     for (_, frames) in &mut driver.held {
         if let Some(frames) = frames {
@@ -305,8 +329,60 @@ mod tests {
         window::{CursorOptions, PrimaryWindow, WindowFocused},
     };
 
-    use super::{Driver, Physical, inject};
+    use super::{Driver, Physical, apply, inject};
     use crate::camera::DrivenInput;
+
+    #[test]
+    fn handing_back_control_discards_unconsumed_pointer_and_text() {
+        let mut world = World::new();
+        world.init_resource::<Driver>();
+        world.init_resource::<DrivenInput>();
+        let mut driver = world.resource_mut::<Driver>();
+        driver.cursor = Some(Vec2::new(123.0, 234.0));
+        driver.text.push_back("queued text".into());
+        let command = serde_json::from_value(serde_json::json!({
+            "release_control": true
+        }))
+        .unwrap();
+        apply(&mut world, &command).unwrap();
+        let driver = world.resource::<Driver>();
+        assert!(driver.cursor.is_none());
+        assert!(driver.text.is_empty());
+        assert!(!world.contains_resource::<DrivenInput>());
+    }
+
+    #[test]
+    fn pointer_and_text_reach_the_window_and_keyboard_messages() {
+        let mut app = App::new();
+        app.add_plugins(InputPlugin)
+            .add_message::<WindowFocused>()
+            .init_resource::<Driver>()
+            .init_resource::<DrivenInput>()
+            .add_systems(PreUpdate, inject.before(bevy::input::InputSystems));
+        let entity = app
+            .world_mut()
+            .spawn((Window::default(), CursorOptions::default(), PrimaryWindow))
+            .id();
+        let mut driver = app.world_mut().resource_mut::<Driver>();
+        driver.cursor = Some(Vec2::new(123.0, 234.0));
+        driver.text.push_back("azalea".into());
+        app.update();
+        assert_eq!(
+            app.world().get::<Window>(entity).unwrap().cursor_position(),
+            Some(Vec2::new(123.0, 234.0))
+        );
+        let messages = app
+            .world()
+            .resource::<Messages<bevy::input::keyboard::KeyboardInput>>();
+        let mut cursor = messages.get_cursor();
+        let typed: Vec<_> = cursor
+            .read(messages)
+            .filter_map(|event| event.text.as_deref())
+            .collect();
+        assert_eq!(typed, ["azalea"]);
+        app.update();
+        assert!(app.world().resource::<Driver>().text.is_empty());
+    }
 
     #[test]
     fn real_focus_loss_keeps_driven_keys_held() {

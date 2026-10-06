@@ -1,5 +1,10 @@
 ## Compatibility landing
 
+- Education construction terrain restores allow, deny and all border wall states
+  from the pinned current palette, using the textures already in the fetched pack.
+  Collision and light read the pinned metadata sources; no guessed shapes or
+  sequential palette IDs are added. Incomplete: live rendered acceptance is pending.
+
 - The owner accepted the final live macOS Metal build and authorized landing the
   accumulated server compatibility changes. Formatting and architecture checks
   pass. Known test compilation errors were corrected; further local tests and

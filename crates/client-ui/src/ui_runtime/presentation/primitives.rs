@@ -17,17 +17,19 @@ pub(super) fn resolve_chat_line<'a>(
     translate: impl Fn(&str) -> Option<Arc<str>>,
 ) -> Cow<'a, str> {
     match node.kind {
-        ChatMessageKind::Translation => match translate(&node.message) {
-            Some(template) => {
-                let arguments = node
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.as_ref().to_owned())
-                    .collect::<Vec<_>>();
+        ChatMessageKind::Translation => {
+            let template = json_ui::localize_text(&node.message, &translate);
+            let arguments = node
+                .parameters
+                .iter()
+                .map(|parameter| json_ui::localize_text(parameter, &translate).into_owned())
+                .collect::<Vec<_>>();
+            if arguments.is_empty() {
+                template
+            } else {
                 Cow::Owned(protocol::format_translation(&template, &arguments))
             }
-            None => Cow::Borrowed(node.message.as_ref()),
-        },
+        }
         ChatMessageKind::Chat => match node.source.as_deref() {
             Some(source) if !source.is_empty() => {
                 let template = translate("chat.type.text").unwrap_or_else(|| Arc::from("<%s> %s"));
@@ -98,6 +100,32 @@ mod tests {
             (key == "death.attack.player").then(|| Arc::from("%1$s was slain by %2$s"))
         });
         assert_eq!(resolved, "Legolas was slain by Gimli");
+    }
+
+    #[test]
+    fn marked_translation_keys_and_arguments_resolve() {
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "§e%multiplayer.player.joined",
+            &["Alex"],
+        );
+        let resolved = resolve_chat_line(&node, |key| {
+            (key == "multiplayer.player.joined").then(|| Arc::from("%s joined the game"))
+        });
+        assert_eq!(resolved, "§eAlex joined the game");
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "test.key",
+            &["%menu.play"],
+        );
+        let resolved = resolve_chat_line(&node, |key| match key {
+            "test.key" => Some(Arc::from("Selected %s")),
+            "menu.play" => Some(Arc::from("Play")),
+            _ => None,
+        });
+        assert_eq!(resolved, "Selected Play");
     }
 
     #[test]

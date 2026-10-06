@@ -167,7 +167,7 @@ fn authored(
     else {
         return Ok(None);
     };
-    let [root] = &*entities.geometries()[index].bones else {
+    let [_] = &*entities.geometries()[index].bones else {
         return Ok(None);
     };
     let Some(texture) = equipment.texture(&binding.texture.identifier) else {
@@ -200,8 +200,10 @@ fn authored(
         source,
         hand_pivots,
         vertices: Arc::clone(&geometry.vertices),
-        placements: [main, off]
-            .map(|bone| PreviewHeldPlacement::authored(bone, *pivot, root.binding.is_some())),
+        placements: [main, off].map(|bone| PreviewHeldPlacement::Authored {
+            bone,
+            pivot: *pivot,
+        }),
     }))
 }
 
