@@ -149,6 +149,7 @@ impl WorldStream {
             }
         }
 
+        let mut dispatch = workers::WORKERS.batch(workers::Lane::Mesh);
         let mut dispatched = 0;
         let mut examined = false;
         let now = Instant::now();
@@ -230,7 +231,7 @@ impl WorldStream {
             let resolved_biome_tints = Arc::clone(self.authority.resolved_biome_tints());
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
-            workers::WORKERS.spawn(workers::Lane::Mesh, move || {
+            dispatch.spawn(move || {
                 let started = Instant::now();
                 let queue_wait = queue_wait(pending.queued_at, started);
                 let dispatch_wait = started.saturating_duration_since(dispatched_at);
@@ -276,6 +277,7 @@ impl WorldStream {
             dispatched += 1;
         }
 
+        drop(dispatch);
         let mut removal_candidates = removal_candidates.into_iter();
         let mut removed = false;
         while let Some((candidate, pending)) = removal_candidates.next() {
@@ -407,18 +409,12 @@ impl WorldStream {
             center,
             biomes: self.biome_neighbourhood(key),
             adjacent,
-            column_above: self
+            column: self
                 .authority
                 .terrain()
                 .chunk(key.chunk())
-                .into_iter()
-                .flat_map(|chunk| chunk.sub_chunks())
-                .filter_map(|(y, chunk)| {
-                    y.checked_sub(key.y)
-                        .filter(|&offset| offset >= 2)
-                        .map(|offset| (offset, chunk))
-                })
-                .collect(),
+                .map(world::Chunk::shared_sub_chunks),
+            center_y: key.y,
             light_halo,
         }
     }

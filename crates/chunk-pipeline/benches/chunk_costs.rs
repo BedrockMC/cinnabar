@@ -355,5 +355,13 @@ fn cohort_benches(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, streaming_benches, cohort_benches);
+#[path = "chunk_costs/dispatch.rs"]
+mod dispatch;
+
+criterion_group!(
+    benches,
+    streaming_benches,
+    cohort_benches,
+    dispatch::benches
+);
 criterion_main!(benches);
