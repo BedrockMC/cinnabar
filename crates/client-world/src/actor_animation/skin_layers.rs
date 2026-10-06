@@ -18,9 +18,16 @@ pub struct SkinRenderLayer {
 pub(super) struct SkinLayerSkeleton {
     image: SkinAnimation,
     geometry: Arc<assets::SkinGeometry>,
-    bones: Vec<RuntimeBone>,
-    names: Vec<Box<str>>,
-    rest: Arc<[BoneTransform]>,
+    pub(super) bones: Vec<RuntimeBone>,
+    pub(super) names: Vec<Box<str>>,
+    pub(super) rest: Arc<[BoneTransform]>,
+}
+
+impl SkinLayerSkeleton {
+    /// Whether `layer` was posed on this skeleton.
+    pub(super) fn poses(&self, layer: &SkinRenderLayer) -> bool {
+        self.image.kind == layer.image.kind && self.geometry.digest == layer.geometry.digest
+    }
 }
 
 /// Resolves each animation image's own named geometry once per skin update.

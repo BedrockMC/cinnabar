@@ -27,6 +27,7 @@ pub mod fov;
 #[cfg(test)]
 mod freelook_tests;
 mod hurt;
+pub mod java;
 pub mod look;
 mod overlay;
 pub mod overlay_publish;
@@ -118,6 +119,8 @@ pub struct CameraFeelSettings {
     pub cinematic_camera: bool,
     pub camera_shake: bool,
     pub damage_bob: f32,
+    /// Java Edition 1.7 player animations, hand motion and view bob.
+    pub java_animations: bool,
     pub mouse_sensitivity: f32,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
@@ -139,6 +142,7 @@ impl CameraFeelSettings {
             cinematic_camera: settings.video.cinematic_camera,
             camera_shake: settings.video.camera_shake,
             damage_bob: unit(settings.video.damage_bob),
+            java_animations: settings.video.java_animations,
             mouse_sensitivity: settings.controls.mouse_sensitivity,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
             touch_look_sensitivity: settings.controls.touch_look_sensitivity,
@@ -801,6 +805,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<facts::ItemUseClock>()
             .init_resource::<WalkBobState>()
             .init_resource::<HandSwayState>()
+            .init_resource::<java::JavaCameraState>()
             .init_resource::<CameraHurtState>()
             .init_resource::<ServerCameraView>()
             .init_resource::<PortalProgress>()

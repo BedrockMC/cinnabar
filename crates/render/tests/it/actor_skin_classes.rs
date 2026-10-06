@@ -145,6 +145,7 @@ fn raster(
             resource: wgpu::BindingResource::TextureView(view),
         }
     }
+    let glint = gpu.blank_texture_view();
     let bindings = [
         buffer(0, &view),
         buffer(1, &instance),
@@ -161,6 +162,11 @@ fn raster(
         texture(9, views[1]),
         texture(10, views[2]),
         texture(11, views[3]),
+        texture(12, &glint),
+        wgpu::BindGroupEntry {
+            binding: 13,
+            resource: wgpu::BindingResource::Sampler(&sampler),
+        },
         buffer(20, &lightmap),
         buffer(21, &atmosphere),
     ];

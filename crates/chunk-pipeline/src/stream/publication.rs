@@ -193,6 +193,10 @@ impl WorldStream {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
     }
+    /// Drops the local player's Java equip progress to zero, as a block placement does.
+    pub fn reset_local_java_equip(&mut self) {
+        self.authority.reset_local_java_equip()
+    }
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
     /// Layers the session's server-pack entity catalog over the vanilla one; its entities
     /// win by identifier for actors spawned afterwards.

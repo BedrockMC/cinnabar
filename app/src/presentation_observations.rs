@@ -25,6 +25,9 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
     fn is_active(&self) -> bool {
         std::ops::Deref::deref(self).is_active()
     }
+    fn tick_alpha(&self) -> f32 {
+        std::ops::Deref::deref(self).tick_alpha()
+    }
 }
 impl CollisionLookup for crate::movement::PhysicsCollisionRegistries {
     /// Borrows the existing registry without duplicating its ownership.

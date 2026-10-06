@@ -195,6 +195,12 @@ pub(crate) fn produce_block_use(
                 )) as i32,
             });
     }
+    // Java re-equips the held item after each placement.
+    if local_use == LocalUse::Place
+        && let Some(stream) = context.client_world.stream.as_mut()
+    {
+        stream.reset_local_java_equip();
+    }
     // Vanilla places locally as it sends; a correction replaces the prediction.
     if let (true, Some((position, block)), Some(stream)) =
         (sent, predicted, context.client_world.stream.as_mut())
