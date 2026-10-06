@@ -212,7 +212,7 @@
 - Criterion exercises production palette/column decode, light solves, cube/biome
   meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
 - Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
-  Benchmark smoke passes all 21 cases on the pinned toolchain without local carriers.
+  Benchmark fixtures run on the pinned toolchain without local carriers.
 - The largest fixture stores 871 sections in 218 target columns, with preloaded
   implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
 - Initial Windows/i9-14900HX baseline: pinned Rust, optimized bench profile, 100 samples
@@ -227,10 +227,12 @@
   streaming backlog cannot halve high refresh rates. Chunk uploads merge abutting arena
   writes into one staged write per run. The F3 overlay keeps its bindings and layout and
   rebinds only changed lines.
-- Incomplete: release streaming throughput at high refresh rates is unmeasured. Per-job
-  light/mesh dispatch snapshots and whole-frame UI rebuilds on any change remain. Cave camera
-  crossings now reuse reached exits after a bounded exact proof; streamed additions survive journal
-  rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
+- Light/mesh job inputs retain immutable section/column handles without allocation;
+  light workers reuse scratch and dispatches publish in batches. Snapshot benchmarks and
+  in-flight edit tests cover capture cost, unchanged payloads and stale-result rejection.
+- Incomplete: sustained high-refresh release streaming throughput is unverified; whole-frame
+  UI rebuilds on any change remain. Cave camera crossings reuse reached exits after a bounded
+  exact proof; streamed additions survive journal rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
   No parity or performance gate is claimed; commands and boundaries are in the README.
 
 ## GPU terrain culling with Hi-Z occlusion

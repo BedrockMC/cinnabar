@@ -97,7 +97,7 @@ impl SnapshotBlock {
 #[derive(Clone)]
 pub(in crate::stream) struct LightBlockSnapshot {
     pub(in crate::stream) dimension: i32,
-    pub(in crate::stream) blocks: BTreeMap<SubChunkKey, SnapshotBlock>,
+    pub(in crate::stream) blocks: SectionSnapshot<SnapshotBlock>,
     pub(in crate::stream) classifier: BlockClassifier,
     pub(in crate::stream) network_id_mode: NetworkIdMode,
     pub(in crate::stream) runtime_assets: Arc<RuntimeAssets>,
@@ -219,8 +219,8 @@ impl LightBlockAccess for LightBlockSnapshot {
 #[derive(Clone)]
 pub(in crate::stream) struct LightPriorSnapshot {
     pub(in crate::stream) light: LightStoreSnapshot,
-    pub(in crate::stream) direct_sky: BTreeMap<SubChunkKey, StoredDirectSky>,
-    pub(in crate::stream) trusted_boundaries: BTreeSet<SubChunkKey>,
+    pub(in crate::stream) direct_sky: SectionSnapshot<StoredDirectSky>,
+    pub(in crate::stream) trusted_boundaries: SectionSnapshot<()>,
 }
 
 impl LightReadAccess for LightPriorSnapshot {
@@ -249,7 +249,7 @@ impl LightReadAccess for LightPriorSnapshot {
         channel: LightChannel,
     ) -> BoundaryLightSample {
         let (key, [x, y, z]) = split_light_position(dimension, position);
-        if !self.trusted_boundaries.contains(&key) {
+        if !self.trusted_boundaries.contains_key(&key) {
             return if self.light.kind(key) == LightSubChunkKind::Unknown {
                 BoundaryLightSample::unknown()
             } else {
@@ -319,8 +319,18 @@ struct LightBatchTarget {
     old_direct: Option<StoredDirectSky>,
 }
 
+/// Solves one captured input with fresh scratch for isolated test callers.
+#[cfg(test)]
 pub(in crate::stream) fn solve_prepared_light_job(
+    job: PreparedLightJob,
+) -> Result<SolvedLightJob, LightJobError> {
+    solve_prepared_light_job_with_scratch(job, &mut world::LightSolverScratch::default())
+}
+
+/// Worker buffers remain private while the returned light and provenance own their data.
+fn solve_prepared_light_job_with_scratch(
     mut job: PreparedLightJob,
+    scratch: &mut world::LightSolverScratch,
 ) -> Result<SolvedLightJob, LightJobError> {
     let target = light_batch_target(&job);
     let (replacement, direct_sky, used_uniform_fast_path) =
@@ -329,13 +339,14 @@ pub(in crate::stream) fn solve_prepared_light_job(
         } else {
             job.blocks.resolve_palette_light();
             let profile = job.blocks.profile;
-            let output = solve_light(
+            let output = world::solve_light_with_scratch(
                 &job.blocks,
                 &job.prior,
                 job.bounds,
                 job.identity.revision,
                 profile,
                 LIGHT_SOLVE_LIMITS,
+                scratch,
             )
             .map_err(LightJobError::Solve)?;
             let light = output
@@ -354,8 +365,18 @@ pub(in crate::stream) fn solve_prepared_light_job(
     ))
 }
 
+/// Runs an isolated column batch without retaining scratch between test calls.
+#[cfg(test)]
 pub(in crate::stream) fn solve_prepared_light_batch(
     jobs: Vec<PreparedLightJob>,
+) -> Vec<SolvedLightBatchEntry> {
+    solve_prepared_light_batch_with_scratch(jobs, &mut world::LightSolverScratch::default())
+}
+
+/// Reuses worker buffers across all independent sections and the dense column remainder.
+pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
+    jobs: Vec<PreparedLightJob>,
+    scratch: &mut world::LightSolverScratch,
 ) -> Vec<SolvedLightBatchEntry> {
     if jobs.len() == 1 {
         return jobs
@@ -368,7 +389,7 @@ pub(in crate::stream) fn solve_prepared_light_batch(
                     key,
                     identity,
                     queued_at,
-                    result: solve_prepared_light_job(job),
+                    result: solve_prepared_light_job_with_scratch(job, scratch),
                 }
             })
             .collect();
@@ -390,7 +411,7 @@ pub(in crate::stream) fn solve_prepared_light_batch(
                     mask: Arc::clone(direct_sky),
                 },
             );
-            job.prior.trusted_boundaries.insert(*key);
+            job.prior.trusted_boundaries.insert(*key, ());
         }
         // Maximal direct sky cannot rise further; dark air must be beyond skylight sources too.
         let uniform = sources
@@ -435,7 +456,7 @@ pub(in crate::stream) fn solve_prepared_light_batch(
             key,
             identity,
             queued_at,
-            result: solve_prepared_light_job(job),
+            result: solve_prepared_light_job_with_scratch(job, scratch),
         });
         return solved_prefix;
     }
@@ -482,13 +503,14 @@ pub(in crate::stream) fn solve_prepared_light_batch(
     blocks.resolve_palette_light();
     let profile = blocks.profile;
     let generation = targets[0].identity.revision;
-    let output = match solve_light(
+    let output = match world::solve_light_with_scratch(
         &blocks,
         &prior,
         bounds,
         generation,
         profile,
         LIGHT_COLUMN_SOLVE_LIMITS,
+        scratch,
     ) {
         Ok(output) => output,
         Err(error) => {
@@ -681,7 +703,7 @@ pub(in crate::stream) fn uniform_boundary_sample(
     key: SubChunkKey,
     channel: LightChannel,
 ) -> Option<BoundaryLightSample> {
-    if !prior.trusted_boundaries.contains(&key) {
+    if !prior.trusted_boundaries.contains_key(&key) {
         return Some(if prior.light.kind(key) == LightSubChunkKind::Unknown {
             BoundaryLightSample::unknown()
         } else {
