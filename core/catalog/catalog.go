@@ -253,13 +253,7 @@ func fetchFriends(ctx context.Context, client *xsapi.Client) ([]Friend, error) {
 	currentXUID := client.UserInfo().XUID
 	result := make([]Friend, 0, len(worlds))
 	for _, world := range worlds {
-		if world.OwnerID == "" || world.OwnerID == currentXUID || world.HostName == "" {
-			continue
-		}
-		if world.RealmID != 0 || world.ExperienceID != uuid.Nil || world.ExperienceWorldID != uuid.Nil || world.FriendID != "" {
-			continue
-		}
-		if world.Joinability != p2p.JoinabilityFriends {
+		if !FriendWorldListed(world, currentXUID) {
 			continue
 		}
 		connection, err := world.Connection()
@@ -281,6 +275,16 @@ func fetchFriends(ctx context.Context, client *xsapi.Client) ([]Friend, error) {
 		})
 	}
 	return result, nil
+}
+
+// FriendWorldListed reports whether the friends tab lists world for the player self, by the game's
+// rule. The activity query returns only sessions of people the player follows, so every host counts
+// as a friend. Friends' Realm and experience sessions are left out: joining them is not implemented.
+func FriendWorldListed(world p2p.World, self string) bool {
+	if world.OwnerID == "" || world.RealmID != 0 || world.ExperienceWorldID != uuid.Nil || world.FriendID != "" {
+		return false
+	}
+	return world.Listed(self, false, func(string) bool { return true })
 }
 
 func displayName(values ...string) string {
