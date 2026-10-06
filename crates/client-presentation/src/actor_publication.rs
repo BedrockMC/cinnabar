@@ -345,6 +345,11 @@ pub fn prepare_actor_render_frame(
             .off
             .as_ref()
             .map(|item| item.identifier.clone());
+        feed.main_hand_metadata = input
+            .local_equipment
+            .main
+            .as_ref()
+            .map_or(0, |item| item.damage.unwrap_or(item.metadata));
     }
     if let Some(stream) = client_world.stream.as_mut() {
         if let Some(equipment) = equipment.as_deref() {
@@ -469,7 +474,13 @@ pub fn prepare_actor_render_frame(
                         )
                         .map(|mut presentation| {
                             if let Some(java_pose) = java_pose {
-                                java::apply_pose(&mut presentation, &java_pose.bones, local, actor);
+                                java::apply_pose(
+                                    &mut presentation,
+                                    &java_pose.bones,
+                                    local,
+                                    actor,
+                                    step.partial_tick,
+                                );
                                 java_posed.push(java_pose.posed);
                             }
                             if let Some(geometry) = rig.skin_geometry {
@@ -539,7 +550,13 @@ pub fn prepare_actor_render_frame(
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
-            let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
+            let mut equipment_input =
+                local_equipment(stream, local_runtime_id, &input.local_equipment);
+            // Java's dip shows the retained stack in whichever hand draws it.
+            if java_mode && let Some(rig) = stream.authority().actor_rig(local_runtime_id) {
+                equipment_input.main =
+                    java_hand.displayed_main(rig.java_equipped, equipment_input.main.as_ref());
+            }
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
             let motion = hand_motion
                 .as_deref()

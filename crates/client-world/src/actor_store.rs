@@ -593,6 +593,16 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// The main-hand stack's data value.
+    pub main_hand_metadata: u32,
+    /// Positive server identity for the selected stack, if one is available.
+    pub main_hand_stack_id: Option<i32>,
+    /// Selected hotbar slot; equal stacks in different slots still re-equip.
+    pub main_hand_slot: u8,
+    /// Current Java swing duration, recalculated from the active effects each tick.
+    pub java_swing_ticks: i32,
+    /// Creative flight stops Java's walked-distance phase.
+    pub flying: bool,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -654,6 +664,11 @@ pub(crate) struct ActorStore {
     local_view_bobbing: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_main_metadata: u32,
+    local_main_stack_id: Option<i32>,
+    local_main_slot: u8,
+    local_java_swing_ticks: i32,
+    local_flying: bool,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
