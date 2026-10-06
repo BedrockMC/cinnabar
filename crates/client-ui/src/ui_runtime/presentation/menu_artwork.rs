@@ -586,8 +586,10 @@ fn store_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     let Some(store) = view.store.as_deref() else {
         return Vec::new();
     };
-    store
-        .image_paths()
+    let mut paths = store.image_paths();
+    // Feature art packs first: where a large image lands on the shelves decides how much else fits.
+    paths.sort_by_key(|(_, art)| *art != launcher::store::StoreArt::Feature);
+    paths
         .into_iter()
         .map(|(path, art)| {
             let side = match art {
@@ -817,13 +819,18 @@ mod tests {
                 continuation: None,
             }
         };
-        // A plain page, and one leading with two hero rows whose feature tiles decode larger.
+        // A plain page, and pages whose hero feature tile, decoded larger, leads or follows other rows.
         let layouts = [
             vec![row("StoreRow", &offers)],
             vec![
                 row("HeroRow", &offers[..5]),
                 row("HeroRow", &offers[5..10]),
                 row("StoreRow", &offers[10..]),
+            ],
+            vec![
+                row("StoreRow", &offers[..23]),
+                row("HeroRow", &offers[23..28]),
+                row("StoreRow", &offers[28..]),
             ],
         ];
         for rows in layouts {
