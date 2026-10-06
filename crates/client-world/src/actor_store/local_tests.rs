@@ -38,17 +38,23 @@ fn profile_skin(store: &ActorStore, runtime_id: u64) -> Option<PlayerSkin> {
 
 fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),
         skin: fed_skin(),
         position: [x, 64.0, 0.0],
         velocity: [0.0; 3],
         on_ground: true,
+        flying: false,
         yaw,
         head_yaw: yaw,
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_stack_id: None,
+        main_hand_slot: 0,
+        java_swing_ticks: crate::ACTOR_SWING_TICKS,
         teleported: false,
         first_person: false,
         view_bobbing: true,
@@ -71,6 +77,21 @@ fn local_feed_overrides_only_the_predicted_sneak_and_sprint_flags() {
     store.sync_local_player(1, -100, &feed);
     let actor = store.get(1).unwrap();
     assert!(!actor.flag(1) && actor.flag(3));
+}
+
+#[test]
+fn local_flight_fact_clears_when_the_actor_session_or_dimension_is_reset() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.flying = true;
+    store.sync_local_player(1, -1, &feed);
+    assert!(store.local_flying);
+    store.begin_session(2, 0);
+    assert!(!store.local_flying);
+    store.sync_local_player(1, -1, &feed);
+    assert!(store.local_flying);
+    assert_eq!(store.reset_dimension(2, 1, 1), ActorApplyResult::Reset);
+    assert!(!store.local_flying);
 }
 
 #[test]
@@ -484,4 +505,56 @@ fn review_authoritative_echo_under_the_fed_uuid_retains_its_skin() {
     store.sync_local_player(1, -100, &feed);
     assert_eq!(profile_skin(&store, 1), Some(skin));
     assert!(store.player_profile(1).unwrap().verified);
+}
+
+#[test]
+fn client_skin_override_restores_the_retained_server_appearance() {
+    for server_uuid in [[5; 16], [7; 16]] {
+        for unlist_at in [None, Some(0), Some(1)] {
+            let listed = unlist_at.is_none();
+            let mut store = ActorStore::new(1, 0);
+            let mut feed = local_feed(0.0, 0.0);
+            let server_skin = cape_skin(3);
+            store.exclude_remote_state_for(1);
+            store.apply(1, 1, list_add(server_uuid, -100, server_skin.clone()));
+            store.sync_local_player(1, -100, &feed);
+            feed.skin = cape_skin(7);
+            feed.prefer_client_skin = true;
+            for step in 0..3 {
+                if unlist_at == Some(step) {
+                    store.apply(
+                        1,
+                        2,
+                        ActorEvent::PlayerList(PlayerListUpdateEvent {
+                            entries: Arc::from([PlayerListEntry::Remove { uuid: server_uuid }]),
+                        }),
+                    );
+                }
+                store.sync_local_player(1, -100, &feed);
+                store.prune_unlisted_players();
+                assert!(profile_skin(&store, 1).as_ref() == Some(&feed.skin));
+                let retained = store
+                    .players
+                    .get(&server_uuid)
+                    .or_else(|| store.unlisted_players.get(&server_uuid))
+                    .unwrap();
+                assert!(retained.skin == server_skin);
+                assert!(retained.verified);
+            }
+            let synthetic = store.synthetic_local_uuid.unwrap();
+            assert_ne!(synthetic, server_uuid);
+            assert_eq!(store.player_count(), usize::from(listed) + 1);
+            feed.prefer_client_skin = false;
+            store.sync_local_player(1, -100, &feed);
+            assert!(profile_skin(&store, 1).as_ref() == Some(&server_skin));
+            assert!(store.player_profile(1).unwrap().verified);
+            assert!(!store.players.contains_key(&synthetic));
+            assert!(!store.unlisted_players.contains_key(&synthetic));
+            assert_eq!(store.player_count(), usize::from(listed));
+            assert_eq!(
+                store.retained_player_skin_bytes,
+                super::retained_skin_bytes(&server_skin)
+            );
+        }
+    }
 }

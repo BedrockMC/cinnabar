@@ -400,14 +400,18 @@ fn compose_bone(
     Some(transform)
 }
 
-fn total_scale(transform: &BoneTransform) -> [f32; 3] {
+pub(super) fn total_scale(transform: &BoneTransform) -> [f32; 3] {
     transform
         .axis_scale
         .map(|axis| axis * transform.translation_scale[3])
 }
 
 /// Stores a uniform scale in `translation_scale[3]` and anything else per axis.
-fn with_scale(rotation: [f32; 4], translation: [f32; 3], scale: [f32; 3]) -> BoneTransform {
+pub(super) fn with_scale(
+    rotation: [f32; 4],
+    translation: [f32; 3],
+    scale: [f32; 3],
+) -> BoneTransform {
     let uniform = scale[0] == scale[1] && scale[1] == scale[2];
     BoneTransform {
         rotation,
