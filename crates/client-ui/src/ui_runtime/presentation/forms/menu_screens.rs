@@ -170,6 +170,15 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
             MenuScreen::Pause => {
                 data.set_global("#playername", text(view.display_name.clone()));
                 flags(&mut data, &["#playername_visible"]);
+                if view.hosting {
+                    flags(
+                        &mut data,
+                        &[
+                            "#legacy_invite_button_visible",
+                            "#legacy_invite_button_enabled",
+                        ],
+                    );
+                }
                 data.set_global("#unlock_full_game_button_text", text(UNLOCK_FULL_GAME_TEXT));
                 // A non-edu client draws the retail pause content, not edu_pause's.
                 context = unlock_text(context)
@@ -217,6 +226,10 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 });
             }
             MenuScreen::Store => return store_screen(view, &context, translate),
+            MenuScreen::Invite => {
+                super::invite_screen::bind(view, &mut data, translate);
+                context = super::invite_screen::context(view, context);
+            }
             MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
         }
         reference
@@ -702,6 +715,11 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
     if view.screen == MenuScreen::Store {
         return crate::store::action(view.store.as_deref(), region).map(MenuAction::Store);
     }
+    if view.screen == MenuScreen::Invite
+        && let Some(action) = super::invite_screen::action(region)
+    {
+        return Some(action);
+    }
     if view.screen == MenuScreen::Settings
         && let Some(action) = super::global_resources::action(view, region)
     {
@@ -731,6 +749,9 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
             MenuAction::DismissDialog
         }
         "button.menu_settings" if view.screen == MenuScreen::Pause => MenuAction::PauseSettings,
+        "button.menu_invite_players" if view.hosting => {
+            MenuAction::Invite(launcher::menu::invite::Action::Open)
+        }
         "button.menu_settings" => MenuAction::Navigate(MenuScreen::Settings),
         "button.menu_quit" | "button.main_menu_button" => MenuAction::PauseDisconnect,
         "button.respawn_button" => MenuAction::Respawn,

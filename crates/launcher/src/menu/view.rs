@@ -402,6 +402,10 @@ pub struct MenuView {
     pub feeds: MenuFeeds,
     /// The Marketplace's state while its screen is up.
     pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
+    /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
+    pub hosting: bool,
+    /// The invite screen's friends and picks while it is up.
+    pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
 }
 
 /// The focused text field's caret.
@@ -524,6 +528,8 @@ impl MenuView {
             language_choices: Default::default(),
             feeds: Default::default(),
             store: None,
+            hosting: false,
+            invite: None,
         }
     }
 }

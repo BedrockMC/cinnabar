@@ -139,6 +139,7 @@ impl MenuRuntime {
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
+            invite: Default::default(),
         }
     }
 }

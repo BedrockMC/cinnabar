@@ -260,6 +260,11 @@ struct PauseParams {
     paused: bool,
 }
 
+#[derive(Serialize)]
+struct InviteParams<'a> {
+    xuid: &'a str,
+}
+
 async fn call<P: Serialize>(
     socket_dir: &Path,
     method: &str,
@@ -399,6 +404,13 @@ pub async fn world_status(socket_dir: &Path) -> Result<WorldStatus, BridgeError>
     require_status(call::<()>(socket_dir, "world_status.v1", None).await?)
 }
 
+/// Sends the Xbox friend `xuid` an invite to the open world; the core refuses it while no
+/// world is hosted for friends.
+pub async fn invite_to_world(socket_dir: &Path, xuid: &str) -> Result<(), BridgeError> {
+    call(socket_dir, "world_invite.v1", Some(InviteParams { xuid })).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,6 +438,23 @@ mod tests {
         assert_eq!(
             bare,
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"world_list.v1"})
+        );
+    }
+
+    #[test]
+    fn invite_params_name_the_friend() {
+        let invite = serde_json::to_value(&WorldRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "world_invite.v1",
+            params: Some(InviteParams {
+                xuid: "2535400000000001",
+            }),
+        })
+        .expect("encode");
+        assert_eq!(
+            invite["params"],
+            serde_json::json!({"xuid": "2535400000000001"})
         );
     }
 

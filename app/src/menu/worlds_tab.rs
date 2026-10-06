@@ -86,7 +86,9 @@ impl MenuRuntime {
                 self.local_ui.hosted = false;
             }
         }
-        worlds.set_pause_menu(active && self.visible && self.screen == MenuScreen::Pause);
+        // The invite screen opens over the pause screen, which stays up beneath it.
+        let paused = matches!(self.screen, MenuScreen::Pause | MenuScreen::Invite);
+        worlds.set_pause_menu(active && self.visible && paused);
     }
 
     /// The local-world screens' state for the menu view, with the fields' live text.
@@ -239,7 +241,7 @@ impl MenuRuntime {
         }
     }
 
-    fn request_local_world_join(&mut self, name: String, hosted: bool) {
+    pub(super) fn request_local_world_join(&mut self, name: String, hosted: bool) {
         self.stop_catalog();
         self.local_world_joined = true;
         self.local_ui.joining = Some(name.clone());
@@ -252,12 +254,21 @@ impl MenuRuntime {
         self.show_connecting();
     }
 
+    /// The open world is hosted for Xbox friends under the signed-in account.
+    pub(super) fn hosting_world(&self) -> bool {
+        self.local_ui.hosted && !self.feeds.profile.xuid.is_empty()
+    }
+
     /// The address Discord friends join the open world by, while the core hosts it for Xbox
     /// friends under the signed-in account.
     pub(crate) fn hosted_world_address(&self) -> Option<String> {
-        let xuid = &self.feeds.profile.xuid;
-        (self.local_ui.hosted && !xuid.is_empty())
-            .then(|| format!("{}{xuid}", launcher::menu::FRIEND_ADDRESS_PREFIX))
+        self.hosting_world().then(|| {
+            format!(
+                "{}{}",
+                launcher::menu::FRIEND_ADDRESS_PREFIX,
+                self.feeds.profile.xuid
+            )
+        })
     }
 }
 

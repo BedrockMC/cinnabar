@@ -23,6 +23,7 @@ pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
+mod invite_screen;
 pub mod java_animations_setting;
 pub mod join_progress;
 pub mod loading_screen;

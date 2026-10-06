@@ -18,6 +18,7 @@ mod flow_tests;
 mod focus;
 pub(crate) mod inbox;
 mod input;
+mod invite;
 pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) use launcher_core::target_for;
@@ -177,6 +178,8 @@ pub(crate) struct MenuRuntime {
     local_world_joined: bool,
     local_world_active: bool,
     feeds: MenuFeeds,
+    /// The pause screen's invite screen and the invites it queued.
+    invite: invite::InviteUi,
 }
 
 /// Session requests raised by menu actions, for the session controller to take.
@@ -217,9 +220,14 @@ impl MenuRuntime {
         self.visible
     }
 
-    /// Full-screen launcher backgrounds replace the world; pause and death keep it visible.
+    /// Full-screen launcher backgrounds replace the world; pause, its invite screen and death keep
+    /// it visible.
     pub(crate) fn uses_panorama(&self) -> bool {
-        self.visible && !matches!(self.screen, MenuScreen::Pause | MenuScreen::Death)
+        self.visible
+            && !matches!(
+                self.screen,
+                MenuScreen::Pause | MenuScreen::Death | MenuScreen::Invite
+            )
     }
 
     pub(crate) fn screen(&self) -> MenuScreen {
@@ -323,6 +331,8 @@ impl MenuRuntime {
             settings_advanced_graphics: self.settings_advanced_graphics,
             feeds: self.feeds.clone(),
             store: self.store_snapshot.clone(),
+            hosting: self.hosting_world(),
+            invite: self.invite_view(),
             global_resources: self.global_resources.clone(),
         }
     }
@@ -717,6 +727,7 @@ impl MenuRuntime {
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
+            MenuAction::Invite(action) => self.activate_invite(action),
         }
     }
 

@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod disconnect;
 pub mod inbox;
+pub mod invite;
 pub mod profile;
 pub mod profile_achievements;
 pub mod settings_options;
@@ -38,6 +39,8 @@ pub enum MenuScreen {
     Friends,
     /// The Marketplace; its content is owned by [`crate::store`].
     Store,
+    /// Vanilla's invite screen over the pause screen, while the world is hosted for friends.
+    Invite,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,6 +146,8 @@ pub enum MenuAction {
     GlobalResources(crate::global_resources::Action),
     /// Answers the join's server trust prompt: "Trust and Join" (true) or "Don't Trust".
     ServerTrust(bool),
+    /// A press on the pause screen's invite button or the invite screen.
+    Invite(invite::Action),
 }
 
 impl MenuAction {
@@ -168,6 +173,7 @@ pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
         MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
         MenuScreen::Settings => SETTINGS_SCREEN,
         MenuScreen::Store => crate::store::SDL_SCREEN,
+        MenuScreen::Invite => invite::SCREEN,
         MenuScreen::Profile | MenuScreen::Inbox | MenuScreen::Friends => return None,
     })
 }
