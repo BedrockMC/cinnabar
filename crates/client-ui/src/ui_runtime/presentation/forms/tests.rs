@@ -1054,3 +1054,83 @@ fn store_offer_page_draws_its_title() {
     assert!(texts.iter().any(|t| t == "Castle Pack"), "{texts:?}");
     assert!(texts.iter().any(|t| t.contains("A castle.")), "{texts:?}");
 }
+
+// A hero row read the page-wide hero collection, which was never filled, so it drew no offers.
+#[test]
+fn a_hero_row_draws_and_opens_its_offers() {
+    use protocol::store_control::StoreOffer;
+    let offer = |id: &str| StoreOffer {
+        id: id.into(),
+        title: id.into(),
+        creator: None,
+        content_type: None,
+        thumbnail_url: Some(format!("https://x.test/{id}.jpg")),
+        store_id: None,
+        prices: vec![],
+        rating: None,
+        tags: vec![],
+        owned: false,
+    };
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = crate::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+        loading: false,
+        rows: vec![launcher::store::DisplayRow {
+            id: None,
+            title: String::new(),
+            role: "HeroRow",
+            offers: vec![offer("a"), offer("b")],
+            continuation: None,
+        }],
+        images: ["a", "b"]
+            .map(|id| (format!("https://x.test/{id}.jpg"), format!("/c/{id}.jpg")))
+            .into_iter()
+            .collect(),
+        ..crate::store::StoreSnapshot::empty()
+    }));
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let files = carrier.ui_files();
+    let catalog =
+        json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
+    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    let render = json_ui::render_screen(
+        screen.reference,
+        &catalog,
+        &screen.context,
+        &screen.data,
+        [480.0, 270.0],
+        &env,
+        &json_ui::ViewState::default(),
+    )
+    .unwrap();
+    let art: Vec<&str> = render
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            json_ui::Draw::Sprite { texture, .. } if texture.starts_with("/c/") => {
+                Some(texture.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        art.contains(&"/c/a.jpg") && art.contains(&"/c/b.jpg"),
+        "{art:?}"
+    );
+    let snapshot = view.store.as_deref();
+    let opens: Vec<_> = render
+        .hits
+        .iter()
+        .filter_map(|region| crate::store::action(snapshot, region))
+        .collect();
+    assert!(
+        opens.contains(&crate::store::StoreAction::OpenOffer { row: 0, index: 1 }),
+        "{opens:?}"
+    );
+}

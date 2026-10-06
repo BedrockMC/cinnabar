@@ -30,6 +30,7 @@ pub const PROGRESS_SCREEN: &str = "store_progress.store_progress_screen";
 const FACTORY: &str = "factory_collection";
 const OFFERS: &str = "offer_collection";
 const GRID_FACTORY: &str = "offer_grid_factory";
+const HERO_COLLECTION: &str = "hero_row_collection";
 const INFO_ROWS_NAME: &str = "offer_info_row_factory";
 const INFO_COLUMNS_NAME: &str = "offer_info_column_factory";
 
@@ -293,6 +294,15 @@ fn offer_lists(
         .collect();
     if row.continuation.is_some() && !is_grid {
         items.push(show_more_item(tr));
+    }
+    if row.role == "HeroRow" {
+        // Vanilla's hero row reads the page-wide `hero_row_collection`, not its row's offer list.
+        let hero = row
+            .offers
+            .iter()
+            .map(|offer| offer_item("Generic", offer, &path, tr));
+        data.collections
+            .insert(HERO_COLLECTION.to_owned(), hero.collect());
     }
     if is_grid {
         // A grid row is one `Generic` grid item that owns the offer list.
