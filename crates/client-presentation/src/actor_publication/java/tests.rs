@@ -17,7 +17,7 @@ fn head_assets() -> Arc<assets::RuntimeEntityAssets> {
 }
 
 /// Creates a local player stream with the fixture player assets.
-fn head_stream() -> WorldStream {
+pub(super) fn head_stream() -> WorldStream {
     WorldStream::new_with_asset_sets(
         protocol::WorldBootstrap {
             dimension: 0,
@@ -36,7 +36,7 @@ fn head_stream() -> WorldStream {
 }
 
 /// Starts the local player with a stationary, empty-handed pose.
-fn head_feed() -> client_world::LocalPlayerFeed {
+pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
         prefer_client_skin: false,
         uuid: [1; 16],
@@ -179,6 +179,11 @@ fn local_head_tracks_between_tick_look_while_moving_without_committing_a_pose() 
         let actor = stream.authority().actor(1).unwrap();
         let original_actor = actor.clone();
         let rig = stream.authority().actor_rig(1).unwrap();
+        let rig = ActorRigSnapshot {
+            previous_body_yaw: rig.java.body_yaw[0],
+            body_yaw: rig.java.body_yaw[1],
+            ..rig
+        };
         for alpha in [0.0, 0.25, 0.75, 1.0] {
             let input = third_person_input(&rig, actor, None, alpha, true);
             let body = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], alpha);
@@ -214,6 +219,11 @@ fn nonlocal_head_keeps_tick_interpolation_and_takes_the_short_yaw_path() {
     actor.received_pose.head_yaw = 25.0;
     actor.received_pose.pitch = -40.0;
     let rig = stream.authority().actor_rig(1).unwrap();
+    let rig = ActorRigSnapshot {
+        previous_body_yaw: rig.java.body_yaw[0],
+        body_yaw: rig.java.body_yaw[1],
+        ..rig
+    };
     for alpha in [0.0, 0.25, 0.75, 1.0] {
         let input = third_person_input(&rig, &actor, None, alpha, false);
         let body = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], alpha);

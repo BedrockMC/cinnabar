@@ -295,7 +295,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_in_ui" && evaluator.context.is_in_ui {
         return 1.0;
     }
-    if name == "is_grazing" && super::horse::is_horse(actor) {
+    if name == "is_grazing" && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {

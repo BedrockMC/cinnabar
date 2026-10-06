@@ -80,6 +80,7 @@ pub(super) struct JavaTick<'a> {
     pub(super) on_ground: bool,
     pub(super) alive: bool,
     pub(super) sneaking: bool,
+    /// Active local creative flight disables the walking trigger without stopping cape chase.
     pub(super) flying: bool,
     /// The client's own player, the only one Java advances a walk distance for.
     pub(super) local: bool,
@@ -87,6 +88,7 @@ pub(super) struct JavaTick<'a> {
 
 const BODY_FOLLOW: f32 = 0.3;
 const HEAD_LIMIT: f32 = 75.0;
+const MOUNT_HEAD_LIMIT: f32 = 85.0;
 const HEAD_SOFT_LIMIT_SQUARED: f32 = 2500.0;
 const HEAD_SOFT_PULL: f32 = 0.2;
 const FACING_DISTANCE_SQUARED: f32 = 0.002_500_000_2;
@@ -100,6 +102,16 @@ const CAPE_SNAP_BLOCKS: f64 = 10.0;
 const BOB_CAP: f32 = 0.1;
 const BOB_FOLLOW: f32 = 0.4;
 const WALK_PER_BLOCK: f64 = 0.6;
+
+/// Java's displayed rider heading for a living mount, from frame-interpolated look and body.
+pub fn java_mounted_body_yaw(mount_body_yaw: f32, head_yaw: f32) -> f32 {
+    let lag = wrap_degrees(head_yaw - mount_body_yaw).clamp(-MOUNT_HEAD_LIMIT, MOUNT_HEAD_LIMIT);
+    let mut body = head_yaw - lag;
+    if lag * lag > HEAD_SOFT_LIMIT_SQUARED {
+        body += lag * HEAD_SOFT_PULL;
+    }
+    body
+}
 
 /// Java narrows the step to a float, then accumulates the scaled walk distance as a double.
 #[must_use]

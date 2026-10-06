@@ -587,6 +587,8 @@ pub struct LocalPlayerFeed {
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
+    /// Active flight from the client's completed movement mode, rather than server abilities.
+    pub flying: bool,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -602,8 +604,6 @@ pub struct LocalPlayerFeed {
     pub main_hand_slot: u8,
     /// Current Java swing duration, recalculated from the active effects each tick.
     pub java_swing_ticks: i32,
-    /// Creative flight stops Java's walked-distance phase.
-    pub flying: bool,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -663,13 +663,13 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     local_view_dirty: bool,
     local_view_bobbing: bool,
+    local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
     local_main_metadata: u32,
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
     local_java_swing_ticks: i32,
-    local_flying: bool,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
@@ -702,6 +702,7 @@ mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod mount;
 mod movement_interpolation;
 mod placement;
 mod projectile;

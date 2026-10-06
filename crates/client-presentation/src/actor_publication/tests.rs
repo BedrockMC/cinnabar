@@ -77,11 +77,11 @@ fn first_person_arm_offset_lands_ahead_and_right_of_the_camera() {
 }
 
 /// Supplies simulated local state through presentation's borrowed observation interface.
-struct JumpPhysics(sim::PlayerState);
+struct JumpPhysics(sim::PlayerState, sim::MovementMode);
 
 impl crate::observations::PhysicsObservation for JumpPhysics {
     fn mode(&self) -> sim::MovementMode {
-        sim::MovementMode::Walking
+        self.1
     }
 
     /// Returns the last completed simulation state.
@@ -108,7 +108,10 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
 /// The local feed carries the current view-bobbing setting into authored hand animation.
 #[test]
 fn local_feed_reads_view_bobbing_toggle() {
-    let physics = JumpPhysics(sim::PlayerState::new(sim::Vec3::ZERO));
+    let physics = JumpPhysics(
+        sim::PlayerState::new(sim::Vec3::ZERO),
+        sim::MovementMode::Walking,
+    );
     for enabled in [false, true] {
         let feed = crate::actor_feed::build_local_player_feed(
             &physics,
@@ -130,6 +133,36 @@ fn local_feed_reads_view_bobbing_toggle() {
 }
 
 struct JumpFloor;
+
+#[test]
+fn local_feed_reads_active_flight_from_the_completed_movement_mode() {
+    let mut physics = JumpPhysics(
+        sim::PlayerState::new(sim::Vec3::ZERO),
+        sim::MovementMode::Walking,
+    );
+    for mode in [
+        sim::MovementMode::Flying,
+        sim::MovementMode::Walking,
+        sim::MovementMode::Riding,
+    ] {
+        physics.1 = mode;
+        let feed = crate::actor_feed::build_local_player_feed(
+            &physics,
+            bevy::math::Quat::IDENTITY,
+            false,
+            true,
+            [1; 16],
+            || {
+                protocol::PlayerSkin::Unavailable(
+                    protocol::PlayerSkinUnavailable::InvalidDimensions,
+                )
+            },
+            client_world::LocalItemUse::Unpredicted,
+        )
+        .unwrap();
+        assert_eq!(feed.flying, matches!(mode, sim::MovementMode::Flying));
+    }
+}
 
 impl sim::CollisionWorld for JumpFloor {
     /// Supplies a stable floor for the full jumping and landing sequence.
@@ -169,7 +202,10 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
         PerspectiveMode::ThirdPersonBack,
         PerspectiveMode::ThirdPersonFront,
     ] {
-        let mut physics = JumpPhysics(sim::PlayerState::new(sim::Vec3::new(0.0, 1.0, 0.0)));
+        let mut physics = JumpPhysics(
+            sim::PlayerState::new(sim::Vec3::new(0.0, 1.0, 0.0)),
+            sim::MovementMode::Walking,
+        );
         physics.0.on_ground = true;
         let simulator = sim::Simulator::default();
         let mut physics_clock = crate::actor_clock::ActorFrameClock::default();

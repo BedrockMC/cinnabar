@@ -7,6 +7,9 @@ use render_model::java_animation::{java_cos, java_sin};
 
 use super::bob::{ViewEffect, shortest_degrees};
 
+#[cfg(test)]
+mod reference_tests;
+
 /// Previous and current tick values of Java's camera bob and hand sway inputs.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct JavaCameraState {

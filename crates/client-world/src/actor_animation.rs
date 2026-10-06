@@ -714,7 +714,7 @@ mod geometry;
 mod horse;
 mod hud;
 mod java;
-pub use java::{JavaHeldItem, JavaMotion, java_walked_distance};
+pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
 mod motion;
 mod particles;
 mod pose;

@@ -192,6 +192,27 @@ fn actors(world: &World) -> Vec<Value> {
     actors.into_iter().map(|(_, actor)| actor).collect()
 }
 
+fn player_motion(world: &World) -> Option<Value> {
+    let stream = world.get_resource::<ClientWorld>()?.stream.as_ref()?;
+    let player = world.get_resource::<crate::player_runtime::PlayerRuntime>()?;
+    let physics = world.get_resource::<crate::movement::LocalPhysicsController>()?;
+    let authority = stream.authority();
+    let rig = authority.actor_rig(stream.local_player_runtime_id())?;
+    let java = rig.java;
+    Some(json!({
+        "mode": format!("{:?}", physics.mode()),
+        "on_ground": physics.state().map(|state| state.on_ground),
+        "mount_unique_id": player.facts.mount_unique_id(),
+        "java": {
+            "walked": java.walked,
+            "bob": java.bob,
+            "chase": java.cape,
+            "body_yaw": java.body_yaw,
+            "riding": java.riding,
+        },
+    }))
+}
+
 pub(super) fn snapshot(world: &World) -> Value {
     let view = world.get_resource::<LocalViewPose>();
     let stream = world.resource::<ClientWorld>().stream.as_ref();
@@ -231,6 +252,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actor_count": actor_count,
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
+        "player_motion": player_motion(world),
         "sidebar": world.get_resource::<UiRuntime>()
             .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),
         "screens": screens(world),

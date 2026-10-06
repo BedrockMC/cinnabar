@@ -45,6 +45,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         position: [x, 64.0, 0.0],
         velocity: [0.0; 3],
         on_ground: true,
+        flying: false,
         yaw,
         head_yaw: yaw,
         pitch: 0.0,
@@ -54,7 +55,6 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         main_hand_stack_id: None,
         main_hand_slot: 0,
         java_swing_ticks: crate::ACTOR_SWING_TICKS,
-        flying: false,
         teleported: false,
         first_person: false,
         view_bobbing: true,
@@ -77,6 +77,21 @@ fn local_feed_overrides_only_the_predicted_sneak_and_sprint_flags() {
     store.sync_local_player(1, -100, &feed);
     let actor = store.get(1).unwrap();
     assert!(!actor.flag(1) && actor.flag(3));
+}
+
+#[test]
+fn local_flight_fact_clears_when_the_actor_session_or_dimension_is_reset() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.flying = true;
+    store.sync_local_player(1, -1, &feed);
+    assert!(store.local_flying);
+    store.begin_session(2, 0);
+    assert!(!store.local_flying);
+    store.sync_local_player(1, -1, &feed);
+    assert!(store.local_flying);
+    assert_eq!(store.reset_dimension(2, 1, 1), ActorApplyResult::Reset);
+    assert!(!store.local_flying);
 }
 
 #[test]

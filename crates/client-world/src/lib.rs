@@ -23,7 +23,8 @@ pub use actor_animation::{
     BoneTransform, EntityRigId, HandPhase, ItemAnimationState, JavaHeldItem, JavaMotion,
     MAX_ACTOR_ACTION_HISTORY, MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
-    MODEL_PART_ORIGIN_Y, RenderTextureLayer, SkinRenderLayer, java_walked_distance,
+    MODEL_PART_ORIGIN_Y, RenderTextureLayer, SkinRenderLayer, java_mounted_body_yaw,
+    java_walked_distance,
 };
 pub use actor_store::{
     ActorFluidProbe, ActorPickup, ActorPose, ActorShadowCaster, ActorSnapshot, ActorStatus,
