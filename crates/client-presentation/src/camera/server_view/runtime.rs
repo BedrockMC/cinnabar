@@ -731,7 +731,7 @@ impl ServerCameraView {
                     preset
                         .radius
                         .filter(|radius| *radius > 0.0)
-                        .unwrap_or_else(|| match preset.base_name.as_deref() {
+                        .unwrap_or(match preset.base_name.as_deref() {
                             Some("minecraft:follow_orbit" | "minecraft:fixed_boom") => 10.0,
                             _ => super::super::THIRD_PERSON_RADIUS_BLOCKS,
                         })
@@ -885,5 +885,4 @@ mod tests;
 #[path = "options_tests.rs"]
 mod options_tests;
 
-#[path = "targeting.rs"]
 mod targeting;
