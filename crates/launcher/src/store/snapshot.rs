@@ -16,7 +16,7 @@ pub const MAX_VISIBLE_IMAGES: usize = 60;
 pub enum StoreArt {
     /// An offer card's thumbnail.
     Card,
-    /// The offer page's key art and screenshots.
+    /// The offer page's key art and screenshots, and a hero row's feature tile.
     Feature,
 }
 
@@ -94,8 +94,16 @@ impl StoreSnapshot {
         let rows = self.rows.iter().flat_map(|row| {
             row.offers
                 .iter()
-                .filter_map(|o| o.thumbnail_url.as_ref())
-                .map(|url| (url, StoreArt::Card))
+                .enumerate()
+                .filter_map(move |(index, offer)| {
+                    // A hero row's first offer is its half-width feature tile.
+                    let art = if row.role == "HeroRow" && index == 0 {
+                        StoreArt::Feature
+                    } else {
+                        StoreArt::Card
+                    };
+                    offer.thumbnail_url.as_ref().map(|url| (url, art))
+                })
         });
         let mut seen: Vec<(String, StoreArt)> = Vec::new();
         for (url, art) in detail.chain(rows) {
@@ -190,5 +198,37 @@ mod tests {
         for kind in ["PromoBanner", "NavButtonRow", "CoinBundleRow", "Layout"] {
             assert_eq!(role_for(Some(kind)), None, "{kind}");
         }
+    }
+
+    // The hero row's half-width tile was decoded at card size and drew blurred.
+    #[test]
+    fn a_hero_rows_feature_tile_is_decoded_as_feature_art() {
+        let snapshot = StoreSnapshot {
+            rows: vec![DisplayRow {
+                id: None,
+                title: String::new(),
+                role: "HeroRow",
+                offers: vec![
+                    offer("a", Some("https://x.test/a")),
+                    offer("b", Some("https://x.test/b")),
+                ],
+                continuation: None,
+            }],
+            images: [
+                ("https://x.test/a", "/c/a.png"),
+                ("https://x.test/b", "/c/b.png"),
+            ]
+            .map(|(url, path)| (url.to_owned(), path.to_owned()))
+            .into_iter()
+            .collect(),
+            ..StoreSnapshot::empty()
+        };
+        assert_eq!(
+            snapshot.image_paths(),
+            [
+                ("/c/a.png".to_owned(), StoreArt::Feature),
+                ("/c/b.png".to_owned(), StoreArt::Card)
+            ]
+        );
     }
 }
