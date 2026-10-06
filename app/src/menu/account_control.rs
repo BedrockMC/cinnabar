@@ -103,6 +103,17 @@ impl MenuRuntime {
         }
     }
 
+    /// Drops a per-session core's question and any answer to it once that core is gone, so neither
+    /// reaches the next join's core, whose prompt ids start over.
+    pub(crate) fn forget_session_trust(&mut self) {
+        self.feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| prompt.from_session_core);
+        if self.server_trust_from_session_core() {
+            self.feeds.server_trust = None;
+        }
+    }
+
     fn server_trust_from_session_core(&self) -> bool {
         self.feeds
             .server_trust
@@ -483,6 +494,21 @@ mod tests {
         assert!(
             launcher.answers.is_empty(),
             "the launcher core got the session core's answer"
+        );
+
+        // An answer left when its core is gone is dropped rather than sent to the next core.
+        session.prompt.replace(Some(asked.clone()));
+        menu.sync_session_trust(&session);
+        menu.activate(MenuAction::ServerTrust(false));
+        menu.forget_session_trust();
+        let next = SessionSource {
+            prompt: std::cell::RefCell::new(None),
+            answers: Default::default(),
+        };
+        menu.sync_session_trust(&next);
+        assert!(
+            next.answers.borrow().is_empty(),
+            "an old answer reached the next core"
         );
     }
 

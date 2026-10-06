@@ -463,6 +463,10 @@ pub(crate) fn drive_session(
     mut session: SessionResources,
 ) {
     session.controller.publish(&mut menu);
+    // A queued answer reaches its core before a decline below retires that core.
+    if let Some(trust) = session.controller.trust.as_ref() {
+        menu.sync_session_trust(trust);
+    }
     drive_intents(
         &mut commands,
         &mut exits,
@@ -474,8 +478,9 @@ pub(crate) fn drive_session(
     if !session.controller.connecting {
         session.controller.trust = None;
     }
-    if let Some(trust) = session.controller.trust.as_ref() {
-        menu.sync_session_trust(trust);
+    match session.controller.trust.as_ref() {
+        Some(trust) => menu.sync_session_trust(trust),
+        None => menu.forget_session_trust(),
     }
 }
 
