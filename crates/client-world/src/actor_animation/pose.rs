@@ -49,12 +49,17 @@ pub(super) fn sample_clips(
 ) -> Result<Vec<LocalDelta>, EvalError> {
     let assets = evaluator.assets;
     let mut local = vec![LocalDelta::default(); bones.len()];
-    let mut rotations = clips
-        .iter()
-        .any(|clip| clip.blend.is_some())
-        .then(|| vec![None; bones.len()]);
+    let blending = clips.iter().any(|clip| clip.blend.is_some());
+    let mut rotations = blending.then(|| vec![None; bones.len()]);
+    // Both blend sides lerp into one scale that multiplies the pose accumulated so far.
+    let mut blended_scales = blending.then(|| vec![None; bones.len()]);
     for weighted in clips {
         budget.charge_work()?;
+        if weighted.blend != Some(ControllerBlend::To)
+            && let Some(scales) = blended_scales.as_mut()
+        {
+            apply_blended_scales(&mut local, scales);
+        }
         let weight = weighted.weight;
         if weight < f32::EPSILON {
             continue;
@@ -120,9 +125,7 @@ pub(super) fn sample_clips(
                 let reference = &mut rotations[channel.bone as usize];
                 match weighted.blend {
                     Some(ControllerBlend::From) => *reference = Some(value),
-                    Some(ControllerBlend::To {
-                        shortest_path: true,
-                    }) => {
+                    Some(ControllerBlend::To) => {
                         if let Some(previous) = reference {
                             value = std::array::from_fn(|axis| {
                                 previous[axis]
@@ -131,13 +134,21 @@ pub(super) fn sample_clips(
                             });
                         }
                     }
-                    _ => {}
+                    None => {}
                 }
             }
+            if channel.property == EntityAnimationProperty::Scale
+                && weighted.blend.is_some()
+                && let Some(scales) = blended_scales.as_mut()
+            {
+                let blended = scales[channel.bone as usize].get_or_insert([1.0; 3]);
+                for (axis, value) in value.into_iter().enumerate() {
+                    blended[axis] += (value - 1.0) * weight;
+                }
+                continue;
+            }
             for (axis, value) in value.into_iter().enumerate() {
-                if channel.property == EntityAnimationProperty::Scale && weighted.blend.is_some() {
-                    current[axis] += (value - 1.0) * weight;
-                } else if channel.property == EntityAnimationProperty::Scale {
+                if channel.property == EntityAnimationProperty::Scale {
                     current[axis] *= 1.0 + (value - 1.0) * weight;
                 } else {
                     current[axis] += value * weight;
@@ -145,7 +156,20 @@ pub(super) fn sample_clips(
             }
         }
     }
+    if let Some(scales) = blended_scales.as_mut() {
+        apply_blended_scales(&mut local, scales);
+    }
     Ok(local)
+}
+
+fn apply_blended_scales(local: &mut [LocalDelta], scales: &mut [Option<[f32; 3]>]) {
+    for (bone, scale) in local.iter_mut().zip(scales) {
+        if let Some(scale) = scale.take() {
+            for axis in 0..3 {
+                bone.scale[axis] *= scale[axis];
+            }
+        }
+    }
 }
 
 fn default_channel(

@@ -200,17 +200,9 @@ impl EquipmentRuntime {
             });
             rasters.len() - 1
         });
-        let artwork = if let Some(glint) = textures
-            .iter()
-            .find(|texture| texture.identifier.as_ref() == assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
-        {
-            artwork.with_actor_glint(EquipmentRaster {
-                width: glint.width,
-                height: glint.height,
-                rgba8: Arc::clone(&glint.rgba8),
-            })
-        } else {
-            artwork
+        let artwork = match catalog.as_deref().and_then(Self::actor_glint) {
+            Some(glint) => artwork.with_actor_glint(glint),
+            None => artwork,
         };
         let (artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures

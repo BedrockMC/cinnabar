@@ -115,7 +115,11 @@ fn apply_session_pack(
     {
         let (extended, locations) =
             pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
-        pages = extended;
+        // Startup pages carry the vanilla glint, so disconnect restores it.
+        pages = match EquipmentRuntime::actor_glint(catalog) {
+            Some(glint) => extended.with_actor_glint(glint),
+            None => extended,
+        };
         if !geometry_ready.equipment {
             geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
         }

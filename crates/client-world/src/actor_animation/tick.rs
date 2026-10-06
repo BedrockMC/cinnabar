@@ -594,10 +594,11 @@ pub(super) struct WeightedClip {
     pub(super) blend: Option<ControllerBlend>,
 }
 
-#[derive(Clone, Copy, Debug)]
+/// The side of a shortest-path controller blend a clip samples.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ControllerBlend {
     From,
-    To { shortest_path: bool },
+    To,
 }
 
 fn blend_weight(
@@ -658,21 +659,21 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 * ACTOR_TICK_DURATION.as_secs_f32();
             let amount = (elapsed / source.blend_transition.get()).clamp(0.0, 1.0);
             if amount < 1.0 {
+                // Other blends apply both states straight onto the shared pose.
+                let blend = |side| source.blend_via_shortest_path.then_some(side);
                 self.animations(
                     previous,
                     weight * (1.0 - amount),
                     depth,
                     started,
-                    Some(ControllerBlend::From),
+                    blend(ControllerBlend::From),
                 )?;
                 return self.animations(
                     state,
                     weight * amount,
                     depth,
                     runtime.entered_tick,
-                    Some(ControllerBlend::To {
-                        shortest_path: source.blend_via_shortest_path,
-                    }),
+                    blend(ControllerBlend::To),
                 );
             }
             self.controllers[slot].blend_from = None;
