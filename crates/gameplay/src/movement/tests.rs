@@ -57,3 +57,59 @@ fn flush_refuses_a_stale_queue_without_physics_authority() {
     assert_eq!(ticker.sent_free_camera_packet_count(), 0);
     assert_eq!(ticker.outbox.len(), 1);
 }
+
+#[test]
+fn action_rotation_updates_only_the_matching_unsent_actor_facing() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(1, 10, [0.0; 3]);
+    ticker.set_source(MovementSource::Physics);
+    ticker
+        .enqueue_completed_physics(PhysicsMovementSample {
+            tick: 11,
+            position: [1.0, 2.0, 3.0],
+            movement: [0.1, 0.2, 0.3],
+            velocity: [0.1, 0.2, 0.3],
+            move_vector: [0.0; 2],
+            raw_move_vector: [0.0; 2],
+            analogue_move_vector: [0.0; 2],
+            pitch: 0.0,
+            yaw: 0.0,
+            head_yaw: 0.0,
+            camera_orientation: [0.0, 0.0, 1.0],
+            jumping: false,
+            sneaking: false,
+            sneak_button: false,
+            sprinting: false,
+            input_mode: PlayerInputMode::Mouse,
+            grounded_before_tick: false,
+            grounded_after_tick: false,
+            horizontal_collision: false,
+            vertical_collision: false,
+            jump_repeated: false,
+            processed: ProcessedMovementState::default(),
+            world_identity: WorldCollisionIdentity::new(
+                sim::CollisionRegistryIdentity {
+                    protocol: 1001,
+                    id_space: sim::CollisionIdSpace::Sequential,
+                    preg_sha256: [1; 32],
+                },
+                [],
+            )
+            .unwrap(),
+        })
+        .unwrap();
+    let previous = ticker.outbox[0].snapshot;
+    assert!(!ticker.override_action_rotation(previous.tick + 1, 15.0, 30.0));
+    assert!(!ticker.override_action_rotation(previous.tick, f32::NAN, 30.0));
+    assert_eq!(ticker.outbox[0].snapshot, previous);
+    assert!(ticker.override_action_rotation(previous.tick, 15.0, 30.0));
+    let changed = ticker.outbox[0].snapshot;
+    assert_eq!(
+        (changed.pitch, changed.yaw, changed.head_yaw),
+        (15.0, 30.0, 30.0)
+    );
+    assert_eq!(changed.camera_orientation, previous.camera_orientation);
+    assert_eq!(changed.move_vector, previous.move_vector);
+    assert_eq!(changed.position, previous.position);
+    assert_eq!(changed.delta, previous.delta);
+}

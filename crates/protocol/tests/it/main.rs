@@ -4,6 +4,7 @@ mod available_commands;
 mod biome_definition_list;
 mod blob_cache;
 mod camera_packets;
+mod camera_registry_packets;
 mod chat_send;
 mod crafting_data;
 mod creative_content;

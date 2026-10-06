@@ -214,7 +214,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
                 .chain()
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
@@ -868,6 +868,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::HandRigRenderPlugin,
         render::DroppedItemRenderPlugin,
         render::ScreenOverlayRenderPlugin,
+        render::AimAssistHighlightPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
         render::EntityShadowRenderPlugin,

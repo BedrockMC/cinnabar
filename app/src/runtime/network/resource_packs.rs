@@ -40,6 +40,7 @@ pub struct PackApplication {
     pub(crate) server_ui: Option<Arc<ServerUiPack>>,
     /// Installed only once the session's Bootstrap is accepted.
     pub(crate) server_sounds: Option<Arc<crate::audio::ServerSoundPack>>,
+    pub(crate) aim_assist_textures: [Option<Arc<render::AimAssistTexture>>; 2],
 }
 
 impl Default for PackApplication {
@@ -60,6 +61,7 @@ impl Default for PackApplication {
             property_defaults: Vec::new(),
             server_ui: None,
             server_sounds: None,
+            aim_assist_textures: Default::default(),
         }
     }
 }
@@ -187,7 +189,20 @@ fn compile_application(
     let fingerprint = stack_fingerprint(&stack);
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
     let (mut entities, mut artwork, mut ui, mut sounds) = (None, None, None, None);
+    let mut aim_assist = None;
     rayon::scope(|scope| {
+        scope.spawn(|_| {
+            aim_assist = compile_part(
+                &stack,
+                cancelled,
+                changes.aim_assist,
+                Subscriber::AimAssist,
+                previous
+                    .map(|old| old.aim_assist_textures.clone())
+                    .unwrap_or_default(),
+                crate::camera::aim_highlight::prepare_pack_textures,
+            );
+        });
         scope.spawn(|_| {
             blocks = compile_part(
                 &stack,
@@ -312,6 +327,7 @@ fn compile_application(
         }
         output
     }
+    let aim_assist_textures = record(&mut dependencies, Subscriber::AimAssist, aim_assist?);
     let block_overlay = record(&mut dependencies, Subscriber::Blocks, blocks?);
     let item_icons = record(&mut dependencies, Subscriber::Icons, icons?);
     let server_lang = record(&mut dependencies, Subscriber::Language, language?);
@@ -351,6 +367,7 @@ fn compile_application(
         entity_artwork,
         server_ui,
         server_sounds,
+        aim_assist_textures,
         admission: PackAdmission::Validated(stack),
         block_overlay,
         dependencies,

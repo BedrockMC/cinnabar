@@ -263,8 +263,15 @@ pub enum WorldPacketError {
         max: usize,
     },
 
-    #[error("camera spline instructions are recognized but not normalized")]
-    UnsupportedCameraSpline,
+    #[error("camera {field} is unusable")]
+    InvalidCameraField { field: &'static str },
+
+    #[error("camera {field} has {count} entries, exceeding {max}")]
+    CameraCollectionTooLarge {
+        field: &'static str,
+        count: usize,
+        max: usize,
+    },
 
     #[error("unsupported LevelChunk sub-chunk count {0}")]
     InvalidSubChunkCount(i32),
@@ -429,6 +436,11 @@ pub fn into_world_event(
         McpePacketData::AddItemActorPacket(packet) => {
             WorldEvent::Actor(normalize_add_item_actor(*packet, current_dimension)?)
         }
+        McpePacketData::AvailableActorIdentifiersPacket(packet) => {
+            WorldEvent::Actor(crate::ActorEvent::Identifiers(
+                crate::actor::identifiers::normalize(&packet.identifier_list.0),
+            ))
+        }
         McpePacketData::TakeItemActorPacket(packet) => {
             WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet))
         }
@@ -526,7 +538,19 @@ pub fn into_world_event(
             WorldEvent::Camera(crate::camera::normalize_switch(packet))
         }
         McpePacketData::CameraPresetsPacket(packet) => {
-            WorldEvent::Camera(crate::camera::normalize_presets(packet))
+            WorldEvent::Camera(crate::camera::normalize_presets(packet)?)
+        }
+        McpePacketData::CameraSplinePacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_registry(packet)?)
+        }
+        McpePacketData::CameraAimAssistPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_settings(*packet)?)
+        }
+        McpePacketData::CameraAimAssistPresetsPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_aim_presets(packet)?)
+        }
+        McpePacketData::CameraAimAssistActorPriorityPacket(packet) => {
+            WorldEvent::Camera(crate::camera::normalize_actor_priorities(packet)?)
         }
         McpePacketData::CameraShakePacket(packet) => {
             WorldEvent::Camera(crate::camera::normalize_shake(*packet)?)
