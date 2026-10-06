@@ -108,6 +108,13 @@ impl State {
 }
 
 impl wit::Host for State {
+    fn set_block_highlights(
+        &mut self,
+        spec: Option<wit::BlockHighlightSpec>,
+    ) -> Result<Result<(), String>> {
+        super::block_highlights::set(self, spec)
+    }
+
     fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
         if let Err(denied) = self.render_allowed()? {
             return Ok(Err(denied));

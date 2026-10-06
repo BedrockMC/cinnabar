@@ -5,6 +5,7 @@
 
 mod biome;
 mod block_entity;
+mod block_highlights;
 mod chunk;
 mod chunk_grid;
 mod collision_revision;
@@ -26,6 +27,7 @@ pub use block_entity::{
     MAX_NBT_COLLECTION_LENGTH, MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, MAX_NBT_TAGS,
     RootByteCandidate,
 };
+pub use block_highlights::BlockHighlightScan;
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
 pub use chunk_grid::{CHUNK_VIEW_SLACK, chunk_in_view, chunk_view_distance};
 pub use error::{CollisionRevisionError, DecodeError, MutationError};

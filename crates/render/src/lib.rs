@@ -3,7 +3,7 @@ mod lighting;
 mod lightmap;
 #[cfg(test)]
 mod shader_test_support;
-pub use lighting::WorldLighting;
+pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
 pub use render_api::fancy_actor_shade;
 
@@ -39,7 +39,7 @@ pub use media_screen::{
 };
 mod material_shader;
 mod mod_render;
-pub use mod_render::{ModPassLabel, ModRenderPlugin, ModRenderScene};
+pub use mod_render::{MAX_BLOCK_HIGHLIGHTS, ModPassLabel, ModRenderPlugin, ModRenderScene};
 mod nametag_render;
 pub use nametag_render::NametagSceneResource;
 mod native_sunlight;
