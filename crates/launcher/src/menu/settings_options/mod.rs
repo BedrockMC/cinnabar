@@ -25,7 +25,7 @@ pub use definitions::{
     SettingDefinition, SettingKind,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
-pub use keybindings::{KEY_BINDINGS, key_name};
+pub use keybindings::{KEY_BINDINGS, OPEN_NOTIFICATION_KEY, key_name};
 pub use persistence::SETTINGS_FILE;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

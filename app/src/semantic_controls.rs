@@ -19,7 +19,7 @@ use client_ui::ui_runtime::UiRuntime;
 pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
 
 impl SemanticInputSnapshot {
-    #[cfg(all(test, feature = "local-mods"))]
+    #[cfg(test)]
     pub(crate) fn from_finalized(snapshot: ActionSnapshot) -> Self {
         Self(Some(snapshot))
     }

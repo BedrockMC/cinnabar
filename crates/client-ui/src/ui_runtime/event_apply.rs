@@ -133,7 +133,11 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         match event {
             HudEvent::Toast { title, message } => {
-                self.queue_toast(Toast::new(title, message, fifo_sequence, event_millis));
+                let mut toast = Toast::new(title, message, fifo_sequence, event_millis);
+                toast.expires_millis = event_millis
+                    .saturating_add(self.toast_display_millis)
+                    .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
+                self.hud.push_toast(toast);
             }
             HudEvent::Health { health } => {
                 // A negative or overflowing SetHealth is semantically odd but
@@ -154,19 +158,13 @@ impl UiRuntime {
         Ok(())
     }
 
-    /// Queues a client toast, which `press` makes clickable, behind any showing toast.
-    pub fn push_client_toast(&mut self, title: Arc<str>, press: ui::ToastPress, now_millis: u64) {
-        let mut toast = Toast::new(title, Arc::from(""), 0, now_millis);
-        toast.press = press;
-        self.queue_toast(toast);
+    /// Stands a client toast that stays while its cause lasts.
+    pub fn stand_toast(&mut self, toast: ui::StandingToast) {
+        self.hud.stand_toast(toast);
     }
 
-    /// Shows `toast` for the player's notification duration, after any toast ahead of it.
-    fn queue_toast(&mut self, mut toast: Toast) {
-        toast.expires_millis = toast
-            .received_millis
-            .saturating_add(self.toast_display_millis)
-            .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
-        self.hud.push_toast(toast);
+    /// Slides the standing toast out from `now_millis`.
+    pub fn retire_standing_toast(&mut self, now_millis: u64) {
+        self.hud.retire_standing_toast(now_millis);
     }
 }

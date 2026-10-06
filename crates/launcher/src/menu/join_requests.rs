@@ -10,6 +10,12 @@ pub fn title(name: &str) -> String {
     format!("{name} wants to join")
 }
 
+/// The toast's second line, naming the bound Open Notification key. Vanilla's invite line
+/// promises the key accepts, but this one opens Accept and Decline.
+pub fn respond_hint(key: &str) -> String {
+    format!("Press {key} to respond")
+}
+
 /// One Discord user waiting for an answer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JoinRequest {
@@ -19,6 +25,13 @@ pub struct JoinRequest {
     arrived: Duration,
 }
 
+impl JoinRequest {
+    /// When Discord closes it unanswered, on the same clock as its arrival.
+    pub fn closes_at(&self) -> Duration {
+        self.arrived.saturating_add(LIFETIME)
+    }
+}
+
 /// The open requests in the order they first arrived.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct JoinRequests {
@@ -26,9 +39,9 @@ pub struct JoinRequests {
 }
 
 impl JoinRequests {
-    /// Queues a request; true when its user was not already waiting. Asking again keeps the
-    /// user's place under their newest name and restarts the lifetime.
-    pub fn push(&mut self, user_id: u64, name: String, now: Duration) -> bool {
+    /// Queues a request. Asking again keeps the user's place under their newest name and
+    /// restarts the lifetime.
+    pub fn push(&mut self, user_id: u64, name: String, now: Duration) {
         if let Some(waiting) = self
             .pending
             .iter_mut()
@@ -36,20 +49,18 @@ impl JoinRequests {
         {
             waiting.name = name;
             waiting.arrived = now;
-            return false;
+            return;
         }
         self.pending.push_back(JoinRequest {
             user_id,
             name,
             arrived: now,
         });
-        true
     }
 
     /// Drops requests Discord has already closed.
     pub fn expire(&mut self, now: Duration) {
-        self.pending
-            .retain(|request| now.saturating_sub(request.arrived) < LIFETIME);
+        self.pending.retain(|request| now < request.closes_at());
     }
 
     /// The oldest request still open once [`Self::expire`] has run.
@@ -85,9 +96,9 @@ mod tests {
     #[test]
     fn a_user_asking_again_keeps_their_place_under_their_newest_name() {
         let mut requests = JoinRequests::default();
-        assert!(requests.push(1, "old".into(), Duration::ZERO));
-        assert!(requests.push(2, "second".into(), SECOND));
-        assert!(!requests.push(1, "new".into(), 2 * SECOND));
+        requests.push(1, "old".into(), Duration::ZERO);
+        requests.push(2, "second".into(), SECOND);
+        requests.push(1, "new".into(), 2 * SECOND);
         assert_eq!(names(&requests), [(1, "new"), (2, "second")]);
     }
 
@@ -101,6 +112,10 @@ mod tests {
         // The oldest lapses and the next becomes current.
         requests.expire(LIFETIME);
         assert_eq!(requests.current().map(|request| request.user_id), Some(2));
+        assert_eq!(
+            requests.current().map(JoinRequest::closes_at),
+            Some(10 * SECOND + LIFETIME)
+        );
         // Asking again restarts the lifetime.
         requests.push(2, "second".into(), LIFETIME);
         requests.expire(LIFETIME + 10 * SECOND + LIFETIME / 2);

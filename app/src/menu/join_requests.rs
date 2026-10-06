@@ -1,11 +1,20 @@
-//! The host's open Discord join requests: vanilla's popup answers the oldest one over any menu,
-//! and the answers wait here for the Discord adapter to send.
+//! The host's open Discord join requests: a standing toast names the oldest one in play, vanilla's
+//! Open Notification key or a press on the toast opens its popup over the pause screen, and the
+//! answers wait here for the Discord adapter to send.
 
-use std::{collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, ops::DerefMut, sync::Arc, time::Duration};
 
-use launcher::menu::join_requests::JoinRequests;
+use bevy::prelude::{Res, ResMut};
+use client_ui::ui_runtime::UiRuntime;
+use launcher::menu::{
+    join_requests::{self, JoinRequests},
+    settings_options::{OPEN_NOTIFICATION_KEY, key_name},
+};
+use semantic_input::Action;
+use ui::{StandingToast, ToastPress};
 
 use super::{MenuAction, MenuRuntime};
+use crate::semantic_controls::SemanticInputSnapshot;
 
 #[derive(Debug, Default)]
 pub(super) struct JoinRequestUi {
@@ -15,9 +24,9 @@ pub(super) struct JoinRequestUi {
 }
 
 impl MenuRuntime {
-    /// Queues a request Discord delivered at `now`; true when its user was not already waiting.
-    pub(crate) fn push_join_request(&mut self, user_id: u64, name: String, now: Duration) -> bool {
-        self.join_requests.requests.push(user_id, name, now)
+    /// Queues a request Discord delivered at `now`.
+    pub(crate) fn push_join_request(&mut self, user_id: u64, name: String, now: Duration) {
+        self.join_requests.requests.push(user_id, name, now);
     }
 
     /// Drops the requests Discord has closed by `now`.
@@ -41,6 +50,48 @@ impl MenuRuntime {
         if self.join_requests.requests.current().is_some() {
             self.open_pause();
         }
+    }
+
+    /// Stands the oldest request's toast while playing until Discord closes it, and slides the
+    /// toast out once that request is answered, closed or shown as the popup. Touches `runtime`
+    /// only on a change.
+    pub(crate) fn sync_join_toast(
+        &self,
+        runtime: &mut impl DerefMut<Target = UiRuntime>,
+        now: Duration,
+    ) {
+        let millis = |at: Duration| u64::try_from(at.as_millis()).unwrap_or(u64::MAX);
+        let now = millis(now);
+        let standing = runtime.hud().standing_toast();
+        let Some(request) = self
+            .join_requests
+            .requests
+            .current()
+            .filter(|_| !self.visible)
+        else {
+            if standing.is_some_and(|toast| toast.until_millis > now) {
+                runtime.retire_standing_toast(now);
+            }
+            return;
+        };
+        let until = millis(request.closes_at());
+        if standing.is_some_and(|toast| toast.id == request.user_id && toast.until_millis == until)
+        {
+            return;
+        }
+        let hint = self
+            .settings_options
+            .named_key_control(OPEN_NOTIFICATION_KEY)
+            .map(|key| join_requests::respond_hint(&key_name(key)))
+            .unwrap_or_default();
+        runtime.stand_toast(StandingToast {
+            id: request.user_id,
+            title: Arc::from(join_requests::title(&request.name)),
+            message: Arc::from(hint),
+            press: ToastPress::JoinRequests,
+            since_millis: now,
+            until_millis: until,
+        });
     }
 
     /// Who sent the oldest open request, for the view.
@@ -74,6 +125,16 @@ impl MenuRuntime {
                 MenuAction::JoinRequest(false),
             ]
         })
+    }
+}
+
+/// Vanilla's Open Notification key opens the oldest join request's popup from play.
+pub(crate) fn open_join_requests_from_key(
+    input: Res<SemanticInputSnapshot>,
+    mut menu: ResMut<MenuRuntime>,
+) {
+    if input.phase(Action::InteractWithToast).pressed {
+        menu.open_join_requests();
     }
 }
 

@@ -20,6 +20,7 @@ pub(crate) mod inbox;
 mod input;
 mod invite;
 mod join_requests;
+pub(crate) use join_requests::open_join_requests_from_key;
 pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) use launcher_core::target_for;

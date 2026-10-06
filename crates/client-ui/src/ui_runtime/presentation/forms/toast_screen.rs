@@ -44,15 +44,10 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(());
         };
-        let Some(toast) = runtime
-            .hud()
-            .toasts()
-            .iter()
-            .find(|toast| toast.visible_at(now_millis))
-        else {
+        let Some(toast) = runtime.hud().showing_toast(now_millis) else {
             return Ok(());
         };
-        let data = toast_data(toast, now_millis);
+        let data = toast_data(&toast);
         // Vanilla toast screen variables.
         let context = renderer
             .context()
@@ -96,7 +91,7 @@ impl UiPresentationRuntime {
                 )
             },
         )?;
-        if toast.press != ToastPress::Nothing
+        if let Some(press) = toast.press
             && let Some(frame) = frame
         {
             let origin = [self.safe_area.left(), self.safe_area.top()];
@@ -105,18 +100,18 @@ impl UiPresentationRuntime {
                 .iter()
                 .filter(|region| region.enabled && region.pressed.as_deref() == Some(TOAST_PRESS))
                 .find_map(|region| super::menus::window_rect(region, frame.scale, origin))
-                .map(|bounds| (toast.press, bounds));
+                .map(|bounds| (press, bounds));
         }
         Ok(())
     }
 }
 
-/// What the toast controller binds for `toast` at `now_millis`.
-fn toast_data(toast: &ui::Toast, now_millis: u64) -> DataSource {
+/// What the toast controller binds for the showing `toast`.
+fn toast_data(toast: &ui::ShownToast<'_>) -> DataSource {
     let mut data = DataSource::new();
     data.set_strict(true);
-    let title = bounded_visible_text(&toast.title).to_owned();
-    let subtitle = bounded_visible_text(&toast.message).to_owned();
+    let title = bounded_visible_text(toast.title).to_owned();
+    let subtitle = bounded_visible_text(toast.message).to_owned();
     data.set_global(
         "#toast_subtitle_visible",
         Scalar::Bool(!subtitle.is_empty()),
@@ -124,7 +119,7 @@ fn toast_data(toast: &ui::Toast, now_millis: u64) -> DataSource {
     data.set_global("#toast_title", Scalar::Text(title));
     data.set_global("#toast_subtitle", Scalar::Text(subtitle));
     data.set_global("#toast_icon_section_content", Scalar::Num(0.0));
-    let offset = TOAST_DISTANCE * f64::from(toast.slide(now_millis));
+    let offset = TOAST_DISTANCE * f64::from(toast.slide);
     data.set_factory(
         "toast_factory",
         vec![
