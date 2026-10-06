@@ -339,6 +339,8 @@ pub struct WorldStream {
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     frame_deadline: Option<Instant>,
+    /// Per-frame ingress, commit and scheduling allocation.
+    poll_budget: Duration,
     polling: bool,
     publication_allowance: Option<PublicationAllowance>,
     mesh_changes: VecDeque<WorldMeshChange>,
@@ -351,7 +353,7 @@ pub struct WorldStream {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use client_world::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,

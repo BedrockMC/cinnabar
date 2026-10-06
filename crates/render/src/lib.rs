@@ -1,4 +1,7 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+#[cfg(test)]
+#[path = "../tests/it/support/gpu_snapshot.rs"]
+mod gpu_snapshot;
 mod lighting;
 mod lightmap;
 #[cfg(test)]

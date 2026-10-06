@@ -22,6 +22,9 @@ use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group, criterion
 use protocol::{MovePlayerEvent, PublisherUpdateEvent, WorldEvent};
 use world::{SubChunkKey, chunk_in_view};
 
+#[path = "flight_costs/camera.rs"]
+mod camera;
+
 const AIR: u32 = 0;
 const STONE: u32 = 1;
 const DIRT: u32 = 2;
@@ -422,44 +425,48 @@ fn flight_benches(c: &mut Criterion) {
         (16, 0.0),
         (16, 128.0),
     ] {
-        let mut flight = Flight::new(&assets, radius);
-        flight.blocks_per_second = blocks_per_second;
-        let resident_before = flight.stream.loaded_column_count();
-        let acknowledged_before = flight
-            .stream
-            .stats()
-            .phase2_stages
-            .mesh_uploads_acknowledged;
-        // Two seconds of flight: per-frame distribution and work witnesses.
-        let mut frames: Vec<_> = (0..480).map(|_| flight.frame()).collect();
-        frames.sort_unstable();
-        let stats = flight.stream.stats();
-        assert_eq!(stats.decode_errors, 0);
-        assert_eq!(stats.light_solve_failures, 0);
-        let grid = (2 * (radius + world::CHUNK_VIEW_SLACK) + 1) as usize;
-        assert!(
-            flight.stream.loaded_column_count() <= grid * grid,
-            "retention bounds residency"
-        );
-        let published = stats.phase2_stages.mesh_uploads_acknowledged - acknowledged_before;
-        if blocks_per_second > 0.0 {
-            assert!(published > 0, "flight published no meshes");
-        }
-        let total: Duration = frames.iter().sum();
-        eprintln!(
-            "FLIGHT_PREFLIGHT radius={radius} blocks_per_second={blocks_per_second} resident_columns={resident_before}->{} meshes_published={published} backlog={} main_ms_per_frame_mean={:.3} p50_us={} p99_us={} max_us={}",
-            flight.stream.loaded_column_count(),
-            flight.backlog.len(),
-            total.as_secs_f64() * 1000.0 / frames.len() as f64,
-            percentile(&frames, 50).as_micros(),
-            percentile(&frames, 99).as_micros(),
-            frames.last().unwrap().as_micros(),
-        );
         let id = BenchmarkId::new(
             format!("radius_{radius}"),
             format!("{blocks_per_second}_blocks_per_s"),
         );
+        let mut fixture = None;
         group.bench_function(id, |b| {
+            let flight = fixture.get_or_insert_with(|| {
+                let mut flight = Flight::new(&assets, radius);
+                flight.blocks_per_second = blocks_per_second;
+                let resident_before = flight.stream.loaded_column_count();
+                let acknowledged_before = flight
+                    .stream
+                    .stats()
+                    .phase2_stages
+                    .mesh_uploads_acknowledged;
+                // Two seconds of flight: per-frame distribution and work witnesses.
+                let mut frames: Vec<_> = (0..480).map(|_| flight.frame()).collect();
+                frames.sort_unstable();
+                let stats = flight.stream.stats();
+                assert_eq!(stats.decode_errors, 0);
+                assert_eq!(stats.light_solve_failures, 0);
+                let grid = (2 * (radius + world::CHUNK_VIEW_SLACK) + 1) as usize;
+                assert!(
+                    flight.stream.loaded_column_count() <= grid * grid,
+                    "retention bounds residency"
+                );
+                let published = stats.phase2_stages.mesh_uploads_acknowledged - acknowledged_before;
+                if blocks_per_second > 0.0 {
+                    assert!(published > 0, "flight published no meshes");
+                }
+                let total: Duration = frames.iter().sum();
+                eprintln!(
+                    "FLIGHT_PREFLIGHT radius={radius} blocks_per_second={blocks_per_second} resident_columns={resident_before}->{} meshes_published={published} backlog={} main_ms_per_frame_mean={:.3} p50_us={} p99_us={} max_us={}",
+                    flight.stream.loaded_column_count(),
+                    flight.backlog.len(),
+                    total.as_secs_f64() * 1000.0 / frames.len() as f64,
+                    percentile(&frames, 50).as_micros(),
+                    percentile(&frames, 99).as_micros(),
+                    frames.last().unwrap().as_micros(),
+                );
+                flight
+            });
             b.iter_custom(|frames| (0..frames).map(|_| flight.frame()).sum());
         });
     }
@@ -474,17 +481,21 @@ fn eviction_benches(c: &mut Criterion) {
     group.warm_up_time(Duration::from_millis(100));
     group.measurement_time(Duration::from_millis(300));
     for radius in [10, 16] {
-        let mut flight = Flight::new(&assets, radius);
-        let columns = flight.stream.loaded_column_count();
-        let sub_chunks = flight.stream.stats().resident_sub_chunks;
-        let elapsed = flight.cross_one_chunk();
-        assert_eq!(flight.stream.loaded_column_count(), columns);
-        assert_eq!(flight.stream.stats().resident_sub_chunks, sub_chunks);
-        eprintln!(
-            "EVICTION_PREFLIGHT radius={radius} resident_columns={columns} resident_sub_chunks={sub_chunks} retire_row_us={}",
-            elapsed.as_micros()
-        );
+        let mut fixture = None;
         group.bench_function(BenchmarkId::new("radius", radius), |b| {
+            let flight = fixture.get_or_insert_with(|| {
+                let mut flight = Flight::new(&assets, radius);
+                let columns = flight.stream.loaded_column_count();
+                let sub_chunks = flight.stream.stats().resident_sub_chunks;
+                let elapsed = flight.cross_one_chunk();
+                assert_eq!(flight.stream.loaded_column_count(), columns);
+                assert_eq!(flight.stream.stats().resident_sub_chunks, sub_chunks);
+                eprintln!(
+                    "EVICTION_PREFLIGHT radius={radius} resident_columns={columns} resident_sub_chunks={sub_chunks} retire_row_us={}",
+                    elapsed.as_micros()
+                );
+                flight
+            });
             b.iter_custom(|crossings| (0..crossings).map(|_| flight.cross_one_chunk()).sum());
         });
     }
@@ -545,6 +556,7 @@ criterion_group!(
     benches,
     flight_benches,
     eviction_benches,
-    cave_visibility_benches
+    cave_visibility_benches,
+    camera::camera_benches
 );
 criterion_main!(benches);
