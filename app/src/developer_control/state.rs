@@ -264,9 +264,35 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
         "driven": world.contains_resource::<crate::camera::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
+        "server_camera": world.get_resource::<crate::camera::ServerCameraView>().map(|camera| json!({
+            "active": camera.is_active(),
+            "preset": camera.active_preset_name(),
+            "base_preset": camera.active_base_preset_name(),
+            "pose_override": camera.has_pose_override(),
+            "fade": camera.fade_overlay(),
+            "skips": format!("{:?}", camera.skips()),
+        })),
+        "aim_assist": aim_assist(world),
         "cave_visibility": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>()
             .map(crate::runtime::visibility::CaveVisibilityCache::telemetry_snapshot),
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
     })
+}
+
+/// Publishes camera diagnostics only when the developer explicitly requests a state snapshot.
+fn aim_assist(world: &World) -> Option<Value> {
+    use client_presentation::aim_assist::{AimAssistFrame, ServerAimAssist};
+    let state = world.get_resource::<ServerAimAssist>()?;
+    let frame = world.get_resource::<AimAssistFrame>()?;
+    Some(json!({
+        "enabled": state.settings().is_some(),
+        "semantic_skips": state.semantic_skips(),
+        "skipped_queries": frame.skipped_queries,
+        "visibility_queries": frame.visibility_queries,
+        "target": frame.target.map(|target| json!({
+            "kind": format!("{:?}", target.kind),
+            "point": target.point.to_array(),
+        })),
+    }))
 }

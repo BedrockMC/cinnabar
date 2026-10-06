@@ -335,6 +335,24 @@ pub fn click_air_packet(
     .into())
 }
 
+/// Native action aim rotation runs for actor attacks and held-item releases.
+#[must_use]
+pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
+    use valentine::bedrock::version::v1_26_51::McpePacketData;
+    let McpePacketData::InventoryTransactionPacket(packet) = &packet.data else {
+        return false;
+    };
+    match &packet.transaction {
+        InventoryTransactionPacketTransaction::ItemReleaseInventoryTransaction(transaction) => {
+            transaction.action_type == EnumsItemReleaseInventoryTransactionActionType::Release
+        }
+        InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(transaction) => {
+            transaction.action_type == ItemUseOnActorInventoryTransactionActionType::Attack
+        }
+        _ => false,
+    }
+}
+
 /// Builds the release-item transaction vanilla sends when the use button
 /// goes up; a use that runs out completes without a packet from the client.
 pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, BlockUsePacketError> {
