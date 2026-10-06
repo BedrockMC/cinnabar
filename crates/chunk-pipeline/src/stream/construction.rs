@@ -225,6 +225,34 @@ impl WorldStream {
             self.requests.queue.reserve(sequence);
         }
 
+        // Immutable definitions precede later decode snapshots; admitted dimensions retain their range.
+        match &event {
+            WorldEvent::DimensionHeights(heights) => {
+                self.authority.apply_dimension_heights(heights)
+            }
+            WorldEvent::SubChunks(batch) => {
+                self.authority.admit_dimension_range(batch.dimension);
+            }
+            WorldEvent::BlockUpdates(updates) => {
+                for update in updates {
+                    self.authority.admit_dimension_range(update.dimension);
+                }
+            }
+            WorldEvent::SyncedBlockUpdates(updates) => {
+                for update in updates {
+                    self.authority
+                        .admit_dimension_range(update.update.dimension);
+                }
+            }
+            WorldEvent::BlockEntityUpdate(update) => {
+                self.authority.admit_dimension_range(update.dimension);
+            }
+            WorldEvent::ChunkResync(event) => {
+                self.authority.admit_dimension_range(event.dimension);
+            }
+            _ => {}
+        }
+
         match event {
             WorldEvent::LevelChunk(
                 mut event @ LevelChunkEvent {
@@ -232,7 +260,7 @@ impl WorldStream {
                     ..
                 },
             ) => {
-                let Some(range) = vanilla_dimension_range(event.dimension) else {
+                let Some(range) = self.authority.admit_dimension_range(event.dimension) else {
                     self.order.release_heavy(sequence);
                     self.order
                         .insert_ready(sequence, PreparedWorldEvent::NormalizationFailure)?;
@@ -257,7 +285,7 @@ impl WorldStream {
                     ..
                 },
             ) => {
-                let Some(range) = vanilla_dimension_range(event.dimension) else {
+                let Some(range) = self.authority.admit_dimension_range(event.dimension) else {
                     self.order.release_heavy(sequence);
                     self.order
                         .insert_ready(sequence, PreparedWorldEvent::NormalizationFailure)?;
