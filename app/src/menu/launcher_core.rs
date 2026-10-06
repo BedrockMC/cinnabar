@@ -320,6 +320,8 @@ fn launcher_command(
         .arg("-socket-dir")
         .arg(socket_dir)
         .arg("-control-status")
+        .arg("-server-trust-file")
+        .arg(layout.server_trust_file())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(
@@ -484,6 +486,23 @@ mod tests {
         );
     }
 
+    // The launcher core, whose events the menu polls, is the one that asks about server trust.
+    #[test]
+    fn launcher_core_remembers_trusted_servers_in_user_data() {
+        let layout = crate::install_layout::scratch("server-trust-file");
+        let command = launcher_command(
+            &layout,
+            Path::new("/fixture/core"),
+            Path::new("/fixture/socket"),
+            None,
+            false,
+            None,
+            false,
+        );
+        let args: Vec<_> = command.get_args().collect();
+        assert!(args.windows(2).any(|pair| pair[0] == "-server-trust-file"
+            && pair[1] == layout.server_trust_file().as_os_str()));
+    }
     #[test]
     fn direct_account_core_leaves_pack_cache_for_game_cores() {
         let layout = crate::install_layout::scratch("direct-cache-ownership");
