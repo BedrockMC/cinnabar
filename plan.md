@@ -10,10 +10,18 @@
   swing and the sneak drops; armour flashes red, held items do not.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
   calls.
+- Review corrections: local head sampling stays in the current render frame; cape and camera
+  motion use native velocity, health and riding state. Retained items keep their own use
+  clocks through swaps, authored first-person rigs retain ownership, and raster depth stays
+  one sixteenth at any texture size. Emote skin layers follow the sampled body pose.
+  Unchanged render layers sharing geometry retain their own completed pose allocations.
+- Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
+  exercise held-item swaps, use, both third-person views, cape motion and local emotes.
 - Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
-  none); held attachables Java never had, the third-person bow pull frames, cast-rod item and first-person
-  item lighting are vanilla. Headless captures exist; native side-by-side comparison with
-  Java 1.7.10 is pending.
+  none); held attachables Java never had, the third-person bow pull frames, cast-rod item and
+  first-person item lighting are vanilla. Living-mount body yaw lacks the needed actor
+  observation. Local swing effects are live; remote swings retain the six-tick default.
+  Headless captures exist; native side-by-side comparison with Java 1.7.10 is pending.
 
 ## Compatibility landing
 

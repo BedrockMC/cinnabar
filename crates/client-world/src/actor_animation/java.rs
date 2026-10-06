@@ -78,9 +78,9 @@ pub(super) struct JavaTick<'a> {
     /// Blocks per tick.
     pub(super) velocity: [f32; 3],
     pub(super) on_ground: bool,
+    pub(super) alive: bool,
     pub(super) sneaking: bool,
     pub(super) flying: bool,
-    pub(super) dead: bool,
     /// The client's own player, the only one Java advances a walk distance for.
     pub(super) local: bool,
 }
@@ -105,6 +105,9 @@ const WALK_PER_BLOCK: f64 = 0.6;
 #[must_use]
 pub fn java_walked_distance(previous: f32, [dx, dz]: [f64; 2]) -> f32 {
     let step = (dx * dx + dz * dz).sqrt() as f32;
+    if !step.is_finite() {
+        return previous;
+    }
     (f64::from(previous) + f64::from(step) * WALK_PER_BLOCK) as f32
 }
 
@@ -235,14 +238,19 @@ impl JavaMotionState {
             std::array::from_fn(|axis| (chase[axis] - position[axis]) as f32),
         ];
         let [vx, _, vz] = tick.velocity;
-        let speed = if tick.on_ground && !tick.dead {
-            ((f64::from(vx).powi(2) + f64::from(vz).powi(2)).sqrt() as f32).min(BOB_CAP)
+        let speed = (f64::from(vx).powi(2) + f64::from(vz).powi(2)).sqrt() as f32;
+        let target = if tick.on_ground && tick.alive && speed.is_finite() {
+            speed.min(BOB_CAP)
         } else {
             0.0
         };
         motion.bob = [
             motion.bob[1],
-            motion.bob[1] + (speed - motion.bob[1]) * BOB_FOLLOW,
+            if tick.riding {
+                0.0
+            } else {
+                motion.bob[1] + (target - motion.bob[1]) * BOB_FOLLOW
+            },
         ];
         let walks =
             tick.local && !tick.riding && !tick.flying && !(tick.on_ground && tick.sneaking);
@@ -424,9 +432,9 @@ mod tests {
             position: [0.0; 3],
             velocity: [0.0; 3],
             on_ground: true,
+            alive: true,
             sneaking: false,
             flying: false,
-            dead: false,
             local: true,
         }
     }
@@ -823,7 +831,7 @@ mod tests {
         };
         state.advance(&moving);
         state.advance(&JavaTick {
-            dead: true,
+            alive: false,
             ..moving
         });
         assert!((state.motion.bob[1] - 0.024).abs() < 1e-6);
@@ -897,6 +905,14 @@ mod tests {
         // The previous chase also jumps to the new position while the previous position does not.
         assert_eq!(history[3].cape[0][0], 30.0);
         assert_eq!(history[2].bob[1], 0.0);
+    }
+
+    #[test]
+    fn cape_walk_distance_rounds_only_after_the_double_precision_increment() {
+        let mut state = JavaMotionState::spawn(0.0);
+        state.motion.walked = [0.1002; 2];
+        state.advance(&tick([-0.034_368_105, 0.0, 0.074_893_28], 0.0));
+        assert_eq!(state.motion.walked[1].to_bits(), 0x3e19_3b9e);
     }
 
     fn root(rotation: [f32; 4], translation: [f32; 3]) -> BoneTransform {

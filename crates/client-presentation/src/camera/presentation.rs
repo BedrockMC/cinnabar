@@ -96,6 +96,7 @@ pub fn advance_presentation_state(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    client_world: Option<crate::observations::WorldObservation<'_>>,
     physics: Option<&dyn crate::observations::PhysicsObservation>,
     ui: Option<&client_ui::ui_runtime::UiRuntime>,
     mut bob: ResMut<WalkBobState>,
@@ -114,6 +115,23 @@ pub fn advance_presentation_state(
     sway.advance(pitch, yaw, dt);
     hand.eye_height_adjustment = 0.0;
     let look = [-pitch.to_degrees(), -yaw.to_degrees()];
+    let alive = client_world
+        .as_ref()
+        .and_then(|world| world.stream)
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+        .map_or_else(
+            || {
+                ui.and_then(|ui| ui.hud().health())
+                    .is_none_or(|health| health.current() > 0)
+            },
+            |actor| {
+                !actor.status.dead
+                    && actor
+                        .attributes
+                        .get("minecraft:health")
+                        .is_none_or(|health| health.current > 0.0)
+            },
+        );
     if let Some(physics) = physics
         && let Some(state) = physics.state()
     {
@@ -126,10 +144,9 @@ pub fn advance_presentation_state(
             position: vector(state.position),
             velocity: vector(state.velocity),
             on_ground: state.on_ground,
-            alive: ui
-                .and_then(|ui| ui.hud().health())
-                .is_none_or(|health| health.current() > 0),
+            alive,
             sneaking,
+            riding: matches!(physics.mode(), sim::MovementMode::Riding),
             walks: !matches!(
                 physics.mode(),
                 sim::MovementMode::Flying | sim::MovementMode::Riding
