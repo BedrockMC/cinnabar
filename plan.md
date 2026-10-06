@@ -3,7 +3,9 @@
 - Education construction terrain restores allow, deny and all border wall states
   from the pinned current palette, using the textures already in the fetched pack.
   Collision and light read the pinned metadata sources; no guessed shapes or
-  sequential palette IDs are added. Incomplete: live rendered acceptance is pending.
+  sequential palette IDs are added. Linux captures at 1280×720 with GUI scale 2
+  show textured allow/deny cubes and connected border shapes. Broader Education
+  parity remains incomplete.
 
 - The owner accepted the final live macOS Metal build and authorized landing the
   accumulated server compatibility changes. Formatting and architecture checks
