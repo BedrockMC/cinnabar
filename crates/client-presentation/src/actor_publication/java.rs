@@ -164,7 +164,12 @@ pub(super) fn third_person<'a>(
         None => remote_input(stream, actor.runtime_id).main,
     }
     .map(|item| item.identifier);
-    let pose = java::java_biped(&third_person_input(&java_rig, actor, main.as_deref(), alpha));
+    let pose = java::java_biped(&third_person_input(
+        &java_rig,
+        actor,
+        main.as_deref(),
+        alpha,
+    ));
     let parts = [0, 1, 2, 3, 4, 5];
     let bones = retargeted(stream, &java_rig, &pose, &parts, alpha)?;
     let skin_layers = if rig.skin_layers.is_empty() {
@@ -319,18 +324,21 @@ pub(super) fn hand_source(
     let Some(rig) = stream.authority().actor_rig(runtime_id) else {
         return Err(equipment_input.main.clone());
     };
-    let main = rig.java_equipped.and_then(|equipped| match &equipment_input.main {
-        Some(item) if item.identifier == *equipped => Some(item.clone()),
-        _ => cache
-            .shown
-            .clone()
-            .filter(|old| old.identifier == *equipped)
-            .or_else(|| equipment_input.main.clone()),
-    });
+    let main = rig
+        .java_equipped
+        .and_then(|equipped| match &equipment_input.main {
+            Some(item) if item.identifier == *equipped => Some(item.clone()),
+            _ => cache
+                .shown
+                .clone()
+                .filter(|old| old.identifier == *equipped)
+                .or_else(|| equipment_input.main.clone()),
+        });
     let vanilla_only = |item: &WornItem| &*item.identifier == FILLED_MAP;
-    if main.as_ref().is_some_and(|item| {
-        vanilla_only(item) || equipment.is_vanilla_attachable(&item.identifier)
-    }) || equipment_input.off.as_ref().is_some_and(vanilla_only)
+    if main
+        .as_ref()
+        .is_some_and(|item| vanilla_only(item) || equipment.is_vanilla_attachable(&item.identifier))
+        || equipment_input.off.as_ref().is_some_and(vanilla_only)
     {
         return Err(main);
     }
@@ -453,7 +461,11 @@ mod tests {
 
     #[test]
     fn third_person_lift_and_sneak_drop() {
-        let mut rows = [[-1.0, 0.0, 0.0, 5.0], [0.0, 0.9375, 0.0, 64.0], [0.0, 0.0, -1.0, 2.0]];
+        let mut rows = [
+            [-1.0, 0.0, 0.0, 5.0],
+            [0.0, 0.9375, 0.0, 64.0],
+            [0.0, 0.0, -1.0, 2.0],
+        ];
         lift(&mut rows, true, false);
         assert!((rows[1][3] - (64.0 + 0.9375 / 128.0 - 0.125)).abs() < 1e-6);
         assert_eq!(rows[0][3], 5.0);

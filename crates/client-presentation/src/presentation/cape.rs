@@ -153,7 +153,12 @@ fn java_cape_pose(
     input: &JavaCapeInput,
 ) -> Arc<[RenderBoneTransform]> {
     let mut pose = cape_pose(cape, body_names, body).to_vec();
-    for ((name, bone), pivot) in cape.bone_names.iter().zip(&mut pose).zip(cape.geometry.bone_pivots.iter()) {
+    for ((name, bone), pivot) in cape
+        .bone_names
+        .iter()
+        .zip(&mut pose)
+        .zip(cape.geometry.bone_pivots.iter())
+    {
         if name.eq_ignore_ascii_case("cape") {
             let (rotation, translation) = java_cape_bone(input, Vec3::from_array(*pivot));
             *bone = RenderBoneTransform {

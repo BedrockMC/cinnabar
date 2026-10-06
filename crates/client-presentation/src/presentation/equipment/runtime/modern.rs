@@ -79,11 +79,18 @@ impl EquipmentRuntime {
                             geometry_index as usize,
                             texture,
                         )?;
-                        Some((image_to_rig, pivots.into_iter().map(super::java::rest_bone).collect()))
+                        Some((
+                            image_to_rig,
+                            pivots.into_iter().map(super::java::rest_bone).collect(),
+                        ))
                     })
                     .clone()?;
-                let camera =
-                    super::java::java_raster_camera(hand, image_to_rig, texture.width, texture.height);
+                let camera = super::java::java_raster_camera(
+                    hand,
+                    image_to_rig,
+                    texture.width,
+                    texture.height,
+                );
                 camera.is_finite().then_some((camera, rest))
             });
         let (java_camera, placed): (_, Arc<[RenderBoneTransform]>) = match java {

@@ -52,9 +52,9 @@ pub(super) fn publish_hand_rig(
     let placement = hand_camera_from_rig(source.presentation.authored_scale, source.motion);
     let mut submissions = Vec::new();
     if let Some(mut body) = source.body {
-        body.world_from_actor = source
-            .java_body_camera
-            .map_or(placement, |camera| camera_space_rows(source.motion * camera));
+        body.world_from_actor = source.java_body_camera.map_or(placement, |camera| {
+            camera_space_rows(source.motion * camera)
+        });
         // The hand skin is a single-layer array; the third-person layer index does not apply.
         body.texture_layer = 0;
         submissions.push(body);

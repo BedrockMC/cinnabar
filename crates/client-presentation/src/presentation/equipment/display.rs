@@ -4,7 +4,7 @@ use bevy::math::{Mat4, Quat, Vec3};
 use render_model::RenderBoneTransform;
 pub(super) use render_model::equipment::sprite_item_transform;
 pub use render_model::equipment::{
-    ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped,
+    ItemDisplay, attach_to_bone, held_block_display, held_sprite_display, is_hand_equipped, is_rod,
 };
 
 pub(super) const LAYER_MAIN_HAND: u8 = 1;
@@ -126,12 +126,4 @@ pub(super) fn head_block_display() -> ItemDisplay {
         translation: Vec3::new(0.0, 0.25, 0.0),
         scale: 0.5625,
     }
-}
-
-/// Items whose icon vanilla turns half a revolution in first person.
-pub(super) fn is_mirrored_art(identifier: &str) -> bool {
-    matches!(
-        identifier.strip_prefix("minecraft:").unwrap_or(identifier),
-        "fishing_rod" | "carrot_on_a_stick" | "warped_fungus_on_a_stick"
-    )
 }

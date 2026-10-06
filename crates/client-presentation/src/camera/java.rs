@@ -143,7 +143,6 @@ fn lerp([previous, current]: [f32; 2], alpha: f32) -> f32 {
     previous + (current - previous) * alpha
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

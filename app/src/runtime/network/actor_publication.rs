@@ -73,9 +73,10 @@ pub(crate) fn prepare_actor_render_frame(
     });
     // Java blocks with a sword while use is held; Bedrock never flags that use.
     let java_sword = settings.feel().java_animations
-        && local_equipment.main.as_ref().is_some_and(|item| {
-            render_model::java_animation::is_java_sword(&item.identifier)
-        });
+        && local_equipment
+            .main
+            .as_ref()
+            .is_some_and(|item| render_model::java_animation::is_java_sword(&item.identifier));
     let blocking = java_sword
         && input
             .as_deref()
@@ -89,13 +90,12 @@ pub(crate) fn prepare_actor_render_frame(
         }
     };
     // Ending a block clears the use flag it raised, whatever the hand holds next.
-    let local_use = if (java_sword || *java_blocking)
-        && local_use == client_world::LocalItemUse::Unpredicted
-    {
-        client_world::LocalItemUse::Idle
-    } else {
-        local_use
-    };
+    let local_use =
+        if (java_sword || *java_blocking) && local_use == client_world::LocalItemUse::Unpredicted {
+            client_world::LocalItemUse::Idle
+        } else {
+            local_use
+        };
     *java_blocking = blocking;
     let input = ActorFrameInput {
         local_feed: client_presentation::actor_feed::build_local_player_feed(
