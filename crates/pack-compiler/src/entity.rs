@@ -132,6 +132,10 @@ pub fn compile_entity_assets_with_report(
         &["json", "png", "tga"],
         &mut selected,
     )?;
+    for extension in ["png", "tga"] {
+        let path = format!("{}.{extension}", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
+        collect_optional_file(root, &path, &mut selected)?;
+    }
     collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
     collect_optional_file(root, "manifest.json", &mut selected)?;
     selected.sort_by(|left, right| left.0.cmp(&right.0));

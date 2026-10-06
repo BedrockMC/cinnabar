@@ -27,6 +27,8 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// The stack carries the enchantment list that enables worn item glint.
+    pub enchanted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -425,6 +427,7 @@ impl ItemStateStore {
         };
         let mut item = self.resolve_identity(identity);
         item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
+        item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
         Some(item)
     }
 
@@ -442,6 +445,7 @@ impl ItemStateStore {
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
                 charged_projectile: None,
+                enchanted: false,
             };
         }
         let identifier = self
@@ -461,6 +465,7 @@ impl ItemStateStore {
             identifier,
             visual,
             charged_projectile: None,
+            enchanted: false,
         }
     }
 
@@ -644,6 +649,22 @@ mod armor_tests {
         );
         let plain = store.canonicalize(&stack(1, &dyed_extra())).unwrap();
         assert_eq!(plain.charged_projectile, None);
+    }
+
+    #[test]
+    fn canonical_armor_retains_enchantment_glint() {
+        let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"ench");
+        extra.extend_from_slice(&[0x0a, 0, 0, 0, 0, 0]);
+        let store = ItemStateStore::diagnostic();
+        assert!(store.canonicalize(&stack(1, &extra)).unwrap().enchanted);
+        assert!(
+            !store
+                .canonicalize(&stack(1, &dyed_extra()))
+                .unwrap()
+                .enchanted
+        );
     }
 
     #[test]

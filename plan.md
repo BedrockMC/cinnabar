@@ -5965,6 +5965,12 @@ orbit acceptance pass remains incomplete.
   handing a selected URL to the default browser. Chat messages and server packets
   are unchanged. This Java-style interaction is not a closed Bedrock parity gate.
 
+## Worn elytra glint acceptance
+
+Actor glint uses the vanilla raster, two centered UV rotations and independently
+wrapping scrolls. Exact 1.26.50 glint pixel comparison and enhanced graphics glint
+remain incomplete and do not close the rendering parity gate.
+
 ## Server primitive shapes
 
 The retained renderer and packet pipeline implement the six Script API debug shapes. See

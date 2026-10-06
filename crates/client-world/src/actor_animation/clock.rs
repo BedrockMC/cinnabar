@@ -22,9 +22,10 @@ pub(super) fn prepare(
     let mut clocks = previous.cloned().unwrap_or_default();
     clocks.retain(|(_, started), _| {
         *started == 0
-            || controllers
-                .iter()
-                .any(|state| state.entered_tick == *started)
+            || controllers.iter().any(|state| {
+                state.entered_tick == *started
+                    || state.blend_from.is_some_and(|(_, tick, _)| tick == *started)
+            })
     });
     let mut updated = std::collections::BTreeSet::new();
     for weighted in clips {
