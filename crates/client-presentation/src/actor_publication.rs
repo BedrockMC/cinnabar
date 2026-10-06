@@ -345,6 +345,11 @@ pub fn prepare_actor_render_frame(
             .off
             .as_ref()
             .map(|item| item.identifier.clone());
+        feed.main_hand_metadata = input
+            .local_equipment
+            .main
+            .as_ref()
+            .map_or(0, |item| item.damage.unwrap_or(item.metadata));
     }
     if let Some(stream) = client_world.stream.as_mut() {
         if let Some(equipment) = equipment.as_deref() {
@@ -469,7 +474,13 @@ pub fn prepare_actor_render_frame(
                         )
                         .map(|mut presentation| {
                             if let Some(java_pose) = java_pose {
-                                java::apply_pose(&mut presentation, &java_pose.bones, local, actor);
+                                java::apply_pose(
+                                    &mut presentation,
+                                    &java_pose.bones,
+                                    local,
+                                    actor,
+                                    step.partial_tick,
+                                );
                                 java_posed.push(java_pose.posed);
                             }
                             if let Some(geometry) = rig.skin_geometry {
@@ -667,9 +678,18 @@ pub fn prepare_actor_render_frame(
             );
         }
 
-        local.submission.world_from_actor = crate::presentation::actors::death_tilted(
+        let java_death_ticks = java::posed(&java_posed, local_runtime_id).and_then(|_| {
+            let actor = client_world
+                .stream
+                .as_ref()?
+                .authority()
+                .actor(local_runtime_id)?;
+            Some(f32::from(actor.status.death_time) + step.partial_tick)
+        });
+        local.submission.world_from_actor = java::local_death_tilt(
             local.submission.world_from_actor,
             local_death,
+            java_death_ticks,
         );
         local
     });

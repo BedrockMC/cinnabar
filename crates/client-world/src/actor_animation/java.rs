@@ -18,6 +18,8 @@ pub struct JavaMotion {
     pub body_yaw: [f32; 2],
     /// First-person equip progress.
     pub equip: [f32; 2],
+    /// Attack progress, advanced using the effects active on each tick.
+    pub swing: [f32; 2],
     pub riding: bool,
     /// Swimming, crawling, gliding, sleeping or emoting: postures Java has no pose for.
     pub vanilla_posture: bool,
@@ -29,10 +31,34 @@ pub struct JavaMotion {
     pub walked: [f32; 2],
 }
 
+/// The retained stack instance and its item/data values, excluding count and unrelated tags.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JavaHeldItem {
+    pub identifier: Arc<str>,
+    pub metadata: u32,
+    /// Stable stack instance, when the server supplies a positive stack network ID.
+    pub stack_id: Option<i32>,
+}
+
+impl JavaMotion {
+    /// The final attack frame wraps forward before the next tick returns to rest.
+    #[must_use]
+    pub fn swing_progress(self, alpha: f32) -> f32 {
+        let mut delta = self.swing[1] - self.swing[0];
+        if delta < 0.0 {
+            delta += 1.0;
+        }
+        self.swing[0] + delta * alpha
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct JavaMotionState {
     pub(super) motion: JavaMotion,
-    equipped: Option<Arc<str>>,
+    equipped: Option<JavaHeldItem>,
+    equipped_slot: u8,
+    observed_slot: u8,
+    swing: Option<i32>,
     hurt_time: u8,
     reset_equip: bool,
     chase: Option<[f64; 3]>,
@@ -42,9 +68,10 @@ pub(super) struct JavaMotionState {
 pub(super) struct JavaTick<'a> {
     pub(super) delta: [f32; 3],
     pub(super) yaw: f32,
-    pub(super) swinging: bool,
+    pub(super) swing_ticks: i32,
     pub(super) hurt_time: u8,
-    pub(super) held: &'a Option<Arc<str>>,
+    pub(super) held: &'a Option<JavaHeldItem>,
+    pub(super) held_slot: u8,
     pub(super) riding: bool,
     pub(super) vanilla_posture: bool,
     pub(super) position: [f32; 3],
@@ -53,10 +80,10 @@ pub(super) struct JavaTick<'a> {
     pub(super) on_ground: bool,
     pub(super) alive: bool,
     pub(super) sneaking: bool,
-    /// The client's own player, the only one Java advances a walk distance for.
-    pub(super) local: bool,
     /// Active local creative flight disables the walking trigger without stopping cape chase.
     pub(super) flying: bool,
+    /// The client's own player, the only one Java advances a walk distance for.
+    pub(super) local: bool,
 }
 
 const BODY_FOLLOW: f32 = 0.3;
@@ -86,6 +113,16 @@ pub fn java_mounted_body_yaw(mount_body_yaw: f32, head_yaw: f32) -> f32 {
     body
 }
 
+/// Java narrows the step to a float, then accumulates the scaled walk distance as a double.
+#[must_use]
+pub fn java_walked_distance(previous: f32, [dx, dz]: [f64; 2]) -> f32 {
+    let step = (dx * dx + dz * dz).sqrt() as f32;
+    if !step.is_finite() {
+        return previous;
+    }
+    (f64::from(previous) + f64::from(step) * WALK_PER_BLOCK) as f32
+}
+
 impl JavaMotionState {
     pub(super) fn spawn(body_yaw: f32) -> Self {
         Self {
@@ -94,6 +131,7 @@ impl JavaMotionState {
                 limb_amount: [0.0; 2],
                 body_yaw: [body_yaw; 2],
                 equip: [1.0; 2],
+                swing: [0.0; 2],
                 riding: false,
                 vanilla_posture: false,
                 cape: [[0.0; 3]; 2],
@@ -101,6 +139,9 @@ impl JavaMotionState {
                 walked: [0.0; 2],
             },
             equipped: None,
+            equipped_slot: u8::MAX,
+            observed_slot: u8::MAX,
+            swing: None,
             hurt_time: 0,
             reset_equip: false,
             chase: None,
@@ -109,6 +150,16 @@ impl JavaMotionState {
 
     pub(super) fn advance(&mut self, tick: &JavaTick<'_>) {
         let motion = &mut self.motion;
+        let duration = tick.swing_ticks.max(1);
+        self.swing = self
+            .swing
+            .map(|counter| counter + 1)
+            .filter(|counter| *counter < duration);
+        motion.swing = [
+            motion.swing[1],
+            self.swing
+                .map_or(0.0, |counter| counter as f32 / duration as f32),
+        ];
         motion.riding = tick.riding;
         motion.vanilla_posture = tick.vanilla_posture;
         let [dx, _, dz] = tick.delta;
@@ -128,7 +179,7 @@ impl JavaMotionState {
         if dx * dx + dz * dz > FACING_DISTANCE_SQUARED {
             facing = (f64::from(dz).atan2(f64::from(dx)) as f32).to_degrees() - 90.0;
         }
-        if tick.swinging {
+        if motion.swing[1] > 0.0 {
             facing = tick.yaw;
         }
         body += wrap_degrees(facing - body) * BODY_FOLLOW;
@@ -144,15 +195,35 @@ impl JavaMotionState {
             motion.equip[1] = 0.0;
         }
         motion.equip[0] = motion.equip[1];
-        let target = if self.equipped == *tick.held {
-            1.0
-        } else {
-            0.0
+        let same_slot = self.equipped_slot == tick.held_slot;
+        let refreshed = self.observed_slot != tick.held_slot;
+        let (raised, refresh) = match (self.equipped.as_ref(), tick.held.as_ref()) {
+            (None, None) => (true, false),
+            (Some(old), Some(new)) => {
+                let same_data = old.identifier == new.identifier && old.metadata == new.metadata;
+                match old
+                    .stack_id
+                    .filter(|id| *id > 0)
+                    .zip(new.stack_id.filter(|id| *id > 0))
+                {
+                    // Mutating the retained object updates its drawn data even during a slot dip.
+                    Some((old_id, new_id)) if old_id == new_id => (same_slot, true),
+                    Some(_) => (same_data, same_data),
+                    None => (same_data && (same_slot || refreshed), same_data),
+                }
+            }
+            _ => (false, false),
         };
+        if refresh {
+            self.equipped.clone_from(tick.held);
+        }
+        let target = if raised { 1.0 } else { 0.0 };
         motion.equip[1] += (target - motion.equip[1]).clamp(-EQUIP_STEP, EQUIP_STEP);
         if motion.equip[1] < EQUIP_SWAP {
             self.equipped.clone_from(tick.held);
+            self.equipped_slot = tick.held_slot;
         }
+        self.observed_slot = tick.held_slot;
         self.advance_cape(tick);
     }
 
@@ -194,11 +265,10 @@ impl JavaMotionState {
             },
         ];
         let walks =
-            tick.local && !tick.flying && !tick.riding && !(tick.on_ground && tick.sneaking);
+            tick.local && !tick.riding && !tick.flying && !(tick.on_ground && tick.sneaking);
         let [dx, _, dz] = tick.delta;
-        let step = (f64::from(dx).powi(2) + f64::from(dz).powi(2)).sqrt() as f32;
-        let walked = if walks && step.is_finite() {
-            (f64::from(motion.walked[1]) + f64::from(step) * WALK_PER_BLOCK) as f32
+        let walked = if walks {
+            java_walked_distance(motion.walked[1], [f64::from(dx), f64::from(dz)])
         } else {
             motion.walked[1]
         };
@@ -209,8 +279,18 @@ impl JavaMotionState {
         self.reset_equip = true;
     }
 
+    /// A new attack can restart after half of the duration allowed by the current effects.
+    pub(super) fn start_swing(&mut self, ticks: i32) {
+        if self
+            .swing
+            .is_none_or(|counter| counter < 0 || counter >= ticks.max(1) / 2)
+        {
+            self.swing = Some(-1);
+        }
+    }
+
     /// The item Java's first-person hand still draws while the equip dips.
-    pub(super) fn equipped(&self) -> Option<&Arc<str>> {
+    pub(super) fn equipped(&self) -> Option<&JavaHeldItem> {
         self.equipped.as_ref()
     }
 }
@@ -355,9 +435,10 @@ mod tests {
         JavaTick {
             delta,
             yaw,
-            swinging: false,
+            swing_ticks: super::super::ACTOR_SWING_TICKS,
             hurt_time: 0,
             held: &None,
+            held_slot: 0,
             riding: false,
             vanilla_posture: false,
             position: [0.0; 3],
@@ -365,8 +446,8 @@ mod tests {
             on_ground: true,
             alive: true,
             sneaking: false,
-            local: true,
             flying: false,
+            local: true,
         }
     }
 
@@ -416,17 +497,285 @@ mod tests {
             "moving +z faces 0"
         );
         let mut state = JavaMotionState::spawn(0.0);
-        state.advance(&JavaTick {
-            swinging: true,
-            ..tick([0.0; 3], 40.0)
-        });
+        state.start_swing(super::super::ACTOR_SWING_TICKS);
+        state.advance(&tick([0.0; 3], 0.0));
+        state.advance(&tick([0.0; 3], 40.0));
         assert!((state.motion.body_yaw[1] - 12.0).abs() < 1e-4);
+    }
+
+    /// An effect expiring mid-swing changes the denominator without restarting the arm.
+    #[test]
+    fn java_swing_duration_tracks_effect_expiry() {
+        let mut state = JavaMotionState::spawn(0.0);
+        state.start_swing(4);
+        for _ in 0..4 {
+            state.advance(&JavaTick {
+                swing_ticks: 4,
+                ..tick([0.0; 3], 0.0)
+            });
+        }
+        assert_eq!(state.motion.swing[1], 0.75);
+        state.advance(&tick([0.0; 3], 0.0));
+        assert_eq!(state.motion.swing, [0.75, 4.0 / 6.0]);
+        state.advance(&tick([0.0; 3], 0.0));
+        state.advance(&tick([0.0; 3], 0.0));
+        assert!((state.motion.swing_progress(0.5) - 11.0 / 12.0).abs() < 1e-6);
+        state.advance(&tick([0.0; 3], 0.0));
+        assert_eq!(state.motion.swing_progress(0.5), 0.0);
+    }
+
+    /// A changed effect also changes the half-swing guard for the next requested attack.
+    #[test]
+    fn java_swing_restart_uses_current_effect_duration() {
+        let mut state = JavaMotionState::spawn(0.0);
+        state.start_swing(super::super::ACTOR_SWING_TICKS);
+        for _ in 0..3 {
+            state.advance(&tick([0.0; 3], 0.0));
+        }
+        state.start_swing(4);
+        state.advance(&JavaTick {
+            swing_ticks: 4,
+            ..tick([0.0; 3], 0.0)
+        });
+        assert_eq!(state.motion.swing[1], 0.0);
+    }
+
+    /// A stack identity with only the facts that Java's equip animation compares.
+    fn held(identifier: &str, metadata: u32) -> Option<JavaHeldItem> {
+        Some(JavaHeldItem {
+            identifier: Arc::from(identifier),
+            metadata,
+            stack_id: None,
+        })
+    }
+
+    /// A held tool whose network identity survives changes to its durability.
+    fn held_with_id(metadata: u32, stack_id: i32) -> Option<JavaHeldItem> {
+        Some(JavaHeldItem {
+            identifier: Arc::from("minecraft:iron_sword"),
+            metadata,
+            stack_id: Some(stack_id),
+        })
+    }
+
+    /// Ticks holding `item` once the equip has settled on `settled`; the equip heights.
+    fn equip_heights(settled: &Option<JavaHeldItem>, item: &Option<JavaHeldItem>) -> Vec<f32> {
+        let mut state = JavaMotionState::spawn(0.0);
+        for _ in 0..6 {
+            state.advance(&JavaTick {
+                held: settled,
+                ..tick([0.0; 3], 0.0)
+            });
+        }
+        (0..3)
+            .map(|_| {
+                state.advance(&JavaTick {
+                    held: item,
+                    ..tick([0.0; 3], 0.0)
+                });
+                state.motion.equip[1]
+            })
+            .collect()
+    }
+
+    /// Java re-equips a stack whose data value differs, as between two potions.
+    #[test]
+    fn equip_dips_between_data_values_of_one_item() {
+        let water = held("minecraft:potion", 0);
+        let healing = held("minecraft:potion", 21);
+        let near = |heights: Vec<f32>, expected: [f32; 3]| {
+            heights
+                .iter()
+                .zip(expected)
+                .all(|(height, expected)| (height - expected).abs() < 1e-6)
+        };
+        assert!(near(equip_heights(&water, &healing), [0.6, 0.2, 0.0]));
+        assert!(near(equip_heights(&water, &water), [1.0; 3]));
+    }
+
+    /// Damage mutates an existing stack in place, so its updated snapshot stays raised.
+    #[test]
+    fn equip_updates_same_stack_durability_without_dipping() {
+        let fresh = held_with_id(0, 7);
+        let damaged = held_with_id(10, 7);
+        assert_eq!(equip_heights(&fresh, &damaged), vec![1.0; 3]);
+        let mut state = JavaMotionState::spawn(0.0);
+        for _ in 0..6 {
+            state.advance(&JavaTick {
+                held: &fresh,
+                ..tick([0.0; 3], 0.0)
+            });
+        }
+        state.advance(&JavaTick {
+            held: &damaged,
+            ..tick([0.0; 3], 0.0)
+        });
+        assert_eq!(state.equipped(), damaged.as_ref());
+    }
+
+    /// A replacement instance with different data still lowers before the drawn stack changes.
+    #[test]
+    fn equip_dips_between_distinct_stack_instances_with_different_data() {
+        let fresh = held_with_id(0, 7);
+        let damaged = held_with_id(10, 8);
+        for (height, expected) in equip_heights(&fresh, &damaged)
+            .into_iter()
+            .zip([0.6, 0.2, 0.0])
+        {
+            assert!((height - expected).abs() < 1e-6);
+        }
+    }
+
+    /// An equal replacement refreshes immediately; its changed slot starts lowering next tick.
+    #[test]
+    fn equip_refreshes_equal_stack_instance_before_slot_dip() {
+        let first = held_with_id(0, 7);
+        let replacement = held_with_id(0, 8);
+        assert_eq!(equip_heights(&first, &replacement), vec![1.0; 3]);
+        let mut state = JavaMotionState::spawn(0.0);
+        for _ in 0..6 {
+            state.advance(&JavaTick {
+                held: &first,
+                ..tick([0.0; 3], 0.0)
+            });
+        }
+        state.advance(&JavaTick {
+            held: &replacement,
+            held_slot: 1,
+            ..tick([0.0; 3], 0.0)
+        });
+        assert_eq!(state.motion.equip, [1.0; 2]);
+        assert_eq!(state.equipped(), replacement.as_ref());
+        state.advance(&JavaTick {
+            held: &replacement,
+            held_slot: 1,
+            ..tick([0.0; 3], 0.0)
+        });
+        assert!((state.motion.equip[1] - 0.6).abs() < 1e-6);
+    }
+
+    /// Relocating the same stack has no replacement refresh tick to delay the slot's dip.
+    #[test]
+    fn equip_same_stack_moved_to_another_slot_dips_immediately() {
+        let sword = held_with_id(0, 7);
+        let mut state = JavaMotionState::spawn(0.0);
+        for _ in 0..6 {
+            state.advance(&JavaTick {
+                held: &sword,
+                ..tick([0.0; 3], 0.0)
+            });
+        }
+        state.advance(&JavaTick {
+            held: &sword,
+            held_slot: 1,
+            ..tick([0.0; 3], 0.0)
+        });
+        assert!((state.motion.equip[1] - 0.6).abs() < 1e-6);
+    }
+
+    /// Count-only updates retain the same equip identity after wire-stack normalization.
+    #[test]
+    fn equip_ignores_count_only_stack_updates() {
+        let store = crate::item::ItemStateStore::diagnostic();
+        let mut stack = protocol::NetworkItemStack {
+            network_id: protocol::vanilla_item_registry()
+                .iter()
+                .find(|item| item.identifier.as_ref() == "minecraft:potion")
+                .unwrap()
+                .network_id,
+            count: 2,
+            metadata: 21,
+            ..Default::default()
+        };
+        let before = store.canonicalize(&stack).unwrap();
+        stack.count = 1;
+        let after = store.canonicalize(&stack).unwrap();
+        let before = held(
+            before.identifier.as_deref().unwrap(),
+            before.identity.metadata,
+        );
+        let after = held(
+            after.identifier.as_deref().unwrap(),
+            after.identity.metadata,
+        );
+        assert_eq!(equip_heights(&before, &after), vec![1.0; 3]);
+    }
+
+    /// Durability damage is Java's data value even when Bedrock stores it in stack tags.
+    #[test]
+    fn equip_dips_between_durability_values() {
+        use sha2::{Digest, Sha256};
+
+        let store = crate::item::ItemStateStore::diagnostic();
+        let network_id = protocol::vanilla_item_registry()
+            .iter()
+            .find(|item| item.identifier.as_ref() == "minecraft:iron_sword")
+            .unwrap()
+            .network_id;
+        let stacks = [0_u32, 10].map(|damage| {
+            let mut extra = vec![0xff, 0xff, 1, 10, 0, 0, 3, 6, 0];
+            extra.extend_from_slice(b"Damage");
+            extra.extend_from_slice(&damage.to_le_bytes());
+            extra.push(0);
+            let item = store
+                .canonicalize(&protocol::NetworkItemStack {
+                    network_id,
+                    count: 1,
+                    nbt_digest: Sha256::digest(&extra).into(),
+                    extra_data: extra.into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(item.damage, Some(damage));
+            held(
+                item.identifier.as_deref().unwrap(),
+                item.damage.unwrap_or(item.identity.metadata),
+            )
+        });
+        let heights = equip_heights(&stacks[0], &stacks[1]);
+        for (height, expected) in heights.into_iter().zip([0.6, 0.2, 0.0]) {
+            assert!((height - expected).abs() < 1e-6);
+        }
+    }
+
+    /// An equal stack in another slot refreshes for one tick, then lowers until adopted.
+    #[test]
+    fn equip_dips_after_equal_stack_changes_slot() {
+        let sword = held("minecraft:iron_sword", 0);
+        let mut state = JavaMotionState::spawn(0.0);
+        for _ in 0..6 {
+            state.advance(&JavaTick {
+                held: &sword,
+                ..tick([0.0; 3], 0.0)
+            });
+        }
+        for expected in [1.0, 0.6, 0.2, 0.0, 0.4, 0.8, 1.0] {
+            state.advance(&JavaTick {
+                held: &sword,
+                held_slot: 1,
+                ..tick([0.0; 3], 0.0)
+            });
+            assert!((state.motion.equip[1] - expected).abs() < 1e-6);
+        }
+    }
+
+    /// Java keeps the bare arm raised when switching between empty slots.
+    #[test]
+    fn empty_slots_do_not_re_equip() {
+        let mut state = JavaMotionState::spawn(0.0);
+        for slot in 0..9 {
+            state.advance(&JavaTick {
+                held_slot: slot,
+                ..tick([0.0; 3], 0.0)
+            });
+            assert_eq!(state.motion.equip, [1.0; 2]);
+        }
     }
 
     /// The equip dips 0.4 a tick, adopts the new item below 0.1, and a placement drops to 0.
     #[test]
     fn equip_dips_swaps_and_restarts_on_use() {
-        let sword: Option<Arc<str>> = Some(Arc::from("minecraft:iron_sword"));
+        let sword = held("minecraft:iron_sword", 0);
         let mut state = JavaMotionState::spawn(0.0);
         let heights = (0..6)
             .map(|_| {
@@ -447,6 +796,57 @@ mod tests {
             ..tick([0.0; 3], 0.0)
         });
         assert_eq!(state.motion.equip, [0.0, 0.4]);
+    }
+
+    /// Java's walked distance stands still while flying, so the cape bob phase holds.
+    #[test]
+    fn walked_distance_holds_while_flying() {
+        let mut state = JavaMotionState::spawn(0.0);
+        state.advance(&JavaTick {
+            on_ground: false,
+            ..tick([0.5, 0.0, 0.0], 0.0)
+        });
+        assert!(
+            (state.motion.walked[1] - 0.3).abs() < 1e-6,
+            "airborne still walks"
+        );
+        state.advance(&JavaTick {
+            on_ground: false,
+            flying: true,
+            ..tick([0.5, 0.0, 0.0], 0.0)
+        });
+        assert_eq!(state.motion.walked, [0.3, 0.3]);
+    }
+
+    /// Java accumulates a float step in double precision before storing the walk phase.
+    #[test]
+    fn cape_walk_phase_matches_java_accumulation() {
+        let mut state = JavaMotionState::spawn(0.0);
+        let mut walked = 0.0_f32;
+        for _ in 0..1000 {
+            state.advance(&tick([0.1, 0.0, 0.15], 0.0));
+            let x = f64::from(0.1_f32);
+            let z = f64::from(0.15_f32);
+            let step = (x * x + z * z).sqrt() as f32;
+            walked = (f64::from(walked) + f64::from(step) * 0.6) as f32;
+            assert_eq!(state.motion.walked[1], walked);
+        }
+    }
+
+    /// Death stops the cape's walking bob even while the actor retains ground velocity.
+    #[test]
+    fn cape_bob_decays_after_death() {
+        let mut state = JavaMotionState::spawn(0.0);
+        let moving = JavaTick {
+            velocity: [0.2, 0.0, 0.0],
+            ..tick([0.2, 0.0, 0.0], 0.0)
+        };
+        state.advance(&moving);
+        state.advance(&JavaTick {
+            alive: false,
+            ..moving
+        });
+        assert!((state.motion.bob[1] - 0.024).abs() < 1e-6);
     }
 
     /// Steps a history of positions and velocities, as each tick sees them.

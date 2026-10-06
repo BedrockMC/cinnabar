@@ -135,6 +135,7 @@ pub(super) struct HandInputs<'a> {
     pub(super) motion: Mat4,
 }
 
+/// Builds vanilla arms and attachables with the displayed stack and its actual owner.
 pub(super) fn vanilla_hand_source(
     inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
@@ -207,8 +208,15 @@ pub(super) fn attachable_hand_input<'a>(
     timing: client_world::AttachableAnimationInput<'a>,
     off_hand: bool,
 ) -> client_world::AttachableAnimationInput<'a> {
-    let selected = rendered.main.as_ref().map(|item| &item.identifier)
-        == owner.main.as_ref().map(|item| &item.identifier);
+    let selected = match (rendered.main.as_ref(), owner.main.as_ref()) {
+        (Some(rendered), Some(owner)) => {
+            rendered.identifier == owner.identifier
+                && rendered.damage.unwrap_or(rendered.metadata)
+                    == owner.damage.unwrap_or(owner.metadata)
+        }
+        (None, None) => true,
+        _ => false,
+    };
     let timing = if off_hand || selected {
         timing
     } else {

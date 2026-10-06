@@ -138,6 +138,7 @@ pub fn java_draws_attachable(identifier: &str) -> bool {
     identifier == BOW
 }
 
+/// Server-pack attachables own their hand poses, including replacements for Java's bow.
 fn keep_authored_hand(identifier: &str, category: EquipmentCategory, from_pack: bool) -> bool {
     matches!(
         category,

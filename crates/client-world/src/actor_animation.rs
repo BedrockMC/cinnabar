@@ -84,7 +84,7 @@ pub struct ActorRigSnapshot<'a> {
     /// Java 1.7 limb swing, body yaw and equip progress over the last two ticks.
     pub java: JavaMotion,
     /// The main-hand item Java's first-person hand still draws while the equip dips.
-    pub java_equipped: Option<&'a Arc<str>>,
+    pub java_equipped: Option<&'a JavaHeldItem>,
 }
 
 /// The arm's swing and equip progress over one tick, as the first-person item reads them.
@@ -468,6 +468,7 @@ impl ActorAnimationStore {
         };
         if let Some(state) = self.rigs.get_mut(lifetime) {
             state.motion.start_swing(ticks);
+            state.java.start_swing(ticks);
         }
     }
 
@@ -713,7 +714,7 @@ mod geometry;
 mod horse;
 mod hud;
 mod java;
-pub use java::{JavaMotion, java_mounted_body_yaw};
+pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
 mod motion;
 mod particles;
 mod pose;

@@ -356,6 +356,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     let worn = |identifier: &str| WornItem {
         identifier: Arc::from(identifier),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Sprite,
         dye_rgb: None,
     };
@@ -556,6 +557,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let crown = WornItem {
         identifier: Arc::from("test:crown"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Other,
         dye_rgb: None,
     };
@@ -583,6 +585,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let item = WornItem {
         identifier: Arc::from("test:gem"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Other,
         dye_rgb: None,
     };
@@ -640,6 +643,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
         main: Some(WornItem {
             identifier: Arc::from(identifier),
             metadata: 0,
+            damage: None,
             kind: HeldKind::Other,
             dye_rgb: None,
         }),
@@ -684,6 +688,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let item = WornItem {
         identifier: Arc::from("test:controller"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Other,
         dye_rgb: None,
     };
@@ -838,6 +843,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
         main: Some(WornItem {
             identifier: Arc::from("test:gem"),
             metadata: 0,
+            damage: None,
             kind: HeldKind::Other,
             dye_rgb: None,
         }),

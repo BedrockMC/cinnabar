@@ -134,7 +134,9 @@ fn tracked_columns_visit_one_section_per_column() {
     let tracked = stream.tracked_columns();
     assert_eq!(
         tracked,
-        (10..74).map(|z| ChunkKey::new(0, 0, z)).collect::<BTreeSet<_>>()
+        (10..74)
+            .map(|z| ChunkKey::new(0, 0, z))
+            .collect::<BTreeSet<_>>()
     );
     // One visit per column in each of the resident and known-air sets.
     assert_eq!(take_visited_keys(), 2 * 64);
