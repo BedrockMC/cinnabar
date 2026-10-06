@@ -81,8 +81,12 @@ fn unchanged_frames_do_not_publish_and_reconnect_republishes_latest_state() {
     let mut publication = Publication::default();
     assert!(publication.changed(State::Menus, 0, None, None, 0));
     assert!(!publication.changed(State::Menus, 0, None, None, 0));
-    assert!(publication.changed(State::Joining, 0, None, None, 0));
+    assert!(
+        !publication.changed(State::Joining, 0, None, None, 0),
+        "joining keeps the menus card so the in-world card is not rate-limited behind it"
+    );
     assert!(publication.changed(State::Playing, 0, None, None, 0));
+    assert_eq!(publication.playing_since, Some(0));
     assert!(!publication.changed(State::Playing, 0, None, None, 0));
     assert!(publication.changed(State::Playing, 1, None, None, 0));
     assert!(!publication.changed(State::Playing, 1, None, None, 0));

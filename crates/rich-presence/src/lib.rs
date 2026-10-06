@@ -180,6 +180,11 @@ impl Publication {
         players: Option<u32>,
         now: u64,
     ) -> bool {
+        // The library sends one update per 15 s, so a join's brief loading card would hold the
+        // in-world card back; the previous card stays up while joining instead.
+        if state == State::Joining {
+            return false;
+        }
         let target = target.filter(|_| state == State::Playing);
         let players = players.filter(|_| state == State::Playing);
         if let Some((last_state, last_connection, last_target, last_players)) = &self.last
