@@ -221,6 +221,8 @@ pub(super) fn snapshot(world: &World) -> Value {
             json!({ "yaw": yaw, "pitch": pitch })
         }),
         "health": health,
+        "java_animations": world.get_resource::<crate::camera::CameraSettingsAuthority>()
+            .map(|settings| settings.feel().java_animations),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
             "loaded_columns": stream.loaded_column_count(),

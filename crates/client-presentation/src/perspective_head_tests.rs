@@ -37,6 +37,7 @@ fn stream() -> WorldStream {
 
 fn feed(first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [1; 16],
         username: "test".into(),
         skin: PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions),

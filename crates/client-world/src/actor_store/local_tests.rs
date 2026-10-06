@@ -38,6 +38,7 @@ fn profile_skin(store: &ActorStore, runtime_id: u64) -> Option<PlayerSkin> {
 
 fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),
         skin: fed_skin(),
@@ -489,4 +490,56 @@ fn review_authoritative_echo_under_the_fed_uuid_retains_its_skin() {
     store.sync_local_player(1, -100, &feed);
     assert_eq!(profile_skin(&store, 1), Some(skin));
     assert!(store.player_profile(1).unwrap().verified);
+}
+
+#[test]
+fn client_skin_override_restores_the_retained_server_appearance() {
+    for server_uuid in [[5; 16], [7; 16]] {
+        for unlist_at in [None, Some(0), Some(1)] {
+            let listed = unlist_at.is_none();
+            let mut store = ActorStore::new(1, 0);
+            let mut feed = local_feed(0.0, 0.0);
+            let server_skin = cape_skin(3);
+            store.exclude_remote_state_for(1);
+            store.apply(1, 1, list_add(server_uuid, -100, server_skin.clone()));
+            store.sync_local_player(1, -100, &feed);
+            feed.skin = cape_skin(7);
+            feed.prefer_client_skin = true;
+            for step in 0..3 {
+                if unlist_at == Some(step) {
+                    store.apply(
+                        1,
+                        2,
+                        ActorEvent::PlayerList(PlayerListUpdateEvent {
+                            entries: Arc::from([PlayerListEntry::Remove { uuid: server_uuid }]),
+                        }),
+                    );
+                }
+                store.sync_local_player(1, -100, &feed);
+                store.prune_unlisted_players();
+                assert!(profile_skin(&store, 1).as_ref() == Some(&feed.skin));
+                let retained = store
+                    .players
+                    .get(&server_uuid)
+                    .or_else(|| store.unlisted_players.get(&server_uuid))
+                    .unwrap();
+                assert!(retained.skin == server_skin);
+                assert!(retained.verified);
+            }
+            let synthetic = store.synthetic_local_uuid.unwrap();
+            assert_ne!(synthetic, server_uuid);
+            assert_eq!(store.player_count(), usize::from(listed) + 1);
+            feed.prefer_client_skin = false;
+            store.sync_local_player(1, -100, &feed);
+            assert!(profile_skin(&store, 1).as_ref() == Some(&server_skin));
+            assert!(store.player_profile(1).unwrap().verified);
+            assert!(!store.players.contains_key(&synthetic));
+            assert!(!store.unlisted_players.contains_key(&synthetic));
+            assert_eq!(store.player_count(), usize::from(listed));
+            assert_eq!(
+                store.retained_player_skin_bytes,
+                super::retained_skin_bytes(&server_skin)
+            );
+        }
+    }
 }

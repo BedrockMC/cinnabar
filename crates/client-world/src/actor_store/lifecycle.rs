@@ -200,20 +200,21 @@ impl ActorStore {
                 .insert(self.session_id, self.dimension, actor);
         }
     }
-    /// A retained server appearance wins; otherwise only changed client skin feeds replace the
-    /// synthetic profile, preserving server skin updates between pose samples.
+    /// Retains server appearances while an explicit client preference selects a synthetic profile.
+    /// Unchanged default feeds preserve server skin updates between pose samples.
     fn resolve_local_identity(
         &mut self,
         unique_id: i64,
         feed: &LocalPlayerFeed,
     ) -> ([u8; 16], std::sync::Arc<str>) {
         let synthetic = self.synthetic_local_uuid;
-        if let Some((uuid, username)) = self
-            .players
-            .iter()
-            .chain(self.unlisted_players.iter())
-            .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
-            .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
+        if !feed.prefer_client_skin
+            && let Some((uuid, username)) = self
+                .players
+                .iter()
+                .chain(self.unlisted_players.iter())
+                .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
+                .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
         {
             if let Some(stale) = self.synthetic_local_uuid.take()
                 && stale != uuid
@@ -224,15 +225,20 @@ impl ActorStore {
             self.synthetic_local_skin_pending = false;
             return (uuid, username);
         }
+        let uuid = if feed.prefer_client_skin {
+            synthetic.unwrap_or_else(|| self.available_profile_uuid(feed.uuid))
+        } else {
+            feed.uuid
+        };
         let skin_fingerprint = super::profiles::skin_fingerprint(&feed.skin);
         let stale = match self
             .players
-            .get(&feed.uuid)
-            .or_else(|| self.unlisted_players.get(&feed.uuid))
+            .get(&uuid)
+            .or_else(|| self.unlisted_players.get(&uuid))
         {
             Some(profile) => {
                 profile.unique_id != unique_id
-                    || synthetic != Some(feed.uuid)
+                    || synthetic != Some(uuid)
                     || self.synthetic_local_skin != Some(skin_fingerprint)
                     || self.synthetic_local_skin_pending
             }
@@ -240,7 +246,7 @@ impl ActorStore {
         };
         if stale {
             self.upsert_profile(
-                feed.uuid,
+                uuid,
                 PlayerProfile {
                     unique_id,
                     username: std::sync::Arc::clone(&feed.username),
@@ -250,13 +256,13 @@ impl ActorStore {
             );
             self.synthetic_local_skin_pending = self
                 .players
-                .get(&feed.uuid)
-                .or_else(|| self.unlisted_players.get(&feed.uuid))
+                .get(&uuid)
+                .or_else(|| self.unlisted_players.get(&uuid))
                 .is_none_or(|profile| profile.skin != feed.skin);
         }
-        self.synthetic_local_uuid = Some(feed.uuid);
+        self.synthetic_local_uuid = Some(uuid);
         self.synthetic_local_skin = Some(skin_fingerprint);
-        (feed.uuid, std::sync::Arc::clone(&feed.username))
+        (uuid, std::sync::Arc::clone(&feed.username))
     }
 
     #[cfg(test)]

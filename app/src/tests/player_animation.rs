@@ -494,6 +494,7 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
     LocalPlayerFeed {
         uuid: [5; 16],
+        prefer_client_skin: false,
         username: "local".into(),
         skin: PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
         position: [0.0, 64.0, 0.0],

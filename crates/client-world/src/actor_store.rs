@@ -573,15 +573,16 @@ impl MovementFlagUpdate {
     }
 }
 
-/// Client-authored identity and pose for the local player's own third-person rig, which the
-/// server never spawns as an actor. When the player list carries no self entry, the skin backs
-/// a synthetic profile keyed by `uuid`; a real echo overrides it.
+/// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
+/// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
     pub skin: PlayerSkin,
+    /// Uses the client appearance locally while retaining any server profile for restoration.
+    pub prefer_client_skin: bool,
     pub position: [f32; 3],
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
