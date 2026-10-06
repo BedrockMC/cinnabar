@@ -969,7 +969,8 @@ const SCOPED_PANEL: &str = r##"{
   }
 }"##;
 
-// A settled collection panel kept reading the shared list after its item's own list appeared.
+// A settled collection panel kept reading the shared list after its item's own list appeared, and
+// stale cells after that list shrank or went away.
 #[test]
 fn a_scoped_list_registered_later_reaches_settled_collection_panels() {
     let catalog = Catalog::from_files([
@@ -982,7 +983,7 @@ fn a_scoped_list_registered_later_reaches_settled_collection_panels() {
     ])
     .unwrap();
     let title = |text: &str| CollectionItem::new("h").with("#title", Scalar::Text(text.into()));
-    let data = |scoped: bool| {
+    let data = |scoped: usize| {
         let mut data = DataSource::new();
         data.set_global("#row_count", Scalar::Num(2.0));
         data.set_collection(
@@ -990,17 +991,22 @@ fn a_scoped_list_registered_later_reaches_settled_collection_panels() {
             vec![CollectionItem::new("r"), CollectionItem::new("r")],
         );
         data.set_collection("heroes", vec![title("shared0"), title("shared1")]);
-        if scoped {
-            data.set_scoped_collection("rows", 0, "heroes", vec![title("A"), title("B")]);
-            data.set_scoped_collection("rows", 1, "heroes", vec![title("C"), title("D")]);
+        let lists = [vec![title("A"), title("B")], vec![title("C"), title("D")]];
+        for (row, list) in lists.into_iter().enumerate() {
+            if scoped > 0 {
+                data.set_scoped_collection("rows", row, "heroes", list[..scoped].to_vec());
+            }
         }
         data
     };
     let mut pair = Pair::new(&catalog, "sp.root", Context::desktop());
-    for step in 0..3 {
-        pair.refresh(data(false), &format!("shared {step}"));
-    }
-    for step in 0..3 {
-        pair.refresh(data(true), &format!("scoped {step}"));
+    // Shared, then each item's own list, a short one, and back to shared.
+    for (phase, scoped) in [0, 2, 1, 0].into_iter().enumerate() {
+        for step in 0..3 {
+            pair.refresh(
+                data(scoped),
+                &format!("phase {phase} ({scoped} scoped) step {step}"),
+            );
+        }
     }
 }
