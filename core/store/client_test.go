@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -440,5 +441,29 @@ func TestOffersOnAFreeSaleCostNothing(t *testing.T) {
 	offer, ok := offerFromMarketItem(&item)
 	if !ok || len(offer.Prices) != 1 || offer.Prices[0] != (Price{"mc", 0}) {
 		t.Fatalf("offer = %+v ok = %v", offer, ok)
+	}
+}
+
+// A search returns every offer of the service's page, so its continuation skips none.
+func TestSearchKeepsTheWholeServicePage(t *testing.T) {
+	var items []string
+	for i := range 51 {
+		items = append(items, fmt.Sprintf(`{"id":"aaaaaaaa-0000-0000-0000-%012d","title":"Offer %d"}`, i, i))
+	}
+	page := `{"result":{"pageId":"Search_SearchResults","layout":[{"sectionName":"rows","rows":[{"controlId":"GridList",
+"components":[{"type":"pagedItemListComp","continuationToken":"more","items":[` + strings.Join(items, ",") + `]}]}]}]}}`
+	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1.0/session/config":
+			_, _ = io.WriteString(w, `{"result":{"knownPages":{"searchResults":"results-1"}}}`)
+		case "/api/v2.0/layout/pages/results-1":
+			_, _ = io.WriteString(w, page)
+		default:
+			_, _ = io.WriteString(w, inventoryFixture)
+		}
+	})
+	results, err := client.Search(context.Background(), SearchQuery{Term: "x"})
+	if err != nil || len(results.Offers) != 51 || results.Continuation != "more" || results.Truncated {
+		t.Fatalf("offers = %d continuation = %q truncated = %v err = %v", len(results.Offers), results.Continuation, results.Truncated, err)
 	}
 }

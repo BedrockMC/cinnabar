@@ -8,7 +8,6 @@ import (
 )
 
 const (
-	maxSearchOffers  = 50
 	maxDescription   = 8192
 	maxScreenshots   = 12
 	maxThumbnailSize = 1024
@@ -46,7 +45,8 @@ func (c *Client) Search(ctx context.Context, q SearchQuery) (SearchResults, erro
 		}
 	}
 	out := SearchResults{}
-	out.Offers, out.Truncated = c.offers(items, maxSearchOffers)
+	// The service sizes the page and its continuation starts after it, so every offer is kept.
+	out.Offers, _ = c.offers(items, len(items))
 	if ValidContinuation(next) {
 		out.Continuation = next
 	}
