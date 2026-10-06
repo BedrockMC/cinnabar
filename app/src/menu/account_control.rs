@@ -114,6 +114,22 @@ impl MenuRuntime {
         }
     }
 
+    /// Drops the launcher core's question and any answer to it when that core is retired, so a
+    /// restarted core, whose prompt ids start over, never receives them.
+    pub(crate) fn forget_launcher_trust(&mut self) {
+        self.feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| !prompt.from_session_core);
+        if self
+            .feeds
+            .server_trust
+            .as_ref()
+            .is_some_and(|prompt| !prompt.from_session_core)
+        {
+            self.feeds.server_trust = None;
+        }
+    }
+
     fn server_trust_from_session_core(&self) -> bool {
         self.feeds
             .server_trust
@@ -509,6 +525,28 @@ mod tests {
         assert!(
             next.answers.borrow().is_empty(),
             "an old answer reached the next core"
+        );
+
+        // Likewise a launcher answer left when its core is retired never reaches the restarted one.
+        let mut launcher = Trusting {
+            prompt: Some(ServerTrustPrompt {
+                id: 1,
+                url: "http://127.0.0.1:19132".into(),
+                from_session_core: false,
+            }),
+            answers: Vec::new(),
+        };
+        menu.sync_account_control(&mut launcher);
+        menu.activate(MenuAction::ServerTrust(true));
+        menu.forget_launcher_trust();
+        let mut restarted = Trusting {
+            prompt: None,
+            answers: Vec::new(),
+        };
+        menu.sync_account_control(&mut restarted);
+        assert!(
+            restarted.answers.is_empty(),
+            "a retired core's answer reached its replacement"
         );
     }
 
