@@ -561,6 +561,11 @@ impl LocalPhysicsController {
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
             input.liquid_attach_height = Some(f64::from(self.eye_offset.height(1.0)));
+            let entry_velocity = [
+                state.velocity.x as f32,
+                state.velocity.y as f32,
+                state.velocity.z as f32,
+            ];
             let predicted = match mode_error {
                 Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
                     error,
@@ -579,6 +584,7 @@ impl LocalPhysicsController {
                     self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
+                        entry_velocity,
                         eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
@@ -776,6 +782,35 @@ impl LocalPhysicsController {
         self.sample_history
             .iter()
             .find(|sample| sample.tick == tick)
+    }
+
+    /// Visits completed ticks with pre-travel velocity and liquid contact.
+    /// An absent cursor visits only the latest tick to prime a new observer.
+    pub fn visit_completed_ticks(
+        &self,
+        after: Option<u64>,
+        visit: &mut dyn FnMut(&PhysicsMovementSample, &sim::MovementEnvironment, [f32; 3]),
+    ) {
+        let after = after.or_else(|| {
+            self.sample_history
+                .back()
+                .map(|sample| sample.tick.saturating_sub(1))
+        });
+        let mut samples = self.sample_history.iter().peekable();
+        for frame in &self.controller_history {
+            if after.is_some_and(|tick| frame.tick <= tick) {
+                continue;
+            }
+            while samples
+                .peek()
+                .is_some_and(|sample| sample.tick < frame.tick)
+            {
+                samples.next();
+            }
+            if let Some(sample) = samples.peek().filter(|sample| sample.tick == frame.tick) {
+                visit(sample, &frame.environment, frame.entry_velocity);
+            }
+        }
     }
 
     #[must_use]

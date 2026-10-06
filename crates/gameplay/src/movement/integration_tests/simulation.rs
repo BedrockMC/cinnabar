@@ -688,3 +688,43 @@ fn holding_jump_repeats_only_after_the_player_lands() {
         "a continuously held jump should take off again after landing"
     );
 }
+
+#[test]
+fn completed_motion_ticks_keep_pre_travel_velocity_across_catch_up_and_replay() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(
+        [0.0, protocol::PLAYER_NETWORK_OFFSET + 20.0, 0.0],
+        100,
+        false,
+    );
+    physics.advance(Duration::from_millis(50), MovementInput::default(), &Floor);
+    physics.queue_server_motion([0.0, -1.5, 0.0], 101);
+    let frame = physics.advance(Duration::from_millis(100), MovementInput::default(), &Floor);
+    assert_eq!(frame.completed_ticks, 2);
+    let mut observed = Vec::new();
+    physics.visit_completed_ticks(Some(100), &mut |sample, _, velocity| {
+        observed.push((sample.tick, velocity))
+    });
+    assert_eq!(
+        observed.iter().map(|(tick, _)| *tick).collect::<Vec<_>>(),
+        [101, 102, 103]
+    );
+    assert_eq!(observed[0].1, [0.0; 3]);
+    assert_eq!(observed[1].1, [0.0, -1.5, 0.0]);
+    assert_eq!(observed[2].1, physics.sample_at(102).unwrap().velocity);
+    let mut priming = Vec::new();
+    physics.visit_completed_ticks(None, &mut |sample, _, _| priming.push(sample.tick));
+    assert_eq!(priming, [103]);
+    physics.queue_server_motion([0.0, -2.0, 0.0], 101);
+    physics.replay_retained_from(101, &Floor).unwrap();
+    observed.clear();
+    physics.visit_completed_ticks(Some(101), &mut |sample, _, velocity| {
+        observed.push((sample.tick, velocity))
+    });
+    assert_eq!(
+        observed.iter().map(|(tick, _)| *tick).collect::<Vec<_>>(),
+        [102, 103]
+    );
+    assert_eq!(observed[0].1, [0.0, -2.0, 0.0]);
+    assert_eq!(observed[1].1, physics.sample_at(102).unwrap().velocity);
+}
