@@ -468,7 +468,8 @@ func TestPersistentSourceConcurrentFreshInstancesRemainUsable(t *testing.T) {
 	}
 }
 
-func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
+// Concurrent joins needing an expired service token share one exchange.
+func TestConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
@@ -482,21 +483,16 @@ func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 		}),
 		mint: mintFromService,
 	}
-	var diagnostics [2]bytes.Buffer
-	sources := []oauth2.TokenSource{
-		persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics[0], deps),
-		persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics[1], deps),
-	}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
 	var wg sync.WaitGroup
-	errs := make(chan error, len(sources))
-	for _, source := range sources {
-		wg.Add(1)
-		go func(source oauth2.TokenSource) {
-			defer wg.Done()
+	errs := make(chan error, 4)
+	for range cap(errs) {
+		wg.Go(func() {
 			key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-			_, err := source.(minecraft.MultiplayerTokenSource).MultiplayerToken(context.Background(), &key.PublicKey)
+			_, err := account.MultiplayerToken(context.Background(), &key.PublicKey)
 			errs <- err
-		}(source)
+		})
 	}
 	wg.Wait()
 	close(errs)
@@ -506,7 +502,7 @@ func TestPersistentSourceConcurrentExpiredRefreshUsesOneExchange(t *testing.T) {
 		}
 	}
 	if calls := serviceCalls.Load(); calls != 1 {
-		t.Fatalf("concurrent service exchanges = %d, want 1; diagnostics = %q / %q", calls, diagnostics[0].String(), diagnostics[1].String())
+		t.Fatalf("concurrent service exchanges = %d, want 1", calls)
 	}
 }
 
