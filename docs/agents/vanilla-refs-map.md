@@ -2196,3 +2196,35 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
+
+## Worn elytra rendering
+
+- `crates/pack-compiler/src/entity/legacy_block_geometry.rs`: the pinned pack's
+  `models/mobs.json` owns `geometry.elytra`; `attachables/elytra.json` selects it.
+- `crates/client-presentation/src/presentation/equipment/runtime/elytra.rs`:
+  `animations/elytra.animation.json` and
+  `animation_controllers/elytra.animation_controllers.json` own wing poses,
+  descending-movement spread and shortest-path transition blending.
+- `crates/client-presentation/src/presentation/cape.rs`: humanoid additional
+  rendering's chest-gear path uses the player's cape raster for worn elytra.
+- `crates/render/src/actor/glint.rs`: ActorShaderManager foil parameters define
+  the 1375/3750-ms scroll periods, -20/80-degree rotations and RGB multiplier.
+- `crates/render/src/actor.wgsl`: independent fragment/vertex evidence from
+  `~/coding/go/lunar/minecraft-apk/split_install_pack.apk`,
+  `assets/assets/renderer/materials/ActorGlint.material.bin`; its base APK manifest
+  identifies 1.26.31.1. UV rotation uses the texture center; summed glint samples
+  are multiplied by glint color and tile light before RGB is squared and added
+  to the shaded base before fog. This is an older shader cross-check, not a
+  version-matched 1.26.50 pixel acceptance witness.
+- Current foil uniform evidence: `ActorShaderManager::setupFoilShaderParameters`
+  (`R:ActorShaderManager:1250`, `R:ActorShaderManager:1436`) and constants
+  `0x10dd0cff0`, `0x10dd0d5a0`, `0x10dd0d000`; cape-image selection:
+  `R:DataDrivenRenderer_tempComponent_HumanoidAdditionalRendering:3687`.
+- `crates/client-world/src/actor_animation/tick.rs`: controller transitions reset
+  the blend timer and replace the outgoing state with the immediately preceding
+  current state (`R:ActorAnimationControllerPlayer:912`). During a blend, both
+  state players are resampled with the current render queries; shortest-path
+  blending combines their sampled bone maps (`R:ActorAnimationControllerPlayer:1093`,
+  `R:ActorAnimationControllerPlayer:1327`). Interrupted blends therefore restart
+  from that outgoing state's clip rather than a snapshot of the previously
+  blended pose.

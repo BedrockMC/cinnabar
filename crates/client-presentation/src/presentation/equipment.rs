@@ -5,7 +5,6 @@ mod atlas;
 mod attachable;
 pub mod blocks;
 mod display;
-mod elytra;
 mod first_person;
 #[cfg(test)]
 mod frames;
@@ -16,5 +15,10 @@ mod tests;
 
 pub use display::FirstPersonHand;
 pub use input::{local_input, remote_input};
-pub use runtime::{ActorEquipmentInput, EquipmentPresentation, HeldKind, WornItem};
+pub use runtime::{
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, HeldKind, WornItem,
+};
 pub use runtime::{EquipmentRuntime, FirstPersonArms, FirstPersonItem, StagedSessionIcons};
+
+/// Chest equipment occupies the same layer for its pack image and cape replacement.
+pub(crate) const ELYTRA_LAYER: u8 = display::LAYER_CHESTPLATE;
