@@ -35,7 +35,8 @@ the target; layout facts taken from it need a 26.30 screenshot check.
 - **Drawn (default, and anything shipped):** every OreUI surface is our code — the theme's role
   fills per state, one-texel borders, speculars and bevels, the elevated solid buttons that drop
   0.4rem when pressed, the 12/8-column grid, and our own pixel-art icons at the originals' texel
-  sizes. One rem is five GUI pixels; one texel is 0.2rem.
+  sizes. One rem is five GUI pixels; one texel is 0.2rem. Menus screens draw raised controls as
+  the menus theme's nine-slice art does; gameplay screens (death, bed) use the role table.
 - **Local originals (dev only):** with `CINNABAR_OREUI_LOCAL_ASSETS=<install root or its
   data/gui/dist/hbui>`, the app reads the install's sprite atlases at runtime and draws their icons
   where the drawn look approximates them. `CINNABAR_OREUI_LOOK=drawn` keeps the drawn look while
@@ -43,7 +44,7 @@ the target; layout facts taken from it need a 26.30 screenshot check.
 
 Code: `crates/client-ui/src/ui_runtime/presentation/forms/oreui/` (theme, paint, grid, icons,
 widgets, one file per screen) and `crates/client-ui/src/ui_runtime/oreui_assets.rs`
-(the dev-mode loader). Profile models, feed projections, and value formatting live in
+(the dev-mode loader). The saved-accounts picker, which vanilla lacks, is an OreUI modal menu. Profile models, feed projections, and value formatting live in
 `crates/launcher/src/menu/`; app owns service polling and command dispatch.
 
 ## Screenshot checks still needed

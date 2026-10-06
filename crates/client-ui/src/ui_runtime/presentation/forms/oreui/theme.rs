@@ -23,6 +23,8 @@ pub(super) const TEXT_DARK: Rgba = rgb(0x1e1e1f);
 pub(super) const BORDER: Rgba = rgb(0x1e1e1f);
 pub(super) const OUTLINE: Rgba = rgb(0xffffff);
 pub(super) const OVERLAY_SCREEN: Rgba = black(128);
+/// The dimming behind a modal.
+pub(super) const OVERLAY_MODAL: Rgba = black(179);
 pub(super) const TEXT_SHADOW: Rgba = black(77);
 
 /// One semantic role's fills, text and edge colours.
@@ -34,10 +36,11 @@ pub(super) struct Role {
     pub(super) text: Rgba,
     /// The elevated strip under a raised control.
     pub(super) shadow: Rgba,
-    pub(super) specular_top: Rgba,
-    pub(super) specular_bottom: Rgba,
-    pub(super) specular_top_hovered: Rgba,
-    pub(super) specular_bottom_hovered: Rgba,
+    /// The one-texel outline of a raised control.
+    pub(super) border: Rgba,
+    /// Top-left and bottom-right inner edges.
+    pub(super) specular: [Rgba; 2],
+    pub(super) specular_hovered: [Rgba; 2],
 }
 
 pub(super) const NEUTRAL: Role = Role {
@@ -46,10 +49,9 @@ pub(super) const NEUTRAL: Role = Role {
     pressed: rgb(0x313233),
     text: TEXT,
     shadow: rgb(0x313233),
-    specular_top: white(51),
-    specular_bottom: white(26),
-    specular_top_hovered: white(51),
-    specular_bottom_hovered: white(26),
+    border: BORDER,
+    specular: [white(51), white(26)],
+    specular_hovered: [white(51), white(26)],
 };
 
 pub(super) const NEUTRAL20: Role = Role {
@@ -58,10 +60,9 @@ pub(super) const NEUTRAL20: Role = Role {
     pressed: rgb(0xd0d1d4),
     text: TEXT_DARK,
     shadow: rgb(0xb1b2b5),
-    specular_top: white(255),
-    specular_bottom: white(51),
-    specular_top_hovered: white(255),
-    specular_bottom_hovered: white(51),
+    border: BORDER,
+    specular: [white(255), white(51)],
+    specular_hovered: [white(255), white(51)],
 };
 
 pub(super) const NEUTRAL80: Role = Role {
@@ -70,10 +71,9 @@ pub(super) const NEUTRAL80: Role = Role {
     pressed: rgb(0x242425),
     text: TEXT,
     shadow: rgb(0x242425),
-    specular_top: white(26),
-    specular_bottom: black(102),
-    specular_top_hovered: white(26),
-    specular_bottom_hovered: black(102),
+    border: BORDER,
+    specular: [white(26), black(102)],
+    specular_hovered: [white(26), black(102)],
 };
 
 pub(super) const PRIMARY_ROLE: Role = Role {
@@ -82,10 +82,9 @@ pub(super) const PRIMARY_ROLE: Role = Role {
     pressed: rgb(0x1d4d13),
     text: TEXT,
     shadow: rgb(0x1d4d13),
-    specular_top: white(51),
-    specular_bottom: white(26),
-    specular_top_hovered: white(102),
-    specular_bottom_hovered: white(77),
+    border: BORDER,
+    specular: [white(51), white(26)],
+    specular_hovered: [white(102), white(77)],
 };
 
 pub(super) const SECONDARY: Role = Role {
@@ -94,37 +93,95 @@ pub(super) const SECONDARY: Role = Role {
     pressed: rgb(0xb1b2b5),
     text: TEXT_DARK,
     shadow: rgb(0x58585a),
-    specular_top: white(153),
-    specular_bottom: white(102),
-    specular_top_hovered: white(204),
-    specular_bottom_hovered: white(153),
+    border: BORDER,
+    specular: [white(153), white(102)],
+    specular_hovered: [white(204), white(153)],
 };
 
-/// `colorsDestructive` (#ca3636); the state fills and edges are unrecovered approximations.
 pub(super) const DESTRUCTIVE: Role = Role {
     fill: rgb(0xca3636),
-    hovered: rgb(0xb02e2e),
-    pressed: rgb(0x8f2424),
+    hovered: rgb(0xc02d2d),
+    pressed: rgb(0xad1d1d),
     text: TEXT,
-    shadow: rgb(0x8f2424),
-    specular_top: white(51),
-    specular_bottom: white(26),
-    specular_top_hovered: white(102),
-    specular_bottom_hovered: white(77),
+    shadow: rgb(0xad1d1d),
+    border: BORDER,
+    specular: [white(51), white(26)],
+    specular_hovered: [white(128), white(102)],
+};
+
+/// A disabled raised control in every role: no speculars.
+pub(super) const DISABLED: Role = Role {
+    fill: rgb(0xb1b2b5),
+    hovered: rgb(0xb1b2b5),
+    pressed: rgb(0xb1b2b5),
+    text: rgb(0x58585a),
+    shadow: rgb(0x8c8d90),
+    border: rgb(0x58585a),
+    specular: [black(0), black(0)],
+    specular_hovered: [black(0), black(0)],
+};
+
+/// Which bundle's art a screen draws with: menus screens draw raised controls from
+/// nine-slice art, gameplay screens (death, bed) from the role table above.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum Bundle {
+    #[default]
+    Menus,
+    Gameplay,
+}
+
+/// The menus art where it departs from the role table; primary matches it.
+pub(super) const MENU_NEUTRAL: Role = Role {
+    specular_hovered: [white(102), white(77)],
+    ..NEUTRAL
+};
+pub(super) const MENU_SECONDARY: Role = Role {
+    border: black(255),
+    specular: [white(102), white(102)],
+    specular_hovered: [white(153), white(153)],
+    ..SECONDARY
+};
+pub(super) const MENU_DESTRUCTIVE: Role = Role {
+    specular_hovered: [white(102), white(77)],
+    ..DESTRUCTIVE
+};
+/// Menus art for every pressed or focused face: a `BORDER` outline over these speculars.
+pub(super) const MENU_SPECULAR_ACTIVE: [Rgba; 2] = [white(51), white(26)];
+
+/// The modal menu item surface (`neutral60`): fills per state and its borders.
+pub(super) const MENU_ITEM: Role = Role {
+    fill: rgb(0x58585a),
+    hovered: rgb(0x48494a),
+    pressed: rgb(0x313233),
+    text: TEXT,
+    shadow: rgb(0x313233),
+    border: BORDER,
+    specular: [black(0), black(0)],
+    specular_hovered: [black(0), black(0)],
+};
+pub(super) const MENU_ITEM_DISABLED: Role = Role {
+    fill: rgb(0x48494a),
+    hovered: rgb(0x48494a),
+    pressed: rgb(0x48494a),
+    text: TEXT_DIMMEST,
+    border: rgb(0x8c8d90),
+    ..MENU_ITEM
 };
 
 /// Text field facts from `baseTextField*`: white text, dimmest placeholder, green caret.
 pub(super) const FIELD_PLACEHOLDER: Rgba = rgb(0xb1b2b5);
 pub(super) const FIELD_CARET: Rgba = rgb(0x6cc349);
 
-/// Section tints from the vanilla theme (`informativeTint` and `successTint`).
+/// Section tints from the vanilla theme (`informativeTint`, `successTint`, `destructiveTint`).
 pub(super) const INFORMATIVE_TINT: Rgba = rgb(0x8cb3ff);
 pub(super) const SUCCESS_TINT: Rgba = rgb(0xa0e081);
+pub(super) const DESTRUCTIVE_TINT: Rgba = rgb(0xff8080);
 
 /// Solid surfaces.
 pub(super) const NEUTRAL90: Rgba = rgb(0x242425);
 pub(super) const NEUTRAL100: Rgba = rgb(0x1e1e1f);
 pub(super) const HEADER_STRIP: Rgba = rgb(0xb1b2b5);
+/// The neutral bevel: a light top edge over a dark bottom one.
 pub(super) const BEVEL_LIGHT: Rgba = white(26);
 pub(super) const BEVEL_DARK: Rgba = black(77);
 

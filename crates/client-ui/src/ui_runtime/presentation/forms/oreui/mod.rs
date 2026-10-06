@@ -2,6 +2,7 @@
 //! with OreUI by default (`docs/oreui.md`). The dev-only local-originals mode
 //! swaps in the install's icon and border sprites for side-by-side comparison.
 
+mod accounts;
 mod bedtime;
 mod death;
 mod friends;
@@ -129,7 +130,10 @@ impl UiPresentationRuntime {
         canvas.offsets = offsets;
         canvas.seconds = self.menu_seconds;
         match screen {
-            MenuScreen::Death => death::draw(&mut canvas, view, size)?,
+            MenuScreen::Death => {
+                canvas.bundle = theme::Bundle::Gameplay;
+                death::draw(&mut canvas, view, size)?
+            }
             MenuScreen::Profile => {
                 profile::draw(&mut canvas, view, size, portrait, &self.menu_artwork.refs)?
             }
@@ -149,6 +153,67 @@ impl UiPresentationRuntime {
         self.menu_scrolls.set_areas(scrolls);
         self.add_menu_text_spots(spots);
         Ok(Some(hits))
+    }
+}
+
+impl UiPresentationRuntime {
+    /// Draws the saved-accounts picker over the current screen; returns its hit targets,
+    /// the only ones that then count.
+    pub(super) fn append_oreui_accounts(
+        &mut self,
+        view: &MenuView,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        size: [f32; 2],
+    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        let originals = self
+            .form_presentation
+            .oreui_originals
+            .clone()
+            .filter(|_| self.form_presentation.oreui_look == Look::Originals);
+        let picker = accounts::modal(view, &self.menu_artwork.refs);
+        let rollback = (nodes.len(), *next);
+        let mut offsets = self.menu_scrolls.offsets().clone();
+        // A newly focused item off screen scrolls into view, then draws again there.
+        let mut first = true;
+        loop {
+            nodes.truncate(rollback.0);
+            *next = rollback.1;
+            let mut canvas = Canvas::new(
+                nodes,
+                next,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                originals.as_deref(),
+            );
+            canvas.offsets = offsets.clone();
+            let focused = modal::draw(&mut canvas, view, size, &picker)?;
+            let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+            let used = offsets.get(modal::SCROLL).copied().unwrap_or(0.0);
+            let revealed = focused.and_then(|item| {
+                let rect = |b: paint::Bounds| super::super::rect(b[0], b[1], b[2], b[3]).ok();
+                Some(self.menu_scrolls.reveal_focus(
+                    modal::SCROLL,
+                    view.focused_action,
+                    rect(item.bounds),
+                    rect(item.viewport)?,
+                    item.max,
+                ))
+            });
+            match revealed {
+                Some(offset) if first && (offset - used).abs() > f32::EPSILON => {
+                    offsets.insert(modal::SCROLL.to_owned(), offset);
+                    first = false;
+                }
+                _ => {
+                    self.menu_scrolls.set_areas(scrolls);
+                    return Ok(hits);
+                }
+            }
+        }
     }
 }
 
@@ -198,6 +263,7 @@ impl UiPresentationRuntime {
             self.solid_texture_page,
             None,
         );
+        canvas.bundle = theme::Bundle::Gameplay;
         let hits = bedtime::draw(&mut canvas, &state, size)?;
         let [left, top] = [self.safe_area.left(), self.safe_area.top()];
         self.form_presentation.bed.hits = hits
