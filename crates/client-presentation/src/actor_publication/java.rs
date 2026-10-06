@@ -8,12 +8,14 @@ use chunk_pipeline::WorldStream;
 use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform, SkinRenderLayer};
 use render_model::{
     RenderBoneTransform,
-    java_animation::{self as java, JavaBiped, JavaBipedInput, JavaHand, JavaUse, is_java_sword},
+    java_animation::{
+        self as java, JavaBiped, JavaBipedInput, JavaCapeInput, JavaHand, JavaUse, is_java_sword,
+    },
 };
 
 use super::hand::{HandSource, hand_progress, item_atlas};
 use crate::presentation::{
-    actors::ActorRigPresentation,
+    actors::{ActorRigPresentation, convert_bones, lerp_degrees, wrap_degrees},
     equipment::{
         ActorEquipmentInput, EquipmentRuntime, FirstPersonArms, WornItem, java_draws_attachable,
         remote_input,
@@ -80,20 +82,26 @@ pub(super) fn first_person_hand(
     }
 }
 
-/// Model-space targets for `parts` of `pose` on a skeleton, by pose index; `None` when the
-/// skeleton lacks one of the parts.
+/// Model-space targets for `parts` of `pose` on a skeleton, by pose index. A `partial`
+/// skeleton (a skin layer) skips parts it lacks; otherwise a missing part yields `None`.
 fn targets(
     names: &[Box<str>],
     rest: &[BoneTransform],
     pose: &JavaBiped,
     parts: &[usize],
+    partial: bool,
 ) -> Option<Vec<Option<BoneTransform>>> {
     let mut targets = vec![None; rest.len()];
     let all = pose.parts();
     for &part in parts {
-        let index = names
+        let found = names
             .iter()
-            .position(|name| name.eq_ignore_ascii_case(PART_BONES[part]))?;
+            .position(|name| name.eq_ignore_ascii_case(PART_BONES[part]));
+        let index = match found {
+            Some(index) => index,
+            None if partial => continue,
+            None => return None,
+        };
         let (posed, rest_part) = all[part];
         let pivot = Vec3::from_slice(&rest.get(index)?.translation_scale[..3]);
         let (rotation, translation) = posed.rig_bone(rest_part, pivot);
@@ -106,19 +114,6 @@ fn targets(
     Some(targets)
 }
 
-fn render_bones(pose: &[BoneTransform]) -> Option<Arc<[RenderBoneTransform]>> {
-    pose.iter()
-        .map(|bone| {
-            RenderBoneTransform::from_model_space_scaled(
-                bone.rotation,
-                bone.translation_scale,
-                bone.axis_scale,
-            )
-        })
-        .collect::<Option<Vec<_>>>()
-        .map(Arc::from)
-}
-
 fn retargeted(
     stream: &WorldStream,
     rig: &ActorRigSnapshot<'_>,
@@ -126,20 +121,12 @@ fn retargeted(
     parts: &[usize],
     alpha: f32,
 ) -> Option<Arc<[RenderBoneTransform]>> {
-    let targets = targets(rig.bone_names, rig.rest, pose, parts)?;
-    render_bones(&stream.authority().actor_retargeted_pose(
+    let targets = targets(rig.bone_names, rig.rest, pose, parts, false)?;
+    convert_bones(&stream.authority().actor_retargeted_pose(
         rig.actor.runtime_id,
         alpha,
         &targets,
     )?)
-}
-
-fn lerp_degrees(from: f32, to: f32, alpha: f32) -> f32 {
-    from + wrap_degrees(to - from) * alpha
-}
-
-fn wrap_degrees(degrees: f32) -> f32 {
-    (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
 /// Java's body-yaw rig, pose and animated skin layers for a player at the frame, unless
@@ -147,7 +134,14 @@ fn wrap_degrees(degrees: f32) -> f32 {
 pub(super) struct ThirdPerson<'a> {
     pub(super) rig: ActorRigSnapshot<'a>,
     pub(super) bones: Arc<[RenderBoneTransform]>,
+    pub(super) posed: Posed,
+}
+
+/// What later layers of a player Java posed this frame read.
+pub(super) struct Posed {
+    runtime_id: u64,
     pub(super) skin_layers: Vec<SkinRenderLayer>,
+    pub(super) cape: JavaCapeInput,
 }
 
 pub(super) fn third_person<'a>(
@@ -179,25 +173,33 @@ pub(super) fn third_person<'a>(
         stream
             .authority()
             .actor_retargeted_layers(actor.runtime_id, alpha, |names, rest| {
-                targets(names, rest, &pose, &parts)
+                targets(names, rest, &pose, &parts, true)
             })?
+    };
+    let motion = rig.java;
+    let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;
+    let [chase_from, chase_to] = motion.cape.map(Vec3::from_array);
+    let cape = JavaCapeInput {
+        chase: chase_from.lerp(chase_to, alpha),
+        body_yaw: lerp_degrees(motion.body_yaw[0], motion.body_yaw[1], alpha),
+        bob: lerp(motion.bob),
+        walked: lerp(motion.walked),
+        sneaking: actor.is_sneaking(),
     };
     Some(ThirdPerson {
         rig: java_rig,
         bones,
-        skin_layers,
+        posed: Posed {
+            runtime_id: actor.runtime_id,
+            skin_layers,
+            cape,
+        },
     })
 }
 
-/// The retargeted skin layers of a player Java posed this frame.
-pub(super) fn posed(
-    posed: &[(u64, Vec<SkinRenderLayer>)],
-    runtime_id: u64,
-) -> Option<&[SkinRenderLayer]> {
-    posed
-        .iter()
-        .find(|(id, _)| *id == runtime_id)
-        .map(|(_, layers)| layers.as_slice())
+/// The player Java posed this frame, if it was.
+pub(super) fn posed(posed: &[Posed], runtime_id: u64) -> Option<&Posed> {
+    posed.iter().find(|posed| posed.runtime_id == runtime_id)
 }
 
 /// Replaces the presentation's pose with Java's and lifts it as Java draws players.
@@ -286,7 +288,8 @@ pub(super) struct HandInputs<'a> {
 }
 
 /// Java's first-person hand: the item it still draws through an equip dip, or its empty arm.
-/// `None` leaves vanilla's hand for items Java never had (maps, crossbows, shields).
+/// `None` leaves vanilla's hand for items Java never had (maps in either hand, crossbows,
+/// shields).
 pub(super) fn hand_source(
     inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
@@ -314,8 +317,10 @@ pub(super) fn hand_source(
             .filter(|old| old.identifier == *equipped)
             .or_else(|| equipment_input.main.clone()),
     });
-    if let Some(item) = &main
-        && (&*item.identifier == FILLED_MAP || equipment.is_vanilla_attachable(&item.identifier))
+    let vanilla_only = |item: &WornItem| &*item.identifier == FILLED_MAP;
+    if main.as_ref().is_some_and(|item| {
+        vanilla_only(item) || equipment.is_vanilla_attachable(&item.identifier)
+    }) || equipment_input.off.as_ref().is_some_and(vanilla_only)
     {
         return None;
     }
@@ -406,6 +411,21 @@ mod tests {
     fn bow_frames_follow_java_draw_thresholds() {
         let frames = [0, 1, 2, 14, 15, 18, 19, 40].map(java_bow_frame);
         assert_eq!(frames, [0, 0, 1, 1, 2, 2, 3, 3]);
+    }
+
+    /// A head-only skin layer takes the head target and skips the parts it lacks.
+    #[test]
+    fn partial_layers_skip_missing_parts() {
+        let names = [Box::from("head")];
+        let rest = [BoneTransform {
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            translation_scale: [0.0, 24.0, 0.0, 1.0],
+            axis_scale: [1.0; 3],
+        }];
+        let pose = java::java_biped(&JavaBipedInput::default());
+        let parts = [0, 1, 2, 3, 4, 5];
+        assert!(targets(&names, &rest, &pose, &parts, true).unwrap()[0].is_some());
+        assert!(targets(&names, &rest, &pose, &parts, false).is_none());
     }
 
     #[test]

@@ -443,6 +443,46 @@ pub fn third_person_item(item: JavaHeldItem, mesh: JavaItemMesh) -> Mat4 {
     draw_item(stack, mesh)
 }
 
+/// The cape at the frame: its chasing point less the position (blocks), body yaw (degrees),
+/// walk bob amplitude and walked distance.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct JavaCapeInput {
+    pub chase: Vec3,
+    pub body_yaw: f32,
+    pub bob: f32,
+    pub walked: f32,
+    pub sneaking: bool,
+}
+
+/// Java's cape tilt about X and sideways swing in degrees; the swing turns half about Z and
+/// half back about Y.
+#[must_use]
+pub fn java_cape_angles(input: &JavaCapeInput) -> (f32, f32) {
+    let yaw = input.body_yaw * PI / 180.0;
+    let (sine, cosine) = (f64::from(java_sin(yaw)), -f64::from(java_cos(yaw)));
+    let [x, y, z] = input.chase.as_dvec3().to_array();
+    let mut lift = (y as f32 * 10.0).clamp(-6.0, 32.0);
+    let back = (((x * sine + z * cosine) as f32) * 100.0).max(0.0);
+    let side = ((x * cosine - z * sine) as f32) * 100.0;
+    lift += java_sin(input.walked * 6.0) * 32.0 * input.bob;
+    if input.sneaking {
+        lift += 25.0;
+    }
+    (6.0 + back / 2.0 + lift, side / 2.0)
+}
+
+/// The cape bone in our rig frame (blocks) for its bind pivot `pivot`: Java turns the cape about
+/// a point two pixels behind the neck, in model space rather than with the body.
+#[must_use]
+pub fn java_cape_bone(input: &JavaCapeInput, pivot: Vec3) -> (Quat, Vec3) {
+    let (tilt, side) = java_cape_angles(input);
+    let rotation = Quat::from_rotation_x(-tilt.to_radians())
+        * Quat::from_rotation_z(side.to_radians())
+        * Quat::from_rotation_y(side.to_radians());
+    let hinge = rig_from_java_model().transform_point3(Vec3::Z * 2.0 / 16.0);
+    (rotation, hinge + rotation * (pivot - hinge))
+}
+
 /// Items Java draws upright in the hand.
 #[must_use]
 pub fn is_java_tool(identifier: &str) -> bool {

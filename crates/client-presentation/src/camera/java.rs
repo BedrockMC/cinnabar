@@ -5,7 +5,7 @@ use bevy::math::DVec3;
 use bevy::prelude::{Mat4, Resource, Vec3};
 use render_model::java_animation::{java_cos, java_sin};
 
-use super::bob::ViewEffect;
+use super::bob::{ViewEffect, shortest_degrees};
 
 /// Previous and current tick values of Java's camera bob and hand sway inputs.
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
@@ -143,9 +143,6 @@ fn lerp([previous, current]: [f32; 2], alpha: f32) -> f32 {
     previous + (current - previous) * alpha
 }
 
-fn shortest_degrees(delta: f32) -> f32 {
-    (delta + 180.0).rem_euclid(360.0) - 180.0
-}
 
 #[cfg(test)]
 mod tests {

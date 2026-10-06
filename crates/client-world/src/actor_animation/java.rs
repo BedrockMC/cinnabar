@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::{
     BoneTransform, RuntimeBone,
-    pose::{quat_multiply, rotate_vector},
+    pose::{quat_multiply, rotate_vector, total_scale, with_scale},
     query::wrap_degrees,
 };
 
@@ -21,6 +21,12 @@ pub struct JavaMotion {
     pub riding: bool,
     /// Swimming, crawling, gliding, sleeping or emoting: postures Java has no pose for.
     pub vanilla_posture: bool,
+    /// The cape's chasing point less the position, in blocks.
+    pub cape: [[f32; 3]; 2],
+    /// Walk bob amplitude, eased toward the capped ground speed.
+    pub bob: [f32; 2],
+    /// Walked distance scaled 0.6 per block; only the local player walks it.
+    pub walked: [f32; 2],
 }
 
 #[derive(Clone, Debug)]
@@ -29,6 +35,7 @@ pub(super) struct JavaMotionState {
     equipped: Option<Arc<str>>,
     hurt_time: u8,
     using: bool,
+    chase: Option<[f64; 3]>,
 }
 
 /// One tick of what Java's motion reads.
@@ -41,6 +48,13 @@ pub(super) struct JavaTick<'a> {
     pub(super) using: bool,
     pub(super) riding: bool,
     pub(super) vanilla_posture: bool,
+    pub(super) position: [f32; 3],
+    /// Blocks per tick.
+    pub(super) velocity: [f32; 3],
+    pub(super) on_ground: bool,
+    pub(super) sneaking: bool,
+    /// The client's own player, the only one Java advances a walk distance for.
+    pub(super) local: bool,
 }
 
 const BODY_FOLLOW: f32 = 0.3;
@@ -53,6 +67,11 @@ const LIMB_FOLLOW: f32 = 0.4;
 const HURT_LIMB_AMOUNT: f32 = 1.5;
 const EQUIP_STEP: f32 = 0.4;
 const EQUIP_SWAP: f32 = 0.1;
+const CAPE_FOLLOW: f64 = 0.25;
+const CAPE_SNAP_BLOCKS: f64 = 10.0;
+const BOB_CAP: f32 = 0.1;
+const BOB_FOLLOW: f32 = 0.4;
+const WALK_PER_BLOCK: f32 = 0.6;
 
 impl JavaMotionState {
     pub(super) fn spawn(body_yaw: f32) -> Self {
@@ -64,10 +83,14 @@ impl JavaMotionState {
                 equip: [1.0; 2],
                 riding: false,
                 vanilla_posture: false,
+                cape: [[0.0; 3]; 2],
+                bob: [0.0; 2],
+                walked: [0.0; 2],
             },
             equipped: None,
             hurt_time: 0,
             using: false,
+            chase: None,
         }
     }
 
@@ -114,6 +137,42 @@ impl JavaMotionState {
         if motion.equip[1] < EQUIP_SWAP {
             self.equipped.clone_from(tick.held);
         }
+        self.advance_cape(tick);
+    }
+
+    /// The cape's chasing point, walk bob and walk distance, after the movement this tick.
+    fn advance_cape(&mut self, tick: &JavaTick<'_>) {
+        let motion = &mut self.motion;
+        let position = tick.position.map(f64::from);
+        let previous_position: [f64; 3] =
+            std::array::from_fn(|axis| position[axis] - f64::from(tick.delta[axis]));
+        let mut chase = self.chase.unwrap_or(position);
+        let mut previous = chase;
+        for axis in 0..3 {
+            let lag = position[axis] - chase[axis];
+            if lag.abs() > CAPE_SNAP_BLOCKS {
+                previous[axis] = position[axis];
+                chase[axis] = position[axis];
+            }
+            // Java adds the pre-snap lag even after snapping.
+            chase[axis] += lag * CAPE_FOLLOW;
+        }
+        self.chase = Some(chase);
+        motion.cape = [
+            std::array::from_fn(|axis| (previous[axis] - previous_position[axis]) as f32),
+            std::array::from_fn(|axis| (chase[axis] - position[axis]) as f32),
+        ];
+        let [vx, _, vz] = tick.velocity;
+        let speed = if tick.on_ground {
+            vx.hypot(vz).min(BOB_CAP)
+        } else {
+            0.0
+        };
+        motion.bob = [motion.bob[1], motion.bob[1] + (speed - motion.bob[1]) * BOB_FOLLOW];
+        let walks = tick.local && !tick.riding && !(tick.on_ground && tick.sneaking);
+        let [dx, _, dz] = tick.delta;
+        let step = if walks { dx.hypot(dz) * WALK_PER_BLOCK } else { 0.0 };
+        motion.walked = [motion.walked[1], motion.walked[1] + step];
     }
 
     /// The item Java's first-person hand still draws while the equip dips.
@@ -176,10 +235,6 @@ fn retarget_bone(
     Some(bone)
 }
 
-fn scale(bone: BoneTransform) -> [f32; 3] {
-    bone.axis_scale.map(|axis| axis * bone.translation_scale[3])
-}
-
 fn translation(bone: BoneTransform) -> [f32; 3] {
     [
         bone.translation_scale[0],
@@ -188,23 +243,15 @@ fn translation(bone: BoneTransform) -> [f32; 3] {
     ]
 }
 
-fn bone(rotation: [f32; 4], translation: [f32; 3], scale: [f32; 3]) -> BoneTransform {
-    BoneTransform {
-        rotation,
-        translation_scale: [translation[0], translation[1], translation[2], 1.0],
-        axis_scale: scale,
-    }
-}
-
 /// `child` in `parent`'s frame, matching the pose composer's scale handling.
 fn relative(parent: BoneTransform, child: BoneTransform) -> BoneTransform {
     let inverse = conjugate(parent.rotation);
-    let parent_scale = scale(parent);
+    let parent_scale = total_scale(&parent);
     let offset: [f32; 3] =
         std::array::from_fn(|axis| translation(child)[axis] - translation(parent)[axis]);
     let local = rotate_vector(inverse, offset);
-    let child_scale = scale(child);
-    bone(
+    let child_scale = total_scale(&child);
+    with_scale(
         quat_multiply(inverse, child.rotation),
         std::array::from_fn(|axis| local[axis] / parent_scale[axis]),
         std::array::from_fn(|axis| child_scale[axis] / parent_scale[axis]),
@@ -212,11 +259,11 @@ fn relative(parent: BoneTransform, child: BoneTransform) -> BoneTransform {
 }
 
 fn compose(parent: BoneTransform, local: BoneTransform) -> BoneTransform {
-    let parent_scale = scale(parent);
+    let parent_scale = total_scale(&parent);
     let scaled = std::array::from_fn(|axis| translation(local)[axis] * parent_scale[axis]);
     let offset = rotate_vector(parent.rotation, scaled);
-    let local_scale = scale(local);
-    bone(
+    let local_scale = total_scale(&local);
+    with_scale(
         quat_multiply(parent.rotation, local.rotation),
         std::array::from_fn(|axis| translation(parent)[axis] + offset[axis]),
         std::array::from_fn(|axis| parent_scale[axis] * local_scale[axis]),
@@ -241,8 +288,8 @@ fn blend(from: BoneTransform, to: BoneTransform, alpha: f32) -> BoneTransform {
     } else {
         to.rotation
     };
-    let (from_scale, to_scale) = (scale(from), scale(to));
-    bone(
+    let (from_scale, to_scale) = (total_scale(&from), total_scale(&to));
+    with_scale(
         rotation,
         std::array::from_fn(|axis| lerp(translation(from)[axis], translation(to)[axis])),
         std::array::from_fn(|axis| lerp(from_scale[axis], to_scale[axis])),
@@ -263,6 +310,11 @@ mod tests {
             using: false,
             riding: false,
             vanilla_posture: false,
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            on_ground: true,
+            sneaking: false,
+            local: true,
         }
     }
 
@@ -342,8 +394,72 @@ mod tests {
         assert_eq!(state.motion.equip, [0.0, 0.4]);
     }
 
+    /// Steps a history of positions and velocities, as each tick sees them.
+    fn cape_history(steps: &[([f32; 3], [f32; 3], bool)]) -> Vec<JavaMotion> {
+        let mut state = JavaMotionState::spawn(0.0);
+        let mut last = steps[0].0;
+        steps
+            .iter()
+            .map(|&(position, velocity, on_ground)| {
+                state.advance(&JavaTick {
+                    delta: std::array::from_fn(|axis| position[axis] - last[axis]),
+                    position,
+                    velocity,
+                    on_ground,
+                    ..tick([0.0; 3], 0.0)
+                });
+                last = position;
+                state.motion
+            })
+            .collect()
+    }
+
+    /// The chasing point closes a quarter of its lag a tick, trailing three steps behind a
+    /// steady walk, and the bob eases toward the capped ground speed.
+    #[test]
+    fn cape_chase_trails_walking_and_settles_after_a_stop() {
+        let mut steps = vec![([0.0, 64.0, 0.0], [0.0; 3], true)];
+        for tick in 1..=40 {
+            steps.push(([0.0, 64.0, tick as f32 * 0.2], [0.0, 0.0, 0.2], true));
+        }
+        for _ in 0..6 {
+            steps.push(([0.0, 64.0, 8.0], [0.0; 3], true));
+        }
+        let history = cape_history(&steps);
+        let mut chase = 0.0_f64;
+        let mut bob = 0.0_f32;
+        for (index, motion) in history.iter().enumerate() {
+            let (z, speed) = (f64::from(steps[index].0[2]), steps[index].1[2]);
+            chase += (z - chase) * 0.25;
+            bob += (speed.min(0.1) - bob) * 0.4;
+            assert!((f64::from(motion.cape[1][2]) - (chase - z)).abs() < 1e-4, "tick {index}");
+            assert!((motion.bob[1] - bob).abs() < 1e-6);
+        }
+        assert!((history[40].cape[1][2] + 0.6).abs() < 1e-3, "three steps behind");
+        assert!(history[46].cape[1][2].abs() < history[41].cape[1][2].abs());
+        assert_eq!(history[0].cape, [[0.0; 3]; 2]);
+    }
+
+    /// Falling leaves the chasing point above; airborne the bob decays.
+    #[test]
+    fn cape_chase_lags_a_fall_and_snaps_past_ten_blocks() {
+        let history = cape_history(&[
+            ([0.0, 64.0, 0.0], [0.0; 3], true),
+            ([0.0, 63.5, 0.0], [0.0, -0.5, 0.0], false),
+            ([0.0, 62.5, 0.0], [0.0, -1.0, 0.0], false),
+            ([30.0, 62.5, 0.0], [0.0; 3], false),
+        ]);
+        assert!((history[1].cape[1][1] - 0.375).abs() < 1e-5);
+        assert!(history[2].cape[1][1] > history[1].cape[1][1]);
+        // A snap re-anchors at the position, then still adds the quarter of the old lag.
+        assert!((history[3].cape[1][0] - 7.5).abs() < 1e-4);
+        // The previous chase also jumps to the new position while the previous position does not.
+        assert_eq!(history[3].cape[0][0], 30.0);
+        assert_eq!(history[2].bob[1], 0.0);
+    }
+
     fn root(rotation: [f32; 4], translation: [f32; 3]) -> BoneTransform {
-        bone(rotation, translation, [1.0; 3])
+        with_scale(rotation, translation, [1.0; 3])
     }
 
     /// Untargeted children keep their animated offset from the parent under its new transform.

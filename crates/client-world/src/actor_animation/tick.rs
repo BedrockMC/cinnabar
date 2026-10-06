@@ -24,6 +24,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local_first_person: bool,
     /// Local view-bobbing preference; other actor contexts keep the native default.
     pub(crate) view_bobbing: Option<bool>,
+    /// The client's own player.
+    pub(crate) is_local: bool,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
@@ -158,6 +160,11 @@ pub(super) fn advance_motion(
             || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
             || query::actor_flag(actor, query::FLAG_EMOTING)
             || actor.is_sleeping(),
+        position: actor.position,
+        velocity: actor.velocity,
+        on_ground: actor.on_ground.unwrap_or(false),
+        sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
+        local: context.is_local,
     });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
