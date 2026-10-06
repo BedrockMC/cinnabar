@@ -253,9 +253,8 @@ fn only_emitted_liquid_tops_lower_shared_top_and_side_heights_after_lighting_rep
 
 #[test]
 fn native_liquid_winding_admission_survives_lighting_repack() {
-    // Vanilla tessellator face metadata: the ordinary exposed top
-    // admits opposite winding, only primary-Air side neighbours do, and the
-    // ordinary bottom helper never requests a secondary face.
+    // Primary-air sides and exposed tops admit reverse winding.
+    // Thin-geometry contacts and bottom faces retain a single winding.
     let exposed = mesh(&blocks(&[(WATER_SOURCE, [8, 8, 8])]));
     for quad in exposed.liquid_quads() {
         assert_eq!(quad.is_two_sided(), quad.face() != Face::NegativeY);
@@ -265,12 +264,16 @@ fn native_liquid_winding_admission_survives_lighting_repack() {
             (WATER_SOURCE, [8, 8, 8]),
             (neighbour, [9, 8, 8]),
         ]));
-        assert!(
-            !touching
-                .liquid_quads()
-                .iter()
-                .any(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
-        );
+        if neighbour == CROSS {
+            assert!(!quad_at(&touching, [8, 8, 8], Face::PositiveX).is_two_sided());
+        } else {
+            assert!(
+                !touching
+                    .liquid_quads()
+                    .iter()
+                    .any(|quad| quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX)
+            );
+        }
         assert!(quad_at(&touching, [8, 8, 8], Face::NegativeX).is_two_sided());
         assert!(quad_at(&touching, [8, 8, 8], Face::PositiveY).is_two_sided());
         assert!(!quad_at(&touching, [8, 8, 8], Face::NegativeY).is_two_sided());
@@ -1111,11 +1114,13 @@ fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
 
 /// Mesh output for dense mixed cube/model/liquid scenes must stay byte-identical.
 /// Includes native transparent-cube flow barriers, selective reverse-face
-/// admission, classic-water primary-Air contacts, liquid inset flags and no-AO lighting.
+/// admission beside thin primaries, liquid inset flags and no-AO lighting.
 #[test]
 fn mixed_neighbourhood_mesh_output_is_golden() {
     let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
-        let mesh = mesh_mixed(&mixed_neighbourhood_chunks(seed, density));
+        let chunks = mixed_neighbourhood_chunks(seed, density);
+        let mesh = mesh_mixed(&chunks);
+        liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
         assert!(!mesh.cube_quads().is_empty() && !mesh.liquid_quads().is_empty());
         format!("{mesh:?}")
             .bytes()
@@ -1126,10 +1131,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            17_252_311_297_832_231_068,
-            7_891_516_663_899_362_489,
-            10_894_881_661_923_922_213,
-            9_748_041_963_694_095_461
+            15_839_724_491_457_706_035,
+            16_845_762_096_128_860_038,
+            10_659_213_906_733_598_716,
+            14_465_709_000_575_199_014
         ]
     );
 }
@@ -1172,11 +1177,12 @@ fn conflicting_layer_mesh_output_is_golden() {
         })
         .collect::<Vec<_>>();
     let mesh = mesh_mixed(&chunks);
+    liquid_contacts::assert_thin_primary_contacts(&chunks, &mesh);
     let digest = format!("{mesh:?}")
         .bytes()
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 18_208_010_805_674_280_684);
+    assert_eq!(digest, 14_759_227_119_695_269_133);
 }

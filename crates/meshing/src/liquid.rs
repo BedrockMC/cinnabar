@@ -154,16 +154,9 @@ impl OcclusionPart {
             .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
         Self {
             occludes: occluder.is_some(),
-            full_cube: contributors.primary_entry().is_some_and(|entry| {
-                entry.kind == VisualKind::Cube
-                    || (entry.kind == VisualKind::Model
-                        && assets
-                            .model_templates()
-                            .get(entry.model_template as usize)
-                            .is_some_and(|template| {
-                                template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
-                            }))
-            }),
+            full_cube: contributors
+                .primary_entry()
+                .is_some_and(|entry| is_full_cube(assets, entry.kind, entry.model_template)),
             opaque_faces: occluder.map_or(0, |entry| {
                 Face::ALL
                     .into_iter()
@@ -176,6 +169,15 @@ impl OcclusionPart {
     const fn opaque(self, face: Face) -> bool {
         self.opaque_faces & (1 << face as u8) != 0
     }
+}
+
+fn is_full_cube(assets: &RuntimeAssets, kind: VisualKind, model_template: u32) -> bool {
+    kind == VisualKind::Cube
+        || (kind == VisualKind::Model
+            && assets
+                .model_templates()
+                .get(model_template as usize)
+                .is_some_and(|template| template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE))
 }
 
 const HALO_SIDE: usize = SIDE + 2;
@@ -614,12 +616,11 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                     Face::PositiveZ,
                 ] {
                     let adjacent = add(block, face_offset(face));
-                    let adjacent_primary_air = primary_is_air(classifier, neighbourhood, adjacent);
+                    let primary =
+                        primary_contact(classifier, assets, mode, neighbourhood, adjacent);
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
-                        || (!cell.depth_writing
-                            && !adjacent_primary_air
-                            && !sampler.open(neighbourhood, adjacent, &[opposite_face(face)]))
+                        || (!cell.depth_writing && !primary.admits_water)
                     {
                         continue;
                     }
@@ -641,15 +642,15 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                             cell.depth_writing,
                         )
                         .with_top_height_inset(top_emitted)
-                        .with_two_sided(adjacent_primary_air),
+                        .with_two_sided(primary.air),
                     );
                 }
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
                     && (cell.depth_writing
-                        || primary_is_air(classifier, neighbourhood, below)
-                        || sampler.open(neighbourhood, below, &[Face::PositiveY]))
+                        || primary_contact(classifier, assets, mode, neighbourhood, below)
+                            .admits_water)
                 {
                     push_quad(pack(
                         origin,
@@ -699,17 +700,42 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     (addressed, lighting)
 }
 
-/// Primary air controls reverse winding, independently of additional liquid layers.
-/// Thin non-occluding primary geometry does not remove the contacting water face.
-fn primary_is_air(
+struct PrimaryContact {
+    air: bool,
+    admits_water: bool,
+}
+
+/// Face admission reads primary geometry; extra liquids affect compatibility only.
+/// Reverse winding remains limited to primary air.
+fn primary_contact(
     classifier: BlockClassifier,
+    assets: &RuntimeAssets,
+    mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
     coordinate: [i32; 3],
-) -> bool {
-    match neighbourhood.liquid_sample(0, coordinate) {
-        world::MeshSample::Block(network_value) => classifier.is_air(network_value),
-        // Preserve the existing open-boundary policy for absent primary data.
-        world::MeshSample::Open => true,
+) -> PrimaryContact {
+    let network_value = match neighbourhood.liquid_sample(0, coordinate) {
+        world::MeshSample::Block(network_value) if !classifier.is_air(network_value) => {
+            network_value
+        }
+        world::MeshSample::Block(_) | world::MeshSample::Open => {
+            return PrimaryContact {
+                air: true,
+                admits_water: true,
+            };
+        }
+    };
+    let primary = assets.resolve(mode, network_value);
+    PrimaryContact {
+        air: false,
+        admits_water: primary.kind() != VisualKind::Liquid
+            && !is_full_cube(
+                assets,
+                primary.kind(),
+                primary
+                    .model_template()
+                    .unwrap_or(assets::NO_MODEL_TEMPLATE),
+            ),
     }
 }
 
