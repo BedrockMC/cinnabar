@@ -62,7 +62,8 @@ ifeq ($(OS),Windows_NT)
 # PowerShell single-quoted literals escape an embedded apostrophe only by
 # doubling it, so every path is quoted through this helper.
 ps_literal = '$(subst ','',$(1))'
-PHYSICS_REGISTRY_INSTALL = $(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(call ps_literal,$(dir $(abspath $(PHYSICS_REGISTRY)))) | Out-Null; Copy-Item -Force $(call ps_literal,$(abspath $(PHYSICS_REGISTRY_SOURCE))) $(call ps_literal,$(abspath $(PHYSICS_REGISTRY)))"
+# Copy-Item keeps the source's write time; restamp the copy so make sees it as current.
+PHYSICS_REGISTRY_INSTALL = $(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(call ps_literal,$(dir $(abspath $(PHYSICS_REGISTRY)))) | Out-Null; Copy-Item -Force $(call ps_literal,$(abspath $(PHYSICS_REGISTRY_SOURCE))) $(call ps_literal,$(abspath $(PHYSICS_REGISTRY))); (Get-Item -LiteralPath $(call ps_literal,$(abspath $(PHYSICS_REGISTRY)))).LastWriteTime = Get-Date"
 else
 PHYSICS_REGISTRY_INSTALL = mkdir -p "$(dir $(abspath $(PHYSICS_REGISTRY)))" && cp "$(abspath $(PHYSICS_REGISTRY_SOURCE))" "$(abspath $(PHYSICS_REGISTRY))"
 endif
