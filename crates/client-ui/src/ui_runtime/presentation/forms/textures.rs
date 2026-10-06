@@ -343,7 +343,9 @@ mod review_tests {
             atlas: &atlas,
             images: None,
         };
-        assert!(!textures.missing("/cache/store-images/a.jpg"));
+        // A rooted path without a drive is not absolute on Windows.
+        let local = std::env::temp_dir().join("store-images").join("a.jpg");
+        assert!(!textures.missing(local.to_str().unwrap()));
         assert!(textures.missing("textures/ui/White"));
     }
 }
