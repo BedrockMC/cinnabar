@@ -207,11 +207,13 @@ pub fn compile_textures_with(
     compile_texture_identifiers_with(sources, identifiers, read)
 }
 
+/// Includes the shared enchantment raster alongside every requested equipment image.
 fn compile_texture_identifiers_with(
     sources: &[EntityAssetSource],
     mut identifiers: Vec<&str>,
     read: &mut dyn FnMut(&EntityAssetSource) -> Result<Vec<u8>, AssetError>,
 ) -> Result<Vec<EquipmentTexture>, AssetError> {
+    identifiers.push(assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
     identifiers.sort_unstable();
     identifiers.dedup();
     let mut textures = Vec::new();
@@ -295,7 +297,7 @@ fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
     if item_identifier == "minecraft:shield" || geometry == "geometry.shield" {
         return EquipmentCategory::Shield;
     }
-    if item_identifier == "minecraft:elytra" || geometry == "geometry.elytra" {
+    if item_identifier == "minecraft:elytra" || geometry == assets::ELYTRA_GEOMETRY_IDENTIFIER {
         return EquipmentCategory::Elytra;
     }
     let armor = |needle: &str| item_identifier.contains(needle) || geometry.contains(needle);

@@ -486,6 +486,11 @@ fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::Wor
     context.armor[slot as usize].as_ref()
 }
 
+/// Elytra suppresses the player's cape and outer chest skin layer while equipped.
+pub(super) fn wearing_elytra(context: &ActorTickContext) -> bool {
+    worn_armor(context, 1.0).is_some_and(|armor| item_name(&armor.item) == "elytra")
+}
+
 // Material indices follow the order of the pack's armor texture arrays (none, leather, iron, gold,
 // diamond, copper, netherite); chainmail, turtle and elytra need independent measurement.
 fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
@@ -494,7 +499,7 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
     };
     let name = item_name(&armor.item);
     // The chest slot reads 5 for an elytra, which hides the cape.
-    if slot == 1.0 && name == "elytra" {
+    if slot == 1.0 && wearing_elytra(context) {
         return 5.0;
     }
     let material = name.split('_').next().unwrap_or("");
