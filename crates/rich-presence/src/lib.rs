@@ -59,7 +59,20 @@ pub struct Target {
     pub destination: Destination,
     /// Sent only inside Discord's join secret, never in the visible card.
     pub join: Option<String>,
+    /// A featured server's own art, shown in the card's corner.
+    pub badge: Option<Badge>,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Badge {
+    /// Remote HTTPS image Discord proxies.
+    pub image_url: String,
+    /// Hover text naming the server.
+    pub name: String,
+}
+
+/// Discord rejects longer image keys and URLs.
+const MAX_IMAGE_BYTES: usize = 256;
 
 impl State {
     pub fn activity(self, started_at: u64, target: Option<&Target>) -> Activity {
@@ -81,12 +94,32 @@ impl State {
             }
         };
         state.truncate(state.floor_char_boundary(MAX_STATE_BYTES));
+        let badge = (self == Self::Playing)
+            .then(|| target?.badge.as_ref())
+            .flatten()
+            .filter(|badge| {
+                badge.image_url.starts_with("https://") && badge.image_url.len() <= MAX_IMAGE_BYTES
+            });
         let activity = Activity::new()
             .state(state)
             .assets(|assets| {
-                assets
+                let assets = assets
                     .large_image(LARGE_IMAGE_URL)
-                    .large_text(launcher::PRODUCT_NAME)
+                    .large_text(launcher::PRODUCT_NAME);
+                match badge {
+                    Some(badge) => {
+                        let mut name = badge.name.trim().to_owned();
+                        name.truncate(name.floor_char_boundary(MAX_STATE_BYTES));
+                        let assets = assets.small_image(badge.image_url.as_str());
+                        // Discord rejects hover text under two characters.
+                        if name.chars().count() >= 2 {
+                            assets.small_text(name)
+                        } else {
+                            assets
+                        }
+                    }
+                    None => assets,
+                }
             })
             .timestamps(|timestamps| timestamps.start(started_at));
         let invite = (self == Self::Playing)

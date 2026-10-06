@@ -30,6 +30,7 @@ fn server(endpoint: &str) -> Target {
     Target {
         destination: Destination::Server(endpoint.to_owned()),
         join: Some(endpoint.to_owned()),
+        badge: None,
     }
 }
 
@@ -37,6 +38,38 @@ fn place(destination: Destination, join: Option<&str>) -> Target {
     Target {
         destination,
         join: join.map(str::to_owned),
+        badge: None,
+    }
+}
+
+#[test]
+fn featured_art_badges_the_card_only_while_playing_and_only_over_https() {
+    let badged = |url: &str| Target {
+        badge: Some(Badge {
+            image_url: url.to_owned(),
+            name: "The Hive".to_owned(),
+        }),
+        ..server("geo.hivebedrock.network:19132")
+    };
+    let hive = badged("https://cdn.example/hive.png");
+    let payload = serde_json::to_value(State::Playing.activity(1, Some(&hive))).unwrap();
+    assert_eq!(
+        payload["assets"]["small_image"],
+        "https://cdn.example/hive.png"
+    );
+    assert_eq!(payload["assets"]["small_text"], "The Hive");
+    assert_eq!(payload["assets"]["large_image"], LARGE_IMAGE_URL);
+    let joining = serde_json::to_value(State::Joining.activity(1, Some(&hive))).unwrap();
+    assert!(joining["assets"].get("small_image").is_none());
+    let long = format!("https://cdn.example/{}", "a".repeat(MAX_IMAGE_BYTES));
+    for rejected in [
+        "http://cdn.example/hive.png",
+        "file:///hive.png",
+        long.as_str(),
+    ] {
+        let payload =
+            serde_json::to_value(State::Playing.activity(1, Some(&badged(rejected)))).unwrap();
+        assert!(payload["assets"].get("small_image").is_none(), "{rejected}");
     }
 }
 

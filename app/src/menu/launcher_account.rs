@@ -713,6 +713,7 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
                 image_path: game.image.path.clone(),
             })
             .collect(),
+        logo_url: server.logo.url.clone(),
     };
     (card, details)
 }

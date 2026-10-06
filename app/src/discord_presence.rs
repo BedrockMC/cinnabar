@@ -133,6 +133,7 @@ mod tests {
         let target = rich_presence::Target {
             destination: rich_presence::Destination::Experience,
             join: Some("gathering/1".into()),
+            badge: None,
         };
         assert!(already_there(Some(&target), "gathering/1"));
         assert!(!already_there(Some(&target), "gathering/2"));
