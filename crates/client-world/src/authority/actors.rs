@@ -214,6 +214,20 @@ impl WorldAuthority {
         self.actors
             .actor_retargeted_pose(runtime_id, partial_tick, targets)
     }
+    /// The animated skin layers at the frame fraction, each retargeted by the model-space
+    /// targets `targets` builds from its skeleton's bone names and rest pose.
+    pub fn actor_retargeted_layers(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: impl Fn(
+            &[Box<str>],
+            &[crate::BoneTransform],
+        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        self.actors
+            .actor_retargeted_layers(runtime_id, partial_tick, targets)
+    }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()

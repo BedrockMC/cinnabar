@@ -789,3 +789,54 @@ fn first_person_consume_raises_the_item() {
     );
     assert!(started.translation.distance(rest.translation) < 0.05);
 }
+
+/// Java grips ride the right arm, not the hand bone vanilla still turns, and skip the hurt flash.
+#[test]
+fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
+    use super::runtime::{ActorEquipmentInput, HeldKind, JavaGrip, StagedSessionIcons, WornItem};
+    use render_model::java_animation::{JavaHeldItem, JavaItemMesh, third_person_item};
+    let (mut runtime, pages) = pack_runtime(crown_pack());
+    let mut body = player_body(&mut runtime);
+    let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+    let turned = |rotation: Quat, translation: [f32; 3]| RenderBoneTransform {
+        rotation: rotation.to_array(),
+        ..bone(translation, 1.0)
+    };
+    let arm = turned(Quat::from_rotation_x(0.7), [0.3, 1.4, 0.0]);
+    let mut pose = body.input.current_bones.to_vec();
+    pose[3] = arm;
+    pose[5] = turned(Quat::from_rotation_z(1.1), [0.4, 0.9, 0.1]);
+    body.input.previous_bones = pose.clone().into();
+    body.input.current_bones = pose.into();
+    body.overlay_rgba8 = 0x6600_00ff;
+    let input = ActorEquipmentInput {
+        main: Some(WornItem {
+            identifier: Arc::from("test:gem"),
+            metadata: 0,
+            kind: HeldKind::Other,
+            dye_rgb: None,
+        }),
+        java: Some(JavaGrip::default()),
+        ..ActorEquipmentInput::default()
+    };
+    let layers = runtime.layers_for(&body, &input);
+    assert_eq!(layers.len(), 1);
+    let expected = attach_to_bone(
+        arm,
+        ItemDisplay::from_matrix(third_person_item(JavaHeldItem::Flat, JavaItemMesh::Sprite)),
+    )
+    .unwrap();
+    let held = layers[0].submission.input.current_bones[0];
+    for (actual, expected) in held
+        .translation_scale
+        .iter()
+        .chain(&held.rotation)
+        .zip(expected.translation_scale.iter().chain(&expected.rotation))
+    {
+        assert!((actual - expected).abs() < 1e-5, "{held:?} vs {expected:?}");
+    }
+    assert_eq!(layers[0].submission.overlay_rgba8, 0);
+}

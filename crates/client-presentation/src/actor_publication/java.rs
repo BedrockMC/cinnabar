@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use bevy::math::{Mat4, Vec3};
 use chunk_pipeline::WorldStream;
-use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform};
+use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform, SkinRenderLayer};
 use render_model::{
     RenderBoneTransform,
     java_animation::{self as java, JavaBiped, JavaBipedInput, JavaHand, JavaUse, is_java_sword},
@@ -25,8 +25,8 @@ const FILLED_MAP: &str = "minecraft:filled_map";
 /// Pose bones Java's parts drive, in [`JavaBiped::parts`] order.
 const PART_BONES: [&str; 6] = ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"];
 const RIGHT_ARM: usize = 2;
-/// Other players draw this much lower while sneaking.
 const REMOTE_SNEAK_DROP: f32 = 0.125;
+const LOCAL_SNEAK_DROP: f32 = 0.2 * 0.4;
 /// Java lifts the model this many pixels above the feet.
 const MODEL_LIFT_PIXELS: f32 = 0.125;
 
@@ -80,24 +80,23 @@ pub(super) fn first_person_hand(
     }
 }
 
-/// Model-space targets for `parts` of `pose` on this rig, by pose index; `None` when the rig
-/// lacks one of the parts.
+/// Model-space targets for `parts` of `pose` on a skeleton, by pose index; `None` when the
+/// skeleton lacks one of the parts.
 fn targets(
-    rig: &ActorRigSnapshot<'_>,
+    names: &[Box<str>],
+    rest: &[BoneTransform],
     pose: &JavaBiped,
     parts: &[usize],
 ) -> Option<Vec<Option<BoneTransform>>> {
-    let mut targets = vec![None; rig.rest.len()];
+    let mut targets = vec![None; rest.len()];
     let all = pose.parts();
     for &part in parts {
-        let index = rig
-            .bone_names
+        let index = names
             .iter()
-            .position(|name| **name == *PART_BONES[part])?;
-        let rest = rig.rest.get(index)?;
+            .position(|name| name.eq_ignore_ascii_case(PART_BONES[part]))?;
         let (posed, rest_part) = all[part];
-        let (rotation, translation) =
-            posed.rig_bone(rest_part, Vec3::from_slice(&rest.translation_scale[..3]));
+        let pivot = Vec3::from_slice(&rest.get(index)?.translation_scale[..3]);
+        let (rotation, translation) = posed.rig_bone(rest_part, pivot);
         *targets.get_mut(index)? = Some(BoneTransform {
             rotation: rotation.to_array(),
             translation_scale: [translation.x, translation.y, translation.z, 1.0],
@@ -127,7 +126,7 @@ fn retargeted(
     parts: &[usize],
     alpha: f32,
 ) -> Option<Arc<[RenderBoneTransform]>> {
-    let targets = targets(rig, pose, parts)?;
+    let targets = targets(rig.bone_names, rig.rest, pose, parts)?;
     render_bones(&stream.authority().actor_retargeted_pose(
         rig.actor.runtime_id,
         alpha,
@@ -143,15 +142,21 @@ fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 
-/// The rig with Java's body yaw and Java's pose at the frame, unless vanilla keeps this
-/// player's posture; `local` holds the client's own equipment.
+/// Java's body-yaw rig, pose and animated skin layers for a player at the frame, unless
+/// vanilla keeps its posture; `local` holds the client's own equipment.
+pub(super) struct ThirdPerson<'a> {
+    pub(super) rig: ActorRigSnapshot<'a>,
+    pub(super) bones: Arc<[RenderBoneTransform]>,
+    pub(super) skin_layers: Vec<SkinRenderLayer>,
+}
+
 pub(super) fn third_person<'a>(
     stream: &WorldStream,
     rig: &ActorRigSnapshot<'a>,
     actor: &ActorSnapshot,
     local: Option<&ActorEquipmentInput>,
     alpha: f32,
-) -> Option<(ActorRigSnapshot<'a>, Arc<[RenderBoneTransform]>)> {
+) -> Option<ThirdPerson<'a>> {
     if rig.java.vanilla_posture {
         return None;
     }
@@ -165,8 +170,34 @@ pub(super) fn third_person<'a>(
         None => remote_input(stream, actor.runtime_id).main,
     }
     .map(|item| item.identifier);
-    let bones = third_person_pose(stream, &java_rig, actor, main.as_deref(), alpha)?;
-    Some((java_rig, bones))
+    let pose = java::java_biped(&third_person_input(&java_rig, actor, main.as_deref(), alpha));
+    let parts = [0, 1, 2, 3, 4, 5];
+    let bones = retargeted(stream, &java_rig, &pose, &parts, alpha)?;
+    let skin_layers = if rig.skin_layers.is_empty() {
+        Vec::new()
+    } else {
+        stream
+            .authority()
+            .actor_retargeted_layers(actor.runtime_id, alpha, |names, rest| {
+                targets(names, rest, &pose, &parts)
+            })?
+    };
+    Some(ThirdPerson {
+        rig: java_rig,
+        bones,
+        skin_layers,
+    })
+}
+
+/// The retargeted skin layers of a player Java posed this frame.
+pub(super) fn posed(
+    posed: &[(u64, Vec<SkinRenderLayer>)],
+    runtime_id: u64,
+) -> Option<&[SkinRenderLayer]> {
+    posed
+        .iter()
+        .find(|(id, _)| *id == runtime_id)
+        .map(|(_, layers)| layers.as_slice())
 }
 
 /// Replaces the presentation's pose with Java's and lifts it as Java draws players.
@@ -181,24 +212,23 @@ pub(super) fn apply_pose(
     submission.input.current_bones = Arc::clone(bones);
     // The local body is placed at its render feet afterwards, which then lifts it.
     if !local {
-        lift(&mut submission.world_from_actor, actor.is_sneaking());
+        lift(&mut submission.world_from_actor, actor.is_sneaking(), false);
     }
 }
 
-/// Java's third-person pose at the frame for a player holding `main_hand`.
-fn third_person_pose(
-    stream: &WorldStream,
+/// Java's pose inputs at the frame for a player holding `main_hand`.
+fn third_person_input(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     main_hand: Option<&str>,
     alpha: f32,
-) -> Option<Arc<[RenderBoneTransform]>> {
+) -> JavaBipedInput {
     let motion = rig.java;
     let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;
     let body_yaw = lerp_degrees(motion.body_yaw[0], motion.body_yaw[1], alpha);
     let head_yaw = lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha);
     let using = actor.is_using_item();
-    let input = JavaBipedInput {
+    JavaBipedInput {
         limb_swing: motion.limb_swing[1] - motion.limb_amount[1] * (1.0 - alpha),
         limb_amount: lerp(motion.limb_amount).min(1.0),
         age: actor.status.age_ticks as f32 + alpha,
@@ -213,17 +243,21 @@ fn third_person_pose(
             Some(_) => 1,
         },
         aimed_bow: using && main_hand == Some(BOW),
-    };
-    retargeted(stream, rig, &java::java_biped(&input), &[0, 1, 2, 3, 4, 5], alpha)
+    }
 }
 
-/// Java's lift above the feet, and the sneaking drop other players get.
-pub(super) fn lift(world_from_actor: &mut [[f32; 4]; 3], sneaking_remote: bool) {
+/// Java's lift above the feet, less its sneaking drop: other players draw 0.125 lower, the
+/// local player by its eased 0.2 · 0.4 step offset.
+pub(super) fn lift(world_from_actor: &mut [[f32; 4]; 3], sneaking: bool, local: bool) {
     for row in world_from_actor.iter_mut() {
         row[3] += row[1] * MODEL_LIFT_PIXELS / 16.0;
     }
-    if sneaking_remote {
-        world_from_actor[1][3] -= REMOTE_SNEAK_DROP;
+    if sneaking {
+        world_from_actor[1][3] -= if local {
+            LOCAL_SNEAK_DROP
+        } else {
+            REMOTE_SNEAK_DROP
+        };
     }
 }
 
@@ -308,7 +342,13 @@ pub(super) fn hand_source(
         Some((layer, atlas))
     });
     let off_layer = equipment_input.off.as_ref().and_then(|item| {
-        let layer = equipment.first_person_offhand(body_pose, item)?;
+        let attachable = item_animation.and_then(|mut input| {
+            input.frame_alpha = alpha;
+            let input = equipment_input.attachable_input(input.for_hand(true));
+            let actor = stream.authority().actor(runtime_id)?;
+            equipment.first_person_attachable(body_pose, item, actor, &rig, input, None)
+        });
+        let layer = attachable.or_else(|| equipment.first_person_offhand(body_pose, item))?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
@@ -371,7 +411,7 @@ mod tests {
     #[test]
     fn third_person_lift_and_sneak_drop() {
         let mut rows = [[-1.0, 0.0, 0.0, 5.0], [0.0, 0.9375, 0.0, 64.0], [0.0, 0.0, -1.0, 2.0]];
-        lift(&mut rows, true);
+        lift(&mut rows, true, false);
         assert!((rows[1][3] - (64.0 + 0.9375 / 128.0 - 0.125)).abs() < 1e-6);
         assert_eq!(rows[0][3], 5.0);
     }

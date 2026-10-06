@@ -589,6 +589,38 @@ impl ActorAnimationStore {
         })
     }
 
+    /// The animated skin layers at `alpha`, each retargeted by the targets `targets` builds
+    /// from its skeleton's bone names and rest pose.
+    pub(crate) fn retargeted_layers(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: impl Fn(&[Box<str>], &[BoneTransform]) -> Option<Vec<Option<BoneTransform>>>,
+    ) -> Option<Vec<SkinRenderLayer>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let skeletons = state.skin_skeleton().map_or(&[][..], |skin| &skin.layers);
+        state
+            .skin_layers
+            .iter()
+            .map(|layer| {
+                let skeleton = skeletons.iter().find(|skeleton| skeleton.poses(layer))?;
+                let pose: Arc<[BoneTransform]> = java::retarget(
+                    &skeleton.bones,
+                    &layer.previous,
+                    &layer.current,
+                    alpha.clamp(0.0, 1.0),
+                    &targets(&skeleton.names, &skeleton.rest)?,
+                )?
+                .into();
+                Some(SkinRenderLayer {
+                    previous: Arc::clone(&pose),
+                    current: pose,
+                    ..layer.clone()
+                })
+            })
+            .collect()
+    }
+
     /// The rig's pose at `alpha` with `targets` replacing their joints in model space.
     pub(crate) fn retargeted_pose(
         &self,

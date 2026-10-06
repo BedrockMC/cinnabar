@@ -461,16 +461,16 @@ pub fn prepare_actor_render_frame(
                         })
                         .flatten();
                         crate::presentation::actors::actor_rig_presentation_cached(
-                            java_pose.as_ref().map_or(&rig, |(java_rig, _)| java_rig),
+                            java_pose.as_ref().map_or(&rig, |java_pose| &java_pose.rig),
                             actor,
                             profile,
                             step.partial_tick,
                             &mut poses,
                         )
                         .map(|mut presentation| {
-                            if let Some((_, bones)) = &java_pose {
-                                java::apply_pose(&mut presentation, bones, local, actor);
-                                java_posed.push(rig.actor.runtime_id);
+                            if let Some(java_pose) = java_pose {
+                                java::apply_pose(&mut presentation, &java_pose.bones, local, actor);
+                                java_posed.push((rig.actor.runtime_id, java_pose.skin_layers));
                             }
                             if let Some(geometry) = rig.skin_geometry {
                                 // The pose drives the skin's own bones, so only its model fits.
@@ -629,8 +629,13 @@ pub fn prepare_actor_render_frame(
         let local = canonical_local
             .map(|mut local| {
                 place_local_actor_at_render_feet(&mut local, visibility.feet());
-                if java_posed.contains(&local_runtime_id) {
-                    java::lift(&mut local.submission.world_from_actor, false);
+                if java::posed(&java_posed, local_runtime_id).is_some() {
+                    let sneaking = client_world
+                        .stream
+                        .as_ref()
+                        .and_then(|stream| stream.authority().actor(local_runtime_id))
+                        .is_some_and(|actor| actor.is_sneaking());
+                    java::lift(&mut local.submission.world_from_actor, sneaking, true);
                 }
                 local
             })
@@ -742,7 +747,7 @@ pub fn prepare_actor_render_frame(
             } else {
                 remote_input(stream, runtime_id)
             };
-            if java_posed.contains(&runtime_id) {
+            if java::posed(&java_posed, runtime_id).is_some() {
                 let using = stream
                     .authority()
                     .actor(runtime_id)
@@ -774,7 +779,13 @@ pub fn prepare_actor_render_frame(
         && let Some(pages) = skin_layers.apply(
             &mut batch,
             artwork,
-            |runtime_id| stream.authority().actor_rig(runtime_id),
+            |runtime_id| {
+                let rig = stream.authority().actor_rig(runtime_id)?;
+                Some(match java::posed(&java_posed, runtime_id) {
+                    Some(skin_layers) => client_world::ActorRigSnapshot { skin_layers, ..rig },
+                    None => rig,
+                })
+            },
             &mut skin_rigs,
             |geometry| new_geometries.push(geometry),
         )

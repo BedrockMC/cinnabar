@@ -1,7 +1,7 @@
 //! Java 1.7 held-item placement: third-person grips on the posed arm and first-person items
 //! under Java's hand stack.
 
-use bevy::math::{Mat4, Quat, Vec3, Vec4};
+use bevy::math::Mat4;
 use render_model::java_animation::{
     self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_rod, is_java_sword, is_java_tool,
 };
@@ -20,8 +20,8 @@ pub(super) fn rest_bone(pivot: [f32; 3]) -> RenderBoneTransform {
 }
 
 impl EquipmentRuntime {
-    /// The main-hand item in Java's third-person grip on the hand bone; `false` when the body
-    /// lacks the arm bones or the item has no drawable mesh.
+    /// The main-hand item in Java's third-person grip on the right arm; `false` when the body
+    /// lacks the arm or the item has no drawable mesh.
     pub(super) fn push_java_held(
         &mut self,
         body: &ActorRigSubmission,
@@ -30,17 +30,13 @@ impl EquipmentRuntime {
         grip: JavaGrip,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
-        let (Some(arm), Some(hand)) = (bones.right_arm, bones.right_item) else {
+        let Some(arm) = bones.right_arm else {
             return false;
         };
-        let pose = &body.input.current_bones;
-        let (Some(arm_bone), Some(hand_bone)) = (pose.get(arm), pose.get(hand)) else {
-            return false;
-        };
-        let Some(arm_rotation) = Vec4::from_array(arm_bone.rotation)
-            .try_normalize()
-            .map(Quat::from_vec4)
-        else {
+        let (Some(previous), Some(current)) = (
+            body.input.previous_bones.get(arm),
+            body.input.current_bones.get(arm),
+        ) else {
             return false;
         };
         let Some((mesh, location, block)) = self.held_mesh(item, true) else {
@@ -63,19 +59,11 @@ impl EquipmentRuntime {
         } else {
             JavaItemMesh::Sprite
         };
-        // The hand bone rides the arm at rest, so the arm-frame grip shifts back by its offset.
-        let translation = |bone: &RenderBoneTransform| Vec3::from_slice(&bone.translation_scale[..3]);
-        let offset = arm_rotation.inverse() * (translation(hand_bone) - translation(arm_bone))
-            / (arm_bone.translation_scale[3] * arm_bone.axis_scale[0]);
-        let display = ItemDisplay::from_matrix(
-            Mat4::from_translation(-offset) * java::third_person_item(grip_kind, mesh_kind),
-        );
+        // The arm frame, not the hand bone, which vanilla animations still turn.
+        let display = ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind));
         let (Some(previous), Some(current)) = (
-            body.input
-                .previous_bones
-                .get(hand)
-                .and_then(|bone| attach_to_bone(*bone, display)),
-            attach_to_bone(*hand_bone, display),
+            attach_to_bone(*previous, display),
+            attach_to_bone(*current, display),
         ) else {
             return false;
         };
@@ -144,6 +132,7 @@ pub fn java_draws_attachable(identifier: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::math::{Vec3, Vec4};
 
     /// The raster camera undoes the image placement before Java's slab mapping.
     #[test]
