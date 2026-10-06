@@ -6075,3 +6075,17 @@ Block items without a cube sheet retain their compiled icon in both player-previ
 hands, matching the existing world equipment fallback. Inventory banners retain their
 colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
 the fallback availability regression is fixed, but it does not close that parity gate.
+
+### Crosshair preferences
+
+Video settings expose Third Person Crosshair (off by default) and Invert
+Crosshair Colors (on by default). Both persist and reset with Video settings.
+The third-person option covers both camera directions; spectator and Hide HUD
+still suppress the crosshair. Color inversion uses the existing scene blend,
+and turning it off preserves the selected pack texture with ordinary blending.
+Nine focused crosshair tests pass, covering persistence, Video reset, live
+visibility/blend changes, hidden HUD, spectator mode, scaling, and pack textures.
+A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
+geometry, scene-dependent inverted colors versus plain white, both third-person
+views, F1 visibility, and legible unclipped settings with working pointer focus
+and immediate toggle updates. This verifies the preferences, not broader HUD parity.

@@ -2551,3 +2551,21 @@ was not used as version evidence.
 ## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
 - Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
 >>>>>>> theirs
+
+## Crosshair presentation preferences
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/hud_renderers.rs`:
+  current 1.26.50.26 `FUN_149c5ff60` (artifact 6, RVA `0x9c5ff60`) selects
+  `ui_crosshair` and `textures/ui/cross_hair`, centered at 16×16 GUI pixels.
+  Vanilla 1.26.50.04 `materials/ui.material` makes `ui_crosshair` inherit
+  `ui_invert_overlay`, using `OneMinusDestColor` and `OneMinusSrcColor`.
+- `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  26.30 `HudCursorRenderer::render` (`0x1020b3700`) returns when
+  `ClientInstance::getRenderPlayerModel` (`0x102342080`) is true; the
+  `ClientInstance` vtable at `0x110b28730`, slot `+0x6a0`, confirms the call.
+  Current getter `FUN_146798550` (`0x6798550`) corroborates the camera's
+  `CameraRenderPlayerModelComponent` test, with an editor exception.
+  The current renderer's virtual slot has not been independently mapped.
+- Third-person visibility and disabling inversion are owner-requested options;
+  defaults retain first-person visibility and inverted colors. The Java HUD's
+  built-in fallback remains 15×15; a pack crosshair remains 16×16.
