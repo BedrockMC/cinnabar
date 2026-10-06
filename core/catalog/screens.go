@@ -227,11 +227,17 @@ func featuredServers(tab *layout.Layout) []FeaturedServer {
 			Screenshots: []Image{},
 			Games:       []Game{},
 		}
-		if logo := experience.LogoImage.URL(); validArtworkURL(logo) {
-			server.Logo.URL = logo
+		// The listing image stands in for a missing logo, and the logo for a missing listing image.
+		logo, listing := experience.LogoImage.URL(), experience.Listing.DisplayImage.URL()
+		for _, url := range []string{logo, listing} {
+			if validArtworkURL(url) && server.Logo.URL == "" {
+				server.Logo.URL = url
+			}
 		}
-		if thumbnail := experience.Listing.DisplayImage.URL(); validArtworkURL(thumbnail) {
-			server.thumbnailURL = thumbnail
+		for _, url := range []string{listing, logo} {
+			if validArtworkURL(url) && server.thumbnailURL == "" {
+				server.thumbnailURL = url
+			}
 		}
 		for _, activity := range experience.Activities {
 			game := Game{
