@@ -37,6 +37,7 @@ pub(crate) fn track_frame_interval(
 
 /// Records focus and OS occlusion with the optional bounded frame trace.
 pub(crate) fn trace_frame_focus(
+    time: Res<Time>,
     profiler: Res<RuntimeStageProfiler>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut events: MessageReader<WindowOccluded>,
@@ -47,7 +48,7 @@ pub(crate) fn trace_frame_focus(
     }
     let focused = windows.single().is_ok_and(|window| window.focused);
     profiler.begin_frame(focused, *occluded);
-    profiler.trace_frame(focused, *occluded);
+    profiler.trace_frame(focused, *occluded, time.elapsed_secs_f64());
 }
 
 /// Saves recorded spans on the exit frame, before runner teardown can retain resources.

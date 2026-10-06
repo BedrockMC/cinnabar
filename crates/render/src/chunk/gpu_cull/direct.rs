@@ -570,7 +570,10 @@ impl ViewNode for TerrainPassNode {
                 label: Some("terrain solid pass"),
                 color_attachments: &[Some(target.get_color_attachment())],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuTerrainOpaque,
+                ),
                 occlusion_query_set: None,
             });
             if let Some(viewport) =

@@ -1,10 +1,9 @@
-//! Per-pass GPU timing from timestamp queries, read back without stalling the CPU.
-//!
-//! Render-graph nodes are wrapped with timestamp-only compute passes, which need just
-//! `TIMESTAMP_QUERY`. Draw categories inside a pass are also timed when the adapter supports
-//! `TIMESTAMP_QUERY_INSIDE_PASSES` and aggregate profiling is on, since per-draw timestamps
-//! perturb the workload. Adapters without timestamps leave every `gpu_*` stage empty.
+//! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
+//! Metal times owned passes only; whole-frame, stock opaque/FXAA and shared draw categories stay absent.
 
+#[cfg(all(test, target_os = "macos"))]
+mod metal_tests;
+mod pass;
 pub(crate) mod readback;
 #[cfg(test)]
 mod tests;
@@ -33,6 +32,7 @@ use std::{
     },
 };
 
+pub(crate) use pass::render_pass_timestamps;
 pub use readback::GpuFrameTimes;
 pub(crate) use readback::decode_spans;
 
@@ -156,6 +156,7 @@ impl Node for TimedNode {
     ) -> Result<(), NodeRunError> {
         let span = world
             .get_resource::<GpuTimestamps>()
+            .filter(|_| !cfg!(target_os = "macos"))
             .and_then(|timestamps| timestamps.open_pass(self.stage));
         if let Some(span) = &span {
             mark(render_context, span.queries, span.begin);
@@ -177,6 +178,7 @@ pub(crate) fn timed<'w, R>(
 ) -> R {
     let span = world
         .get_resource::<GpuTimestamps>()
+        .filter(|_| !cfg!(target_os = "macos"))
         .and_then(|timestamps| timestamps.open_pass(stage));
     if let Some(span) = &span {
         mark(context, span.queries, span.begin);
@@ -373,6 +375,7 @@ impl GpuTimestamps {
                             (stage, tick(query), tick(query + 1))
                         }),
                         self.period_ns,
+                        !cfg!(target_os = "macos"),
                     );
                     drop(bytes);
                     slot.buffer.unmap();

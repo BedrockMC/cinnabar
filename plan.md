@@ -1,3 +1,18 @@
+## Frame attribution and unchanged GPU uploads
+
+- Named schedule traces and bounded frame recordings separate main work, render
+  handoff, drawable acquisition, command submission and presentation. Metal
+  timestamp queries use owned render passes and leave uncovered stages absent.
+- Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
+  redundant staging work. Regression tests assert allocations, writes and retained
+  buffers; hardware captures measure elapsed time separately.
+- Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
+  not vanilla terrain generation or the populated-lobby/flight release replay.
+  Hidden-window measurements do not establish displayed FPS. Shared-pass GPU
+  categories, exact per-item costs and complete long-stall attribution remain open.
+  Final captures still reach 87 ms; a short native GPU regression is unresolved.
+  See [frame breakdown evidence](docs/evidence/frame-breakdown.md).
+
 ## Java 1.7 animations
 
 - Owner-mandated default, selected live from Video › Animations (persisted): Java 1.7 or
