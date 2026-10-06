@@ -2,8 +2,9 @@
 
 - Grass sides' tint-mask tiles take vanilla's atlas mips (byte-space box averages of the
   original tile), so the dirt stored under alpha zero no longer turns black at distance.
+- The user confirmed distant grass sides in a live macOS build.
 - Incomplete: a server pack that replaces an overlay-masked texture still gets the runtime block
-  overlay's alpha-weighted mips. A live macOS frame of distant grass is pending.
+  overlay's alpha-weighted mips.
 
 ## NetherNet server trust
 
