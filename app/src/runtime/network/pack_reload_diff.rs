@@ -16,6 +16,7 @@ pub(super) enum Subscriber {
     Ui,
     Sounds,
     Language,
+    AimAssist,
 }
 
 pub(super) type Dependencies = BTreeMap<Subscriber, BTreeSet<PackDependency>>;
@@ -65,6 +66,7 @@ pub(super) struct Changes {
     pub(super) ui: bool,
     pub(super) sounds: bool,
     pub(super) language: bool,
+    pub(super) aim_assist: bool,
 }
 
 impl Changes {
@@ -108,6 +110,7 @@ impl Changes {
             ui: changed(Subscriber::Ui),
             sounds: changed(Subscriber::Sounds),
             language: changed(Subscriber::Language),
+            aim_assist: changed(Subscriber::AimAssist),
         }
     }
 }

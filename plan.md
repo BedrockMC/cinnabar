@@ -1,3 +1,27 @@
+## Camera packets and aim assist
+
+- Packet admission covers spline registries/instructions, aim presets, commands
+  and actor-priority updates. Semantic errors are skipped and counted; malformed
+  framing remains fatal. See the [Vanilla rules](docs/reference/camera.md).
+- Preset inheritance, starting values, offsets, target tracking, camera collision,
+  easing, fade, shake, FOV, listener and presentation capabilities have regressions.
+  Named and inline splines have independent progress/rotation tracks. Aim selection
+  uses retained physics-tick poses, item categories, priorities and visibility,
+  with separate interaction direction and action-triggered rotation.
+- Incomplete parity: animated attachment anchors, additional actor hitboxes,
+  complete native block tags, touch pick-range remapping, equal-score actor order,
+  historical remote geometry during catch-up, and fire-resistance lava fog remain
+  owner limitations. Legacy education photography output is unsupported. Packaged
+  boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
+  Existing gameplay FOV magnitude approximations remain separate incomplete work.
+  Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
+- Touched-crate checks and directly affected regressions pass. A headless macOS
+  local-server run at 1280×720 captured named/inline splines, local-body visibility,
+  hand suppression, aim highlighting and clear/restoration. The 484-frame clip and
+  state snapshots are outside git; camera and aim semantic-skip counters stayed zero.
+  Matching-version native comparison, physical controller/touch testing and the
+  three-run hardware performance qualification remain untested.
+
 ## Java 1.7 animations
 
 - Owner-mandated default, selected live from Video › Animations (persisted): Java 1.7 or

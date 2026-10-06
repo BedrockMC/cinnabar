@@ -308,7 +308,9 @@ pub(crate) fn receive_network_events(
                 ui_runtime.experiences.marker = packs.extension_marker;
                 player_runtime.facts.publish_bootstrap_game_modes(
                     player_game_mode,
-                    world_default_game_mode,
+                    world_default_game_mode
+                        .hud_mode()
+                        .unwrap_or(protocol::PlayerGameMode::Unknown),
                     player_game_mode_uses_world_default,
                 );
                 ui_runtime.set_hardcore(hardcore);
@@ -389,6 +391,7 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.set_world_default_game_mode(world_default_game_mode);
                 stream.set_display_interval(display_interval);
                 stream.begin_frame_work();
                 stream.set_startup_priority(true);

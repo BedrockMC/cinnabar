@@ -380,6 +380,16 @@ impl FrozenInteractionOrigin {
 pub struct InteractionOriginSnapshot(Option<FrozenInteractionOrigin>);
 
 impl InteractionOriginSnapshot {
+    /// Assists only the frozen interaction direction, preserving its authority and eye origin.
+    pub fn assist_direction(&mut self, direction: Vec3) {
+        if let Some(ray) = self.0.as_mut()
+            && let Some(direction) = direction.try_normalize()
+            && direction.is_finite()
+        {
+            ray.direction = direction;
+        }
+    }
+
     pub fn publish_from_local_player_frame(&mut self, carrier: &LocalPlayerFrameCarrier) {
         self.0 = carrier.snapshot().map(|frame| FrozenInteractionOrigin {
             session_generation: frame.session_generation(),

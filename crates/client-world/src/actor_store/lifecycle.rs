@@ -79,6 +79,10 @@ impl ActorStore {
             max_player_skin_bytes,
             retained_player_skin_bytes: 0,
             ignored_movement_components: 0,
+            actor_identifier_skips: 0,
+            player_game_mode_skips: 0,
+            world_default_game_mode: None,
+            aim_actor_classes: HashMap::new(),
             actors: HashMap::new(),
             unique_to_runtime: HashMap::new(),
             rider_to_ridden: HashMap::new(),
@@ -271,6 +275,10 @@ impl ActorStore {
         self.local_flying = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
+        self.aim_actor_classes.clear();
+        self.actor_identifier_skips = 0;
+        self.player_game_mode_skips = 0;
+        self.world_default_game_mode = None;
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
@@ -332,7 +340,19 @@ impl ActorStore {
             return ActorApplyResult::StaleDimension;
         }
         match event {
+            ActorEvent::Identifiers(registry) => self.apply_aim_actor_classes(registry),
             ActorEvent::Spawn(spawn) => self.apply_spawn(sequence, spawn),
+            ActorEvent::PlayerSpawn { spawn, game_mode } => {
+                let unique_id = spawn.unique_id;
+                let result = self.apply_spawn(sequence, spawn);
+                if matches!(
+                    result,
+                    ActorApplyResult::Inserted | ActorApplyResult::Replaced
+                ) {
+                    self.apply_player_game_mode(unique_id, game_mode);
+                }
+                result
+            }
             ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
             ActorEvent::Move(movement) => {
                 // The local player's pose is client-fed each tick; server movement

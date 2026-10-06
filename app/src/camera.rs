@@ -26,6 +26,8 @@ pub use client_presentation::camera::{
     update_camera_fov, walk_bob_effect,
 };
 use client_presentation::camera::{fov, look, overlay_publish};
+pub(crate) mod aim_assist;
+pub(crate) mod aim_highlight;
 mod facts;
 mod presentation;
 
@@ -66,6 +68,8 @@ impl Plugin for FlyCameraPlugin {
             auto_fly: self.auto_fly,
             capture_on_start: self.capture_on_start,
         })
+        .init_resource::<client_presentation::aim_assist::ServerAimAssist>()
+        .init_resource::<client_presentation::aim_assist::AimAssistFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticInputSnapshot>()
         .init_resource::<PendingDeviceFrame>()
@@ -74,7 +78,11 @@ impl Plugin for FlyCameraPlugin {
         .init_resource::<RuntimeSettings>()
         .add_systems(
             Startup,
-            (spawn_fly_camera, overlay_publish::load_overlay_textures),
+            (
+                spawn_fly_camera,
+                overlay_publish::load_overlay_textures,
+                aim_highlight::load_base_textures,
+            ),
         )
         .configure_sets(
             Update,
@@ -164,6 +172,7 @@ pub(crate) fn update_look(
     time: Res<Time>,
     smoother: ResMut<look::LookSmoother>,
     view: ResMut<LocalViewPose>,
+    server: Option<ResMut<ServerCameraView>>,
 ) {
     client_presentation::camera::update_look(
         (
@@ -184,6 +193,7 @@ pub(crate) fn update_look(
         time,
         smoother,
         view,
+        server,
     );
 }
 
