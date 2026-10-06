@@ -40,6 +40,10 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
 pub const ANIMATIONS_OPTION: SettingDefinition =
     dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
+/// Publishes the client's state to Discord Rich Presence.
+pub const DISCORD_PRESENCE_OPTION: SettingDefinition =
+    toggle("discord_presence", "Discord Rich Presence", true);
+
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
     SettingDefinition {
@@ -480,4 +484,5 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     slider("chat_font_size", "chat.settings.fontSize", 5, 20, 10),
     slider("chat_line_spacing", "chat.settings.lineSpacing", 0, 100, 0),
     toggle("always_sprint", "Always Sprint", false),
+    DISCORD_PRESENCE_OPTION,
 ];

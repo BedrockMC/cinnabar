@@ -2,22 +2,30 @@
 
 use crate::{menu::MenuRuntime, runtime::world::ClientWorld};
 use bevy::prelude::*;
+use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
 use rich_presence::{Presence, State};
 
 #[derive(Resource)]
-struct DiscordPresence(Presence);
+struct DiscordPresence {
+    application_id: u64,
+    /// Dropped while the Video setting is off, which closes the pipe and clears the activity.
+    presence: Option<Presence>,
+}
 
 pub(crate) fn configure(app: &mut App) {
     let value = std::env::var(rich_presence::APPLICATION_ID_ENV);
-    let application_id = match value {
-        Ok(ref value) => rich_presence::application_id(Some(value)),
+    let application_id = match &value {
+        Ok(value) => rich_presence::application_id(Some(value)),
         Err(std::env::VarError::NotPresent) => rich_presence::application_id(None),
         Err(std::env::VarError::NotUnicode(_)) => Err("application ID is not valid Unicode"),
     };
     match application_id {
-        Ok(Some(id)) => {
-            app.insert_resource(DiscordPresence(Presence::start(id)))
-                .add_systems(Last, update);
+        Ok(Some(application_id)) => {
+            app.insert_resource(DiscordPresence {
+                application_id,
+                presence: None,
+            })
+            .add_systems(Last, update);
         }
         Ok(None) => {}
         Err(error) => warn!("{}: {error}", rich_presence::APPLICATION_ID_ENV),
@@ -39,19 +47,34 @@ fn session_state(connecting: bool, has_world: bool, launcher: bool, failed: bool
 }
 
 fn update(
-    mut presence: ResMut<DiscordPresence>,
+    mut discord: ResMut<DiscordPresence>,
     menu: Res<MenuRuntime>,
     world: Res<ClientWorld>,
     ui: Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     session: Res<crate::session::SessionController>,
 ) {
+    if menu
+        .settings_snapshot()
+        .0
+        .value(DISCORD_PRESENCE_OPTION.name)
+        == 0
+    {
+        if discord.presence.is_some() {
+            discord.presence = None;
+        }
+        return;
+    }
     let state = session_state(
         menu.is_connecting() || ui.loading_stage().is_some(),
         world.stream.is_some(),
         menu.is_launcher(),
         world.fatal_error.is_some(),
     );
-    presence.0.update(state, session.server_address());
+    let application_id = discord.application_id;
+    discord
+        .presence
+        .get_or_insert_with(|| Presence::start(application_id))
+        .update(state, session.destination());
 }
 
 pub(crate) fn shutdown(app: &mut App) {

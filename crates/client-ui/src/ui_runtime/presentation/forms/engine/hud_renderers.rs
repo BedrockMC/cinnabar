@@ -273,6 +273,7 @@ pub(super) fn with_java_hud(vanilla: &json_ui::Catalog) -> json_ui::Catalog {
     super::super::always_sprint_setting::install(&mut catalog);
     super::super::vsync_setting::install(&mut catalog);
     super::super::java_animations_setting::install(&mut catalog);
+    super::super::discord_presence_setting::install(&mut catalog);
     catalog.apply_pack(hud_files);
     catalog.apply_pack(
         [(
