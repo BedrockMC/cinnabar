@@ -7,7 +7,7 @@ use crate::ui_runtime::presentation::tests::fixture_font;
 use std::collections::HashMap;
 
 /// Draws one route without installed carriers or texture files.
-fn paint(
+pub(super) fn paint(
     offsets: HashMap<String, f32>,
     draw: impl FnOnce(&mut Canvas<'_>),
 ) -> (Vec<ScrollArea>, Vec<(MenuAction, UiRect)>, Vec<UiNode>) {
@@ -20,6 +20,30 @@ fn paint(
     draw(&mut canvas);
     let (scrolls, hits) = (canvas.scrolls, canvas.hits);
     (scrolls, hits, nodes)
+}
+
+/// Every solid fill as window bounds and colour, in draw order.
+pub(super) fn solids(nodes: &[UiNode]) -> Vec<([f32; 4], [u8; 4])> {
+    let origin = |mut id: Option<ui::UiNodeId>| {
+        let mut at = [0.0, 0.0];
+        while let Some(node) = id.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+            let min = node.bounds().min();
+            at = [at[0] + min.x(), at[1] + min.y()];
+            id = node.parent();
+        }
+        at
+    };
+    nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Solid { color, .. } => {
+                let [x, y] = origin(node.parent());
+                let (min, max) = (node.bounds().min(), node.bounds().max());
+                Some(([min.x() + x, min.y() + y, max.x() + x, max.y() + y], *color))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Makes enough friends to overflow either list.
@@ -179,7 +203,8 @@ fn review_server_trust_modal_uses_vanilla_strings_and_owns_the_input() {
         canvas
             .hit(MenuAction::AddBack, [0.0, 0.0, 1280.0, 720.0])
             .unwrap();
-        let modal = modal::server_trust_modal("http://127.0.0.1:19132", &translate);
+        let title = modal::server_trust_title(&translate);
+        let modal = modal::server_trust_modal(&title, "http://127.0.0.1:19132", &translate);
         modal::draw(canvas, &view, [1280.0, 720.0], &modal).unwrap();
     });
     let texts = super::super::pack_harness::drawn_texts(&nodes).join(" ");
@@ -197,13 +222,19 @@ fn review_server_trust_modal_uses_vanilla_strings_and_owns_the_input() {
         );
     }
     let actions: Vec<_> = hits.iter().map(|(action, _)| *action).collect();
+    assert_eq!(actions.len(), 3, "{actions:?}");
+    assert!(
+        actions
+            .iter()
+            .all(|action| matches!(action, MenuAction::ServerTrust(_)))
+    );
     assert_eq!(
-        actions,
-        vec![
-            MenuAction::ServerTrust(false),
-            MenuAction::ServerTrust(true),
-            MenuAction::ServerTrust(false),
-        ]
+        actions
+            .iter()
+            .filter(|action| **action == MenuAction::ServerTrust(false))
+            .count(),
+        2,
+        "the close button and Don't Trust decline"
     );
 }
 
@@ -213,6 +244,10 @@ fn review_server_trust_modal_reads_the_active_language() {
     let translate = |key: &str| {
         (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
     };
-    let modal = modal::server_trust_modal("http://a:1", &translate);
-    assert_eq!(modal.body, "Vertrauen http://a:1?");
+    let title = modal::server_trust_title(&translate);
+    let modal = modal::server_trust_modal(&title, "http://a:1", &translate);
+    assert_eq!(
+        (title.as_str(), modal.body.as_ref()),
+        ("Trust this server?", "Vertrauen http://a:1?")
+    );
 }

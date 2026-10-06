@@ -15,10 +15,10 @@ pub use profile::{
     ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };
 pub use view::{
-    ButtonArt, CatalogFile, CatalogFriend, InboxItem, JoinKind, JoinProgress, JoinStage,
-    LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome,
-    MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
-    ServerTrustPrompt,
+    ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, InboxItem, JoinKind,
+    JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard,
+    MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo,
+    SavedServer, ServerDetails, ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -89,7 +89,6 @@ pub enum MenuAction {
     PlayAddServer,
     PlaySaved(usize),
     PlayFeatured(usize),
-    PlayGathering(usize),
     PlayRealm(usize),
     PlayFriend(usize),
     ToggleFavorite(usize),
