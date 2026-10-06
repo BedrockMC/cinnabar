@@ -94,6 +94,11 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - ConnectStagePacks      ConnectStage = "packs"      // ResourcePackProgressHandler
 
 ## core/proxy/targets.go
+- remoteServerNetwork / gophertunnel AddressNetwork: MinecraftGame::joinMultiplayerWithAddress (bool false via joinRemoteServerWithAddress; ConnectionType 1/2/8) -> ClientNetworkSystem::probeTransportLayer (URL list, port 0 => 19132 0x4abc) -> TransportProber::start (3 s "TransportProber::timeout") / _tryNextUrl (GET {url}/v1/join, Method variant index 2, 2xx) -> $_0 continuation: error => _joinMultiplayerAfterTransportLayerDetermined(..., 0 RakNet), success => host replaced by URL, TransportLayer 2 (NetherNet). 26.50 adds an https-only fast path and TofuServerIdentityVerifier for http:// results.
+- HTTP signaling: ClientNetherNetConnector::connect (types 1/2/8 build HttpSignalingClient, remote id from HttpSignalingClientAnon::createRandomNetworkID), HttpSignalingClient::SendSignal (POST "{}/v1/join/{}", application/sdp, body = payload after 2nd space; response => "CONNECTRESPONSE <id> <body>", error => ESessionError 0x1a), NetherNet::HttpSignalingServer::onRequest/_handleJoin (GET /v1/join => 200 "OK" in 26.30, JSON status in 26.50; 400 "Missing SDP offer in request body").
+- No fallback after selection: NetworkSystem::onOutgoingConnectionFailed only notifies; RemoteConnectorComposite::getActiveConnector picks NetherNetConnector iff session transport == 2.
+- Transfers: WorldTransferInitiator::initiateTransferToServer builds ConnectionType 8 -> WorldTransferHandler::handleTransferToServer -> ClientInstance::startExternalNetworkWorld("transferServer"), the Play-screen external-server entry.
+- No Minecraft-layer AES over NetherNet: EncryptedNetworkPeer::enableEncryption returns early when the inner peer isEncrypted() (WebRTCNetworkPeer::isEncrypted returns true).
 - // the Login's multiplayer token and key as the SDP identity, as vanilla's MinecraftIdentityAssertion does.
 - // transport accepts identityless answers like vanilla's ClientNegotiator::onRemoteAnswer, while
 

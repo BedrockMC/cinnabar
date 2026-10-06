@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"net"
 	"reflect"
@@ -10,10 +11,12 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft"
 )
 
-// preparedTransport overlaps identity-independent transport setup with authentication.
-// It returns the original connection so optional packet transport capabilities survive.
+// preparedTransport overlaps identity-independent transport setup with authentication: the
+// NetherNet probe of an addressed server and any RakNet dial. It returns the original connection
+// so optional packet transport capabilities survive.
 type preparedTransport struct {
 	minecraft.Network
+	selected  minecraft.Network // the transport chosen for address, set before done closes
 	address   string
 	cancel    context.CancelFunc
 	done      chan struct{}
@@ -34,7 +37,16 @@ func newPreparedTransport(ctx context.Context, network minecraft.Network, addres
 				prepared.err = panicTypeError("preparing upstream transport", recovered)
 			}
 		}()
-		prepared.conn, prepared.err = network.DialContext(ctx, address)
+		prepared.selected = network
+		if addressed, ok := network.(minecraft.AddressNetwork); ok {
+			if prepared.selected, prepared.err = addressed.Select(ctx, address); prepared.err != nil {
+				return
+			}
+		}
+		if _, ok := prepared.selected.(identityProviderDialer); ok {
+			return // NetherNet proves possession during setup, so it dials after authentication
+		}
+		prepared.conn, prepared.err = prepared.selected.DialContext(ctx, address)
 		prepared.conn = usableTransport(prepared.conn)
 		if prepared.conn == nil && prepared.err == nil {
 			prepared.err = net.ErrClosed
@@ -44,30 +56,57 @@ func newPreparedTransport(ctx context.Context, network minecraft.Network, addres
 }
 
 func (prepared *preparedTransport) DialContext(ctx context.Context, address string) (net.Conn, error) {
+	if err := prepared.claim(ctx, address); err != nil {
+		return nil, err
+	}
+	if _, ok := prepared.selected.(identityProviderDialer); ok {
+		return prepared.selected.DialContext(ctx, address)
+	}
+	return prepared.handOff(ctx, address)
+}
+
+// DialContextIdentityProvider presents the login identity when the probe chose NetherNet.
+func (prepared *preparedTransport) DialContextIdentityProvider(ctx context.Context, address, token string, key *ecdsa.PrivateKey, identityProvider string) (net.Conn, error) {
+	if err := prepared.claim(ctx, address); err != nil {
+		return nil, err
+	}
+	if dialer, ok := prepared.selected.(identityProviderDialer); ok {
+		return dialer.DialContextIdentityProvider(ctx, address, token, key, identityProvider)
+	}
+	return prepared.handOff(ctx, address)
+}
+
+type identityProviderDialer interface {
+	DialContextIdentityProvider(ctx context.Context, address, token string, key *ecdsa.PrivateKey, identityProvider string) (net.Conn, error)
+}
+
+// claim takes the single handoff and waits for setup to finish.
+func (prepared *preparedTransport) claim(ctx context.Context, address string) error {
 	if address != prepared.address {
-		return nil, errors.New("proxy: prepared transport target changed")
+		return errors.New("proxy: prepared transport target changed")
 	}
 	if !prepared.claimed.CompareAndSwap(false, true) {
-		return nil, errors.New("proxy: prepared transport already claimed")
+		return errors.New("proxy: prepared transport already claimed")
 	}
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return ctx.Err()
 	case <-prepared.done:
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
-		if prepared.err != nil {
-			return nil, prepared.err
-		}
-		if connection, ok := prepared.conn.(interface{ Context() context.Context }); ok && connection.Context().Err() != nil {
-			// The upstream closes an idle connection once its login deadline passes, which slow
-			// authentication can outlast; finish closes the expired one and login takes a fresh dial.
-			return prepared.Network.DialContext(ctx, address)
-		}
-		prepared.handedOff.Store(true)
-		return prepared.conn, nil
+		return prepared.err
 	}
+}
+
+func (prepared *preparedTransport) handOff(ctx context.Context, address string) (net.Conn, error) {
+	if connection, ok := prepared.conn.(interface{ Context() context.Context }); ok && connection.Context().Err() != nil {
+		// The upstream closes an idle connection once its login deadline passes, which slow
+		// authentication can outlast; finish closes the expired one and login takes a fresh dial.
+		return prepared.selected.DialContext(ctx, address)
+	}
+	prepared.handedOff.Store(true)
+	return prepared.conn, nil
 }
 
 // Network implementations may return an interface containing a nil connection.
@@ -102,7 +141,7 @@ func dialWithPreparedTransport(
 ) (connection *minecraft.Conn, err error) {
 	// NetherNet proves possession during transport setup and must authenticate first.
 	switch network.(type) {
-	case minecraft.RakNet, *minecraft.RakNet:
+	case minecraft.RakNet, *minecraft.RakNet, minecraft.AddressNetwork:
 		prepared := newPreparedTransport(ctx, network, address)
 		defer func() { prepared.finish(connection != nil && err == nil) }()
 		connection, err = dial(ctx, prepared, address)

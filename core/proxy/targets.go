@@ -41,8 +41,17 @@ const (
 // answers Request 2, stalling the dial until the next probe rung, about 2 s later.
 const remoteMaxMTU = 1400
 
-// remoteRakNet is the network for a server named by host:port rather than found on the LAN.
+// remoteRakNet dials a server over RakNet without probing it for NetherNet.
 func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMaxMTU} }
+
+// remoteServerNetwork is the network for a server named by host:port rather than found on the
+// LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
+func remoteServerNetwork(logger *slog.Logger) minecraft.AddressNetwork {
+	return minecraft.AddressNetwork{
+		RakNet:    remoteRakNet(),
+		NetherNet: minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+	}
+}
 
 type resolvedUpstreamTarget struct {
 	address    string
@@ -88,7 +97,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
 		}
-		return &resolvedUpstreamTarget{address: address, network: remoteRakNet()}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger)}, nil
 	}
 
 	resolveContext, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -104,7 +113,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
-		return &resolvedUpstreamTarget{address: address, network: remoteRakNet()}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger)}, nil
 	}
 }
 
