@@ -192,6 +192,27 @@ fn actors(world: &World) -> Vec<Value> {
     actors.into_iter().map(|(_, actor)| actor).collect()
 }
 
+fn player_motion(world: &World) -> Option<Value> {
+    let stream = world.get_resource::<ClientWorld>()?.stream.as_ref()?;
+    let player = world.get_resource::<crate::player_runtime::PlayerRuntime>()?;
+    let physics = world.get_resource::<crate::movement::LocalPhysicsController>()?;
+    let authority = stream.authority();
+    let rig = authority.actor_rig(stream.local_player_runtime_id())?;
+    let java = rig.java;
+    Some(json!({
+        "mode": format!("{:?}", physics.mode()),
+        "on_ground": physics.state().map(|state| state.on_ground),
+        "mount_unique_id": player.facts.mount_unique_id(),
+        "java": {
+            "walked": java.walked,
+            "bob": java.bob,
+            "chase": java.cape,
+            "body_yaw": java.body_yaw,
+            "riding": java.riding,
+        },
+    }))
+}
+
 pub(super) fn snapshot(world: &World) -> Value {
     let view = world.get_resource::<LocalViewPose>();
     let stream = world.resource::<ClientWorld>().stream.as_ref();
@@ -221,6 +242,8 @@ pub(super) fn snapshot(world: &World) -> Value {
             json!({ "yaw": yaw, "pitch": pitch })
         }),
         "health": health,
+        "java_animations": world.get_resource::<crate::camera::CameraSettingsAuthority>()
+            .map(|settings| settings.feel().java_animations),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
             "loaded_columns": stream.loaded_column_count(),
@@ -229,6 +252,8 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actor_count": actor_count,
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
+        "player_motion": player_motion(world),
+        "primitive_shapes": crate::primitive_shapes::snapshot(world),
         "sidebar": world.get_resource::<UiRuntime>()
             .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),
         "screens": screens(world),
@@ -239,9 +264,35 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
         "driven": world.contains_resource::<crate::camera::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
+        "server_camera": world.get_resource::<crate::camera::ServerCameraView>().map(|camera| json!({
+            "active": camera.is_active(),
+            "preset": camera.active_preset_name(),
+            "base_preset": camera.active_base_preset_name(),
+            "pose_override": camera.has_pose_override(),
+            "fade": camera.fade_overlay(),
+            "skips": format!("{:?}", camera.skips()),
+        })),
+        "aim_assist": aim_assist(world),
         "cave_visibility": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>()
             .map(crate::runtime::visibility::CaveVisibilityCache::telemetry_snapshot),
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
     })
+}
+
+/// Publishes camera diagnostics only when the developer explicitly requests a state snapshot.
+fn aim_assist(world: &World) -> Option<Value> {
+    use client_presentation::aim_assist::{AimAssistFrame, ServerAimAssist};
+    let state = world.get_resource::<ServerAimAssist>()?;
+    let frame = world.get_resource::<AimAssistFrame>()?;
+    Some(json!({
+        "enabled": state.settings().is_some(),
+        "semantic_skips": state.semantic_skips(),
+        "skipped_queries": frame.skipped_queries,
+        "visibility_queries": frame.visibility_queries,
+        "target": frame.target.map(|target| json!({
+            "kind": format!("{:?}", target.kind),
+            "point": target.point.to_array(),
+        })),
+    }))
 }

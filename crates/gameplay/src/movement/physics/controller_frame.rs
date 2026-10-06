@@ -4,6 +4,7 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    pub eye_height: f32,
     pub intent: ModeIntent,
     pub jump_edge: bool,
     pub fly_toggle: bool,

@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import cinnabar::lighting::{actor_lighting, actor_distance_fog, tint_to_gamma, tint_to_linear}
+#import cinnabar::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear}
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -26,6 +26,9 @@ struct BoneMatrix {
 @group(0) @binding(9) var skins_64: texture_2d_array<f32>;
 @group(0) @binding(10) var skins_128: texture_2d_array<f32>;
 @group(0) @binding(11) var skins_256: texture_2d_array<f32>;
+
+@group(0) @binding(12) var actor_glint: texture_2d<f32>;
+@group(0) @binding(13) var glint_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
@@ -102,6 +105,7 @@ fn actor_vertex(
     out.surface = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     out.material = instance_words[instance_base + 27u];
+    if ((out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT) { out.multitexture_layers.x = instance_index; }
     out.dissolve_multiplier = word_f32(instance_base + 28u);
     let light_color_multiplier = word_f32(instance_base + 29u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
@@ -217,6 +221,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     }
     if (material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     if (material == ACTOR_MATERIAL_DRAGON && all(color == vec4(0.0))) { discard; }
+    if (material == ACTOR_MATERIAL_GLINT && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     let color_mask_material = material_class.y != 0u;
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
@@ -249,7 +254,20 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
-    let lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
+    var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
+    if (material == ACTOR_MATERIAL_GLINT) {
+        let base = input.multitexture_layers.x * ACTOR_GPU_INSTANCE_WORDS;
+        let offsets = vec2(word_f32(base + 30u), word_f32(base + 31u));
+        let strength = word_f32(base + 32u);
+        let centered_uv = uv - vec2(0.5);
+        let first_uv = vec2(0.9396926 * centered_uv.x + 0.34202015 * centered_uv.y, -0.34202015 * centered_uv.x + 0.9396926 * centered_uv.y) + vec2(offsets.x + 0.5, 0.5);
+        let second_uv = vec2(0.17364818 * centered_uv.x - 0.9848077 * centered_uv.y, 0.9848077 * centered_uv.x + 0.17364818 * centered_uv.y) + vec2(offsets.y + 0.5, 0.5);
+        let first = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, first_uv, 0.0)).rgb;
+        let second = tint_to_gamma(textureSampleLevel(actor_glint, glint_sampler, second_uv, 0.0)).rgb;
+        let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & 0x80000000u) != 0u);
+        let foil = (first + second) * vec3(0.38, 0.19, 0.608) * strength * foil_light;
+        lit_gamma += foil * foil;
+    }
     let fogged_gamma = vec4(actor_distance_fog(lit_gamma, input.world_position, view.world_position), color.a);
 #ifdef ACTOR_GAMMA_BLEND
     return fogged_gamma;

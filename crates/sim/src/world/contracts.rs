@@ -68,6 +68,40 @@ pub trait CollisionWorld {
         }
     }
 
+    /// Visits camera colliders in scan order; live palettes borrow shapes without allocating.
+    fn visit_collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+        visitor: &mut dyn FnMut(Aabb),
+    ) -> Result<LenientSkipCounts, WorldQueryError> {
+        let boxes = self.collision_boxes_camera_lenient(query)?;
+        for shape in boxes.value {
+            visitor(shape);
+        }
+        Ok(boxes.skipped)
+    }
+
+    /// Earliest fraction of the closed segment `origin..origin + delta` inside a camera collider,
+    /// with the same leniency as [`Self::visit_collision_boxes_camera_lenient`].
+    /// Live palettes walk only the cells along the segment, so cost is linear in its length.
+    fn camera_segment_entry(
+        &self,
+        origin: Vec3,
+        delta: Vec3,
+    ) -> Result<(Option<f64>, LenientSkipCounts), WorldQueryError> {
+        let end = origin + delta;
+        let mut entry: Option<f64> = None;
+        let skipped = self.visit_collision_boxes_camera_lenient(
+            Aabb::new(origin.component_min(end), origin.component_max(end)),
+            &mut |shape| {
+                if let Some(hit) = shape.segment_entry(origin, delta) {
+                    entry = Some(entry.map_or(hit, |best| best.min(hit)));
+                }
+            },
+        )?;
+        Ok((entry, skipped))
+    }
+
     /// Per-collider provenance companion to [`Self::collision_boxes`].
     ///
     /// The default derives every entry from [`Self::collision_boxes`] with

@@ -1,7 +1,10 @@
 //! Per-frame HUD observation and publication.
 use super::*;
 use bevy::prelude::Transform;
+use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
 
+#[cfg(test)]
+mod camera_hand_tests;
 mod commit;
 mod loading;
 use client_ui::ui_runtime::presentation::{
@@ -23,6 +26,16 @@ pub(crate) fn observe_mount_jump_input(
 pub(crate) fn platform_safe_area_insets() -> SafeArea {
     SafeArea::ZERO
 }
+
+/// CPU hand carriers follow the same camera capability as the animated hand rig.
+fn hand_first_person(
+    perspective: semantic_input::PerspectiveMode,
+    server: Option<&crate::camera::ServerCameraView>,
+) -> bool {
+    let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
+    server.map_or(fallback, |camera| camera.renders_first_person(fallback))
+}
+
 /// Resources beyond Bevy's sixteen-parameter limit.
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
@@ -31,6 +44,7 @@ type PublishExtras<'w> = (
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
     Option<Res<'w, render::ActorPipelineReadiness>>,
+    Option<Res<'w, crate::camera::ServerCameraView>>,
     (
         Res<'w, crate::runtime::network::ActorFramePartialTick>,
         Res<'w, crate::local_player::LocalPlayerFrameCarrier>,
@@ -69,6 +83,7 @@ pub(crate) fn prepare_ui_runtime(
         collisions,
         profiler,
         actor_pipelines,
+        server_camera,
         (
             actor_partial,
             local_frame,
@@ -191,10 +206,30 @@ pub(crate) fn prepare_ui_runtime(
             emote_preview,
         );
     }
-    let hide_hand = settings.value("hide_hand") != 0;
+    let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+        settings.value("hide_hud") != 0,
+        settings.value("hide_hand") != 0,
+    );
+    let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
-    let first_person =
-        camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let first_person = hand_first_person(camera_settings.perspective(), server_camera.as_deref());
+    let java_held_item = camera_settings.feel().java_animations
+        && stream
+            .and_then(|stream| {
+                stream
+                    .authority()
+                    .actor_rig(stream.local_player_runtime_id())
+            })
+            .map_or_else(
+                || {
+                    player_runtime
+                        .selected_stack_snapshot()
+                        .is_some_and(|selected| {
+                            matches!(selected.state, PlayerInventorySlot::Present(_))
+                        })
+                },
+                |rig| rig.java_equipped.is_some(),
+            );
     let preview = PreviewCapture {
         skin,
         pose,
@@ -202,7 +237,7 @@ pub(crate) fn prepare_ui_runtime(
             || menu_runtime.is_visible()
             || hud_doll
             || runtime.emotes().is_open(),
-        hands: first_person && !hide_hand && !hand_rig.is_active(),
+        hands: first_person && !hide_hand && !hand_rig.is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
@@ -254,7 +289,7 @@ pub(crate) fn prepare_ui_runtime(
     // When the local player's first-person rig is drawing near-camera, it owns the hand; the
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
-    presentation.hud_frame_mut().first_person &= !hide_hand;
+    presentation.hud_frame_mut().first_person = first_person && !hide_hand;
     presentation.hud_frame_mut().hand_rig_active = hand_rig.is_active();
     if hand_rig.is_active() {
         hand.use_animated_rig();
@@ -278,6 +313,7 @@ pub(crate) fn prepare_ui_runtime(
     let nametags = client_world
         .stream
         .as_ref()
+        .filter(|_| overlays.nametags)
         .zip(
             cameras
                 .single()

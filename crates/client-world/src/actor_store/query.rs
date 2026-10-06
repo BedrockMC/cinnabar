@@ -170,6 +170,25 @@ impl ActorStore {
     pub(crate) fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
     }
+    pub(crate) fn actor_retargeted_pose(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: &[Option<crate::BoneTransform>],
+    ) -> Option<Vec<crate::BoneTransform>> {
+        self.animation.retargeted_pose(runtime_id, alpha, targets)
+    }
+    pub(crate) fn actor_retargeted_layers(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: impl Fn(
+            &[Box<str>],
+            &[crate::BoneTransform],
+        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        self.animation.retargeted_layers(runtime_id, alpha, targets)
+    }
     pub(crate) fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.animation.snapshots()
     }

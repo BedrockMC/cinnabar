@@ -96,6 +96,8 @@ pub struct ActorRigSubmission {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
+    /// Animated actor glint factors; unused by other material kinds.
+    pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
     pub state: Option<assets::EntityRenderMaterialState>,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
@@ -107,6 +109,7 @@ pub struct ActorMaterial {
 impl Default for ActorMaterial {
     fn default() -> Self {
         Self {
+            glint: Default::default(),
             kind: Default::default(),
             state: None,
             dissolve_multiplier: 1.0,
@@ -153,6 +156,7 @@ pub struct ActorGpuInstance {
     pub material: u32,
     pub dissolve_multiplier: f32,
     pub light_color_multiplier: f32,
+    pub glint: [f32; 3],
 }
 
 impl Default for ActorGpuInstance {
@@ -600,6 +604,7 @@ impl ActorRigFrameBuilder {
                 overlay_rgba8: submission.overlay_rgba8,
                 multitexture_layers: [u32::MAX; 2],
                 material: submission.material.gpu_word(),
+                glint: submission.material.glint.parameters(),
                 dissolve_multiplier: if submission.material.dissolve_multiplier.is_finite() {
                     submission.material.dissolve_multiplier.max(0.0)
                 } else {

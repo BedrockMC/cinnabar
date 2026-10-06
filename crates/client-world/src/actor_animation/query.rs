@@ -35,7 +35,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_eating_mob", 102),
     ("is_elder", 33),
     ("is_emerging", 104),
-    ("is_emoting", 92),
+    ("is_emoting", FLAG_EMOTING),
     ("is_gliding", FLAG_GLIDING),
     // Reads the eating flag; needs independent measurement against grazing animals.
     ("is_grazing", 63),
@@ -78,6 +78,7 @@ pub(super) use crate::actor_store::FLAG_BABY;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
+pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
 const FLAG_TAMED: u32 = 28;
 
@@ -294,7 +295,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_in_ui" && evaluator.context.is_in_ui {
         return 1.0;
     }
-    if name == "is_grazing" && super::horse::is_horse(actor) {
+    if name == "is_grazing" && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
@@ -486,6 +487,11 @@ fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::Wor
     context.armor[slot as usize].as_ref()
 }
 
+/// Elytra suppresses the player's cape and outer chest skin layer while equipped.
+pub(super) fn wearing_elytra(context: &ActorTickContext) -> bool {
+    worn_armor(context, 1.0).is_some_and(|armor| item_name(&armor.item) == "elytra")
+}
+
 // Material indices follow the order of the pack's armor texture arrays (none, leather, iron, gold,
 // diamond, copper, netherite); chainmail, turtle and elytra need independent measurement.
 fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
@@ -494,7 +500,7 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
     };
     let name = item_name(&armor.item);
     // The chest slot reads 5 for an elytra, which hides the cape.
-    if slot == 1.0 && name == "elytra" {
+    if slot == 1.0 && wearing_elytra(context) {
         return 5.0;
     }
     let material = name.split('_').next().unwrap_or("");
@@ -510,7 +516,7 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
 }
 
 // Undyed leather tints with the public default colour; every other stack tints white.
-const DEFAULT_LEATHER_RGB: u32 = 0x00A0_6540;
+use assets::DEFAULT_LEATHER_RGB;
 
 /// One 0..1 channel (0 red, 1 green, 2 blue, 3 alpha) of the worn stack's tint.
 fn armor_color_slot(context: &ActorTickContext, slot: Option<f32>, channel: Option<f32>) -> f32 {

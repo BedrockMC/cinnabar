@@ -8,6 +8,7 @@ pub mod camera;
 mod desktop;
 #[cfg(feature = "developer-control")]
 mod developer_control;
+mod discord_presence;
 mod environment;
 mod first_run;
 mod fullscreen;
@@ -33,6 +34,7 @@ mod pick_block;
 pub mod player_runtime;
 mod player_skin;
 mod present_mode;
+mod primitive_shapes;
 mod render_mode;
 mod screen_policy;
 pub mod semantic_controls;

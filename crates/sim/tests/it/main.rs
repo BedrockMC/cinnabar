@@ -1,5 +1,6 @@
 mod aabb;
 mod actor_fluids;
+mod allocation_count;
 mod bedsim_strata;
 mod block_effects;
 mod block_interaction_ray;

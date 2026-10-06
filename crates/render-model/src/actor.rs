@@ -10,9 +10,9 @@ mod surface;
 mod texture_mesh;
 
 pub use asset_geometry::{
-    entity_geometry, equipment_geometry, find_geometry_index, geometry_bone_names,
-    geometry_bone_pivots, geometry_from_geometry_index, geometry_from_runtime_assets,
-    pack_geometries, resolve_geometry_bones, skin_geometry,
+    entity_geometry, equipment_geometry, find_geometry_index, geometry_bone_binding_expressions,
+    geometry_bone_names, geometry_bone_pivots, geometry_from_geometry_index,
+    geometry_from_runtime_assets, pack_geometries, resolve_geometry_bones, skin_geometry,
 };
 pub use biped::{
     ActorVertex, STANDARD_BIPED_VERTEX_COUNT, standard_biped_overlay_vertices,
@@ -35,4 +35,4 @@ pub use skin::{
     normalize_actor_skin, normalize_actor_skin_cached,
 };
 pub use surface::ActorRigSurface;
-pub use texture_mesh::attachable_geometry;
+pub use texture_mesh::{attachable_geometry, attachable_raster_frame};

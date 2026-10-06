@@ -129,6 +129,7 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     let add = AddPlayerPacket {
         uuid,
         player_name: "Alex".to_owned(),
+        player_game_type: valentine::bedrock::version::v1_26_51::EnumsGameType::Spectator,
         // AddPlayer has no standalone unique ID in 1.26.40; the spawned player's
         // unique ID is the first field of the embedded ability data.
         abilities_data: SerializedAbilitiesData {
@@ -165,11 +166,15 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     }
     .into();
 
-    let Some(WorldEvent::Actor(ActorEvent::Spawn(spawn))) =
+    let Some(WorldEvent::Actor(ActorEvent::PlayerSpawn { spawn, game_mode })) =
         into_world_event(add, 1).expect("normalize add player")
     else {
         panic!("expected player spawn")
     };
+    assert_eq!(
+        game_mode,
+        protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator)
+    );
     assert_eq!(spawn.unique_id, -9);
     assert_eq!(spawn.runtime_id, 55);
     assert_eq!(spawn.links[0].link_type, ActorLinkType::Passenger);
