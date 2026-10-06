@@ -155,6 +155,9 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	if opts.localWorldsDir != "" && !opts.controlStatus {
 		return options{}, errors.New("local-worlds-dir requires -control-status")
 	}
+	if opts.serverTrustFile != "" && !opts.controlStatus {
+		return options{}, errors.New("server-trust-file requires -control-status")
+	}
 	if opts.localServerBin != "" && opts.localWorldsDir == "" {
 		return options{}, errors.New("local-server-bin requires -local-worlds-dir")
 	}
