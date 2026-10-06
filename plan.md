@@ -1,3 +1,10 @@
+## Friends tab worlds
+
+- Friends' worlds follow the vanilla list rule (`p2p.World.Listed`): members and a host, the player's
+  own session only for a Realm, broadcast 3/4 always and 2 for friends. Incomplete parity: friends'
+  Realm and experience sessions are left out because joining them from the friends tab is not
+  implemented.
+
 ## Entity shadows
 
 - Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
