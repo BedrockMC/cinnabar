@@ -25,7 +25,7 @@ const (
 )
 
 // maxConcurrentRequests bounds simultaneous local requests; extra connections are dropped.
-const maxConcurrentRequests = 16
+const maxConcurrentRequests = 32
 
 const methodPackApplication = "pack_application.v1"
 

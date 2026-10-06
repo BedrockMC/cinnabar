@@ -8,8 +8,17 @@ use protocol::store_control::{StoreOffer, StoreOfferDetail};
 use super::flow::{PurchaseDialog, PurchaseFlow};
 use super::worker::StoreError;
 
-/// Most thumbnails the menu artwork atlas can hold at once.
-pub const MAX_VISIBLE_IMAGES: usize = 32;
+/// Most offer images the menu artwork atlas packs at once, in draw order.
+pub const MAX_VISIBLE_IMAGES: usize = 60;
+
+/// How an offer image is shown, which sets the size it is decoded at.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoreArt {
+    /// An offer card's thumbnail.
+    Card,
+    /// The offer page's key art and screenshots.
+    Feature,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StoreView {
@@ -72,25 +81,28 @@ impl StoreSnapshot {
         }
     }
 
-    /// Local files of the thumbnails currently on screen, in draw order, bounded by the artwork atlas.
-    pub fn image_paths(&self) -> Vec<String> {
+    /// Local files of the offer images currently on screen, in draw order, bounded by the artwork atlas.
+    pub fn image_paths(&self) -> Vec<(String, StoreArt)> {
         let detail = self.detail.iter().flat_map(|detail| {
             detail
                 .offer
                 .thumbnail_url
                 .iter()
                 .chain(detail.screenshot_urls.iter())
+                .map(|url| (url, StoreArt::Feature))
         });
-        let rows = self
-            .rows
-            .iter()
-            .flat_map(|row| row.offers.iter().filter_map(|o| o.thumbnail_url.as_ref()));
-        let mut seen = Vec::new();
-        for url in detail.chain(rows) {
+        let rows = self.rows.iter().flat_map(|row| {
+            row.offers
+                .iter()
+                .filter_map(|o| o.thumbnail_url.as_ref())
+                .map(|url| (url, StoreArt::Card))
+        });
+        let mut seen: Vec<(String, StoreArt)> = Vec::new();
+        for (url, art) in detail.chain(rows) {
             if let Some(path) = self.images.get(url)
-                && !seen.contains(path)
+                && !seen.iter().any(|(seen, _)| seen == path)
             {
-                seen.push(path.clone());
+                seen.push((path.clone(), art));
                 if seen.len() == MAX_VISIBLE_IMAGES {
                     break;
                 }
@@ -100,15 +112,17 @@ impl StoreSnapshot {
     }
 }
 
-/// The factory role for a layout row `kind`; anything unknown is a plain offer row.
-pub fn role_for(kind: Option<&str>) -> &'static str {
-    match kind.unwrap_or_default() {
+/// The vanilla row factory a layout row `kind` (its controlId) draws with; `None` for a row the client
+/// has no factory for yet (promo banner, nav buttons, coin bundles, the top-bar layout row).
+pub fn role_for(kind: Option<&str>) -> Option<&'static str> {
+    Some(match kind.unwrap_or("StoreRow") {
+        "StoreRow" => "StoreRow",
         "GridList" => "GridList",
         "VerticalGridList" => "VerticalGridList",
         "HeroRow" => "HeroRow",
         "CarouselRow" => "CarouselRow",
-        _ => "StoreRow",
-    }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -160,13 +174,21 @@ mod tests {
             owned_total: 0,
             search_term: String::new(),
         };
-        assert_eq!(snapshot.image_paths(), ["/c/a.png", "/c/d.png"]);
+        assert_eq!(
+            snapshot.image_paths(),
+            [
+                ("/c/a.png".to_owned(), StoreArt::Card),
+                ("/c/d.png".to_owned(), StoreArt::Card)
+            ]
+        );
     }
 
     #[test]
-    fn unknown_row_kinds_fall_back_to_the_plain_offer_row() {
-        assert_eq!(role_for(Some("GridList")), "GridList");
-        assert_eq!(role_for(Some("Whatever")), "StoreRow");
-        assert_eq!(role_for(None), "StoreRow");
+    fn rows_without_a_client_factory_have_no_role() {
+        assert_eq!(role_for(Some("GridList")), Some("GridList"));
+        assert_eq!(role_for(None), Some("StoreRow"));
+        for kind in ["PromoBanner", "NavButtonRow", "CoinBundleRow", "Layout"] {
+            assert_eq!(role_for(Some(kind)), None, "{kind}");
+        }
     }
 }

@@ -66,7 +66,10 @@ func (c *Client) Offer(ctx context.Context, id string) (OfferDetail, error) {
 		detail.Description = detail.Description[:8192]
 	}
 	for _, img := range item.Images {
-		if strings.EqualFold(img.Type, playfabcatalog.ImageTypeScreenshot) && strings.HasPrefix(img.URL, "https://") && len(detail.ScreenshotURLs) < 12 {
+		// Screenshot-typed images also carry the pack icon and the 4000px panorama; only the
+		// "screenshot" tag belongs in the carousel.
+		if strings.EqualFold(img.Type, playfabcatalog.ImageTypeScreenshot) && strings.EqualFold(img.Tag, "screenshot") &&
+			strings.HasPrefix(img.URL, "https://") && len(detail.ScreenshotURLs) < 12 {
 			detail.ScreenshotURLs = append(detail.ScreenshotURLs, img.URL)
 		}
 	}
