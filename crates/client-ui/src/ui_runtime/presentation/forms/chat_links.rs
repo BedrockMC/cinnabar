@@ -165,10 +165,9 @@ pub(super) fn hits(
                 if let (Ok(min), Ok(max)) = (
                     UiPoint::new(x0 + origin[0], y0 + origin[1]),
                     UiPoint::new(x1 + origin[0], y1 + origin[1]),
-                ) {
-                    if let Ok(rect) = UiRect::new(min, max) {
-                        result.push((target.url.clone(), rect, node.key.clone()));
-                    }
+                ) && let Ok(rect) = UiRect::new(min, max)
+                {
+                    result.push((target.url.clone(), rect, node.key.clone()));
                 }
             }
         }
@@ -251,7 +250,7 @@ mod tests {
         assert!(regions[0].1.max().x() < regions[1].1.min().x());
         let wrapped = history_node("https://example.com/a_very_long_path", 25.0);
         let regions = hits(
-            &[wrapped.clone()],
+            std::slice::from_ref(&wrapped),
             &ViewState::default(),
             metrics,
             &font,

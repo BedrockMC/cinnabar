@@ -262,11 +262,11 @@
   streaming backlog cannot halve high refresh rates. Chunk uploads merge abutting arena
   writes into one staged write per run. The F3 overlay keeps its bindings and layout and
   rebinds only changed lines.
-- Incomplete: no live capture of these fixes yet, and the slower streaming throughput the
-  smaller allocation allows at high refresh rates is unmeasured. Per-job light/mesh dispatch
-  snapshots, whole-frame UI rebuilds on any change, and a full cave search per camera
-  sub-chunk change remain. No parity or performance gate is claimed; commands and
-  boundaries are in the README.
+- Incomplete: release streaming throughput at high refresh rates is unmeasured. Per-job
+  light/mesh dispatch snapshots and whole-frame UI rebuilds on any change remain. Cave camera
+  crossings now reuse reached exits after a bounded exact proof; streamed additions survive journal
+  rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
+  No parity or performance gate is claimed; commands and boundaries are in the README.
 
 ## GPU terrain culling with Hi-Z occlusion
 

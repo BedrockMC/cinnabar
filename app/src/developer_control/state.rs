@@ -263,6 +263,8 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
         "driven": world.contains_resource::<crate::camera::DrivenInput>(),
         "camera": world.get_resource::<ScriptedCamera>().map(ScriptedCamera::summary),
+        "cave_visibility": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>()
+            .map(crate::runtime::visibility::CaveVisibilityCache::telemetry_snapshot),
         "recording": world.get_resource::<Recording>().map(Recording::summary),
         "game_seconds": world.resource::<Time>().elapsed_secs_f64(),
     })

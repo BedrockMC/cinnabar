@@ -6,6 +6,8 @@ mod camera;
 mod cape;
 mod capture;
 mod input;
+#[cfg(target_os = "macos")]
+mod macos;
 mod scoreboards;
 mod state;
 
@@ -28,16 +30,36 @@ struct Control {
 }
 
 /// Applies `CINNABAR_WINDOW_SIZE` and `CINNABAR_HIDDEN_WINDOW` to the primary window.
-pub(crate) fn primary_window(mut window: Window) -> Window {
-    if let Some(size) = std::env::var(WINDOW_SIZE_ENV)
+pub(crate) fn primary_window(window: Window) -> Window {
+    let size = std::env::var(WINDOW_SIZE_ENV)
         .ok()
-        .and_then(|value| developer_control::parse_size(&value))
-    {
+        .and_then(|value| developer_control::parse_size(&value));
+    window_options(window, size, hidden_window_requested())
+}
+
+/// Only the explicit developer switch suppresses native application activation.
+fn hidden_window_requested() -> bool {
+    std::env::var_os(HIDDEN_WINDOW_ENV).is_some_and(|value| value == "1")
+}
+
+/// Installs native hidden-mode policy before any window backend creates its application.
+pub(crate) fn prepare_native_application() -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if hidden_window_requested() {
+        macos::prepare_hidden_application()?;
+    }
+    Ok(())
+}
+
+/// Hidden developer surfaces never request native focus or presentation pacing.
+fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool) -> Window {
+    if let Some(size) = size {
         window.resolution = WindowResolution::new(size[0], size[1]).with_scale_factor_override(1.0);
         window.resizable = false;
     }
-    if std::env::var_os(HIDDEN_WINDOW_ENV).is_some_and(|value| value == "1") {
+    if hidden {
         window.visible = false;
+        window.focused = false;
         // A hidden surface never reaches the display, so vsync would only throttle drawables.
         window.present_mode = PresentMode::AutoNoVsync;
     }
@@ -46,6 +68,10 @@ pub(crate) fn primary_window(mut window: Window) -> Window {
 
 /// Starts the endpoint when `CINNABAR_DEVELOPER_CONTROL` names its file.
 pub(crate) fn configure(app: &mut App) {
+    #[cfg(target_os = "macos")]
+    if hidden_window_requested() {
+        macos::verify_after_launch(app);
+    }
     let Some(path) = std::env::var_os(ENDPOINT_ENV).map(PathBuf::from) else {
         return;
     };
@@ -143,6 +169,27 @@ fn chat(world: &mut World, text: &str) -> Result<Value, String> {
 mod tests {
     use bevy::{prelude::*, time::TimePlugin};
     use client_ui::ui_runtime::UiRuntime;
+
+    #[test]
+    fn hidden_surface_starts_without_native_focus() {
+        let window = super::window_options(Window::default(), Some([1920, 1080]), true);
+        assert!(!window.visible);
+        assert!(!window.focused);
+        assert!(!window.resizable);
+        assert_eq!(window.resolution.physical_size(), UVec2::new(1920, 1080));
+        assert_eq!(window.resolution.scale_factor(), 1.0);
+        assert_eq!(window.present_mode, super::PresentMode::AutoNoVsync);
+    }
+
+    #[test]
+    fn normal_surface_retains_its_native_window_policy() {
+        let original = Window::default();
+        let window = super::window_options(original.clone(), None, false);
+        assert_eq!(window.visible, original.visible);
+        assert_eq!(window.focused, original.focused);
+        assert_eq!(window.present_mode, original.present_mode);
+        assert_eq!(window.resizable, original.resizable);
+    }
 
     #[test]
     fn chat_sends_exactly_the_text_and_leaves_the_draft_alone() {
