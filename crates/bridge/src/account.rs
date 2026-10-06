@@ -79,6 +79,8 @@ pub struct FeaturedServer {
     #[serde(default)]
     pub logo: Artwork,
     #[serde(default)]
+    pub background: Artwork,
+    #[serde(default)]
     pub screenshots: Vec<Artwork>,
     #[serde(default)]
     pub games: Vec<FeaturedGame>,
@@ -742,10 +744,12 @@ mod tests {
     fn screen_feeds_parse_leniently() {
         let featured = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
             {"name":"S","address":"a.test:19132","logo":{"url":"https://a.test/l.png"},
+             "background":{"path":"/art/bg.img"},
              "games":[{"title":"Skywars"}],"future":true},{}]}}"#;
         let body: FeaturedBody = parse_response(featured).expect("featured");
         assert_eq!(body.servers.len(), 2);
         assert_eq!(body.servers[0].logo.url, "https://a.test/l.png");
+        assert_eq!(body.servers[0].background.path, "/art/bg.img");
         assert_eq!(body.servers[0].games[0].title, "Skywars");
         let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
             "profile":{"gamertag":"Steve","xuid":"1","gamerpic":{"path":"/art/p.img"}}}}"#;

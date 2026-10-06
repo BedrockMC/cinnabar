@@ -553,10 +553,8 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
             view.feeds.profile.featured_screenshot_path.clone(),
         ))
         .chain(selected.into_iter().flat_map(|details| {
-            details
-                .screenshots
-                .iter()
-                .cloned()
+            std::iter::once(details.banner.clone())
+                .chain(details.screenshots.iter().cloned())
                 .chain(details.games.iter().map(|game| game.image_path.clone()))
         }))
         .map(|path| (path, MAX_ARTWORK_SIDE));

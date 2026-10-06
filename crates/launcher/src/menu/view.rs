@@ -64,10 +64,20 @@ pub struct MenuRealmCard {
     pub member: bool,
 }
 
+/// Marks a featured address as an experience's ID, joined when selected.
+pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
+
+/// Whether the server at `address` can be pinged; an experience has no server until joined.
+pub fn pingable(address: &str) -> bool {
+    !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
+}
+
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
     pub description: String,
+    /// The details banner; empty uses the first screenshot.
+    pub banner: String,
     pub news_title: String,
     pub news: String,
     pub screenshots: Vec<String>,
