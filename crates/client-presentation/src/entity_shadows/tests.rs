@@ -206,7 +206,12 @@ fn local_shadow_follows_body_visibility_without_hiding_other_casters() {
         &mut staging,
         &mut scene,
     );
-    let mut casters: Vec<_> = scene.0.shadows.iter().map(|shadow| shadow.feet[0]).collect();
+    let mut casters: Vec<_> = scene
+        .0
+        .shadows
+        .iter()
+        .map(|shadow| shadow.feet[0])
+        .collect();
     casters.sort_by(f32::total_cmp);
     assert_eq!(casters, [2.0, 6.0]);
 }

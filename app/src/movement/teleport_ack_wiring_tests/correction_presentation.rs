@@ -5,6 +5,7 @@ use bevy::time::Real;
 
 use super::*;
 
+/// Builds a local grounded stream for correction publication tests.
 fn grounded_stream(position: [f32; 3]) -> WorldStream {
     let records = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),

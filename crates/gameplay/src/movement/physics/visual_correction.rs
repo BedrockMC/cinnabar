@@ -16,6 +16,7 @@ pub(super) struct VisualCorrection {
 }
 
 impl VisualCorrection {
+    /// Accumulates a bounded render offset without changing movement authority.
     pub(super) fn correct(&mut self, current: Vec3, previous: Vec3, motion: Vec3) {
         self.current += current;
         self.previous += previous;
@@ -38,6 +39,7 @@ impl VisualCorrection {
         }
     }
 
+    /// Advances offset decay once per successful simulation tick.
     pub(super) fn tick(&mut self) {
         self.previous = self.current;
         let mut speed_squared = self.speed_squared;
@@ -54,6 +56,7 @@ impl VisualCorrection {
         }
     }
 
+    /// Samples the retained correction at the same fraction as the player pose.
     pub(super) fn offset(&self, alpha: f32) -> Vec3 {
         self.previous + (self.current - self.previous) * f64::from(alpha.clamp(0.0, 1.0))
     }
@@ -66,7 +69,11 @@ mod tests {
     #[test]
     fn horizontal_correction_decays_on_ticks_and_interpolates_between_them() {
         let mut offset = VisualCorrection::default();
-        offset.correct(Vec3::new(2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0), Vec3::ZERO);
+        offset.correct(
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::ZERO,
+        );
         offset.tick();
         let step = (4.0_f32 * SPEED_SQUARED_FACTOR).sqrt();
         assert_eq!(offset.offset(0.0).x, 2.0);

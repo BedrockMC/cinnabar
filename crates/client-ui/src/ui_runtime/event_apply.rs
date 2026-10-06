@@ -20,7 +20,10 @@ impl UiRuntime {
             let parameters = event
                 .parameters
                 .iter()
-                .map(|parameter| json_ui::localize_text(parameter, &translate).into_owned())
+                .map(|parameter| {
+                    json_ui::localize_parameter_prefix(parameter, &translate, usize::MAX)
+                        .into_owned()
+                })
                 .collect::<Vec<_>>();
             event.message = Arc::from(protocol::format_translation(&template, &parameters));
             event.parameters = Arc::from([]);

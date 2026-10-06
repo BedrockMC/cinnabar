@@ -34,6 +34,7 @@ pub const POT_PLANES: [([f32; 4], f32); 2] = [
     ([14.0, 13.0, 14.0, 14.0], 0.0),
 ];
 
+/// The pot body side faces in front, back, left and right order.
 #[must_use]
 pub fn pot_sides() -> [[[f32; 3]; 4]; 4] {
     let faces = tile_box_faces([
@@ -94,11 +95,13 @@ pub fn lectern_faces() -> [(usize, ModelFace); 18] {
     })
 }
 
+/// The shared entity texture stem for one shulker color.
 #[must_use]
 pub fn shulker_texture(color: &str) -> String {
     format!("textures/entity/shulker/shulker_{color}")
 }
 
+/// Tilts a lectern board point around its authored pivot and then offsets it.
 #[must_use]
 pub fn lectern_board_point([x, y, z]: [f32; 3]) -> [f32; 3] {
     let [_, py, pz] = LECTERN_BOARD_PIVOT;

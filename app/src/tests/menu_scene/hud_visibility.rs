@@ -14,6 +14,7 @@ use crate::{
 use bevy::window::{PrimaryWindow, Window};
 use client_ui::ui_runtime::presentation::{PreparedUiPublication, UiPresentationRuntime};
 
+/// Builds a renderer-free world with gameplay overlays available.
 fn fixture_world() -> World {
     let (_pack, _geometry, entities) = super::super::viewmodel_presentation::hand_fixture();
     let scene =
@@ -95,6 +96,7 @@ fn fixture_world() -> World {
     world
 }
 
+/// Checks the published hand and label state after one visibility update.
 fn assert_published(world: &mut World, hands: bool, names: bool) {
     // An inactive animated rig selects the real CPU-hand capture path.
     world.resource_mut::<render::HandRigScene>().clear();

@@ -205,7 +205,7 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
 }
 
 #[test]
-fn alpha_glass_enclosure_culls_water_sides_and_bottom_but_preserves_top_admission() {
+fn alpha_glass_enclosure_keeps_water_contacts_without_reverse_side_winding() {
     let enclosure = |neighbour| {
         mesh(&blocks(&[
             (WATER_SOURCE, [8, 8, 8]),
@@ -219,8 +219,14 @@ fn alpha_glass_enclosure_culls_water_sides_and_bottom_but_preserves_top_admissio
     };
 
     let transparent = enclosure(GLASS);
-    assert_eq!(transparent.liquid_quads().len(), 1);
-    assert_eq!(transparent.liquid_quads()[0].face(), Face::PositiveY);
+    assert_eq!(transparent.liquid_quads().len(), Face::ALL.len());
+    assert!(
+        transparent
+            .liquid_quads()
+            .iter()
+            .filter(|quad| quad.face() != Face::PositiveY)
+            .all(|quad| !quad.is_two_sided())
+    );
     assert!(enclosure(SOLID).liquid_quads().is_empty());
 }
 
@@ -550,7 +556,7 @@ fn depth_writing_lava_uses_the_shared_liquid_stream_without_water_flags() {
 }
 
 #[test]
-fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface() {
+fn mixed_water_and_lava_are_stably_partitioned_with_both_primary_contact_faces() {
     let mesh = mesh(&blocks(&[
         (WATER_SOURCE, [8, 8, 8]),
         (NON_WATER_LIQUID, [9, 8, 8]),
@@ -560,8 +566,8 @@ fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface()
         .iter()
         .position(|quad| quad.is_depth_writing())
         .expect("lava suffix");
-    assert_eq!(split, 5);
-    assert_eq!(mesh.liquid_quads().len(), 11);
+    assert_eq!(split, 6);
+    assert_eq!(mesh.liquid_quads().len(), 12);
     assert!(
         mesh.liquid_quads()[..split]
             .iter()
@@ -573,8 +579,7 @@ fn mixed_water_and_lava_are_stably_partitioned_with_only_native_lava_interface()
             .all(|quad| quad.is_depth_writing())
     );
     assert!(
-        !mesh
-            .liquid_quads()
+        mesh.liquid_quads()
             .iter()
             .any(|quad| { quad.origin() == [8, 8, 8] && quad.face() == Face::PositiveX })
     );

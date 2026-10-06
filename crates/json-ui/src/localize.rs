@@ -49,6 +49,22 @@ pub fn localize_text_prefix<'a>(
     Cow::Owned(out.text)
 }
 
+/// Localizes a marked parameter as one key; ordinary and unknown parameters stay literal.
+pub fn localize_parameter_prefix<'a>(
+    text: &'a str,
+    lookup: &dyn Fn(&str) -> Option<Arc<str>>,
+    max_bytes: usize,
+) -> Cow<'a, str> {
+    match text
+        .strip_prefix('%')
+        .and_then(|marked| key(marked, lookup))
+    {
+        Some(value) => Cow::Owned(prefix(&value, max_bytes).to_owned()),
+        None => Cow::Borrowed(prefix(text, max_bytes)),
+    }
+}
+
+/// Expands one label token into the bounded output.
 fn substitute(token: &str, lookup: &dyn Fn(&str) -> Option<Arc<str>>, out: &mut TextPrefix) {
     match key(token, lookup) {
         Some(value) => out.push_str(&value),
@@ -56,6 +72,7 @@ fn substitute(token: &str, lookup: &dyn Fn(&str) -> Option<Arc<str>>, out: &mut 
     }
 }
 
+/// Keeps complete scalars inside the byte budget.
 fn prefix(text: &str, max_bytes: usize) -> &str {
     let mut end = text.len().min(max_bytes);
     while !text.is_char_boundary(end) {
@@ -71,6 +88,7 @@ struct TextPrefix {
 }
 
 impl TextPrefix {
+    /// Reserves only capacity the retained prefix can use.
     fn new(input_bytes: usize, max_bytes: usize) -> Self {
         Self {
             text: String::with_capacity(input_bytes.min(max_bytes)),
@@ -79,11 +97,13 @@ impl TextPrefix {
         }
     }
 
+    /// Appends one scalar if the retained prefix has room.
     fn push(&mut self, character: char) {
         let mut bytes = [0; 4];
         self.push_str(character.encode_utf8(&mut bytes));
     }
 
+    /// Stops permanently at the first scalar outside the budget.
     fn push_str(&mut self, text: &str) {
         if self.sealed {
             return;
@@ -143,6 +163,25 @@ mod tests {
         let long = format!("k{}", "a".repeat(256));
         let found = |key: &str| (key == long).then(|| Arc::from("long"));
         assert_eq!(localize_text(&long, &found), "long");
+    }
+
+    #[test]
+    fn parameters_only_translate_a_marked_whole_key() {
+        for (text, expected) in [
+            ("%menu.play", "Play"),
+            ("menu.play", "menu.play"),
+            ("100% literal %menu.play", "100% literal %menu.play"),
+            ("%menu.play!", "%menu.play!"),
+            ("%missing.key", "%missing.key"),
+            ("%", "%"),
+        ] {
+            for limit in 0..=expected.len() + 1 {
+                assert_eq!(
+                    localize_parameter_prefix(text, &table, limit),
+                    prefix(expected, limit)
+                );
+            }
+        }
     }
 
     #[test]

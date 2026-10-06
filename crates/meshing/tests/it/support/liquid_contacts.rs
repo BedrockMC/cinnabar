@@ -13,8 +13,8 @@ fn has_face(mesh: &ChunkMesh, face: Face) -> bool {
 }
 
 #[test]
-fn classic_water_hides_full_cube_and_liquid_contacts() {
-    for neighbour in [GLASS, OTHER_LIQUID, NON_WATER_LIQUID, SOLID] {
+fn classic_water_hides_opaque_and_matching_liquid_contacts() {
+    for neighbour in [WATER_SOURCE, SOLID] {
         for (face, adjacent) in [
             (Face::NegativeX, [7, 8, 8]),
             (Face::PositiveX, [9, 8, 8]),
@@ -38,17 +38,23 @@ fn classic_water_hides_full_cube_and_liquid_contacts() {
 }
 
 #[test]
-fn classic_water_keeps_faces_beside_thin_non_occluding_primary_geometry() {
-    for (face, adjacent) in [
-        (Face::NegativeX, [7, 8, 8]),
-        (Face::PositiveX, [9, 8, 8]),
-        (Face::NegativeZ, [8, 8, 7]),
-        (Face::PositiveZ, [8, 8, 9]),
-        (Face::NegativeY, [8, 7, 8]),
-    ] {
-        let output = mesh(&blocks(&[(WATER_SOURCE, ORIGIN), (CROSS, adjacent)]));
-        let quad = output.liquid_quads().iter().find(|quad| quad.origin() == ORIGIN && quad.face() == face).expect("water remains visible beside thin geometry");
-        assert!(!quad.is_two_sided());
+fn classic_water_keeps_faces_beside_transparent_primary_geometry() {
+    for neighbour in [GLASS, CROSS, OTHER_LIQUID, NON_WATER_LIQUID] {
+        for (face, adjacent) in [
+            (Face::NegativeX, [7, 8, 8]),
+            (Face::PositiveX, [9, 8, 8]),
+            (Face::NegativeZ, [8, 8, 7]),
+            (Face::PositiveZ, [8, 8, 9]),
+            (Face::NegativeY, [8, 7, 8]),
+        ] {
+            let output = mesh(&blocks(&[(WATER_SOURCE, ORIGIN), (neighbour, adjacent)]));
+            let quad = output
+                .liquid_quads()
+                .iter()
+                .find(|quad| quad.origin() == ORIGIN && quad.face() == face)
+                .expect("water remains visible beside thin geometry");
+            assert!(!quad.is_two_sided());
+        }
     }
 }
 
@@ -86,19 +92,28 @@ fn primary_water_and_additional_water_do_not_duplicate_exposed_surfaces() {
 }
 
 #[test]
-fn neighbour_primary_controls_contact_admission_not_its_additional_water() {
+fn classic_contact_admission_uses_extra_air_and_reverse_winding_uses_primary_air() {
     for primary in [AIR, GLASS, CROSS] {
-        let neighbour = ([9, 8, 8], 1);
-        let output = mesh(&sub_chunk(vec![
-            packed_storage(2, &[AIR, primary], &[neighbour]),
-            packed_storage(
-                2,
-                &[AIR, WATER_SOURCE, OTHER_LIQUID],
-                &[(ORIGIN, 1), ([9, 8, 8], 2)],
-            ),
-        ]));
-        assert_eq!(has_face(&output, Face::PositiveX), primary != GLASS);
-        assert!(has_face(&output, Face::NegativeX));
-        assert!(has_face(&output, Face::PositiveY));
+        for extra in [AIR, OTHER_LIQUID] {
+            let neighbour = ([9, 8, 8], 1);
+            let output = mesh(&sub_chunk(vec![
+                packed_storage(2, &[AIR, primary], &[neighbour]),
+                packed_storage(
+                    2,
+                    &[AIR, WATER_SOURCE, extra],
+                    &[(ORIGIN, 1), ([9, 8, 8], 2)],
+                ),
+            ]));
+            let contact = output
+                .liquid_quads()
+                .iter()
+                .find(|quad| quad.origin() == ORIGIN && quad.face() == Face::PositiveX);
+            assert_eq!(contact.is_some(), extra == AIR);
+            if let Some(contact) = contact {
+                assert_eq!(contact.is_two_sided(), primary == AIR);
+            }
+            assert!(has_face(&output, Face::NegativeX));
+            assert!(has_face(&output, Face::PositiveY));
+        }
     }
 }

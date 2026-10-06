@@ -43,6 +43,8 @@ func TestEducationConstructionRetainsUnrelatedPaletteRecords(t *testing.T) {
 	if len(previous) != len(current) {
 		t.Fatal("construction admission changed palette size")
 	}
+	previousPhysics := decodeV2193PhysicsArtifact(t, read(previousRoot, "block-physics-v2193.bin"), previousBREG, len(previous))
+	currentPhysics := decodeV2193PhysicsArtifact(t, read(currentRoot, "block-physics-v2193.bin"), currentBREG, len(current))
 	changed := 0
 	for index, record := range current {
 		before := previous[index]
@@ -50,7 +52,7 @@ func TestEducationConstructionRetainsUnrelatedPaletteRecords(t *testing.T) {
 			t.Fatalf("construction admission changed palette identity at %d", index)
 		}
 		if !isEducationConstructionName(record.Name) {
-			if !reflect.DeepEqual(record, before) || currentLight[index] != previousLight[index] {
+			if !reflect.DeepEqual(record, before) || currentLight[index] != previousLight[index] || !reflect.DeepEqual(currentPhysics[index], previousPhysics[index]) {
 				t.Fatalf("construction admission changed unrelated state %d (%s)", index, record.Name)
 			}
 			continue

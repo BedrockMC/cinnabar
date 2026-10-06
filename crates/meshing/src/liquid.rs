@@ -614,12 +614,11 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                     Face::PositiveZ,
                 ] {
                     let adjacent = add(block, face_offset(face));
-                    let adjacent_primary_air = primary_is_air(classifier, neighbourhood, adjacent);
+                    let adjacent_primary_air = layer_is_air(classifier, neighbourhood, 0, adjacent);
                     if compatible(&sampler, neighbourhood, adjacent, cell.identity)
                         || sampler.solid(neighbourhood, adjacent, opposite_face(face))
                         || (!cell.depth_writing
-                            && !adjacent_primary_air
-                            && !sampler.open(neighbourhood, adjacent, &[opposite_face(face)]))
+                            && !layer_is_air(classifier, neighbourhood, 1, adjacent))
                     {
                         continue;
                     }
@@ -647,9 +646,7 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
                 let below = add(block, [0, -1, 0]);
                 if !compatible(&sampler, neighbourhood, below, cell.identity)
                     && !sampler.solid(neighbourhood, below, Face::PositiveY)
-                    && (cell.depth_writing
-                        || primary_is_air(classifier, neighbourhood, below)
-                        || sampler.open(neighbourhood, below, &[Face::PositiveY]))
+                    && (cell.depth_writing || layer_is_air(classifier, neighbourhood, 1, below))
                 {
                     push_quad(pack(
                         origin,
@@ -699,16 +696,16 @@ pub(crate) fn mesh_liquids<L: crate::lighting::LightingInputs + ?Sized>(
     (addressed, lighting)
 }
 
-/// Primary air controls reverse winding, independently of additional liquid layers.
-/// Thin non-occluding primary geometry does not remove the contacting water face.
-fn primary_is_air(
+/// Extra-layer air admits classic water contacts; primary air controls reverse winding.
+fn layer_is_air(
     classifier: BlockClassifier,
     neighbourhood: &MeshNeighbourhood<'_>,
+    layer: usize,
     coordinate: [i32; 3],
 ) -> bool {
-    match neighbourhood.liquid_sample(0, coordinate) {
+    match neighbourhood.liquid_sample(layer, coordinate) {
         world::MeshSample::Block(network_value) => classifier.is_air(network_value),
-        // Preserve the existing open-boundary policy for absent primary data.
+        // An absent layer or subchunk is air at an open mesh boundary.
         world::MeshSample::Open => true,
     }
 }

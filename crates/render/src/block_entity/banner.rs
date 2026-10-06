@@ -171,6 +171,7 @@ pub(super) fn emit(
     }
 }
 
+/// Converts downward model-part Y coordinates into upward world model pixels.
 fn world_box(([x, y, z], size, uv): geometry::ModelBox, anchor: f32) -> BoxSpec {
     BoxSpec::new([x, anchor - y - size[1], z], size, uv)
 }

@@ -13,6 +13,7 @@ struct Part {
     color: [u8; 3],
 }
 
+/// Expands model-part boxes into textured faces without changing their authoring frame.
 fn boxes(texture: &str, logical: [f32; 2], boxes: &[geometry::ModelBox]) -> Part {
     Part {
         texture: texture.to_owned(),
@@ -25,14 +26,17 @@ fn boxes(texture: &str, logical: [f32; 2], boxes: &[geometry::ModelBox]) -> Part
     }
 }
 
+/// Only banner dye changes these block models by item metadata.
 pub(super) fn metadata_variant(name: &str, metadata: u32) -> u32 {
     if is_banner(name) { metadata } else { 0 }
 }
 
+/// Identifies the standing inventory model shared by both placed banner forms.
 fn is_banner(name: &str) -> bool {
     matches!(name, "minecraft:standing_banner" | "minecraft:wall_banner")
 }
 
+/// Bakes an entity-drawn block inventory model, refusing missing optional textures.
 pub(super) fn raster(
     root: &Path,
     name: &str,
@@ -167,6 +171,7 @@ pub(super) fn raster(
     ))
 }
 
+/// Groups the authored lectern faces by their terrain texture.
 fn lectern() -> Vec<Part> {
     let mut parts: Vec<Part> = Vec::new();
     for (texture_index, (corners, texels)) in geometry::lectern_faces() {

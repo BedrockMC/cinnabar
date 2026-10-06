@@ -25,11 +25,7 @@ impl UiPresentationRuntime {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn settings_slider_track(&self, index: u16) -> Option<ui::UiRect> {
-        self.slider_track(|action| matches!(action, crate::menu::MenuAction::SettingsOption(candidate, _) if candidate == index))
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
+    /// Unites visible hit regions for the existing scale-slider witness.
     fn slider_track(
         &self,
         selected: impl Fn(crate::menu::MenuAction) -> bool,
@@ -66,6 +62,7 @@ impl UiPresentationRuntime {
         self.slider_drag_action(point, |action| matches!(action, crate::menu::MenuAction::SettingsOption(candidate, _) if candidate == index))
     }
 
+    /// Resolves the horizontal value using the captured slider's full geometry.
     fn slider_drag_action(
         &self,
         point: ui::UiPoint,

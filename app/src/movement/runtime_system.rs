@@ -122,6 +122,7 @@ pub(crate) fn advance_local_physics(
     publish_physics_view(&physics, &mut view);
 }
 
+/// Publishes the retained interpolated pose even while transport pauses simulation.
 fn publish_physics_view(physics: &LocalPhysicsController, view: &mut LocalViewPose) {
     if let (Some(eye), Some(feet)) = (
         physics.render_eye_position(),

@@ -2,11 +2,11 @@
 //! item visual (and alias) the entity compilation resolves from the pinned
 //! pack, deduplicated by raster source, into the bounded icon carrier.
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, IconEntry, IconSprite, ItemVisualDefinitionRoute, MAX_ICON_BLOCK_SHEETS,
-    MAX_ICON_SIDE, encode_icon_catalog_with_block_sheets,
+    encode_icon_catalog_with_block_sheets,
 };
 use sha2::{Digest, Sha256};
 
@@ -19,6 +19,7 @@ mod carried;
 mod cube;
 mod model;
 mod shield;
+mod sprites;
 
 #[derive(Debug)]
 pub struct CompiledIconCarrier {
@@ -112,52 +113,11 @@ fn compile(
         }
     }
     let mut sprites: Vec<IconSprite> = Vec::new();
-    let mut sprite_by_source: BTreeMap<u32, Option<u32>> = BTreeMap::new();
-    let mut animation_strips = 0usize;
-    let mut skipped_oversized = 0usize;
+    let mut sprite_baker = sprites::SpriteBaker::default();
     let mut entries: Vec<IconEntry> = Vec::new();
     let mut sprite_visuals = 0usize;
     let mut model_item_visuals = 0usize;
     let mut shield_sprite = None;
-
-    let mut sprite_for_source = |source_index: u32,
-                                 sprites: &mut Vec<IconSprite>|
-     -> Result<Option<u32>, AssetError> {
-        if let Some(existing) = sprite_by_source.get(&source_index) {
-            return Ok(*existing);
-        }
-        let source = &compiled.sources[source_index as usize];
-        let mut decoded = sprite_source(root, source)?;
-        if source
-            .path
-            .strip_prefix("textures/items/leather_")
-            .is_some_and(|suffix| {
-                ["helmet", "chestplate", "leggings", "boots", "horse_armor"]
-                    .iter()
-                    .any(|name| suffix == format!("{name}.png") || suffix == format!("{name}.tga"))
-            })
-        {
-            let dye = assets::DEFAULT_LEATHER_RGB;
-            let tint = [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8];
-            for pixel in decoded.rgba8.chunks_exact_mut(4) {
-                let texel = [pixel[0], pixel[1], pixel[2], pixel[3]];
-                pixel.copy_from_slice(&assets::color_mask_texel(texel, tint));
-            }
-        }
-        let Some((sprite, strip)) = bounded_sprite(decoded) else {
-            skipped_oversized += 1;
-            sprite_by_source.insert(source_index, None);
-            return Ok(None);
-        };
-        animation_strips += usize::from(strip);
-        let index =
-            u32::try_from(sprites.len()).map_err(|_| AssetError::InvalidCompiledAssets {
-                detail: "icon sprite count exceeds platform".into(),
-            })?;
-        sprites.push(sprite);
-        sprite_by_source.insert(source_index, Some(index));
-        Ok(Some(index))
-    };
 
     let mut visual_sprites: Vec<Option<u32>> = Vec::with_capacity(compiled.item_visuals.len());
     for visual in compiled.item_visuals.iter() {
@@ -176,7 +136,7 @@ fn compile(
             match visual.route {
                 ItemVisualDefinitionRoute::Sprite { texture } => {
                     sprite_visuals += 1;
-                    sprite_for_source(texture.source, &mut sprites)?
+                    sprite_baker.bake(root, &compiled, texture.source, &mut sprites)?
                 }
                 ItemVisualDefinitionRoute::BlockItem { .. }
                 | ItemVisualDefinitionRoute::EmptyHand
@@ -273,8 +233,8 @@ fn compile(
             sprite_visuals,
             model_item_visuals,
             alias_entries,
-            animation_strips,
-            skipped_oversized,
+            animation_strips: sprite_baker.animation_strips,
+            skipped_oversized: sprite_baker.skipped_oversized,
             block_visuals,
             flat_block_visuals,
             model_block_visuals,
@@ -289,32 +249,6 @@ fn compile(
     })
 }
 
-/// Bounds a decoded texture to a flat icon: as-is within `MAX_ICON_SIDE`, else a vertical
-/// animation strip's first frame (`true`); anything else is refused.
-fn bounded_sprite(decoded: crate::image::DecodedTexture) -> Option<(IconSprite, bool)> {
-    let (width, height, rgba8, strip) =
-        if decoded.width <= MAX_ICON_SIDE && decoded.height <= MAX_ICON_SIDE {
-            (decoded.width, decoded.height, decoded.rgba8, false)
-        } else if decoded.width <= MAX_ICON_SIDE
-            && decoded.height > decoded.width
-            && decoded.height.is_multiple_of(decoded.width.max(1))
-        {
-            // A vertical animation strip (compass, clock): the flat inventory icon is the
-            // strip's first recorded frame, never a guessed crop.
-            let frame_bytes = decoded.width as usize * decoded.width as usize * 4;
-            let frame = decoded.rgba8[..frame_bytes].to_vec().into_boxed_slice();
-            (decoded.width, decoded.width, frame, true)
-        } else {
-            return None;
-        };
-    let sprite = IconSprite {
-        width: u16::try_from(width).ok()?,
-        height: u16::try_from(height).ok()?,
-        rgba8: Arc::from(rgba8),
-    };
-    Some((sprite, strip))
-}
-
 /// A 3D inventory thumbnail of state `visual` of a session block overlay; `None` when it has no
 /// drawable geometry or needs a biome tint.
 #[must_use]
@@ -322,44 +256,4 @@ pub fn overlay_block_icon(overlay: &assets::BlockOverlay, visual: usize) -> Opti
     model::Model::overlay(overlay, visual)
         .ok()
         .map(|model| model.raster())
-}
-
-/// Decodes the texture used by a compiled sprite source.
-fn sprite_source(
-    root: &Path,
-    source: &assets::EntityAssetSource,
-) -> Result<crate::image::DecodedTexture, AssetError> {
-    let path = root.join(source.path.as_ref());
-    let bytes = crate::entity::read_bounded_source(root, &path)?;
-    if bytes.len() != source.source_bytes as usize
-        || <[u8; 32]>::from(Sha256::digest(&bytes)) != source.source_sha256
-    {
-        return Err(AssetError::InvalidCompiledAssets {
-            detail: "icon source changed after entity compilation".into(),
-        });
-    }
-    crate::image::decode_texture_bytes(&path, &source.path, &bytes)
-}
-
-#[cfg(test)]
-mod review_tests {
-    use super::*;
-    #[test]
-    fn review_sprite_rereads_reject_changed_source_identity() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("sprite.png");
-        image::RgbaImage::from_pixel(1, 1, image::Rgba([1; 4]))
-            .save(&path)
-            .unwrap();
-        let bytes = std::fs::read(&path).unwrap();
-        let source = assets::EntityAssetSource {
-            path: "sprite.png".into(),
-            source_bytes: bytes.len() as u32,
-            source_sha256: Sha256::digest(bytes).into(),
-        };
-        image::RgbaImage::from_pixel(2, 1, image::Rgba([2; 4]))
-            .save(&path)
-            .unwrap();
-        assert!(sprite_source(root.path(), &source).is_err());
-    }
 }

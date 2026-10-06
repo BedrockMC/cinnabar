@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,8 +22,12 @@ func loadV2193PhysicsInputs(t *testing.T) ([]byte, []Record) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := hexDigest(breg); got != v2193PhysicsBREGSHA256 {
-		t.Fatalf("v2193 BREG SHA-256 = %s, want %s", got, v2193PhysicsBREGSHA256)
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hexDigest(breg); got != blockHash {
+		t.Fatalf("v2193 BREG SHA-256 = %s, want %s", got, blockHash)
 	}
 	_, records, err := decodeBREGRecords(breg, v2193BlockProtocol)
 	if err != nil {
@@ -676,5 +681,46 @@ func TestV2193PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
 	}
 	if err := crossCheckV2193PhysicsManifest(rebound); err == nil || !strings.Contains(err.Error(), "BREG") {
 		t.Fatalf("drifted BREG binding rejection = %v", err)
+	}
+}
+
+func TestV2193PhysicsManifestFollowsTargetBlockPin(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "assets", "block-projection-v2193.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest v2193BlockProjectionManifest
+	if err := json.Unmarshal(payload, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	original := manifest.Output.SHA256
+	changed := strings.Repeat("a", 64)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "bedrock-target.json"), target, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	manifest.Output.SHA256 = changed
+	rebound, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := crossCheckV2193PhysicsManifest(rebound); err != nil {
+		t.Fatalf("rejected current target block binding: %v", err)
+	}
+	manifest.Output.SHA256 = original
+	stale, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := crossCheckV2193PhysicsManifest(stale); err == nil {
+		t.Fatal("accepted stale target block binding")
 	}
 }

@@ -1,10 +1,11 @@
 //! Transient state of the open inventory screen: hover, drag, creative tab,
 //! search text and beacon effect choice.
 
-use protocol::{CreativeCategory, CreativeContentEvent, CreativeItem};
+use protocol::CreativeCategory;
 
 mod creative_filter;
 use creative_filter::CreativeFilterCache;
+pub use creative_filter::{CreativeEntries, creative_entries};
 
 use super::inventory_drag::InventoryPointer;
 use super::presentation::inventory_pointer::InventoryCellHit;
@@ -192,56 +193,11 @@ fn tab_category(tab: u8) -> Option<CreativeCategory> {
     }
 }
 
-/// The catalog entries a tab shows; the search tab shows every entry whose
-/// name contains the text.
-pub fn creative_entries<'a>(
-    catalog: &'a CreativeContentEvent,
-    tab: u8,
-    search: &str,
-    name_of: impl Fn(&CreativeItem) -> Option<String>,
-) -> Vec<&'a CreativeItem> {
-    creative_entry_indexes(catalog, tab, search, name_of)
-        .into_iter()
-        .map(|index| &catalog.items[index])
-        .collect()
-}
-
-fn creative_entry_indexes(
-    catalog: &CreativeContentEvent,
-    tab: u8,
-    search: &str,
-    name_of: impl Fn(&CreativeItem) -> Option<String>,
-) -> Vec<usize> {
-    let needle = search.to_lowercase();
-    catalog
-        .items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| {
-            let category = catalog
-                .groups
-                .get(item.group as usize)
-                .map(|group| group.category);
-            if category == Some(CreativeCategory::CommandOnly) {
-                return false;
-            }
-            match tab_category(tab) {
-                Some(wanted) => category == Some(wanted),
-                None => {
-                    needle.is_empty()
-                        || name_of(item).is_some_and(|name| name.to_lowercase().contains(&needle))
-                }
-            }
-        })
-        .map(|(index, _)| index)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use protocol::{CreativeGroup, NetworkItemStack};
+    use protocol::{CreativeContentEvent, CreativeGroup, CreativeItem, NetworkItemStack};
 
     use super::*;
 

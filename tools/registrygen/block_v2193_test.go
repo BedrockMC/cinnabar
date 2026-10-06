@@ -77,7 +77,11 @@ func TestV2193CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T
 			t.Fatalf("runtime ID %d is %d", index, record.SequentialID)
 		}
 	}
-	if got := strings.ToLower(hexDigest(breg)); got != "8faf1f3b8cfea2954ddf01b68edde076abf4cc0b1e9f9b099360250d7d42bb88" {
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.ToLower(hexDigest(breg)); got != blockHash {
 		t.Fatalf("BREG SHA-256 = %s", got)
 	}
 	lreg, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-light-registry-v2193.bin"))

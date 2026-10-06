@@ -93,6 +93,7 @@ pub fn project_decorated_pot([x, y, z]: [f32; 3]) -> [f32; 3] {
     )
 }
 
+/// Applies a model-part inventory matrix while retaining its view depth.
 fn project_entity(
     [x, y, z]: [f32; 3],
     offset: [f32; 3],
