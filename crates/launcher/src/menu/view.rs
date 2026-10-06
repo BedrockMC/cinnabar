@@ -450,6 +450,16 @@ impl From<CatalogFriend> for MenuFriendCard {
 }
 
 impl MenuView {
+    /// The join's pending trust question, which draws as a popup over the join screen.
+    pub fn server_trust_prompt(&self) -> Option<&ServerTrustPrompt> {
+        self.feeds.server_trust.as_ref().filter(|_| self.connecting)
+    }
+
+    /// Whether a popup draws over the screen and takes its input.
+    pub fn popup_open(&self) -> bool {
+        self.dialog.is_some() || self.server_trust_prompt().is_some()
+    }
+
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
     pub fn auth_state_awaiting_code(&self) -> bool {
         matches!(self.auth_state, AuthState::AwaitingCode { .. })
