@@ -82,11 +82,11 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - /// Whether the culler hides the box from `low` to `high` in `dimension`: as vanilla's
 - /// `isAABBVisible`, only when the cache matches graph `generation` and every sub-chunk the
 
+## core/catalog/home.go
+- Live events removed: `/api/v1.0/config/public` (GatheringServiceGetPublicGatheringsRequestHandler) exists only in the 26.30 Edu reconstruction; it is absent from the iOS 1.26.50.04 binary strings and the 1.26.50.26 Windows reconstruction, and the live service returns 404.
+
 ## core/catalog/profile_overview.go
 - // Vanilla reference: OreUI J b2, Ik, Rk, xk (docs/profile-parity.md).
-
-## core/launcher/feeds.go
-- homeTTL        = 15 * time.Minute // vanilla GatheringManager re-queues its /config/public refresh every 15 min
 
 ## core/proxy/resource_pack_admission.go
 - ConnectStageRealm      ConnectStage = "realm"      // RealmsConnectProgressHandler: the Realm lookup
@@ -99,7 +99,6 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## core/store/client_test.go
 - // Authored to the reference client's inventory parser; not a captured payload.
-- // Authored to the reference client's page parser; rows carry queries, not offers.
 
 ## crates/assets/src/biome.rs
 - // whose constructor defaults surfaceOpacity to .65. Loading that component
