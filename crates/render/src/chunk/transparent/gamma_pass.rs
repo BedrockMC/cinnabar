@@ -171,8 +171,9 @@ impl ViewNode for GammaTransparentPass {
     }
 }
 
-fn native_draws(world: &World) -> [Option<DrawFunctionId>; 5] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 6] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
+    let nametags = crate::nametag_render::draw_function(world);
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
     [
         Some(draws.id::<DrawTransparentLiquidCommands>()),
@@ -180,6 +181,7 @@ fn native_draws(world: &World) -> [Option<DrawFunctionId>; 5] {
         Some(draws.id::<DrawTransparentModelCommands>()),
         Some(draws.id::<DrawMixedTerrainCommands>()),
         draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
+        nametags,
     ]
 }
 

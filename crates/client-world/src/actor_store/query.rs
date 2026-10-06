@@ -162,6 +162,7 @@ impl ActorStore {
             self.actors.get(&runtime_id)?,
             partial_tick,
             self.camera_rotation,
+            self.camera_position,
             remaining_ops,
         )
     }

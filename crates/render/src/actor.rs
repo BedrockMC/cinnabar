@@ -129,10 +129,6 @@ impl ActorRenderFrame {
     pub fn skin_bytes(&self) -> usize {
         self.skins.allocated_bytes()
     }
-}
-
-#[cfg(feature = "publication-test-support")]
-impl ActorRenderFrame {
     /// The artwork page each rig instance samples; 0 is the player-skin array.
     #[must_use]
     pub fn instance_pages(&self) -> &[ActorArtworkPageId] {

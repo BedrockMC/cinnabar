@@ -50,7 +50,7 @@ fn captured_entity_stack_retains_animation_payloads() {
     };
     let vanilla = assets::RuntimeEntityAssets::decode(&vanilla_bytes).unwrap();
     let view = resource_pack::LayeredPackView::new(stack);
-    let files = super::collect::collect_files(&view, Some(&refs));
+    let files = super::collect::collect_files(&view, Some(&refs), None);
     let compiled = pack_compiler::compile_entity_pack(files.clone())
         .unwrap()
         .expect("captured stack contains entity assets")
@@ -367,7 +367,7 @@ fn report_local_pack_entities() {
         let Some(view) = super::super::local_pack::local_pack_view_at(&path) else {
             continue;
         };
-        let files = super::collect::collect_files(&view, refs.as_ref());
+        let files = super::collect::collect_files(&view, refs.as_ref(), None);
         let entity_files = files
             .iter()
             .filter(|(p, _)| p.starts_with("entity/"))

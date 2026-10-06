@@ -100,7 +100,14 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
             state.cull = false;
         }
         "entity_alphatest_one_sided" => state.alpha_test = true,
-        "entity_alphablend" => state.blend = true,
+        "entity_emissive" => state.emissive = true,
+        "entity_emissive_alpha" | "entity_emissive_alpha_one_sided" => {
+            state.emissive = true;
+            state.alpha_test = true;
+            state.cull = name.ends_with("_one_sided");
+        }
+        "experience_orb" => state.alpha_test = true,
+        "entity_alphablend" | "slime_outer" => state.blend = true,
         _ => return None,
     }
     Some(state)
@@ -116,6 +123,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     }
     if replace_defines {
         state.alpha_test = false;
+        state.emissive = false;
     }
     for (key, enabled) in [("states", true), ("+states", true), ("-states", false)] {
         if replace_states != (key == "states") {
@@ -141,10 +149,29 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
             continue;
         };
         for value in values.as_array()? {
-            if value.as_str()? == "ALPHA_TEST" {
-                state.alpha_test = enabled;
+            match value.as_str()? {
+                "ALPHA_TEST" => state.alpha_test = enabled,
+                "USE_EMISSIVE" => state.emissive = enabled,
+                _ => {}
             }
         }
+    }
+    let source = fields.get("blendSrc").and_then(Value::as_str);
+    let destination = fields.get("blendDst").and_then(Value::as_str);
+    if source.is_some() || destination.is_some() {
+        let inherited = if state.additive {
+            ("One", "One")
+        } else {
+            ("SourceAlpha", "OneMinusSrcAlpha")
+        };
+        state.additive = match (
+            source.unwrap_or(inherited.0),
+            destination.unwrap_or(inherited.1),
+        ) {
+            ("One", "One") => true,
+            ("SourceAlpha" | "SrcAlpha", "OneMinusSrcAlpha") => false,
+            _ => return None,
+        };
     }
     Some(())
 }

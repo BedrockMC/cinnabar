@@ -100,6 +100,8 @@ pub struct ActorMaterial {
     pub state: Option<assets::EntityRenderMaterialState>,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
     pub dissolve_multiplier: f32,
+    /// RGB illumination multiplier; applies to lit and unlit draws without clamping.
+    pub light_color_multiplier: f32,
 }
 
 impl Default for ActorMaterial {
@@ -108,6 +110,7 @@ impl Default for ActorMaterial {
             kind: Default::default(),
             state: None,
             dissolve_multiplier: 1.0,
+            light_color_multiplier: 1.0,
         }
     }
 }
@@ -132,7 +135,7 @@ fn sanitized_uv_anim(uv_anim: [f32; 4]) -> [f32; 4] {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct ActorGpuInstance {
     pub world_from_actor: [[f32; 4]; 3],
     pub previous_bone_base: u32,
@@ -149,6 +152,16 @@ pub struct ActorGpuInstance {
     pub multitexture_layers: [u32; 2],
     pub material: u32,
     pub dissolve_multiplier: f32,
+    pub light_color_multiplier: f32,
+}
+
+impl Default for ActorGpuInstance {
+    fn default() -> Self {
+        Self {
+            light_color_multiplier: 1.0,
+            ..Self::zeroed()
+        }
+    }
 }
 
 pub const ACTOR_GPU_INSTANCE_WORDS: usize = std::mem::size_of::<ActorGpuInstance>() / 4;
@@ -589,6 +602,11 @@ impl ActorRigFrameBuilder {
                 material: submission.material.gpu_word(),
                 dissolve_multiplier: if submission.material.dissolve_multiplier.is_finite() {
                     submission.material.dissolve_multiplier.max(0.0)
+                } else {
+                    1.0
+                },
+                light_color_multiplier: if submission.material.light_color_multiplier.is_finite() {
+                    submission.material.light_color_multiplier
                 } else {
                     1.0
                 },

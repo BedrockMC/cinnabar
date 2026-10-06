@@ -1,6 +1,8 @@
 //! Gathers a pack stack's entity sources: unique definitions, geometry, and referenced rasters.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Read;
+use std::path::{Component, Path};
 
 use assets::VanillaEntityRefs;
 use resource_pack::LayeredPackView;
@@ -87,6 +89,7 @@ impl References {
 pub(super) fn collect_files(
     view: &LayeredPackView,
     vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let entities = unique_entities(view);
@@ -167,15 +170,52 @@ pub(super) fn collect_files(
     }
     files.extend(geometry);
     for stem in referenced_textures(&files) {
-        for extension in ["png", "tga"] {
-            let path = format!("{stem}.{extension}");
-            if let Some(bytes) = view.read(&path) {
-                files.push((path.into(), bytes.into_vec()));
-                break;
-            }
+        if let Some(texture) = texture_file(view, vanilla_pack_dir, &stem) {
+            files.push(texture);
         }
     }
     files
+}
+
+/// All server formats have precedence over the installed vanilla layer.
+fn texture_file(
+    view: &LayeredPackView,
+    vanilla_pack_dir: Option<&Path>,
+    stem: &str,
+) -> Option<(Box<str>, Vec<u8>)> {
+    let paths = [format!("{stem}.png"), format!("{stem}.tga")];
+    for path in &paths {
+        if let Some(bytes) = view.read(path) {
+            return Some((path.clone().into(), bytes.into_vec()));
+        }
+    }
+    let root = vanilla_pack_dir?;
+    if !stem.starts_with("textures/")
+        || stem.contains(['\\', ':', '\0'])
+        || stem
+            .split('/')
+            .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        || !Path::new(stem)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return None;
+    }
+    for path in paths {
+        let Ok(file) = std::fs::File::open(root.join(&path)) else {
+            continue;
+        };
+        let mut bytes = Vec::new();
+        if file
+            .take(resource_pack::MAX_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .is_ok()
+            && bytes.len() as u64 <= resource_pack::MAX_FILE_BYTES
+        {
+            return Some((path.into(), bytes));
+        }
+    }
+    None
 }
 
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.

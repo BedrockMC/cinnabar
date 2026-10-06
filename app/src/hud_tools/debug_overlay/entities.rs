@@ -50,6 +50,17 @@ pub(super) fn append_target_entity(
         actor.is_invisible(),
         actor.render_scale()
     ));
+    if let Some((min, max)) = actor.bounding_box() {
+        lines.right.push(format!(
+            "Hitbox: {:.2} wide | {:.2} high",
+            max[0] - min[0],
+            max[1] - min[1]
+        ));
+    } else {
+        lines
+            .right
+            .push("Hitbox: unavailable for interaction".to_owned());
+    }
     let mut flags = actor
         .metadata
         .iter()

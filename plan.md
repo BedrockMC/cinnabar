@@ -1,3 +1,81 @@
+## Compatibility landing
+
+- The owner accepted the final live macOS Metal build and authorized landing the
+  accumulated server compatibility changes. Formatting and architecture checks
+  pass. Known test compilation errors were corrected; further local tests and
+  waiting for CI were explicitly waived by the owner. Validation is incomplete.
+- Earlier entries record the state when each fix was introduced. Native parity
+  and performance limits marked incomplete below remain open.
+
+## Variable-named form buttons
+
+- CubeCraft's Free For All cards use a variable child key containing both an
+  instance name and a template reference. The resolver previously kept that
+  string as a name, dropping the inherited button border, caption and input.
+- Vanilla substitutes the key before splitting its name and template; the
+  resolver now does so while preserving inline overrides. A regression covers
+  the resulting instance name, button type, inherited children and overrides.
+- The canonical client build passes. A minimal reproduction changes from an
+  untyped child without descendants to the named button and its two children.
+  Captured form definitions with representative menu contents emit all four
+  borders, captions and button click regions.
+- The owner accepted the actual form's rendered result in the live macOS Metal
+  inspection build. The regression covers named inheritance and input ownership;
+  this compatibility acceptance does not close the broader native parity gates.
+
+## Cube overlay materials and scoreboard glyphs
+
+- The live CubeCraft comparison shows floating models and the empty hand, but
+  the central cube's overlays obscure its yellow base at distance and the VIP
+  scoreboard icon falls back to a tiny glyph. After the requested relaunch,
+  a fresh client capture shows the colored VIP icon. User acceptance of the
+  cube and glyph rendering remains pending.
+- Admitted reflection materials request inherited emissive shading and One/One
+  additive blending. Those contracts now survive compilation and GPU submission;
+  controller illumination multipliers also apply to unlit layers. Pipeline
+  warming adds four additive raster contracts and reuses shader-only variants.
+- The valid VIP icon U+E250 was dropped when earlier large duplicate glyphs
+  exhausted the atlas. Exact raster reuse and height-first packing retain all
+  768 captured cells within the existing eight pages, preserving each scalar's
+  metrics, colors and lookup priority.
+- Incomplete: sampler addressing, the sheen's mask behavior, wider blend factor
+  pairs, and exact matching-version built-in material registration remain open.
+  Regressions are authored but unrun at the owner's request. The canonical client
+  build passes, and the inspection client is running after the requested
+  relaunch. Changes are local and uncommitted; nothing is pushed.
+
+## Empty boss-text HUD slots
+
+- A captured server HUD uses eight fixed boss-text slots. Missing collection
+  values left unused backgrounds visible, stacking into a black patch above XP.
+  Vanilla supplies an empty name and false registration for absent entries;
+  the HUD controller now supplies those defaults.
+- The captured-pack offline draw reproduces all eight overlapping backgrounds
+  before the fix. A retained-binding regression covers empty, unrelated, matching
+  and cleared names. It is authored but unrun at the owner's request.
+- The canonical client build passes. The captured-pack offline draw removes all
+  eight unused backgrounds and preserves the XP number and outline.
+  Incomplete: live acceptance remains pending. The updated inspection client is
+  running after the requested restart. Changes are local and uncommitted;
+  nothing is pushed.
+
+## Server-pack actors and conditional forms
+
+- Captured CubeCraft definitions exposed rejected actor queries that discarded
+  complete pre-animation scripts, leaving dynamic models at zero scale and player
+  animation inactive. Camera-distance ranges, declared properties, armor slots
+  and default swing duration now evaluate through the shared actor query context.
+- The installed vanilla layer supplies actor rasters omitted by server packs,
+  preserving server artwork precedence. Collection factories use their authored
+  control-id arrays after view bindings settle, including nested factories.
+- Incomplete: custom item swing-duration overrides and the vanilla guard for
+  extremely narrow camera-distance ranges remain unimplemented or unverified.
+  The integrated Rust client build passes; the user's live screenshots show
+  floating models and the first-person hand. Selector and player animation
+  acceptance remains pending. Regressions are
+  authored but unrun at the owner's request. The inspection build is running
+  after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+
 ## Distant grass sides
 
 - Grass sides' tint-mask tiles take vanilla's atlas mips (byte-space box averages of the
@@ -5,6 +83,58 @@
 - The user confirmed distant grass sides in a live macOS build.
 - Incomplete: a server pack that replaces an overlay-masked texture still gets the runtime block
   overlay's alpha-weighted mips.
+
+## Block selection outlines and visual bounds
+
+- At the owner's request, untouched and older settings select the native black
+  outline instead of the filled highlight. Explicit Outline Selection choices
+  retain the native two-mode rendering contract.
+- Regular outlines retain the twelve unexpanded bounds edges in a dedicated
+  opaque, unlit, depth-writing pass. Unchanged targets retain their geometry and
+  upload revision across camera movement.
+- The live outline was too faint. A Metal rendering diagnostic confirms FXAA
+  dilutes thin black lines more strongly on diagonals. GPU expansion now supplies
+  consistent two-physical-pixel coverage. This is provisional compensation for
+  Cinnabar's FXAA; matching vanilla sample anti-aliasing and stroke coverage
+  remains incomplete.
+- Fence and wall selection use visual bounds independently of taller movement
+  collision. Wall heights currently follow the pinned visible models.
+- Incomplete parity: exact wall selection insets, the matching-version material
+  depth offset, scaled deferred outlines and platform-specific factory defaults
+  remain unverified. The material witness is from the neighbouring installed client.
+- The visibility update's Rust client build passes. The production stroke shader
+  renders on Metal and retains dark pixels through FXAA at horizontal, vertical
+  and diagonal angles. The user accepts its live visibility; regression tests are
+  authored but unrun at the owner's request. Latest dev changes are merged
+  locally; the updated test client is running for manual inspection. Visibility edits are
+  uncommitted; no push.
+
+## Custom climbing-vine facing
+
+- Vanilla's `query.block_property` and `query.block_state` read the same named
+  block state. Both spellings, including their `q.` forms, are now admitted by
+  custom-block permutation and bone-visibility evaluation.
+- Hive's four climbing-vine states previously all kept their base orientation
+  because their facing conditions used the rejected query alias. Their authored
+  quarter-turn transformations now reach model compilation.
+- The Rust client build passes. Named-state and four-orientation runtime
+  regressions are authored but unrun at the owner's request. Live orientation
+  acceptance remains incomplete; the inspection build is ready, and the existing
+  game remains open. Changes are uncommitted; no push.
+
+## Chat ownership and first-person shadows
+
+- At the owner's request, built-in chat owns its screen, autocomplete and HUD
+  history even when server packs replace their layouts. Chat-derived ordinary
+  history factories are suppressed; other server HUD widgets retain pack priority.
+- Local player shadows now follow the actor frame's drawn bodies, suppressing
+  the caster in first person and retaining it in third person.
+- Animated loading strips wait for settled artwork instead of drawing a
+  downsampled preview. Large custom strips retain the existing size-cap
+  approximation; exact large-image animation parity remains incomplete.
+- The integrated Rust client and Go core builds pass. Incomplete acceptance:
+  regressions are authored but unrun at the owner's request; live inspection
+  is still pending.
 
 ## NetherNet server trust
 
@@ -26,6 +156,21 @@
   Realm and experience sessions are left out because joining them from the friends tab is not
   implemented.
 
+## Server-directed local immobility
+
+- Committed local metadata now retains the server's immobile flag independently
+  of spatial anchors. Each frozen tick clears velocity and physical jumping,
+  suppresses travel/gravity and anchor depenetration, and preserves position,
+  grounded state, collision flags, look and input intent. Explicit clears and
+  session replacement release the flag; teleports do not.
+- Prediction retains the flag per tick, including delayed metadata edits and
+  correction replay. F3 and developer state queries expose the current flag.
+- Incomplete acceptance: regression tests are authored but remain unrun at the
+  user's request. The local Rust build passes; no live freeze/release witness
+  has been captured. The reported SkyWars ban does not prove its cause.
+  Pose selection with unavailable terrain retains the preceding inferred mode;
+  exact native fallback and packet scheduling remain open parity details.
+
 ## Entity shadows
 
 - Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
@@ -33,8 +178,8 @@
   instanced draw after opaque geometry; casters and parameters upload only when they change.
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
-- Remote casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
-  drawn; the breathing point, first-person local caster, item and local volume culling and
+- Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
+  drawn; the breathing point, item and local volume culling and
   camera-inside behaviour are provisional. Native side-by-side
   comparison is pending.
 
@@ -1527,6 +1672,91 @@ scripts remain incomplete. Actor raster pipelines prewarm during loading; the
 loading gate holds until their compilation completes. Focused regressions pass;
 this inspection build does not establish frame-budget or session acceptance.
 See `docs/evidence/hive-connection.md` for the functional checks.
+
+2026-10-05 custom actor interaction: omitted collision dimensions independently
+retain generic actor defaults, and server scale multiplies the physical box once.
+Regressions reproduce a custom NPC miss and verify its attack target and world-space
+hit point. F3 shows effective hitbox dimensions; attack logs distinguish the picked
+target, packet kinds and transport admission. The user's live Hive check reached
+game selection and a destination lobby; logs picked selectors with server scale
+applied. Post-fix actor tests remain deferred at the user's request.
+Provisional, incomplete: zero scale currently produces a point box before pick-radius
+inflation; the native positive minimum dimension remains unverified. Definition-specific
+collision defaults, authored picking-box collections and invalid-dimension behavior
+remain incomplete.
+
+2026-10-05 server HUD composition: partial server edits overlay the built-in HUD
+without withdrawing its whole namespace. Regressions reproduce top-left chat and
+item-name overlap while preserving explicit server anchor overrides. Live Hive
+inspection confirmed bottom chat, but found suggestions near the screen top;
+the autocomplete grid now derives its height from its collection so short lists
+stay next to the editor. Transfers have a separate loading presentation that
+suppresses the join animation while retaining destination text and backdrop.
+Provisional, incomplete: the ordinary no-bar policy is supported by current
+handler initialization and a near-version native dispatch witness; exact current
+dispatch and a fresh live check remain outstanding. New chat/loading regressions
+are authored but unrun at the user's request. Native
+`#item_name_text_offset` controller binding remains
+incomplete; this correction preserves the approved built-in pack geometry.
+
+2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
+wildcard material with `slime_outer`. The compiler previously ignored bone-specific
+rules, drawing both coincident opposing lens faces with the body material. Per-bone
+last-match routing now retains authored visibility and alternate/inherited geometry;
+the glass uses blending, culling and depth writes. The patch is uncommitted and its
+three regressions remain unrun at the user's request. No extra depth bias is warranted.
+Incomplete: broader native
+pattern semantics, dynamic material arrays, custom shader defines, and the strict
+default actor depth comparison remain unverified or unsupported. A rebuilt Metal
+inspection still flickered in the lens and game titles. Frame camera-position sampling
+now refreshes the body and controller-selected geometry poses; two regressions are
+authored but unrun at the user's request. Those changes alone did not resolve flicker.
+Actor queueing also used the preceding frame's span indices before preparation
+replaced the spans and GPU buffers. Preparation now precedes queueing, while binding
+creation remains after view uniforms. Two behavioral regressions are authored but
+unrun at the user's request. The user confirmed that movement flicker is resolved
+in the rebuilt Metal client on Hive. Latest dev through
+`41c72fb3d` is merged locally; inspection fixes are uncommitted and nothing was pushed.
+
+2026-10-05 custom actor panel UVs: finite normalized cube UV corners now clamp to
+the image bounds before interpolation, matching vanilla. The Bridge title panel's
+overflowing face UVs previously stretched transparent corner pixels across its
+right side. Three focused regressions cover full-width coverage, signed flips and
+box UVs; they remain unrun at the user's request. The Rust client rebuilt successfully.
+The user confirmed the correction works after relaunch. It remains uncommitted.
+
+2026-10-05 actor name-tag bold and backgrounds: server bold markers were retained
+but atlas rasterization ignored them, while shared layout omitted bold advances.
+The open-font route now shares a one-design-pixel bold offset across layout,
+UI drawing and atlas rasterization, including spaces and shifted ink bounds.
+Ordinary SDR name tags join encoded-color transparency without changing the
+0.25-black plate opacity or depth order. Provisional, labeled incomplete: exact
+current final text attachment dispatch, native Unicode/forced-Unicode adaptation,
+HDR and MSAA. Near-version shaders corroborate encoded text output. Focused
+regressions are authored but unrun at the user's request. Local and uncommitted;
+the fresh rendered comparison remains pending, with no parity gate closed.
+The Rust build succeeded and the fresh Metal client is running on Hive. A visible
+frame confirms world/actor/name-tag rendering without logged shader validation
+errors; the upgrade NPC's native comparison remains pending with the user.
+
+The subsequent user check exposed split bold strokes. Name-tag CPU sampling
+treated exclusive glyph rectangle ends as inclusive, pulling transparent padding
+into the glyph. Sampling now matches the compiled and runtime-sheet UV contract;
+empty source rectangles draw no ink. A private diagnostic from the loaded font
+reproduces the split title and confirms continuous stems after correction.
+Regression cases are authored but unrun at the user's request. Fresh rendered
+acceptance remains pending; the compiled-font adaptation of native Unicode and
+TrueType half-offset drawing is still explicitly incomplete. Local, uncommitted.
+The corrected Rust build passed and is running on Hive. A fresh Metal frame
+renders the current game lobby; the user's close title comparison remains pending.
+
+2026-10-05 server sidebar placement: a full-screen server scoreboard replacement
+retained the built-in HUD's asymmetric outer anchors and moved Hive's level row
+down by half the viewport. Symmetric vanilla outer anchors now preserve the
+server's top-right placement; adjusted inner positioning retains the compact
+built-in sidebar. Chat styling and server precedence remain unchanged. Regression
+cases are authored but unrun at the user's request. Local, uncommitted; the fresh
+game-lobby comparison remains pending.
 
 2026-09-27 chunk decode parity: chunk payload contents now follow the 26.30 client's
 lenient stream decode (palette clamp and index zeroing, zero-fill past the end,
@@ -4665,8 +4895,8 @@ remains pending measured timing.
 `hud.hud_screen` and `hud_crosshair.hud_crosshair_screen` through the JSON-UI
 engine over the session's pack stack, so server packs restyle it as on Bedrock.
 The Java look ships as the built-in pack `assets/java-hud` under every server
-pack; for any namespace a server pack restyles (`hud`, `scoreboard`), its files
-are withdrawn so the pack gets vanilla beneath it. The JSON-UI carrier is now a
+pack. Partial server definitions overlay that layer; authored server replacements
+and positioning take priority. The JSON-UI carrier is now a
 required startup carrier. Native renderers (hearts, armor, hunger, bubbles,
 mount hearts/jump, slot art, effects, crosshair) keep Java behavior at their
 controls. Container, inventory, creative and book screens draw through the engine

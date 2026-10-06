@@ -27,6 +27,9 @@ mod pipeline_prewarm_tests;
 #[path = "pipeline_material_gpu_tests.rs"]
 mod pipeline_material_gpu_tests;
 
+#[path = "frame_order_tests.rs"]
+mod frame_order_tests;
+
 /// A residency holding one standard-raster skin in class 0, layer 0.
 fn one_resident_skin() -> Arc<crate::actor::ActorSkinResidency> {
     let skin = render_api::SkinRgba8::from(vec![255; render_model::STANDARD_SKIN_BYTES]);
@@ -106,6 +109,7 @@ fn actor_material_states_specialize_culling_blending_and_depth_write_independent
                 cull,
                 blend,
                 depth_write,
+                ..Default::default()
             }),
             ..Default::default()
         };

@@ -40,7 +40,7 @@ pub use v4::{
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
     MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
-    MolangSymbolKind, molang_call, molang_program_stack,
+    MolangSymbolKind, entity_render_pattern_matches, molang_call, molang_program_stack,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";

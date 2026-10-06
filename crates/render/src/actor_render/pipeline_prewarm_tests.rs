@@ -72,6 +72,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
                                 cull,
                                 blend,
                                 depth_write,
+                                ..Default::default()
                             }));
                             descriptors.insert(
                                 pipeline.draw_variant(msaa, hdr, false, material).expect(
@@ -87,6 +88,28 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
             descriptors.len(),
             24,
             "only distinct raster/depth contracts compile"
+        );
+        for cull in [false, true] {
+            for depth_write in [false, true] {
+                let material =
+                    EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                        cull,
+                        depth_write,
+                        blend: true,
+                        additive: true,
+                        ..Default::default()
+                    }));
+                descriptors.insert(
+                    pipeline
+                        .draw_variant(msaa, hdr, false, material)
+                        .expect("additive contracts are prepared before an actor exists"),
+                );
+            }
+        }
+        assert_eq!(
+            descriptors.len(),
+            28,
+            "blend factors add only four contracts"
         );
     });
 }
@@ -107,6 +130,10 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
         alpha_test: true,
         ..state
     }));
+    let emissive = EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+        emissive: true,
+        ..state
+    }));
     assert_ne!(
         normal, dragon,
         "shader instances retain their full material words"
@@ -118,6 +145,11 @@ fn actor_pipeline_prewarm_reuses_descriptors_for_shader_only_flags() {
             pipeline.draw_variant(msaa, hdr, false, normal).unwrap(),
             pipeline.draw_variant(msaa, hdr, false, dragon).unwrap(),
             "identical raster contracts share one compiled pipeline",
+        );
+        assert_eq!(
+            pipeline.draw_variant(msaa, hdr, false, normal),
+            pipeline.draw_variant(msaa, hdr, false, emissive),
+            "emissive shader flags reuse the raster pipeline"
         );
     });
 }

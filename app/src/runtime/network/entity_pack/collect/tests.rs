@@ -43,7 +43,7 @@ fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child()
     let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
         protocol::ResourcePackHandoff::from_archives(vec![lower, upper]),
     ));
-    let files = super::collect_files(&view, None);
+    let files = super::collect_files(&view, None, None);
     let definitions = files
         .iter()
         .find_map(|(path, bytes)| {
@@ -61,4 +61,50 @@ fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child()
         json!({"-defines":["FANCY"]})
     );
     assert!(definitions.get("fixture:entity_alphatest").is_none());
+}
+
+#[test]
+fn server_entity_textures_inherit_vanilla_without_overriding_server_formats() {
+    let base = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(base.path().join("textures/entity")).unwrap();
+    std::fs::write(base.path().join("textures/entity/fixture.png"), b"vanilla").unwrap();
+    let entity = br#"{"minecraft:client_entity":{"description":{"identifier":"fixture:actor","textures":{"default":"textures/entity/fixture"}}}}"#;
+    let view = |files: &[(&str, &[u8])]| {
+        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(files))
+    };
+    let inherited = super::collect_files(
+        &view(&[("entity/fixture.json", entity)]),
+        None,
+        Some(base.path()),
+    );
+    assert!(inherited.iter().any(|(path, bytes)| {
+        path.as_ref() == "textures/entity/fixture.png" && bytes == b"vanilla"
+    }));
+    let overridden = super::collect_files(
+        &view(&[
+            ("entity/fixture.json", entity),
+            ("textures/entity/fixture.tga", b"server"),
+        ]),
+        None,
+        Some(base.path()),
+    );
+    assert!(overridden.iter().any(|(path, bytes)| {
+        path.as_ref() == "textures/entity/fixture.tga" && bytes == b"server"
+    }));
+    assert!(
+        !overridden
+            .iter()
+            .any(|(path, _)| path.as_ref() == "textures/entity/fixture.png")
+    );
+}
+
+#[test]
+fn vanilla_texture_lookup_does_not_leave_the_pack_root() {
+    let parent = tempfile::tempdir().unwrap();
+    let base = parent.path().join("base");
+    std::fs::create_dir_all(base.join("textures")).unwrap();
+    std::fs::write(parent.path().join("outside.png"), b"outside").unwrap();
+    let view =
+        resource_pack::LayeredPackView::new(super::super::super::pack_reload_tests::stack(&[]));
+    assert!(super::texture_file(&view, Some(&base), "textures/../../outside").is_none());
 }

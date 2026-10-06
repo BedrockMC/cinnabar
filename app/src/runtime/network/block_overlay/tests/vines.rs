@@ -21,17 +21,111 @@ fn custom_block_property_alias_applies_each_facing_permutation() {
                 ..CustomBlockVisuals::default()
             },
         );
+        let expressions = super::super::condition::BlockExpressions::new(&block);
         for state in 0..4 {
             let mut gaps = OverlayGaps::default();
-            let resolved = super::super::condition::state_components(&block, state, &mut gaps);
+            let values = block.state_values(state).unwrap();
+            let resolved = super::super::condition::state_visual(
+                &block,
+                &expressions,
+                Some(&values),
+                &mut gaps,
+            );
             assert_eq!(
                 resolved
+                    .components
                     .transformation
                     .map_or(0, |transform| transform.rotation[1]),
                 state as i32,
                 "{spelling}, facing {state}"
             );
             assert_eq!(gaps.unevaluated_permutations, 0);
+        }
+    }
+}
+
+#[test]
+fn block_property_permutations_rotate_each_runtime_vine_state() {
+    let view = view_with_geometry(
+        br#"{"minecraft:geometry":[{
+        "description":{"identifier":"geometry.gen","texture_width":32,"texture_height":32},
+        "bones":[{"name":"root","cubes":[{
+            "origin":[-8,0,-8],"size":[16,16,0],
+            "uv":{"north":{"uv":[0,0],"uv_size":[16,16]}}
+        }]}]
+    }]}"#,
+    );
+    let vine = block(
+        "test:vine",
+        4,
+        CustomBlockVisuals {
+            base: CustomVisualComponents {
+                geometry: Some("geometry.gen".into()),
+                materials: materials("gen"),
+                ..CustomVisualComponents::default()
+            },
+            state_axes: Box::new([CustomStateAxis {
+                name: "custom:facing_direction".into(),
+                values: (0..4).map(CustomStateValue::Int).collect(),
+            }]),
+            permutations: [(1, 2), (2, 1), (3, 3)]
+                .map(|(facing, quarters)| CustomPermutation {
+                    condition: format!(
+                        "query.block_property('custom:facing_direction') == {facing}"
+                    )
+                    .into(),
+                    components: turn(quarters),
+                })
+                .into(),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let states = vine.hashed_states();
+    let blocks = CustomBlocks {
+        blocks: vec![vine].into(),
+        ..CustomBlocks::default()
+    };
+    let expected = [
+        ([0, 0, 0], [256, 256, 0]),
+        ([0, 0, 256], [256, 256, 256]),
+        ([0, 0, 0], [0, 256, 256]),
+        ([256, 0, 0], [256, 256, 256]),
+    ];
+    for hashed in [false, true] {
+        let compiled = compile_block_overlay(&view, &blocks, hashed, None).unwrap();
+        assert_eq!(compiled.gaps.unevaluated_permutations, 0);
+        let session = RuntimeAssets::diagnostic()
+            .with_block_overlay(1, &compiled.overlay)
+            .unwrap();
+        for (state, &(expected_min, expected_max)) in expected.iter().enumerate() {
+            let (mode, id) = if hashed {
+                (NetworkIdMode::Hashed, states[state].hash)
+            } else {
+                (NetworkIdMode::Sequential, 1 + state as u32)
+            };
+            let template = session.resolve(mode, id).model_template().unwrap();
+            let template = session.model_templates()[template as usize];
+            assert_eq!(template.quad_count, 1);
+            let quad = &session.model_quads()[template.quad_start as usize];
+            let min = std::array::from_fn::<_, 3, _>(|axis| {
+                quad.positions
+                    .iter()
+                    .map(|point| point[axis])
+                    .min()
+                    .unwrap()
+            });
+            let max = std::array::from_fn::<_, 3, _>(|axis| {
+                quad.positions
+                    .iter()
+                    .map(|point| point[axis])
+                    .max()
+                    .unwrap()
+            });
+            assert_eq!(
+                (min, max),
+                (expected_min, expected_max),
+                "{mode:?}, facing {state}"
+            );
         }
     }
 }
