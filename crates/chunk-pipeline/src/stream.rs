@@ -353,7 +353,7 @@ pub struct WorldStream {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use client_world::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
