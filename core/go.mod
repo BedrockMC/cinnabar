@@ -14,10 +14,9 @@ require (
 	github.com/klauspost/compress v1.18.4
 	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f
 	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6
-	github.com/sandertv/gophertunnel v1.57.0
+	github.com/sandertv/gophertunnel v1.62.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.46.0
-	golang.org/x/text v0.38.0
 )
 
 require (
@@ -47,10 +46,11 @@ require (
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )
 
 replace (
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20260908193618-2049463566ca
-	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261006000705-0a6737c94f42
+	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261006022246-08842e71acb2
 )

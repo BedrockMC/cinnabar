@@ -2,6 +2,7 @@
 //! with OreUI by default (`docs/oreui.md`). The dev-only local-originals mode
 //! swaps in the install's icon and border sprites for side-by-side comparison.
 
+mod accounts;
 mod bedtime;
 mod death;
 mod friends;
@@ -129,7 +130,10 @@ impl UiPresentationRuntime {
         canvas.offsets = offsets;
         canvas.seconds = self.menu_seconds;
         match screen {
-            MenuScreen::Death => death::draw(&mut canvas, view, size)?,
+            MenuScreen::Death => {
+                canvas.bundle = theme::Bundle::Gameplay;
+                death::draw(&mut canvas, view, size)?
+            }
             MenuScreen::Profile => {
                 profile::draw(&mut canvas, view, size, portrait, &self.menu_artwork.refs)?
             }
@@ -198,6 +202,7 @@ impl UiPresentationRuntime {
             self.solid_texture_page,
             None,
         );
+        canvas.bundle = theme::Bundle::Gameplay;
         let hits = bedtime::draw(&mut canvas, &state, size)?;
         let [left, top] = [self.safe_area.left(), self.safe_area.top()];
         self.form_presentation.bed.hits = hits

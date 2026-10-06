@@ -304,11 +304,10 @@ pub(crate) fn prepare_ui_runtime(
         presentation.sync_menu_artwork(
             client_ui::ui_runtime::presentation::menu_artwork::view_paths(&view),
         );
-        for server in view.featured.iter_mut().chain(view.gatherings.iter_mut()) {
+        for server in view.featured.iter_mut() {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }
         view.featured_icon = presentation.item_icon("minecraft:compass_item", 0);
-        view.gathering_icon = presentation.item_icon("minecraft:map_empty", 0);
         view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
         view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
         view.saved_icon = presentation.item_icon("minecraft:book_normal", 0);

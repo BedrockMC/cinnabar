@@ -128,7 +128,7 @@ pub use entity::{
     EntityAnimationChannel, EntityAnimationClip, EntityAnimationController,
     EntityAnimationInterpolation, EntityAnimationKeyframe, EntityAnimationLoop,
     EntityAnimationProperty, EntityAssetKind, EntityAssetSource, EntityAssetSummary,
-    EntityAssetSymbol, EntityControllerAnimation, EntityControllerAnimationTarget,
+    EntityAssetSymbol, EntityCarrierBlob, EntityControllerAnimation, EntityControllerAnimationTarget,
     EntityControllerState, EntityControllerTransition, EntityDependency, EntityDependencyKind,
     EntityDependencyResolution, EntityGeometry, EntityGeometryBone, EntityGeometryCube,
     EntityGeometryFaceUv, EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryScalar,

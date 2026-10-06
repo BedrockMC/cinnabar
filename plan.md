@@ -1,3 +1,23 @@
+## NetherNet server trust
+
+- Plain-http NetherNet joins ask vanilla's first-use trust question through the JSON-UI modal
+  popup, with the keys stored as vanilla stores them. Provisional deviation: an answer that takes
+  longer than 5 s redials the server with the trusted key, because a dedicated server drops an
+  idle negotiation within about ten seconds; vanilla's handling of a slow answer is unconfirmed.
+
+## Servers tab experiences
+
+- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. Incomplete
+  parity: experiences show no player count (the game reads gatherings player counts), and a
+  listing-only experience's details panel stays empty until its linked detail page is read.
+
+## Friends tab worlds
+
+- Friends' worlds follow the vanilla list rule (`p2p.World.Listed`): members and a host, the player's
+  own session only for a Realm, broadcast 3/4 always and 2 for friends. Incomplete parity: friends'
+  Realm and experience sessions are left out because joining them from the friends tab is not
+  implemented.
+
 ## Entity shadows
 
 - Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
@@ -4879,11 +4899,12 @@ reasons; auth/device-code UX polish. Optional stretch: Lunar module toggles surf
 via control channel (v1.x, not v1).
 
 - **Marketplace rows — provisional, incomplete.** The home is the `storeRoot` known page. Curated rows carry
-  their offers inline; `StoreRow` and `HeroRow` are drawn (the hero row in its pre-content-card form). Query
-  rows are filled from their first query via `marketplace.Query.SearchFilter` onto PlayFab `Catalog/Search`,
-  whose vanilla request body is unconfirmed. Not drawn yet (no client factory data): `PromoBanner`,
-  `NavButtonRow`, `CoinBundleRow` and the `Layout` top-bar row; the core still sends `CoinBundleRow` offers.
-  Curated rows have no "See All" yet (the item list's `linksTo` page). Does not close the store parity gate
+  their offers inline; `StoreRow` and `HeroRow` draw vanilla's pre-content-card cards, as the live session
+  config sends no `contentCardStyles` (the client's content-card flight is not read). Query rows are filled
+  from their first query via `marketplace.Query.SearchFilter` onto PlayFab `Catalog/Search`, whose vanilla
+  request body is unconfirmed. Not drawn yet: `PromoBanner`, `NavButtonRow`, `CoinBundleRow`, the `Layout`
+  top-bar row, offer type badges (icon overlays), the rating count beside the average, and the row's "See
+  All" tile and page (the item list's `linksTo`). Does not close the store parity gate
   (`docs/marketplace-services.md`).
 
 ## Phase 7 — Local worlds on dragonfly

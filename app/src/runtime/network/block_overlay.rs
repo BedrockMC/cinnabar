@@ -7,7 +7,10 @@ mod geometry;
 mod legacy;
 mod textures;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use assets::{
     Animation, BlockFlags, BlockOverlay, BlockVisual, ContributorRole, LightProperties,
@@ -22,6 +25,7 @@ use protocol::{CustomBlocks, CustomVisualComponents};
 use resource_pack::LayeredPackView;
 
 use self::{
+    condition::StateVisual,
     geometry::{FACE_NAMES, FaceQuad, Geometry, geometry_catalog},
     textures::{DecodedTexture, TextureCatalog, flipbook_frames, resample_square, shrink_to_max},
 };
@@ -100,6 +104,7 @@ pub(super) fn compile_block_overlay(
         ..assets::Material::unvaried()
     });
     for block in blocks.blocks.iter() {
+        let expressions = condition::BlockExpressions::new(block);
         let states = block.hashed_states();
         let identities_complete = states.len() == block.state_count as usize;
         if !identities_complete {
@@ -107,22 +112,22 @@ pub(super) fn compile_block_overlay(
         }
         if hashed {
             for state in states {
-                let mut components =
-                    condition::assignment_components(block, &state.values, &mut builder.gaps);
-                legacy.apply(&block.name, &mut components);
-                builder.push_state(&components);
+                let mut visual = condition::state_visual(
+                    block, &expressions, Some(&state.values), &mut builder.gaps,
+                );
+                legacy.apply(&block.name, &mut visual.components);
+                builder.push_state(&visual);
                 builder.overlay.hashes.push(Some(state.hash));
             }
             continue;
         }
         for state in 0..block.state_count {
-            let mut components = condition::state_components(block, state, &mut builder.gaps);
-            legacy.apply(&block.name, &mut components);
-            builder.push_state(&components);
-            builder
-                .overlay
-                .hashes
-                .push(identities_complete.then(|| states[state as usize].hash));
+            let values = block.state_values(state);
+            let mut visual =
+                condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
+            legacy.apply(&block.name, &mut visual.components);
+            builder.push_state(&visual);
+            builder.overlay.hashes.push(identities_complete.then(|| states[state as usize].hash));
         }
     }
     if let Some(keys) = vanilla_keys {
@@ -184,22 +189,23 @@ impl Builder<'_> {
         }
     }
 
-    fn push_state(&mut self, components: &CustomVisualComponents) {
-        let light = state_light(components);
-        let visual = self.visual(components);
+    fn push_state(&mut self, state: &StateVisual) {
+        let light = state_light(&state.components);
+        let visual = self.visual(state);
         self.overlay.visuals.push(visual);
         self.overlay.light_properties.push(light);
     }
 
-    fn visual(&mut self, components: &CustomVisualComponents) -> BlockVisual {
-        let key = format!("{components:?}");
+    fn visual(&mut self, state: &StateVisual) -> BlockVisual {
+        let components = &state.components;
+        let key = format!("{components:?}{:?}", state.hidden_bones);
         if let Some(visual) = self.visuals.get(&key) {
             return *visual;
         }
         let visual = match components.geometry.as_deref() {
             None | Some(FULL_BLOCK) => self.cube(components),
             Some(identifier) => match self.geometries.get(identifier).cloned() {
-                Some(geometry) => self.model(components, &geometry),
+                Some(geometry) => self.model(components, &geometry, &state.hidden_bones),
                 None => {
                     self.gaps.missing_geometry += 1;
                     diagnostic_visual()
@@ -256,11 +262,24 @@ impl Builder<'_> {
         }
     }
 
-    fn model(&mut self, components: &CustomVisualComponents, geometry: &Geometry) -> BlockVisual {
+    fn model(
+        &mut self,
+        components: &CustomVisualComponents,
+        geometry: &Geometry,
+        hidden_bones: &[Arc<str>],
+    ) -> BlockVisual {
         self.gaps.skipped_cubes += geometry.skipped_cubes;
         let mut quads = Vec::new();
         let mut first_material = None;
-        for cube in &geometry.cubes {
+        let shown = geometry
+            .cubes
+            .iter()
+            .filter(|cube| !hidden_bones.iter().any(|bone| **bone == *cube.bone))
+            .collect::<Vec<_>>();
+        if shown.is_empty() && !geometry.cubes.is_empty() {
+            return invisible_visual();
+        }
+        for cube in shown {
             for (face_quad, instance) in cube.quads() {
                 let (material, _, two_sided) =
                     self.face_material(components, FACE_NAMES[face_quad.face], instance, false);
@@ -511,6 +530,15 @@ fn state_light(components: &CustomVisualComponents) -> LightProperties {
 
 fn diagnostic_visual() -> BlockVisual {
     BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary)
+}
+
+/// A model whose bone visibility hides every cube draws nothing.
+fn invisible_visual() -> BlockVisual {
+    BlockVisual {
+        kind: VisualKind::Invisible,
+        support: VisualSupport::Exact,
+        ..diagnostic_visual()
+    }
 }
 
 fn diagnostic_pixels(tile: u32) -> Box<[u8]> {
