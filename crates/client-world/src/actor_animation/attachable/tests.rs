@@ -2,7 +2,7 @@ use super::*;
 use crate::actor_animation::pose::quat_from_euler;
 use assets::*;
 
-pub(super) fn scalar(value: f32) -> EntityGeometryScalar {
+fn scalar(value: f32) -> EntityGeometryScalar {
     EntityGeometryScalar::new(value).unwrap()
 }
 
@@ -219,7 +219,7 @@ fn fixture() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(compiled_fixture()).unwrap())
 }
 
-pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
+fn owner_rig() -> ActorRigSnapshot<'static> {
     ActorRigSnapshot {
         actor: ActorLifetimeId {
             session_id: 1,
@@ -1098,3 +1098,6 @@ fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
     // resource_pack/attachables/shield.entity.json:36-45; animations/shield.animation.json:17.
     assert!((sample(true) - sample(false) + 30.1).abs() < 0.001);
 }
+
+#[path = "worn_tests.rs"]
+mod worn_tests;
