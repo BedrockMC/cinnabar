@@ -168,7 +168,6 @@ use gpu::layout::{
     GpuUploadReservation, SHARED_GEOMETRY_ALIGNMENT_WORDS, account_chunk_gpu_uploads,
     advance_arena_migration, arena_capacities, begin_arena_migration, buffer_byte_len,
     checked_align_up, first_arena_growth, plan_arena_growth, write_geometry_stream_words,
-    write_stream_records,
 };
 #[allow(unused_imports)]
 use gpu::types::{
