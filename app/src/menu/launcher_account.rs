@@ -15,7 +15,7 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
     self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
-    Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
+    Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
@@ -62,7 +62,6 @@ struct Snapshot {
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
-    gatherings: Option<Vec<Gathering>>,
     profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
@@ -82,7 +81,6 @@ impl Snapshot {
         self.friends = None;
         self.profile = None;
         self.home = None;
-        self.gatherings = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
             let _ = wake.try_send(());
@@ -576,34 +574,6 @@ impl AccountControl for LauncherAccount {
     fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         let servers = self.with(|snapshot| snapshot.featured.take())?;
         Some(servers.iter().map(featured_card).collect())
-    }
-
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        let gatherings = self.with(|snapshot| snapshot.gatherings.take())?;
-        Some(
-            gatherings
-                .iter()
-                .filter(|gathering| !gathering.id.is_empty())
-                .map(|gathering| {
-                    let card = MenuServerCard {
-                        name: gathering.name.clone(),
-                        address: format!(
-                            "{}{}",
-                            super::launcher_core::GATHERING_ADDRESS_PREFIX,
-                            gathering.id
-                        ),
-                        caption: gathering.caption.clone(),
-                        image_path: gathering.image.path.clone(),
-                        icon: None,
-                    };
-                    let details = ServerDetails {
-                        description: gathering.description.clone(),
-                        ..ServerDetails::default()
-                    };
-                    (card, details)
-                })
-                .collect(),
-        )
     }
 
     /// Queues an inbox action on the dedicated reporting worker.

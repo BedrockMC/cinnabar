@@ -88,7 +88,6 @@ pub enum MenuAction {
     PlayAddServer,
     PlaySaved(usize),
     PlayFeatured(usize),
-    PlayGathering(usize),
     PlayRealm(usize),
     PlayFriend(usize),
     ToggleFavorite(usize),

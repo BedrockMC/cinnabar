@@ -84,12 +84,6 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             art(dir, "cubecraft", [256, 256], [30, 110, 200]),
         ),
     ];
-    view.gatherings = vec![server(
-        "Minecraft Live",
-        "live.example.net:19132",
-        "Live event",
-        art(dir, "live", [256, 256], [140, 60, 200]),
-    )];
     view.realms = vec![
         realm("Steve's Realm", "open", false, 21, false),
         realm("Build Club", "closed", false, 3, false),

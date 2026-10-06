@@ -45,18 +45,6 @@ type Image struct {
 	Path string `json:"path,omitempty"`
 }
 
-// Gathering is a community experience; it is joined by ID only when the player connects.
-type Gathering struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Caption     string `json:"caption"`
-	Description string `json:"description,omitempty"`
-	Creator     string `json:"creator,omitempty"`
-	Image       Image  `json:"image"`
-	StartUnix   int64  `json:"start_unix,omitempty"`
-	EndUnix     int64  `json:"end_unix,omitempty"`
-}
-
 // Profile is the signed-in account as the start and profile screens show it. A count whose
 // lookup failed is omitted rather than reported as zero.
 type Profile struct {
@@ -99,11 +87,6 @@ func FeaturedServers(ctx context.Context, account *authcache.Account) ([]Feature
 		return nil, err
 	}
 	return featuredServers(tab), nil
-}
-
-// Gatherings is empty: the Servers tab lists every experience among the featured servers.
-func Gatherings(context.Context, *authcache.Account) ([]Gathering, error) {
-	return []Gathering{}, nil
 }
 
 // JoinGathering joins the experience now and returns its typed server assignment.
@@ -290,15 +273,6 @@ func FeaturedImages(servers []FeaturedServer) []*Image {
 		for game := range server.Games {
 			images = append(images, &server.Games[game].Image)
 		}
-	}
-	return images
-}
-
-// GatheringImages lists the artwork of gatherings for CacheImages.
-func GatheringImages(gatherings []Gathering) []*Image {
-	images := make([]*Image, 0, len(gatherings))
-	for index := range gatherings {
-		images = append(images, &gatherings[index].Image)
 	}
 	return images
 }

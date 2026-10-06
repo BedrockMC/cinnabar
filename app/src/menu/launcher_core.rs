@@ -376,7 +376,7 @@ pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::vie
     match target_for(address) {
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,
-        // Friend worlds and gatherings use the external-server title until vanilla's is confirmed.
+        // Friend worlds and experiences use the external-server title until vanilla's is confirmed.
         ConnectTarget::RakNet(_) | ConnectTarget::Friend(_) | ConnectTarget::Gathering(_) => {
             JoinKind::External
         }
