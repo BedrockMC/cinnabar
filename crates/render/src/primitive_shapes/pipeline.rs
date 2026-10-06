@@ -229,54 +229,57 @@ pub(super) fn prepare_bind_groups(
     let global_id = globals.buffer.buffer().map(Buffer::id);
     if gpu.view_id != view_id || gpu.global_id != global_id {
         for batch in &mut gpu.batches {
-            batch.bind_group = None;
+            batch.bind_groups.clear();
         }
         gpu.view_id = view_id;
         gpu.global_id = global_id;
     }
     let gpu = &mut *gpu;
+    let layout = cache.get_bind_group_layout(&pipeline.layout);
     for batch in &mut gpu.batches {
-        if batch.bind_group.is_some() {
+        if !batch.bind_groups.is_empty() {
             continue;
         }
-        batch.bind_group = Some(device.create_bind_group(
-            "primitive shape bind group",
-            &cache.get_bind_group_layout(&pipeline.layout),
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: view.clone(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: batch.slots.buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: gpu.frame.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: global.clone(),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: gpu.actors.buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: gpu.text.buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 6,
-                    resource: BindingResource::TextureView(&gpu.atlas_view),
-                },
-                BindGroupEntry {
-                    binding: 7,
-                    resource: BindingResource::Sampler(&gpu.sampler),
-                },
-            ],
-        ));
+        for chunk in &batch.slots.chunks {
+            batch.bind_groups.push(device.create_bind_group(
+                "primitive shape bind group",
+                &layout,
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: view.clone(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: chunk.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: gpu.frame.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: global.clone(),
+                    },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: gpu.actors.chunks[0].as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 5,
+                        resource: gpu.text.chunks[0].as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 6,
+                        resource: BindingResource::TextureView(&gpu.atlas_view),
+                    },
+                    BindGroupEntry {
+                        binding: 7,
+                        resource: BindingResource::Sampler(&gpu.sampler),
+                    },
+                ],
+            ));
+        }
     }
 }
 
@@ -349,7 +352,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawShapeBatch {
     type Param = SRes<ShapeGpu>;
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
-    /// Binds one stable arena and draws all its slots with visibility decided on the GPU.
+    /// Draws each arena chunk with its own binding; visibility is decided on the GPU.
     fn render<'w>(
         item: &P,
         view: ROQueryItem<'w, '_, Self::ViewQuery>,
@@ -361,15 +364,19 @@ impl<P: PhaseItem> RenderCommand<P> for DrawShapeBatch {
         let Some(batch) = gpu.batches.get(item.batch_range().start as usize / 5) else {
             return RenderCommandResult::Skip;
         };
-        let Some(group) = &batch.bind_group else {
+        if batch.bind_groups.is_empty() {
             return RenderCommandResult::Skip;
-        };
-        pass.set_bind_group(0, group, &[view.offset]);
+        }
         if is_text(batch.key) {
+            pass.set_bind_group(0, &batch.bind_groups[0], &[view.offset]);
             pass.draw(0..6, 0..gpu.text_count);
-        } else {
-            pass.set_vertex_buffer(0, batch.mesh.slice(..));
-            pass.draw(0..batch.vertices, 0..batch.instances);
+            return RenderCommandResult::Success;
+        }
+        pass.set_vertex_buffer(0, batch.mesh.slice(..));
+        for (index, group) in batch.bind_groups.iter().enumerate() {
+            pass.set_bind_group(0, group, &[view.offset]);
+            let instances = batch.slots.chunk_len(index, batch.instances as usize);
+            pass.draw(0..batch.vertices, 0..instances);
         }
         RenderCommandResult::Success
     }
