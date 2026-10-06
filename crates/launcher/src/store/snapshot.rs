@@ -8,8 +8,17 @@ use protocol::store_control::{StoreOffer, StoreOfferDetail};
 use super::flow::{PurchaseDialog, PurchaseFlow};
 use super::worker::StoreError;
 
-/// Most thumbnails the menu artwork atlas can hold at once.
-pub const MAX_VISIBLE_IMAGES: usize = 32;
+/// Most offer images the menu artwork atlas packs at once, in draw order.
+pub const MAX_VISIBLE_IMAGES: usize = 60;
+
+/// How an offer image is shown, which sets the size it is decoded at.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoreArt {
+    /// An offer card's thumbnail.
+    Card,
+    /// The offer page's key art and screenshots.
+    Feature,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StoreView {
@@ -72,25 +81,28 @@ impl StoreSnapshot {
         }
     }
 
-    /// Local files of the thumbnails currently on screen, in draw order, bounded by the artwork atlas.
-    pub fn image_paths(&self) -> Vec<String> {
+    /// Local files of the offer images currently on screen, in draw order, bounded by the artwork atlas.
+    pub fn image_paths(&self) -> Vec<(String, StoreArt)> {
         let detail = self.detail.iter().flat_map(|detail| {
             detail
                 .offer
                 .thumbnail_url
                 .iter()
                 .chain(detail.screenshot_urls.iter())
+                .map(|url| (url, StoreArt::Feature))
         });
-        let rows = self
-            .rows
-            .iter()
-            .flat_map(|row| row.offers.iter().filter_map(|o| o.thumbnail_url.as_ref()));
-        let mut seen = Vec::new();
-        for url in detail.chain(rows) {
+        let rows = self.rows.iter().flat_map(|row| {
+            row.offers
+                .iter()
+                .filter_map(|o| o.thumbnail_url.as_ref())
+                .map(|url| (url, StoreArt::Card))
+        });
+        let mut seen: Vec<(String, StoreArt)> = Vec::new();
+        for (url, art) in detail.chain(rows) {
             if let Some(path) = self.images.get(url)
-                && !seen.contains(path)
+                && !seen.iter().any(|(seen, _)| seen == path)
             {
-                seen.push(path.clone());
+                seen.push((path.clone(), art));
                 if seen.len() == MAX_VISIBLE_IMAGES {
                     break;
                 }
@@ -160,7 +172,13 @@ mod tests {
             owned_total: 0,
             search_term: String::new(),
         };
-        assert_eq!(snapshot.image_paths(), ["/c/a.png", "/c/d.png"]);
+        assert_eq!(
+            snapshot.image_paths(),
+            [
+                ("/c/a.png".to_owned(), StoreArt::Card),
+                ("/c/d.png".to_owned(), StoreArt::Card)
+            ]
+        );
     }
 
     #[test]
