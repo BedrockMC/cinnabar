@@ -97,6 +97,11 @@ impl ActorStore {
             local_view_dirty: false,
             local_view_bobbing: true,
             local_hands: [None, None],
+            local_main_metadata: 0,
+            local_main_stack_id: None,
+            local_main_slot: 0,
+            local_java_swing_ticks: crate::ACTOR_SWING_TICKS,
+            local_flying: false,
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,
@@ -143,6 +148,11 @@ impl ActorStore {
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
+        self.local_main_metadata = feed.main_hand_metadata;
+        self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
+        self.local_main_slot = feed.main_hand_slot;
+        self.local_java_swing_ticks = feed.java_swing_ticks;
+        self.local_flying = feed.flying;
         let pose = ActorPose {
             position: feed.position,
             pitch: feed.pitch,

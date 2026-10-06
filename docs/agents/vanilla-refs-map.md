@@ -2205,7 +2205,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); remote bob: EntityOtherPlayerMP.onLivingUpdate.
+- Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
 
 ## crates/client-presentation/src/camera/java.rs (Java Edition 1.7.10)
 - EntityRenderer.setupViewBobbing and hurtCameraEffect; EntityPlayer.onLivingUpdate cameraYaw/cameraPitch; EntityPlayerSP renderArmPitch/renderArmYaw.
+
+- Java camera sneak height: EntityPlayerSP.onLivingUpdate yOffset2 and Entity.moveEntity decay; death: EntityRenderer.hurtCameraEffect and RendererLivingEntity.rotateCorpse.

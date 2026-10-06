@@ -21,6 +21,7 @@ pub(crate) struct ActorObservations<'w> {
     view: Res<'w, crate::local_player::LocalViewPose>,
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
     settings: Res<'w, crate::camera::CameraSettingsAuthority>,
+    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
     swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
@@ -48,6 +49,7 @@ pub(crate) fn prepare_actor_render_frame(
         skin,
         settings,
         mut swings,
+        effects,
         ui,
         menu,
         ui_presentation,
@@ -97,16 +99,29 @@ pub(crate) fn prepare_actor_render_frame(
             local_use
         };
     *java_blocking = blocking;
+    let mut local_feed = client_presentation::actor_feed::build_local_player_feed(
+        &*physics,
+        view.rotation(),
+        false,
+        settings.feel().view_bobbing,
+        skin.local_uuid,
+        || skin.player_skin(),
+        local_use,
+    );
+    if let Some(feed) = &mut local_feed {
+        feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
+        feed.main_hand_stack_id = player
+            .selected_stack()
+            .map(|stack| stack.stack_network_id)
+            .filter(|id| *id > 0);
+        feed.java_swing_ticks = effects
+            .as_deref()
+            .map_or(client_world::ACTOR_SWING_TICKS, |effects| {
+                crate::melee::swing_duration(effects.mining_effects())
+            });
+    }
     let input = ActorFrameInput {
-        local_feed: client_presentation::actor_feed::build_local_player_feed(
-            &*physics,
-            view.rotation(),
-            false,
-            settings.feel().view_bobbing,
-            skin.local_uuid,
-            || skin.player_skin(),
-            local_use,
-        ),
+        local_feed,
         predicted_eye: physics.render_eye_position(),
         predicted_feet: physics.render_feet_position(),
         local_equipment,

@@ -46,6 +46,8 @@ pub struct FirstPersonHandMotion {
     pub hurt: Mat4,
     pub sway_pitch_radians: f32,
     pub sway_yaw_radians: f32,
+    /// World-space eye correction, independent of view bob and the gameplay origin.
+    pub eye_height_adjustment: f32,
 }
 
 impl Default for FirstPersonHandMotion {
@@ -55,6 +57,7 @@ impl Default for FirstPersonHandMotion {
             hurt: Mat4::IDENTITY,
             sway_pitch_radians: 0.0,
             sway_yaw_radians: 0.0,
+            eye_height_adjustment: 0.0,
         }
     }
 }
@@ -94,6 +97,7 @@ pub fn advance_presentation_state(
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
     physics: Option<&dyn crate::observations::PhysicsObservation>,
+    ui: Option<&client_ui::ui_runtime::UiRuntime>,
     mut bob: ResMut<WalkBobState>,
     mut sway: ResMut<HandSwayState>,
     mut hurt: ResMut<CameraHurtState>,
@@ -108,37 +112,58 @@ pub fn advance_presentation_state(
     hurt.advance(dt);
     let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
     sway.advance(pitch, yaw, dt);
+    hand.eye_height_adjustment = 0.0;
+    let look = [-pitch.to_degrees(), -yaw.to_degrees()];
+    if let Some(physics) = physics
+        && let Some(state) = physics.state()
+    {
+        let sneaking = physics
+            .latest_sneak_sprint()
+            .is_some_and(|(sneaking, _)| sneaking);
+        let vector = |v: sim::Vec3| bevy::math::DVec3::new(v.x, v.y, v.z);
+        java.advance(JavaCameraTick {
+            tick: state.tick,
+            position: vector(state.position),
+            velocity: vector(state.velocity),
+            on_ground: state.on_ground,
+            alive: ui
+                .and_then(|ui| ui.hud().health())
+                .is_none_or(|health| health.current() > 0),
+            sneaking,
+            walks: !matches!(
+                physics.mode(),
+                sim::MovementMode::Flying | sim::MovementMode::Riding
+            ) && !(state.on_ground && sneaking),
+            look,
+        });
+    } else {
+        *java = JavaCameraState::default();
+    }
     if settings.feel().java_animations {
-        let look = [-pitch.to_degrees(), -yaw.to_degrees()];
-        if let Some(physics) = physics
-            && let Some(state) = physics.state()
-        {
-            let sneaking = physics
-                .latest_sneak_sprint()
-                .is_some_and(|(sneaking, _)| sneaking);
-            let vector = |v: sim::Vec3| bevy::math::DVec3::new(v.x, v.y, v.z);
-            java.advance(JavaCameraTick {
-                tick: state.tick,
-                position: vector(state.position),
-                velocity: vector(state.velocity).as_vec3(),
-                on_ground: state.on_ground,
-                walks: !matches!(
-                    physics.mode(),
-                    sim::MovementMode::Flying | sim::MovementMode::Riding
-                ) && !(state.on_ground && sneaking),
-                look,
-            });
-        }
         let alpha = physics.map_or(1.0, |physics| physics.tick_alpha());
+        if physics.is_some_and(|physics| {
+            physics.state().is_some()
+                && !matches!(
+                    physics.mode(),
+                    sim::MovementMode::Swimming
+                        | sim::MovementMode::Crawling
+                        | sim::MovementMode::Gliding
+                )
+        }) {
+            let eye_height = view.eye_translation().y - view.feet_translation().y;
+            hand.eye_height_adjustment =
+                protocol::STANDING_PLAYER_EYE_HEIGHT - java.sneak_drop(alpha) - eye_height;
+        }
         hand.bob = if settings.feel().view_bobbing {
             java.bob(alpha)
         } else {
             ViewEffect::NONE
         };
-        hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
-            Quat::from_mat4(&java_hurt_roll(hurt.progress())),
-            settings.feel().damage_bob,
-        ));
+        hand.hurt = java.death_roll(alpha)
+            * Mat4::from_quat(Quat::IDENTITY.slerp(
+                Quat::from_mat4(&java_hurt_roll(hurt.progress())),
+                settings.feel().damage_bob,
+            ));
         (hand.sway_pitch_radians, hand.sway_yaw_radians) = java.sway(alpha, look);
         return;
     }
@@ -312,6 +337,11 @@ pub fn apply_camera_presentation(
     let override_pose = server.pose_override(&context);
     let mut pose = override_pose.unwrap_or(base);
     let mut changed = override_pose.is_some();
+
+    if override_pose.is_none() && hand.eye_height_adjustment != 0.0 {
+        pose.translation.y += hand.eye_height_adjustment;
+        changed = true;
+    }
 
     if override_pose.is_none()
         && let Some(rig) = settings.rig()
@@ -501,5 +531,18 @@ mod tests {
     fn hand_motion_defaults_to_identity() {
         let hand = FirstPersonHandMotion::default();
         assert_eq!(hand.hurt * hand.bob.matrix(), Mat4::IDENTITY);
+    }
+
+    /// The visual sneak correction moves the rendered eye without changing the gameplay ray.
+    #[test]
+    fn java_eye_height_adjustment_only_moves_the_presented_camera() {
+        let mut app = camera_app();
+        let view = *app.world().resource::<LocalViewPose>();
+        app.world_mut()
+            .resource_mut::<FirstPersonHandMotion>()
+            .eye_height_adjustment = 0.27;
+        app.update();
+        assert!((camera_transform(&mut app).translation.y - 2.27).abs() < 1e-6);
+        assert_eq!(*app.world().resource::<LocalViewPose>(), view);
     }
 }

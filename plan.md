@@ -5,13 +5,13 @@
   [Java 1.7 animations](docs/reference/java-1-7-animations.md).
 - First person: Java's item stacks (swing; equip with the old item through the dip and the
   re-equip after a placement; eat/drink; sword block with block-hitting; bow draw and pull
-  frames; rods), the empty-hand arm, view bob, hurt roll and arm sway. Third person: Java's
+  frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
   calls.
 - Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
-  none); held attachables Java never had, the third-person bow pull frames and first-person
+  none); held attachables Java never had, the third-person bow pull frames, cast-rod item and first-person
   item lighting are vanilla. Headless captures exist; native side-by-side comparison with
   Java 1.7.10 is pending.
 

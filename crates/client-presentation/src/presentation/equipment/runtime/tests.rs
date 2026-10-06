@@ -113,6 +113,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
     let item = WornItem {
         identifier: Arc::from("test:opaque_cube"),
         metadata: 0,
+        damage: None,
         kind: HeldKind::Block(visual),
         dye_rgb: None,
     };

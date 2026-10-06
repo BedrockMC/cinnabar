@@ -10,6 +10,8 @@ use render_model::EntityRigId;
 pub struct WornItem {
     pub identifier: Arc<str>,
     pub metadata: u32,
+    /// Durability damage, when the stack carries it separately from its visual data value.
+    pub damage: Option<u32>,
     pub kind: HeldKind,
     pub dye_rgb: Option<u32>,
 }

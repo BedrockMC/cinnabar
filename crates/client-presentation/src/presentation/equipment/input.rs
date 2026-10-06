@@ -32,6 +32,7 @@ pub(super) fn worn_item(item: &CanonicalItemStack, dye_rgb: Option<u32>) -> Opti
     Some(WornItem {
         identifier: item.identifier.clone()?,
         metadata: item.identity.metadata,
+        damage: item.damage,
         kind: match item.visual {
             ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
             ItemVisualRoute::BlockItem(visual) => HeldKind::Block(visual.0),
@@ -124,6 +125,7 @@ mod tests {
         let item = |identifier: &str| WornItem {
             identifier: identifier.into(),
             metadata: 0,
+            damage: None,
             kind: HeldKind::Other,
             dye_rgb: None,
         };

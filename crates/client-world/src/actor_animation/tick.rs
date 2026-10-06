@@ -12,6 +12,14 @@ pub(crate) struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
     pub(crate) off_hand: Option<Arc<str>>,
+    /// The main-hand stack's data value.
+    pub(crate) main_hand_metadata: u32,
+    /// A positive network identity distinguishes mutation from replacement of the held stack.
+    pub(crate) main_hand_stack_id: Option<i32>,
+    /// The selected hotbar slot, retained independently from the stack identity.
+    pub(crate) main_hand_slot: u8,
+    /// Current local Java swing length after haste and fatigue; remote swings use the default.
+    pub(crate) java_swing_ticks: i32,
     /// A held crossbow is loaded.
     pub(crate) hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
@@ -26,6 +34,8 @@ pub(crate) struct ActorTickContext {
     pub(crate) view_bobbing: Option<bool>,
     /// The client's own player.
     pub(crate) is_local: bool,
+    /// The client's own player is flying.
+    pub(crate) is_flying: bool,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
@@ -147,12 +157,25 @@ pub(super) fn advance_motion(
         state.off_hand_animation[0].arm_height,
     );
     state.off_hand_animation[1].arm_height = off_hand_arm_height;
+    let java_held = context
+        .main_hand
+        .as_ref()
+        .map(|identifier| super::java::JavaHeldItem {
+            identifier: Arc::clone(identifier),
+            metadata: context.main_hand_metadata,
+            stack_id: context.main_hand_stack_id.filter(|id| *id > 0),
+        });
     state.java.advance(&super::java::JavaTick {
         delta: position_delta,
         yaw: actor.yaw,
-        swinging: motion.attack_time() > 0.0,
+        swing_ticks: if context.java_swing_ticks > 0 {
+            context.java_swing_ticks
+        } else {
+            ACTOR_SWING_TICKS
+        },
         hurt_time: actor.status.hurt_time,
-        held: &context.main_hand,
+        held: &java_held,
+        held_slot: context.main_hand_slot,
         riding: context.is_riding,
         vanilla_posture: swim_amount > 0.0
             || query::actor_flag(actor, query::FLAG_GLIDING)
@@ -163,6 +186,8 @@ pub(super) fn advance_motion(
         velocity: actor.velocity,
         on_ground: actor.on_ground.unwrap_or(false),
         sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
+        flying: context.is_flying,
+        dead: actor.status.dead,
         local: context.is_local,
     });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {

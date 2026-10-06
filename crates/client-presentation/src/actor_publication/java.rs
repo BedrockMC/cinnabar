@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use bevy::math::{Mat4, Vec3};
 use chunk_pipeline::WorldStream;
-use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform, SkinRenderLayer};
+use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform, JavaHeldItem, SkinRenderLayer};
 use render_model::{
     RenderBoneTransform,
     java_animation::{
@@ -13,7 +13,7 @@ use render_model::{
     },
 };
 
-use super::hand::{HandSource, hand_progress, item_atlas};
+use super::hand::{HandSource, item_atlas};
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, lerp_degrees, wrap_degrees},
     equipment::{
@@ -76,7 +76,7 @@ pub(super) fn first_person_hand(
 ) -> JavaHand {
     let [previous, current] = rig.java.equip;
     JavaHand {
-        swing: hand_progress(rig.hand, None, alpha).swing,
+        swing: rig.java.swing_progress(alpha),
         equip: previous + (current - previous) * alpha,
         using: main.and_then(|item| java_use(item, rig.hand[1].use_ticks, consume_ticks, alpha)),
     }
@@ -213,14 +213,37 @@ pub(super) fn apply_pose(
     bones: &Arc<[RenderBoneTransform]>,
     local: bool,
     actor: &ActorSnapshot,
+    alpha: f32,
 ) {
     let submission = &mut presentation.submission;
+    if let Some(progress) = actor.death_rotation_progress(alpha) {
+        submission.world_from_actor = death_tilt(
+            submission.world_from_actor,
+            progress,
+            f32::from(actor.status.death_time) + alpha,
+        );
+    }
     submission.input.previous_bones = Arc::clone(bones);
     submission.input.current_bones = Arc::clone(bones);
     // The local body is placed at its render feet afterwards, which then lifts it.
     if !local {
         lift(&mut submission.world_from_actor, actor.is_sneaking(), false);
     }
+}
+
+/// Replaces the native body's death angle with Java's faster sideways fall.
+fn death_tilt(mut rows: [[f32; 4]; 3], native_progress: f32, death_ticks: f32) -> [[f32; 4]; 3] {
+    let java_progress =
+        ((death_ticks - 1.0) / f32::from(client_world::DEATH_DURATION_TICKS) * 1.6).clamp(0.0, 1.0);
+    let angle = (java_progress.sqrt() - native_progress.clamp(0.0, 1.0).sqrt())
+        * std::f32::consts::FRAC_PI_2;
+    let (sine, cosine) = angle.sin_cos();
+    for row in &mut rows {
+        let (x, y) = (row[0], row[1]);
+        row[0] = x * cosine + y * sine;
+        row[1] = -x * sine + y * cosine;
+    }
+    rows
 }
 
 /// Java's pose inputs at the frame for a player holding `main_hand`.
@@ -241,7 +264,7 @@ fn third_person_input(
         age: actor.status.age_ticks as f32 + alpha,
         head_yaw: wrap_degrees(head_yaw - body_yaw),
         head_pitch: lerp([actor.previous_pose.pitch, actor.pitch]),
-        swing: hand_progress(rig.hand, None, alpha).swing,
+        swing: rig.java.swing_progress(alpha),
         sneaking: actor.is_sneaking(),
         riding: motion.riding,
         held_right: match main_hand {
@@ -291,21 +314,54 @@ pub(super) struct HandCache {
     arm: Option<(ArmKey, Arc<[RenderBoneTransform]>)>,
 }
 
+/// Matches the item and data value retained by the equip animation.
+fn is_held(item: &WornItem, held: &JavaHeldItem) -> bool {
+    item.identifier == held.identifier && item.damage.unwrap_or(item.metadata) == held.metadata
+}
+
 impl HandCache {
     /// Remembers the held item once Java's equip adopts it, in any perspective.
     pub(super) fn remember(&mut self, rig: &ActorRigSnapshot<'_>, main: Option<&WornItem>) {
         if let (Some(item), Some(equipped)) = (main, rig.java_equipped)
-            && item.identifier == *equipped
+            && is_held(item, equipped)
         {
             self.shown = Some(item.clone());
         }
     }
+
+    /// The main-hand stack the first-person hand shows: the one Java's equip still holds
+    /// through a dip, which becomes `selected` at its bottom.
+    pub(super) fn displayed_main(
+        &self,
+        equipped: Option<&JavaHeldItem>,
+        selected: Option<&WornItem>,
+    ) -> Option<WornItem> {
+        let equipped = equipped?;
+        match selected {
+            Some(item) if is_held(item, equipped) => Some(item.clone()),
+            _ => self
+                .shown
+                .clone()
+                .filter(|old| is_held(old, equipped))
+                .or_else(|| selected.cloned()),
+        }
+    }
 }
 
-/// Java's first-person hand: the item it still draws through an equip dip, or its empty arm.
-/// `None` leaves vanilla's own hand while Java's retained item or the selected one is an item
-/// Java never had (maps in either hand, crossbows, shields), so a swap between the two hands
-/// happens at the bottom of the dip, where both are lowest.
+/// Vanilla's own hand draws a shown item Java never had (crossbows, shields, maps in either
+/// hand); deciding on the shown item swaps hands at the bottom of the dip, where both are lowest.
+fn vanilla_draws(
+    main: Option<&WornItem>,
+    off: Option<&WornItem>,
+    vanilla_attachable: impl Fn(&str) -> bool,
+) -> bool {
+    let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
+    main.is_some_and(|item| map(item) || vanilla_attachable(&item.identifier))
+        || off.is_some_and(map)
+}
+
+/// Java's first-person hand for `equipment_input`, whose main hand is the displayed stack:
+/// the item it still draws through an equip dip, or its empty arm. `None` leaves vanilla's hand.
 pub(super) fn hand_source(
     inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
@@ -323,25 +379,10 @@ pub(super) fn hand_source(
     } = inputs;
     let runtime_id = presentation.submission.input.identity.runtime_id;
     let rig = stream.authority().actor_rig(runtime_id)?;
-    let main = rig
-        .java_equipped
-        .and_then(|equipped| match &equipment_input.main {
-            Some(item) if item.identifier == *equipped => Some(item.clone()),
-            _ => cache
-                .shown
-                .clone()
-                .filter(|old| old.identifier == *equipped)
-                .or_else(|| equipment_input.main.clone()),
-        });
-    let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
-    let vanilla_only =
-        |item: &&WornItem| map(item) || equipment.is_vanilla_attachable(&item.identifier);
-    if [main.as_ref(), equipment_input.main.as_ref()]
-        .into_iter()
-        .flatten()
-        .any(|item| vanilla_only(&item))
-        || equipment_input.off.as_ref().is_some_and(map)
-    {
+    let main = equipment_input.main.clone();
+    if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |identifier| {
+        equipment.is_vanilla_attachable(identifier)
+    }) {
         return None;
     }
     let hand = first_person_hand(
@@ -459,6 +500,95 @@ mod tests {
         let parts = [0, 1, 2, 3, 4, 5];
         assert!(targets(&names, &rest, &pose, &parts, true).unwrap()[0].is_some());
         assert!(targets(&names, &rest, &pose, &parts, false).is_none());
+    }
+
+    /// Builds a sprite stack for the hand transition tests.
+    fn worn(identifier: &str) -> WornItem {
+        WornItem {
+            identifier: Arc::from(identifier),
+            metadata: 0,
+            damage: None,
+            kind: crate::presentation::equipment::HeldKind::Sprite,
+            dye_rgb: None,
+        }
+    }
+
+    /// Extracts the identity that the equip animation retains.
+    fn held(item: &WornItem) -> JavaHeldItem {
+        JavaHeldItem {
+            identifier: Arc::clone(&item.identifier),
+            metadata: item.damage.unwrap_or(item.metadata),
+            stack_id: None,
+        }
+    }
+
+    /// Between a Java item and one only vanilla draws, the old item stays in its own hand
+    /// until the dip's bottom, in both directions.
+    #[test]
+    fn mixed_swaps_change_hands_at_the_bottom_of_the_dip() {
+        const CROSSBOW: &str = "minecraft:crossbow";
+        const SHIELD: &str = "minecraft:shield";
+        let vanilla = |identifier: &str| matches!(identifier, CROSSBOW | SHIELD);
+        let id = |item: Option<WornItem>| item.map(|item| item.identifier);
+        for (old, new) in [
+            ("minecraft:iron_sword", CROSSBOW),
+            (CROSSBOW, "minecraft:iron_sword"),
+            ("minecraft:iron_sword", SHIELD),
+            (SHIELD, "minecraft:iron_sword"),
+        ] {
+            let (old, new) = (worn(old), worn(new));
+            let cache = HandCache {
+                shown: Some(old.clone()),
+                ..HandCache::default()
+            };
+            let dipping = cache.displayed_main(Some(&held(&old)), Some(&new));
+            assert_eq!(
+                vanilla_draws(dipping.as_ref(), None, vanilla),
+                vanilla(&old.identifier)
+            );
+            assert_eq!(id(dipping), Some(Arc::clone(&old.identifier)));
+            let adopted = cache.displayed_main(Some(&held(&new)), Some(&new));
+            assert_eq!(
+                vanilla_draws(adopted.as_ref(), None, vanilla),
+                vanilla(&new.identifier)
+            );
+            assert_eq!(id(adopted), Some(Arc::clone(&new.identifier)));
+        }
+    }
+
+    /// Two data values of one item are different stacks to the dip.
+    #[test]
+    fn displayed_stack_keeps_its_data_value_through_the_dip() {
+        let water = worn("minecraft:potion");
+        let healing = WornItem {
+            metadata: 21,
+            ..worn("minecraft:potion")
+        };
+        let cache = HandCache {
+            shown: Some(water.clone()),
+            ..HandCache::default()
+        };
+        let shown = cache.displayed_main(Some(&held(&water)), Some(&healing));
+        assert_eq!(shown.map(|item| item.metadata), Some(0));
+    }
+
+    /// Java's body reaches its side during the fourteenth tick, while the native curve is still falling.
+    #[test]
+    fn death_body_reaches_java_angle_without_moving_its_feet() {
+        use crate::presentation::actors::death_tilted;
+        let base = [
+            [1.0, 0.0, 0.0, 3.0],
+            [0.0, 1.0, 0.0, 64.0],
+            [0.0, 0.0, 1.0, 5.0],
+        ];
+        for ticks in [1.0_f32, 5.5, 13.5, 20.0] {
+            let native = ticks / f32::from(client_world::DEATH_DURATION_TICKS);
+            let rows = death_tilt(death_tilted(base, Some(native)), native, ticks);
+            let angle = (((ticks - 1.0) / 20.0 * 1.6).sqrt().min(1.0) * 90.0).to_radians();
+            assert!((rows[0][0] - angle.cos()).abs() < 1e-6);
+            assert!((rows[1][0] - angle.sin()).abs() < 1e-6);
+            assert_eq!([rows[0][3], rows[1][3], rows[2][3]], [3.0, 64.0, 5.0]);
+        }
     }
 
     #[test]

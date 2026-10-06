@@ -16,6 +16,9 @@ pub struct JavaCameraState {
     tilt: [f32; 2],
     arm_pitch: [f32; 2],
     arm_yaw: [f32; 2],
+    sneak_drop: [f32; 2],
+    death_ticks: u8,
+    dead: bool,
 }
 
 /// One completed physics tick as Java's bob and sway read it.
@@ -23,15 +26,16 @@ pub struct JavaCameraState {
 pub struct JavaCameraTick {
     pub tick: u64,
     pub position: DVec3,
-    pub velocity: Vec3,
+    pub velocity: DVec3,
     pub on_ground: bool,
+    pub alive: bool,
+    pub sneaking: bool,
     /// Java stops the walk phase while flying, riding or sneaking on the ground.
     pub walks: bool,
     /// Look pitch and yaw in Minecraft degrees (down and right positive).
     pub look: [f32; 2],
 }
 
-const WALK_PER_BLOCK: f32 = 0.6;
 const BOB_CAP: f32 = 0.1;
 const BOB_FOLLOW: f32 = 0.4;
 const TILT_FOLLOW: f32 = 0.8;
@@ -40,10 +44,16 @@ const SWAY: f32 = 0.1;
 const TELEPORT_BLOCKS: f32 = 8.0;
 const MAX_CATCH_UP_TICKS: u64 = 20;
 const HURT_TILT_DEGREES: f32 = 14.0;
+const SNEAK_OFFSET_MINIMUM: f32 = 0.2;
+const SNEAK_OFFSET_KEEP: f32 = 0.4;
 
 impl JavaCameraState {
     /// Steps once per newly completed tick; a missed run of ticks shares the movement.
     pub fn advance(&mut self, tick: JavaCameraTick) {
+        self.dead = !tick.alive;
+        if tick.alive {
+            self.death_ticks = 0;
+        }
         let Some((last_tick, last_position)) = self.last else {
             self.last = Some((tick.tick, tick.position));
             self.arm_pitch = [tick.look[0]; 2];
@@ -53,11 +63,24 @@ impl JavaCameraState {
         if tick.tick == last_tick {
             return;
         }
+        if self.dead {
+            self.death_ticks = if tick.tick < last_tick {
+                0
+            } else {
+                let elapsed =
+                    (tick.tick - last_tick).min(u64::from(client_world::DEATH_DURATION_TICKS));
+                self.death_ticks
+                    .saturating_add(elapsed as u8)
+                    .min(client_world::DEATH_DURATION_TICKS)
+            };
+        }
         self.last = Some((tick.tick, tick.position));
-        let delta = (tick.position - last_position).as_vec3();
-        if tick.tick < last_tick || delta.length() > TELEPORT_BLOCKS {
+        let delta = tick.position - last_position;
+        if tick.tick < last_tick || delta.length() > f64::from(TELEPORT_BLOCKS) {
             *self = Self {
                 last: self.last,
+                dead: self.dead,
+                death_ticks: self.death_ticks,
                 ..Self::default()
             };
             self.arm_pitch = [tick.look[0]; 2];
@@ -65,39 +88,47 @@ impl JavaCameraState {
             return;
         }
         let steps = (tick.tick - last_tick).min(MAX_CATCH_UP_TICKS);
-        let step = delta / steps as f32;
+        let step = delta / steps as f64;
         for _ in 0..steps {
             self.step(&tick, step);
         }
     }
 
-    fn step(&mut self, tick: &JavaCameraTick, delta: Vec3) {
+    /// Updates the tick endpoints before the frame interpolates them.
+    fn step(&mut self, tick: &JavaCameraTick, delta: DVec3) {
         for pair in [
             &mut self.walked,
             &mut self.bob,
             &mut self.tilt,
             &mut self.arm_pitch,
             &mut self.arm_yaw,
+            &mut self.sneak_drop,
         ] {
             pair[0] = pair[1];
         }
         if tick.walks {
-            self.walked[1] += delta.x.hypot(delta.z) * WALK_PER_BLOCK;
+            self.walked[1] = client_world::java_walked_distance(self.walked[1], [delta.x, delta.z]);
         }
-        let speed = if tick.on_ground {
-            tick.velocity.x.hypot(tick.velocity.z).min(BOB_CAP)
+        let speed = if tick.on_ground && tick.alive {
+            let horizontal = (tick.velocity.x * tick.velocity.x + tick.velocity.z * tick.velocity.z)
+                .sqrt() as f32;
+            horizontal.min(BOB_CAP)
         } else {
             0.0
         };
-        let tilt = if tick.on_ground {
+        let tilt = if tick.on_ground || !tick.alive {
             0.0
         } else {
-            ((f64::from(-tick.velocity.y) * 0.2).atan() * 15.0) as f32
+            (-tick.velocity.y * f64::from(0.2_f32)).atan() as f32 * 15.0
         };
         self.bob[1] += (speed - self.bob[1]) * BOB_FOLLOW;
         self.tilt[1] += (tilt - self.tilt[1]) * TILT_FOLLOW;
         self.arm_pitch[1] += (tick.look[0] - self.arm_pitch[1]) * ARM_FOLLOW;
         self.arm_yaw[1] += shortest_degrees(tick.look[1] - self.arm_yaw[1]) * ARM_FOLLOW;
+        if tick.sneaking {
+            self.sneak_drop[1] = self.sneak_drop[1].max(SNEAK_OFFSET_MINIMUM);
+        }
+        self.sneak_drop[1] *= SNEAK_OFFSET_KEEP;
     }
 
     /// The bob at `alpha`; Java runs the walk phase one tick ahead of the frame.
@@ -126,6 +157,22 @@ impl JavaCameraState {
         let yaw = shortest_degrees(look[1] - arm_yaw) * SWAY;
         (pitch.to_radians(), yaw.to_radians())
     }
+
+    /// The local eye's interpolated lowering; gameplay keeps its Bedrock eye origin.
+    #[must_use]
+    pub fn sneak_drop(&self, alpha: f32) -> f32 {
+        lerp(self.sneak_drop, alpha)
+    }
+
+    /// Death adds its roll before the hurt shake, including the partial tick.
+    #[must_use]
+    pub fn death_roll(&self, alpha: f32) -> Mat4 {
+        if !self.dead {
+            return Mat4::IDENTITY;
+        }
+        let ticks = f32::from(self.death_ticks) + alpha;
+        Mat4::from_rotation_z((40.0 - 8000.0 / (ticks + 200.0)).to_radians())
+    }
 }
 
 /// Java's hurt roll for `progress` (hurt time left over its duration); the client never
@@ -151,8 +198,10 @@ mod tests {
         JavaCameraTick {
             tick,
             position: DVec3::new(f64::from(x), 64.0, 0.0),
-            velocity: Vec3::new(0.2, -0.0784, 0.0),
+            velocity: DVec3::new(0.2, -0.0784, 0.0),
             on_ground: true,
+            alive: true,
+            sneaking: false,
             walks: true,
             look: [0.0, 0.0],
         }
@@ -182,7 +231,7 @@ mod tests {
         state.advance(walking(1, 0.0));
         state.advance(JavaCameraTick {
             on_ground: false,
-            velocity: Vec3::new(0.0, -0.5, 0.0),
+            velocity: DVec3::new(0.0, -0.5, 0.0),
             ..walking(2, 0.0)
         });
         let expected = (0.1_f64.atan() * 15.0 * 0.8) as f32;
@@ -213,5 +262,79 @@ mod tests {
         let rolled = java_hurt_roll(peak).transform_vector3(Vec3::X);
         assert!((rolled.y + 14.0_f32.to_radians().sin()).abs() < 1e-3);
         assert!(java_hurt_roll(1.0).abs_diff_eq(Mat4::IDENTITY, 1e-3));
+    }
+
+    /// Sneak lowers the eye by 0.08 blocks and releasing it keeps 40% each tick.
+    #[test]
+    fn sneak_camera_drop_interpolates_and_decays_after_release() {
+        let mut state = JavaCameraState::default();
+        state.advance(walking(1, 0.0));
+        state.advance(JavaCameraTick {
+            sneaking: true,
+            ..walking(2, 0.0)
+        });
+        assert!((state.sneak_drop(0.5) - 0.04).abs() < 1e-6);
+        assert!((state.sneak_drop(1.0) - 0.08).abs() < 1e-6);
+        state.advance(JavaCameraTick {
+            sneaking: true,
+            ..walking(3, 0.0)
+        });
+        assert!((state.sneak_drop(0.5) - 0.08).abs() < 1e-6);
+        state.advance(walking(4, 0.0));
+        assert!((state.sneak_drop(1.0) - 0.032).abs() < 1e-6);
+    }
+
+    /// Death stops locomotion bob and tilts the view until a live tick resets it.
+    #[test]
+    fn death_camera_roll_follows_ticks_and_clears_on_respawn() {
+        let mut state = JavaCameraState::default();
+        state.advance(walking(1, 0.0));
+        state.advance(walking(2, 0.2));
+        state.advance(JavaCameraTick {
+            alive: false,
+            ..walking(3, 0.4)
+        });
+        assert!((state.bob[1] - 0.024).abs() < 1e-6);
+        let angle = (40.0_f32 - 8000.0 / 201.5).to_radians();
+        assert!(
+            state
+                .death_roll(0.5)
+                .abs_diff_eq(Mat4::from_rotation_z(angle), 1e-6)
+        );
+        state.advance(JavaCameraTick {
+            alive: false,
+            on_ground: false,
+            velocity: DVec3::new(0.0, -1.0, 0.0),
+            ..walking(4, 0.4)
+        });
+        assert_eq!(state.tilt[1], 0.0);
+        state.advance(walking(4, 0.4));
+        assert_eq!(state.death_roll(0.5), Mat4::IDENTITY);
+    }
+
+    /// Camera motion resets on teleports, while an ongoing death keeps its clock.
+    #[test]
+    fn teleport_preserves_death_time_and_session_rewind_resets_it() {
+        let mut state = JavaCameraState::default();
+        state.advance(walking(1, 0.0));
+        state.advance(JavaCameraTick {
+            alive: false,
+            ..walking(2, 0.0)
+        });
+        state.advance(JavaCameraTick {
+            alive: false,
+            ..walking(3, 100.0)
+        });
+        assert_eq!(state.death_ticks, 2);
+        state.advance(JavaCameraTick {
+            alive: false,
+            ..walking(100, 100.0)
+        });
+        assert_eq!(state.death_ticks, client_world::DEATH_DURATION_TICKS);
+        state.advance(JavaCameraTick {
+            alive: false,
+            ..walking(1, 100.0)
+        });
+        assert_eq!(state.death_ticks, 0);
     }
 }
