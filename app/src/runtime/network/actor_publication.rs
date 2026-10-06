@@ -111,7 +111,7 @@ pub(crate) fn prepare_actor_render_frame(
     if let Some(feed) = &mut local_feed {
         #[cfg(feature = "developer-control")]
         {
-            feed.prefer_client_skin = skin.test_cape_enabled();
+            feed.prefer_client_skin = skin.recording_cape_enabled();
         }
         feed.main_hand_slot = player.selected_hotbar_slot().unwrap_or(0);
         feed.main_hand_stack_id = player

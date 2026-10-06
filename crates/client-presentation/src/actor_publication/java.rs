@@ -33,7 +33,6 @@ const LOCAL_SNEAK_DROP: f32 = 0.2 * 0.4;
 /// Java lifts the model this many pixels above the feet.
 const MODEL_LIFT_PIXELS: f32 = 0.125;
 
-#[path = "java/mounted.rs"]
 mod mounted;
 
 #[cfg(test)]
