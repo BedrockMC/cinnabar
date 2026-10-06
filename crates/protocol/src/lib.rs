@@ -29,6 +29,7 @@ mod settings;
 mod socket_transport;
 pub mod store_control;
 mod transfer;
+mod translation_parameter;
 mod ui;
 mod world;
 pub mod world_control;
@@ -194,6 +195,7 @@ pub use render_api::primitive_shapes::{
 pub use settings::request_chunk_radius_packet;
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
+pub use translation_parameter::localize_parameter_prefix;
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
