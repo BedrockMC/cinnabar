@@ -4,7 +4,6 @@
 //! and the accounts picker are built on it.
 
 use std::borrow::Cow;
-use std::sync::Arc;
 
 use super::super::super::UiPresentationError;
 use super::icons::{self, Icon};
@@ -220,58 +219,6 @@ fn close_button(
     ];
     icons::draw(canvas, Icon::Cross, at, NEUTRAL.text)?;
     canvas.hit(action, b)
-}
-
-/// The title of vanilla's first-join question, from the active language or vanilla's English.
-pub(super) fn server_trust_title(translate: &dyn Fn(&str) -> Option<Arc<str>>) -> String {
-    translated(
-        translate,
-        "permissions.servertrust.title",
-        "Trust this server?",
-    )
-}
-
-/// Vanilla's first-join question for a NetherNet server reached over plain http; `title` is
-/// [`server_trust_title`]'s text.
-pub(super) fn server_trust_modal<'a>(
-    title: &'a str,
-    url: &str,
-    translate: &dyn Fn(&str) -> Option<Arc<str>>,
-) -> Modal<'a> {
-    let message = translated(
-        translate,
-        "permissions.servertrust.message",
-        "You are connecting to %1$s for the first time. Only trust servers you recognize.",
-    );
-    let mut modal = Modal::text(title, message.replace("%1$s", url));
-    modal.buttons = vec![
-        (
-            translated(
-                translate,
-                "permissions.servertrust.button.trust",
-                "Trust and Join",
-            )
-            .into(),
-            Variant::Primary,
-            Some(MenuAction::ServerTrust(true)),
-        ),
-        (
-            translated(
-                translate,
-                "permissions.servertrust.button.doNotTrust",
-                "Don't Trust",
-            )
-            .into(),
-            Variant::Secondary,
-            Some(MenuAction::ServerTrust(false)),
-        ),
-    ];
-    modal.close = Some(MenuAction::ServerTrust(false));
-    modal
-}
-
-fn translated(translate: &dyn Fn(&str) -> Option<Arc<str>>, key: &str, fallback: &str) -> String {
-    translate(key).map_or_else(|| fallback.to_owned(), |value| value.to_string())
 }
 
 fn local(action: LocalWorldAction) -> Option<MenuAction> {
