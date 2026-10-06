@@ -249,7 +249,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: windows, os: windows-latest, crates: true, client: false }
+          # On the software (WARP) adapter this one GPU test runs for over 30 minutes; macOS PRs
+          # and full Windows runs still cover it.
+          - name: windows
+            os: windows-latest
+            crates: true
+            client: false
+            skip: test(=gpu_culling::direct::occlusion_cuts_submitted_terrain_only_while_the_view_holds_still)
           - { name: windows client, os: windows-latest, crates: false, client: true }
           - { name: macos, os: macos-latest, crates: true, client: true }
     defaults:
@@ -294,9 +300,13 @@ jobs:
         run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
       - name: Test platform crates
         if: matrix.crates
+        env:
+          SKIP: ${{ matrix.skip }}
         run: |
+          filter=()
+          if [ -n "$SKIP" ]; then filter=(-E "not ($SKIP)"); fi
           # shellcheck disable=SC2086 # one -p flag per word
-          cargo nextest run $PLATFORM_TEST_PACKAGES --locked --no-fail-fast
+          cargo nextest run $PLATFORM_TEST_PACKAGES "${filter[@]}" --locked --no-fail-fast
       # The client's asset-carrier integration tests skip without local carriers, so only its library runs.
       - name: Test client library
         if: ${{ !cancelled() && matrix.client }}
