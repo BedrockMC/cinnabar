@@ -361,8 +361,7 @@ impl WorldStream {
         let mut due = false;
         // A loaded column with no outstanding requests owes nothing, whatever the height.
         let settled = |column: ChunkKey| {
-            self.loaded_columns.contains(&column)
-                && !self.requests.requested.contains_key(&column)
+            self.loaded_columns.contains(&column) && !self.requests.requested.contains_key(&column)
         };
         let mut unsettled = [key; 26];
         let mut count = 0;
