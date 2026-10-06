@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use assets::{
     AssetError, CompiledMolangExpression, EntityGeometryScalar, MAX_MOLANG_EXPRESSIONS,
     MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION, MolangBranch, MolangCall, MolangCollection,
-    MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind, molang_program_stack,
+    MolangCollectionItem, MolangOp, MolangSymbol, MolangSymbolKind, molang_call,
+    molang_program_stack,
 };
 
 use super::invalid;
@@ -12,8 +13,90 @@ mod codegen;
 mod lexer;
 mod parser;
 
-use codegen::{Codegen, IrOp, fold_with};
-use parser::{Binary, Expr, Program, Slot, parse};
+use codegen::{Codegen, IrOp, binary, fold_with};
+use parser::{Binary, Expr, Program, Slot, Unary, parse, parse_with};
+
+/// The only query a block permutation condition or bone visibility may read.
+const BLOCK_QUERIES: &[&str] = &["query.block_state"];
+
+/// A `query.block_state` result; integer and boolean states read as numbers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BlockStateValue<'a> {
+    Number(f32),
+    String(&'a str),
+}
+
+/// Evaluates a block Molang expression against one block state. `None` when it does not parse,
+/// reads a state the block lacks, or uses a string where a number is needed.
+pub fn evaluate_block_molang<'a>(
+    source: &str,
+    block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
+) -> Option<f32> {
+    let Program::Simple(expression) = parse_with(source, BLOCK_QUERIES).ok()? else {
+        return None;
+    };
+    block_value(&expression, block_state)?.number()
+}
+
+impl BlockStateValue<'_> {
+    fn number(self) -> Option<f32> {
+        match self {
+            Self::Number(value) => Some(value),
+            Self::String(_) => None,
+        }
+    }
+}
+
+fn block_value<'e, 'a: 'e>(
+    expression: &'e Expr,
+    block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
+) -> Option<BlockStateValue<'e>> {
+    let number = |expression: &'e Expr| block_value(expression, block_state)?.number();
+    let truth = |value: bool| BlockStateValue::Number(if value { 1.0 } else { 0.0 });
+    Some(match expression {
+        Expr::Number(value) => BlockStateValue::Number(*value),
+        Expr::String(text) => BlockStateValue::String(text),
+        // A block context has no variable storage, so every variable reads as unset.
+        Expr::Variable(..) => BlockStateValue::Number(0.0),
+        Expr::Query(_, Some(arguments)) => match arguments.as_slice() {
+            [Expr::String(name)] => block_state(name)?,
+            _ => return None,
+        },
+        Expr::Unary(Unary::Negate, value) => BlockStateValue::Number(-number(value)?),
+        Expr::Unary(Unary::Not, value) => truth(number(value)? == 0.0),
+        Expr::Binary(operator @ (Binary::Equal | Binary::NotEqual), left, right) => {
+            let equal = match (
+                block_value(left, block_state)?,
+                block_value(right, block_state)?,
+            ) {
+                (BlockStateValue::Number(left), BlockStateValue::Number(right)) => left == right,
+                (BlockStateValue::String(left), BlockStateValue::String(right)) => left == right,
+                _ => return None,
+            };
+            truth(equal == (*operator == Binary::Equal))
+        }
+        Expr::Binary(operator, left, right) => {
+            BlockStateValue::Number(binary(*operator, number(left)?, number(right)?))
+        }
+        Expr::And(left, right) => truth(number(left)? != 0.0 && number(right)? != 0.0),
+        Expr::Or(left, right) => truth(number(left)? != 0.0 || number(right)? != 0.0),
+        Expr::Conditional(condition, yes, no) => {
+            if number(condition)? != 0.0 {
+                block_value(yes, block_state)?
+            } else {
+                match no {
+                    Some(no) => block_value(no, block_state)?,
+                    None => BlockStateValue::Number(0.0),
+                }
+            }
+        }
+        Expr::Call(function, arguments) if !function.is_random() => {
+            let values = arguments.iter().map(number).collect::<Option<Vec<_>>>()?;
+            BlockStateValue::Number(molang_call(*function, &values, &mut || 0.0))
+        }
+        _ => return None,
+    })
+}
 
 #[derive(Clone, Default)]
 pub(super) struct MolangCompiler {
