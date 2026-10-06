@@ -43,6 +43,7 @@ impl EquipmentRuntime {
             return;
         };
         let index = selected.geometry.unwrap_or(evaluated.geometry);
+        let alternate = index != evaluated.geometry;
         let pose = if selected.pose.is_empty() {
             evaluated.pose
         } else {
@@ -86,6 +87,16 @@ impl EquipmentRuntime {
         let Some(geometry) = self.armor_geometry_for(&geometry.identifier, from_pack) else {
             return;
         };
+        // The scene registers only each binding's default model.
+        if alternate && !self.selected_geometries.contains(&geometry.rig) {
+            let Some(mesh) =
+                render_model::equipment_geometry(&assets, index as usize, geometry.rig)
+            else {
+                return;
+            };
+            self.pending.push(mesh);
+            self.selected_geometries.insert(geometry.rig);
+        }
         let Some((_, bones)) = self.body_bones_for(body.input.rig) else {
             return;
         };

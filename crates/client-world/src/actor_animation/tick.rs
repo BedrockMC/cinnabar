@@ -594,11 +594,12 @@ pub(super) struct WeightedClip {
     pub(super) blend: Option<ControllerBlend>,
 }
 
-/// The side of a shortest-path controller blend a clip samples.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ControllerBlend {
-    From,
-    To,
+/// A clip on one side of a shortest-path controller blend, sampled at full weight.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ControllerBlend {
+    pub(super) incoming: bool,
+    /// Progress from the outgoing to the incoming state.
+    pub(super) amount: f32,
 }
 
 fn blend_weight(
@@ -642,43 +643,45 @@ impl ControllerWalk<'_, '_, '_, '_> {
         let state = self.advance(slot)?;
         self.controllers[slot].active = true;
         let runtime = self.controllers[slot];
-        if let Some((previous, started)) = runtime.blend_from {
+        if let Some((previous, started, began)) = runtime.blend_from {
             let definition = &assets.controllers()[controller];
             let previous = definition.first_state as usize + previous as usize;
             let source = &assets.controller_states()[previous];
-            let alpha = self
-                .evaluator
-                .context
-                .attachable
-                .map_or(0.0, |input| input.frame_alpha);
             let elapsed = (self
                 .evaluator
                 .anim_tick
                 .saturating_sub(runtime.entered_tick) as f32
-                + alpha)
+                + self.frame_alpha()
+                - began)
+                .max(0.0)
                 * ACTOR_TICK_DURATION.as_secs_f32();
             let amount = (elapsed / source.blend_transition.get()).clamp(0.0, 1.0);
             if amount < 1.0 {
-                // Other blends apply both states straight onto the shared pose.
-                let blend = |side| source.blend_via_shortest_path.then_some(side);
-                self.animations(
-                    previous,
-                    weight * (1.0 - amount),
-                    depth,
-                    started,
-                    blend(ControllerBlend::From),
-                )?;
-                return self.animations(
-                    state,
-                    weight * amount,
-                    depth,
-                    runtime.entered_tick,
-                    blend(ControllerBlend::To),
-                );
+                if source.blend_via_shortest_path {
+                    let blend = |incoming| Some(ControllerBlend { incoming, amount });
+                    self.animations(previous, weight, depth, started, blend(false))?;
+                    return self.animations(
+                        state,
+                        weight,
+                        depth,
+                        runtime.entered_tick,
+                        blend(true),
+                    );
+                }
+                // Other blends apply both weighted states straight onto the shared pose.
+                self.animations(previous, weight * (1.0 - amount), depth, started, None)?;
+                return self.animations(state, weight * amount, depth, runtime.entered_tick, None);
             }
             self.controllers[slot].blend_from = None;
         }
         self.animations(state, weight, depth, runtime.entered_tick, None)
+    }
+
+    fn frame_alpha(&self) -> f32 {
+        self.evaluator
+            .context
+            .attachable
+            .map_or(0.0, |input| input.frame_alpha)
     }
 
     /// Keeps outgoing and incoming clip channels together before composing the bone hierarchy.
@@ -848,7 +851,7 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 && state.blend_transition.get() > 0.0
                 && single_clip(state_index)
                 && single_clip(controller.first_state as usize + target as usize))
-            .then_some((current, entered_tick));
+            .then_some((current, entered_tick, self.frame_alpha()));
             current = target;
             entered_tick = self.evaluator.anim_tick;
             let entered = assets

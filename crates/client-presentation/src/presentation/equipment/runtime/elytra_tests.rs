@@ -317,7 +317,12 @@ fn worn_transition_blends_short_wing_angles_and_preserves_identical_scale() {
     let input = worn(false);
     let folded = layers(&mut runtime, &body, &owner, &input, 1);
     owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 32));
-    let halfway = layers(&mut runtime, &body, &owner, &input, 2);
+    let entered = layers(&mut runtime, &body, &owner, &input, 2);
+    assert_eq!(
+        entered[0].submission.input.current_bones, folded[0].submission.input.current_bones,
+        "a blend starts at the frame fraction of its transition"
+    );
+    let halfway = layers(&mut runtime, &body, &owner, &input, 3);
     let spread = layers(&mut runtime, &body, &owner, &input, 4);
     assert_ne!(
         halfway[0].submission.input.current_bones,
@@ -366,12 +371,77 @@ fn worn_blend_scales_multiply_into_earlier_direct_animations() {
     let folded = layers(&mut runtime, &body, &owner, &input, 1);
     assert!((scale(&folded) - 2.0 * 1.067).abs() < 1e-4);
     owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 32));
-    let halfway = layers(&mut runtime, &body, &owner, &input, 2);
+    layers(&mut runtime, &body, &owner, &input, 2);
+    let halfway = layers(&mut runtime, &body, &owner, &input, 3);
     assert!(
         (scale(&halfway) - 2.0 * 1.067).abs() < 1e-4,
         "blend scale {} must multiply the direct scale",
         scale(&halfway)
     );
+}
+
+/// An overriding incoming clip resets only its own side of a shortest-path blend.
+#[test]
+fn worn_blend_samples_an_overriding_state_apart_from_the_outgoing_state() {
+    let mut files = blending_wing_pack();
+    for (path, bytes) in &mut files {
+        if path.as_ref() == "animations/wings.json" {
+            let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            document["animations"]["animation.wings.flight"]["override_previous_animation"] =
+                serde_json::json!(true);
+            *bytes = serde_json::to_vec(&document).unwrap();
+        }
+    }
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    let mut owner = owner();
+    let input = worn(false);
+    layers(&mut runtime, &body, &owner, &input, 1);
+    owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 32));
+    layers(&mut runtime, &body, &owner, &input, 2);
+    let halfway = layers(&mut runtime, &body, &owner, &input, 3);
+    let wing = halfway[0].submission.input.current_bones[1];
+    let expected = render_model::equipment::authored_rotation([15.0, 0.0, 180.0]);
+    assert!(bevy::math::Quat::from_array(wing.rotation).abs_diff_eq(expected, 1e-5));
+}
+
+/// A render controller's alternate wing model is queued for the scene before it draws.
+#[test]
+fn worn_wings_queue_geometry_their_render_controller_selects() {
+    let mut files = wing_pack();
+    for (path, bytes) in &mut files {
+        let mut document: serde_json::Value = serde_json::from_slice(bytes).unwrap_or_default();
+        match path.as_ref() {
+            "attachables/elytra.json" => {
+                document["minecraft:attachable"]["description"]["geometry"]["alt"] =
+                    serde_json::json!("geometry.wings_alt");
+            }
+            "models/entity/wings.json" => {
+                let mut alternate = document["minecraft:geometry"][0].clone();
+                alternate["description"]["identifier"] = serde_json::json!("geometry.wings_alt");
+                document["minecraft:geometry"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(alternate);
+            }
+            "render_controllers/wings.json" => {
+                document["render_controllers"]["controller.render.wings"]["geometry"] =
+                    serde_json::json!("Geometry.alt");
+            }
+            _ => continue,
+        }
+        *bytes = serde_json::to_vec(&document).unwrap();
+    }
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    runtime.take_pending_geometries();
+    let owner = owner();
+    let draws = layers(&mut runtime, &body, &owner, &worn(false), 1);
+    let rig = draws[0].submission.input.rig;
+    let queued = runtime.take_pending_geometries();
+    assert!(queued.iter().any(|geometry| geometry.id == rig));
+    layers(&mut runtime, &body, &owner, &worn(false), 2);
+    assert!(runtime.take_pending_geometries().is_empty());
 }
 
 #[test]

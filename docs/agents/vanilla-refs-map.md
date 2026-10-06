@@ -2233,6 +2233,8 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
   multiply scale into the accumulated map (`ActorAnimationControllerPlayer::blendViaShortestPath`,
   `R:ActorAnimationControllerPlayer:2395`); other blends apply both state players
   onto the shared map with weights `w` and `1 - w` (`R:ActorAnimationControllerPlayer:1158`).
+  The blend timer resets on transition and accumulates each frame's delta
+  (`R:ActorAnimationControllerPlayer:1098`), so it starts at the transition's frame fraction.
 
 ## Primitive shapes: protocol, state and reference rules
 

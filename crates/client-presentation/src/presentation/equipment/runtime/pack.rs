@@ -83,8 +83,13 @@ impl EquipmentRuntime {
             }
             !from_pack
         });
-        self.pending
-            .retain(|geometry| !self.free_meshes.contains(&geometry.id));
+        // Pack equipment ids name the replaced pack's geometry indices.
+        self.pending.retain(|geometry| {
+            !self.free_meshes.contains(&geometry.id)
+                && !render_model::is_pack_equipment_rig_id(geometry.id)
+        });
+        self.selected_geometries
+            .retain(|rig| !render_model::is_pack_equipment_rig_id(*rig));
         self.armor_maps
             .retain(|(_, geometry), _| !geometry.starts_with(ARMOR_CACHE_PREFIX));
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
