@@ -36,6 +36,8 @@ pub const TEXT_LINE_HEIGHT_64: u32 = (FONT_INK_TEXELS + FONT_DESIGN_PIXEL_TEXELS
 pub const TEXT_BASELINE_64: u32 = FONT_ASCENT_TEXELS * 64;
 /// Mojang offsets the shadow by exactly one design pixel on both axes.
 pub const TEXT_SHADOW_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
+/// One design pixel for bold measurement and the compiled open-font duplicate.
+pub const TEXT_BOLD_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
 
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';
@@ -221,6 +223,7 @@ pub struct TextLayout {
     id: u64,
     key: TextLayoutKey,
     glyphs: Box<[GlyphQuad]>,
+    source_indices: Box<[Option<usize>]>,
     line_count: u16,
     size_64: [u32; 2],
     ellipsized: bool,
@@ -247,6 +250,11 @@ impl TextLayout {
 
     pub fn glyphs(&self) -> &[GlyphQuad] {
         &self.glyphs
+    }
+
+    /// Character indices in formatting-stripped text; generated hyphens and ellipses have none.
+    pub fn glyph_source_indices(&self) -> &[Option<usize>] {
+        &self.source_indices
     }
 
     pub const fn line_count(&self) -> u16 {
@@ -585,6 +593,13 @@ fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
     [
         arc_allocation,
         glyph_allocation,
+        conservative_allocation_bytes(
+            layout
+                .source_indices
+                .len()
+                .checked_mul(size_of::<Option<usize>>())
+                .ok_or(TextError::FixedPointOverflow)?,
+        )?,
         // BTreeMap duplicates the key and retains a CacheEntry value.
         size_of::<TextLayoutKey>(),
         size_of::<CacheEntry>(),

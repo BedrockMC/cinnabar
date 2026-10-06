@@ -112,8 +112,12 @@ pub(super) fn resolve_binding(
     }
     let mut motion = MotionState::spawn(actor.body_yaw, actor.head_yaw);
     motion.horse = super::horse::AnimationState::new(random_seed);
-    let samples_camera_poses =
-        super::render_frame::camera::needs_camera_sampling(assets, geometry_binding, &controllers);
+    let samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        &controllers,
+    );
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -160,6 +164,7 @@ pub(super) fn resolve_binding(
         clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
+        java: super::java::JavaMotionState::spawn(actor.body_yaw),
         motion,
     })
 }
@@ -184,7 +189,9 @@ pub(super) fn collect_controllers(
     output.push(ControllerState {
         controller,
         state: compiled.initial_state,
+        active: false,
         entered_tick: 0,
+        blend_from: None,
     });
     let states = assets.controller_states().get(
         compiled.first_state as usize
@@ -429,8 +436,12 @@ pub(super) fn reselect_geometry(
         return;
     };
     state.rig = EntityRigId(rig_id);
-    state.samples_camera_poses =
-        super::render_frame::camera::needs_camera_sampling(assets, selected, &controllers);
+    state.samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
+        assets,
+        state.rig_binding,
+        selected,
+        &controllers,
+    );
     state.samples_render_frames = state.samples_camera_poses
         || super::render_frame::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;

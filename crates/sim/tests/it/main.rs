@@ -1,5 +1,6 @@
 mod aabb;
 mod actor_fluids;
+mod allocation_count;
 mod bedsim_strata;
 mod block_effects;
 mod block_interaction_ray;
@@ -12,6 +13,7 @@ mod embedment_convergence;
 mod fixed_tick;
 mod flight_native;
 mod historical_world;
+mod immobile;
 mod liquid;
 mod liquid_contact_native;
 mod liquid_exit_native;

@@ -58,6 +58,8 @@ pub fn definitions() -> Value {
                 "press_frames": { "type": "integer", "description": "Frames a press stays down (default 1)" },
                 "move": { "type": "object", "properties": { "forward": { "type": "number" }, "strafe": { "type": "number" } }, "description": "Sign of each axis holds key.forward/back and key.right/left; 0 releases" },
                 "jump": { "type": "boolean" }, "sneak": { "type": "boolean" }, "sprint": { "type": "boolean" },
+                "pointer": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"], "additionalProperties": false, "description": "Absolute logical window pixels from top left, applied before button edges; combine with press:[MouseLeft] to click." },
+                "wheel": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "unit": { "enum": ["line", "pixel"] } }, "additionalProperties": false, "description": "One scroll event; axes default 0, unit defaults line, positive y scrolls up." },
                 "hotbar": { "type": "integer", "minimum": 1, "maximum": 9 },
                 "look": { "type": "object", "properties": {
                     "yaw": { "type": "number" }, "pitch": { "type": "number" },
@@ -82,6 +84,11 @@ pub fn definitions() -> Value {
                 "hide_hand": { "type": "boolean", "description": "Hide the first-person hand while scripted (default true; restored on release)" },
                 "release": { "type": "boolean" }
             } }
+        },
+        {
+            "name": "test_cape",
+            "description": "Install or remove an original local cape for animation captures. Changes only the local player's presentation.",
+            "inputSchema": { "type": "object", "properties": { "enabled": { "type": "boolean" } }, "required": ["enabled"], "additionalProperties": false }
         },
         {
             "name": "state",

@@ -38,6 +38,6 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static GLOBAL: CountingAllocator = CountingAllocator;
 
-pub(in crate::stream) fn thread_allocations() -> u64 {
+pub(crate) fn thread_allocations() -> u64 {
     ALLOCATIONS.with(Cell::get)
 }

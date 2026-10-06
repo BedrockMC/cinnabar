@@ -92,7 +92,7 @@ func (s *Account) refreshServiceAhead(ctx context.Context, lead time.Duration) (
 	}
 	defer s.exchanging.Store(false)
 	tickets := &playFabTickets{account: s, plan: plan, client: plan.client}
-	source := s.deps.services(plan.environment, tickets, nil, plan.deviceID)
+	source := s.deps.services(plan.environment, tickets, nil, plan.deviceID, s.sessionID)
 	token, err := source.ServiceToken(ctx)
 	if err != nil || token == nil || !token.Valid() {
 		tickets.discard()

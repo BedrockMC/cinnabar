@@ -167,10 +167,12 @@ impl Textures<'_> {
             .collect()
     }
 
-    /// Whether no source has `path`; a URL still loading is not missing.
+    /// Whether no source has `path`; a URL still loading, or a local file the artwork atlas has not
+    /// packed, is not missing, so it draws nothing instead of white.
     pub(super) fn missing(&self, path: &str) -> bool {
         let key = texture_key(path);
         !is_remote(key)
+            && !std::path::Path::new(path).is_absolute()
             && self.images.is_none_or(|images| !images.contains_key(path))
             && !self.atlas.has_image(key)
             && self.assets.texture(key).is_none()
@@ -206,6 +208,16 @@ impl Textures<'_> {
             return Some((icon.page, [u0, v0, u1 - u0, v1 - v0]));
         }
         None
+    }
+
+    /// Frame strips wait for artwork rather than a preview that merges adjacent frames.
+    pub(super) fn animation_sprite(&self, path: &str) -> Option<(u16, [f32; 4])> {
+        let sprite = self.sprite(path)?;
+        if self.set.full_res.contains_key(texture_key(path)) {
+            return Some(sprite);
+        }
+        let pixels = self.texture(path)?.pixels;
+        ([f64::from(sprite.1[2]), f64::from(sprite.1[3])] == pixels).then_some(sprite)
     }
 }
 
@@ -280,6 +292,10 @@ pub(super) fn texture_key(path: &str) -> &str {
 }
 
 #[cfg(test)]
+#[path = "textures/animation_tests.rs"]
+mod animation_tests;
+
+#[cfg(test)]
 mod review_tests {
     use super::*;
     #[test]
@@ -313,5 +329,23 @@ mod review_tests {
             textures.texture("textures/ui/test").unwrap().pixels,
             [256.0, 128.0]
         );
+    }
+
+    // Offer art past the atlas drew vanilla's white instead of nothing.
+    #[test]
+    fn an_unpacked_local_file_is_not_missing() {
+        let assets = super::super::tests::mini_carrier();
+        let set = TextureSet::new(0);
+        let atlas = ServerAtlas::new(&[], None, 1);
+        let textures = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: None,
+        };
+        // A rooted path without a drive is not absolute on Windows.
+        let local = std::env::temp_dir().join("store-images").join("a.jpg");
+        assert!(!textures.missing(local.to_str().unwrap()));
+        assert!(textures.missing("textures/ui/White"));
     }
 }

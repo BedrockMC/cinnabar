@@ -127,6 +127,8 @@ fn rig<'a>(
         item_animation: [client_world::ItemAnimationState::default(); 2],
         off_hand_animation: [client_world::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 
@@ -495,6 +497,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
         publish_local_actor_visibility(
             &avatar,
             perspective,
+            None,
             authoritative_eye,
             Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
             subject_rotation,
@@ -532,6 +535,7 @@ fn f5_local_avatar_uses_authoritative_subject_when_view_eye_is_boomed() {
     publish_local_actor_visibility(
         &avatar,
         PerspectiveMode::FirstPerson,
+        None,
         Some(subject_eye),
         Some(subject_eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET),
         subject_rotation,

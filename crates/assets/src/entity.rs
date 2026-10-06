@@ -13,7 +13,8 @@ mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
 pub use source_paths::{
-    BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH,
+    ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
+    ELYTRA_GEOMETRY_IDENTIFIER, LEGACY_ENTITY_GEOMETRY_PATH,
 };
 use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
@@ -21,13 +22,14 @@ pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_ME
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
 pub use v4::{
-    CompiledMolangExpression, EntityAnimationChannel, EntityAnimationClip,
-    EntityAnimationController, EntityAnimationInterpolation, EntityAnimationKeyframe,
-    EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary, EntityControllerAnimation,
-    EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
-    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
-    EntityRenderMaterial, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
-    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    CompiledMolangExpression, ENTITY_ALPHA_TEST_THRESHOLD, EntityAnimationChannel,
+    EntityAnimationClip, EntityAnimationController, EntityAnimationInterpolation,
+    EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
+    EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
+    EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
+    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
@@ -39,7 +41,7 @@ pub use v4::{
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
     MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangSymbol,
-    MolangSymbolKind, molang_call, molang_program_stack,
+    MolangSymbolKind, entity_render_pattern_matches, molang_call, molang_program_stack,
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
@@ -132,7 +134,9 @@ pub struct EntityAssetSymbol {
     pub dependencies: Box<[EntityDependency]>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(transparent)]
 pub struct EntityGeometryScalar(u32);
 
@@ -315,6 +319,9 @@ struct EntityCatalogPayload {
     render: EntityRenderData,
 }
 
+/// An encoded entity carrier payload.
+pub type EntityCarrierBlob = Box<[u8]>;
+
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
     carrier_identity: Option<[u8; 32]>, // SHA-256 of the decoded carrier file
@@ -446,7 +453,7 @@ impl RuntimeEntityAssets {
     /// matches what a decode of that encoding reports.
     pub fn from_compiled_encoded(
         compiled: CompiledEntityAssets,
-    ) -> Result<(Self, Option<Box<[u8]>>), AssetError> {
+    ) -> Result<(Self, Option<EntityCarrierBlob>), AssetError> {
         use sha2::{Digest, Sha256};
         let blob = encode_entity_blob(&compiled).ok();
         let assets = Self {

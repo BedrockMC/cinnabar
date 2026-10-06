@@ -27,6 +27,7 @@ import (
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
 	"github.com/df-mc/go-xsapi/v2/xal/xasd"
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
+	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/clientplatform"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -60,7 +61,7 @@ func NewAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 type derivedDeps struct {
 	discover func(context.Context) (*service.AuthorizationEnvironment, error)
 	login    func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*playfab.Client, error)
-	services func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID string) service.TokenSource
+	services func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID, sessionID string) service.TokenSource
 	mint     func(context.Context, *service.AuthorizationEnvironment, service.TokenSource, *ecdsa.PublicKey) (string, error)
 }
 
@@ -80,9 +81,10 @@ func defaultDerivedDeps() derivedDeps {
 		login: func(ctx context.Context, env *service.AuthorizationEnvironment, signer xsapi.TokenAndSignaturer) (*playfab.Client, error) {
 			return playfab.LoginWithXbox(ctx, env.PlayFabTitleID, signer, playfab.ClientConfig{CreateAccount: true})
 		},
-		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID string) service.TokenSource {
+		services: func(env *service.AuthorizationEnvironment, tickets service.SessionTicketSource, token *service.Token, deviceID, sessionID string) service.TokenSource {
 			config := clientplatform.TokenConfig()
 			config.Device.ID = deviceID
+			config.SessionID = sessionID
 			return env.ResumeTokenSource(tickets, config, token)
 		},
 		mint: func(ctx context.Context, env *service.AuthorizationEnvironment, source service.TokenSource, key *ecdsa.PublicKey) (string, error) {
@@ -125,6 +127,7 @@ type Account struct {
 	cachedEnv   *derivedEnvironment
 	service     *service.Token
 	services    service.TokenSource // native source seeded with service; rebuilt after every restore
+	sessionID   string              // Session-Id every service request names for this launch
 	playfab     *playfab.Client     // logged in on first need; closed only by Close
 	closed      atomic.Bool
 	refreshing  atomic.Bool // one KeepFresh per account
@@ -141,6 +144,7 @@ var (
 	_ nsal.TokenInvalidator            = (*Account)(nil)
 	_ service.TokenSource              = (*Account)(nil)
 	_ service.TokenInvalidator         = (*Account)(nil)
+	_ service.SessionIdentifier        = (*Account)(nil)
 )
 
 // ErrAccountClosed is returned once the account has been signed out or shut down.
@@ -154,7 +158,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 		diagnostics = io.Discard
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	source := &Account{ctx: ctx, cancel: cancel, gate: make(chan struct{}, 1), diagnostics: diagnostics, oauth: oauth, client: clientBinding(), deps: deps}
+	source := &Account{ctx: ctx, cancel: cancel, gate: make(chan struct{}, 1), diagnostics: diagnostics, oauth: oauth, client: clientBinding(), sessionID: uuid.NewString(), deps: deps}
 	defer func() {
 		if source.session == nil {
 			source.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, nil)
@@ -345,6 +349,9 @@ func (s *Account) MultiplayerToken(ctx context.Context, key *ecdsa.PublicKey) (s
 	return jwt, nil
 }
 
+// SessionID returns the Session-Id the account's service requests send; it is fixed for the account's life.
+func (s *Account) SessionID() string { return s.sessionID }
+
 // ServiceToken returns the account's Minecraft service token from the shared native source,
 // persisting it so other processes reuse it.
 func (s *Account) ServiceToken(ctx context.Context) (*service.Token, error) {
@@ -380,7 +387,7 @@ func (s *Account) serviceTokenLocked(ctx context.Context, publish, replace bool)
 		if replace {
 			seed = nil
 		}
-		source = s.deps.services(s.environment, sessionTickets{s}, seed, s.serviceDeviceIDLocked())
+		source = s.deps.services(s.environment, sessionTickets{s}, seed, s.serviceDeviceIDLocked(), s.sessionID)
 	}
 	before, session := s.service, sessionFingerprint(s.session.Snapshot())
 	token, err := source.ServiceToken(ctx)

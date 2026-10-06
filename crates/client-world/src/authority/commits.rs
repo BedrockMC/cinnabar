@@ -10,8 +10,13 @@ impl WorldAuthority {
         sequence: Option<u64>,
     ) -> Result<(), WorldEvent> {
         match event {
-            // Advertised bounds are diagnostic facts until custom dimension limits are supported.
-            WorldEvent::DimensionHeights(_) => {}
+            WorldEvent::DimensionHeights(heights) => self.apply_dimension_heights(&heights),
+            WorldEvent::DimensionChangeAck { .. } => {
+                self.push_committed_control(CommittedControlEvent::DimensionChangeAck {
+                    sequence: sequence.expect("dimension acknowledgement commits through submit"),
+                    dimension_epoch: self.form_dimension_epoch,
+                });
+            }
             WorldEvent::NetworkStackLatency(creation_time) => {
                 let sequence = sequence.expect("latency probes commit through submit");
                 self.push_committed_control(CommittedControlEvent::NetworkStackLatency {
@@ -84,6 +89,10 @@ impl WorldAuthority {
                 } else {
                     self.push_committed_audio(committed);
                 }
+            }
+            WorldEvent::PrimitiveShapes(event) => {
+                assert!(self.committed_primitive_shapes.len() < MAX_ADMITTED_WORLD_EVENTS);
+                self.committed_primitive_shapes.push_back(event);
             }
             WorldEvent::Camera(event) => {
                 self.audio_nondefault_camera_observed = true;
@@ -230,10 +239,16 @@ impl WorldAuthority {
                         event,
                         ..
                     } => {
+                        self.actors
+                            .apply_player_game_mode(actor_unique_id, event.update);
                         if actor_unique_id != self.local_player_unique_id {
                             return Ok(());
                         }
                         UiEvent::GameMode(event)
+                    }
+                    UiEvent::DefaultGameMode(event) => {
+                        self.actors.apply_world_game_mode(event.update);
+                        UiEvent::DefaultGameMode(event)
                     }
                     event => event,
                 };

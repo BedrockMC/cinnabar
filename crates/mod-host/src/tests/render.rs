@@ -16,7 +16,7 @@ impl Data {
     }
 
     fn push(&mut self, bytes: &[u8]) -> (u32, u32) {
-        while self.bytes.len() % 4 != 0 {
+        while !self.bytes.len().is_multiple_of(4) {
             self.bytes.push(0);
         }
         let offset = 1024 + self.bytes.len() as u32;
@@ -154,6 +154,8 @@ fn render_is_denied_by_default_even_with_other_grants() {
         entities: true,
         commands: vec!["ability".into()],
         packet_delay: true,
+        block_highlights: false,
+        fullbright: false,
     };
     let (_dir, mut host) = load(&calls, &init, &frame, grants);
     host.frame(false).unwrap();

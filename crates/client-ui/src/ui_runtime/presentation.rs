@@ -34,6 +34,7 @@ pub mod nametag_atlas;
 pub mod nametags;
 pub mod paper_doll;
 pub mod player_preview;
+pub mod primitive_shapes;
 pub mod primitives;
 pub mod publish;
 pub mod retained_hud;
@@ -125,6 +126,7 @@ pub struct UiPresentationRuntime {
     scoreboard: PresentedScoreboardCache,
     scoreboard_owner_names: ScoreboardOwnerNameAuthority,
     debug_lines: Option<DebugLines>,
+    debug_overlay: debug_overlay::OverlayCache,
     /// Bedrock desktop GUI-scale preference: `None`/0 selects the auto rule.
     gui_scale_preference: Option<u8>,
     /// Platform safe-area insets in logical px, applied to the HUD geometry,
@@ -137,6 +139,7 @@ pub struct UiPresentationRuntime {
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
     player_preview_page: Option<u16>,
@@ -252,12 +255,14 @@ impl UiPresentationRuntime {
             scoreboard: PresentedScoreboardCache::default(),
             scoreboard_owner_names: ScoreboardOwnerNameAuthority::default(),
             debug_lines: None,
+            debug_overlay: debug_overlay::OverlayCache::default(),
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),
             player_preview_page: None,
             player_preview_source_hash: None,

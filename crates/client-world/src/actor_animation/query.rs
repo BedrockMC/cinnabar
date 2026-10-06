@@ -5,6 +5,8 @@ mod wolf;
 #[cfg(test)]
 mod fish_tests;
 #[cfg(test)]
+mod pack_query_tests;
+#[cfg(test)]
 mod tropical_fish_tests;
 
 // Actor flag bits and metadata keys follow gophertunnel v1.61.0
@@ -33,7 +35,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_eating_mob", 102),
     ("is_elder", 33),
     ("is_emerging", 104),
-    ("is_emoting", 92),
+    ("is_emoting", FLAG_EMOTING),
     ("is_gliding", FLAG_GLIDING),
     // Reads the eating flag; needs independent measurement against grazing animals.
     ("is_grazing", 63),
@@ -76,6 +78,7 @@ pub(super) use crate::actor_store::FLAG_BABY;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
+pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
 const FLAG_TAMED: u32 = 28;
 
@@ -178,6 +181,20 @@ pub(super) fn query(
             })
         })),
         "property" => property(evaluator, arguments.first()),
+        "has_property" => MolangValue::Number(truth(match arguments {
+            [MolangValue::String(name)] => {
+                evaluator
+                    .context
+                    .properties
+                    .as_deref()
+                    .is_some_and(|definitions| {
+                        definitions
+                            .iter()
+                            .any(|definition| definition.name == *name)
+                    })
+            }
+            _ => false,
+        })),
         "get_default_bone_pivot" => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
     }
@@ -278,7 +295,7 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_in_ui" && evaluator.context.is_in_ui {
         return 1.0;
     }
-    if name == "is_grazing" && super::horse::is_horse(actor) {
+    if name == "is_grazing" && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
@@ -335,10 +352,15 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "rotation_to_camera" => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
         }),
-        "distance_from_camera" => (0..3)
-            .map(|axis| (context.camera_position[axis] - input.position[axis]).powi(2))
-            .sum::<f32>()
-            .sqrt(),
+        "distance_from_camera" => distance_from_camera(input, context),
+        "camera_distance_range_lerp" => match arguments {
+            [start, end] => camera_distance_range_lerp(
+                distance_from_camera(input, context),
+                start.number(),
+                end.number(),
+            ),
+            _ => 0.0,
+        },
         "texture_frame_index" => texture_frame_index(actor),
         // Client-derived from the Hurt event; streamed metadata is not authoritative.
         "overlay_alpha" => {
@@ -365,6 +387,10 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
                 .saturating_sub(input.item_use_ticks) as f32
                 * ACTOR_TICK_DURATION.as_secs_f32()
         }
+        "base_swing_duration" if arguments.is_empty() => {
+            // Item-component duration overrides are not retained by the actor item feed yet.
+            super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()
+        }
         "death_ticks" => f32::from(actor.status.death_ticks()),
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
@@ -390,6 +416,13 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         "is_in_lava" => truth(actor.status.fluid.is_some_and(|(_, lava)| lava)),
         "armor_texture_slot" => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
         "armor_color_slot" => armor_color_slot(context, argument(0), argument(1)),
+        "has_armor_slot" => truth(match arguments {
+            [slot] => {
+                let slot = slot.number().floor();
+                (0.0..4.0).contains(&slot) && worn_armor(context, slot).is_some()
+            }
+            _ => false,
+        }),
         "is_on_ground" => truth(input.on_ground),
         "is_riding" => truth(input.is_riding),
         "is_moving" => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
@@ -424,6 +457,25 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     }
 }
 
+fn distance_from_camera(input: &ActorTickInput, context: &ActorTickContext) -> f32 {
+    (0..3)
+        .map(|axis| (context.camera_position[axis] - input.position[axis]).powi(2))
+        .sum::<f32>()
+        .sqrt()
+}
+
+fn camera_distance_range_lerp(distance: f32, start: f32, end: f32) -> f32 {
+    let (near, far) = (start.min(end), start.max(end));
+    let amount = if distance <= near {
+        0.0
+    } else if distance >= far {
+        1.0
+    } else {
+        (distance - near) / (far - near)
+    };
+    if end < start { 1.0 - amount } else { amount }
+}
+
 pub(super) fn is_arrow(actor: &ActorSnapshot) -> bool {
     matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:arrow")
 }
@@ -435,6 +487,11 @@ fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::Wor
     context.armor[slot as usize].as_ref()
 }
 
+/// Elytra suppresses the player's cape and outer chest skin layer while equipped.
+pub(super) fn wearing_elytra(context: &ActorTickContext) -> bool {
+    worn_armor(context, 1.0).is_some_and(|armor| item_name(&armor.item) == "elytra")
+}
+
 // Material indices follow the order of the pack's armor texture arrays (none, leather, iron, gold,
 // diamond, copper, netherite); chainmail, turtle and elytra need independent measurement.
 fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
@@ -443,7 +500,7 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
     };
     let name = item_name(&armor.item);
     // The chest slot reads 5 for an elytra, which hides the cape.
-    if slot == 1.0 && name == "elytra" {
+    if slot == 1.0 && wearing_elytra(context) {
         return 5.0;
     }
     let material = name.split('_').next().unwrap_or("");

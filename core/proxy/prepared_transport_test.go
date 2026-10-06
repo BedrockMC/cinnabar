@@ -2,9 +2,16 @@ package proxy
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -304,4 +311,68 @@ func redialAfterLoginTimeout(t *testing.T, authDelay time.Duration) {
 		t.Fatalf("join after slow authentication = %v, want a fresh transport", err)
 	}
 	_ = connection.Close()
+}
+
+// The NetherNet probe of an addressed server runs while authentication is still pending, and the
+// chosen NetherNet dial then presents the login identity.
+func TestAddressedServerProbesDuringAuthenticationAndDialsNetherNetWithIdentity(t *testing.T) {
+	probed := make(chan struct{}, 1)
+	offers := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/join" {
+			probed <- struct{}{}
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		offers <- string(body)
+		http.Error(w, "fixture ends the negotiation", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	address := server.Listener.Addr().String()
+	prepared := newPreparedTransport(t.Context(), remoteServerNetwork(slog.New(slog.DiscardHandler), nil), address)
+	defer prepared.finish(false)
+	select {
+	case <-probed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("probe did not start before authentication finished")
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if conn, err := prepared.DialContextIdentityProvider(ctx, address, syntheticMultiplayerToken(t, &key.PublicKey), key, "https://authorization.example/"); err == nil {
+		_ = conn.Close()
+		t.Fatal("dial succeeded against a fixture that rejects the offer")
+	}
+	select {
+	case offer := <-offers:
+		if !strings.Contains(offer, "a=identity") {
+			t.Fatal("NetherNet offer omitted the login identity")
+		}
+	default:
+		t.Fatal("dial never signaled a NetherNet offer")
+	}
+}
+
+// Without HTTP signaling the addressed server falls back to RakNet, still dialed during authentication.
+func TestAddressedServerWithoutSignalingPreDialsRakNet(t *testing.T) {
+	server, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	prepared := newPreparedTransport(t.Context(), remoteServerNetwork(slog.New(slog.DiscardHandler), nil), server.LocalAddr().String())
+	defer prepared.finish(false)
+	buffer := make([]byte, 2048)
+	_ = server.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := server.ReadFrom(buffer); err != nil {
+		t.Fatalf("no RakNet dial before authentication finished: %v", err)
+	}
+	const openConnectionRequest1 = 0x05
+	if buffer[0] != openConnectionRequest1 {
+		t.Fatalf("first datagram id %#x, want an Open Connection Request 1", buffer[0])
+	}
 }

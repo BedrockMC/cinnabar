@@ -32,7 +32,28 @@ fn light() -> HandRigLight {
         sky_level: 0,
         daylight: 1.0,
         pad: 0,
+        ..Default::default()
     }
+}
+
+#[test]
+fn java_fixed_light_directions_rotate_without_translation_or_world_brightness_changes() {
+    let base = light();
+    let transform = Mat4::from_translation(Vec3::new(3.0, 4.0, 5.0))
+        * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    let java = base.with_java_lighting(transform);
+    assert_eq!(java.block_level, base.block_level);
+    assert_eq!(java.sky_level, base.sky_level);
+    for (direction, original) in java
+        .java_lights
+        .into_iter()
+        .zip([Vec3::new(0.2, 1.0, -0.7), Vec3::new(-0.2, 1.0, 0.7)])
+    {
+        let expected = transform.transform_vector3(original.normalize());
+        assert!(Vec3::from_slice(&direction).abs_diff_eq(expected, 1e-6));
+        assert_eq!(direction[3], 1.0);
+    }
+    assert_eq!(base.java_lights, [[0.0; 4]; 2]);
 }
 
 #[test]

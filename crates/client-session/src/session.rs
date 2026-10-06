@@ -73,7 +73,7 @@ pub enum NetworkControlEvent<P = ()> {
         inventory: InventoryEvent,
         item_registry: Option<ItemRegistryEvent>,
         player_game_mode: PlayerGameMode,
-        world_default_game_mode: PlayerGameMode,
+        world_default_game_mode: protocol::GameModeUpdate,
         player_game_mode_uses_world_default: bool,
         server_authoritative_block_breaking: bool,
         /// StartGame `RewindHistorySize`, raw.

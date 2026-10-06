@@ -102,11 +102,13 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
     assert_eq!(payload.as_ptr(), pointer);
 }
 
-pub(super) mod allocation_count;
+pub(crate) mod allocation_count;
 mod block_cracks;
 mod column_residency;
 mod commit_budget;
+mod dimension_ranges;
 mod dimension_transfer;
+mod job_snapshots;
 mod light_scheduler;
 mod local_retention;
 mod neighbour_deadlines;
