@@ -45,8 +45,7 @@ pub(super) fn draw(
         Some(MenuAction::PlayAddServer),
     )?;
     y += add_height;
-    let featured: Vec<&MenuServerCard> =
-        view.featured.iter().chain(view.gatherings.iter()).collect();
+    let featured: Vec<&MenuServerCard> = view.featured.iter().collect();
     y = section_label(
         canvas,
         &format!("Featured experiences ({})", featured.len()),

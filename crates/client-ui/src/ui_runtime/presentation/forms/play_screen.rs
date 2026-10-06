@@ -1,7 +1,7 @@
 //! The vanilla play screen's bindings: Worlds (local worlds and Realms), Friends
 //! (joinable friend worlds and member Realms) and Servers (saved servers, and
-//! the featured list of servers then gatherings with the selected one's info
-//! panel), plus how its world and server presses map back to menu actions.
+//! the featured list of servers with the selected one's info panel), plus how
+//! its world and server presses map back to menu actions.
 
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
@@ -39,9 +39,9 @@ fn flag(data: &mut DataSource, name: &str, on: bool) {
     data.set_global(name, Scalar::Bool(on));
 }
 
-/// Featured servers followed by gatherings, as the Servers tab lists them.
+/// The featured servers, as the Servers tab lists them.
 fn featured(view: &MenuView) -> impl Iterator<Item = &MenuServerCard> {
-    view.featured.iter().chain(view.gatherings.iter())
+    view.featured.iter()
 }
 
 pub(super) fn bind(view: &MenuView, data: &mut DataSource) {
@@ -284,13 +284,9 @@ fn realms(view: &MenuView, data: &mut DataSource) {
     data.set_collection(FRIEND_REALMS, friends);
 }
 
-/// Joining the featured-list entry at `index` (servers, then gatherings).
+/// Joining the featured-list entry at `index`.
 pub(super) fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
-    if index < view.featured.len() {
-        return Some(MenuAction::PlayFeatured(index));
-    }
-    let gathering = index - view.featured.len();
-    (gathering < view.gatherings.len()).then_some(MenuAction::PlayGathering(gathering))
+    (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
 }
 
 /// The action for a press on the Servers tab's featured list or info panel.
@@ -385,18 +381,17 @@ mod tests {
     }
 
     #[test]
-    fn the_featured_list_runs_servers_then_gatherings() {
+    fn the_featured_list_joins_the_pressed_or_selected_server() {
         let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
-        view.featured = vec![card("a")];
-        view.gatherings = vec![card("g")];
+        view.featured = vec![card("a"), card("g")];
         assert_eq!(play_featured(&view, 0), Some(MenuAction::PlayFeatured(0)));
-        assert_eq!(play_featured(&view, 1), Some(MenuAction::PlayGathering(0)));
+        assert_eq!(play_featured(&view, 1), Some(MenuAction::PlayFeatured(1)));
         assert_eq!(play_featured(&view, 2), None);
         // The info panel's join button joins the selected entry.
         view.feeds.selected_featured = Some(1);
         assert_eq!(
             featured_action(&view, &press(None, None)),
-            Some(MenuAction::PlayGathering(0))
+            Some(MenuAction::PlayFeatured(1))
         );
     }
 

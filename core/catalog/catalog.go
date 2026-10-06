@@ -27,11 +27,10 @@ import (
 
 // File is the small JSON contract consumed by the Rust launcher.
 type File struct {
-	Featured   []Server `json:"featured"`
-	Gatherings []Server `json:"gatherings"`
-	Realms     []Realm  `json:"realms"`
-	Friends    []Friend `json:"friends"`
-	Errors     []string `json:"errors,omitempty"`
+	Featured []Server `json:"featured"`
+	Realms   []Realm  `json:"realms"`
+	Friends  []Friend `json:"friends"`
+	Errors   []string `json:"errors,omitempty"`
 }
 
 type Server struct {
@@ -75,10 +74,9 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 		return File{}, errNoAccount
 	}
 	result := File{
-		Featured:   []Server{},
-		Gatherings: []Server{},
-		Realms:     []Realm{},
-		Friends:    []Friend{},
+		Featured: []Server{},
+		Realms:   []Realm{},
+		Friends:  []Friend{},
 	}
 
 	if values, err := Realms(ctx, account); err != nil {
@@ -100,16 +98,6 @@ func Fetch(ctx context.Context, account *authcache.Account) (File, error) {
 			result.Featured = append(result.Featured, Server{
 				Name: server.Name, Address: server.Address, Caption: server.Caption,
 				imageURL: server.thumbnailURL,
-			})
-		}
-	}
-	if values, err := Gatherings(ctx, account); err != nil {
-		result.Errors = append(result.Errors, "Gatherings: "+err.Error())
-	} else {
-		for _, experience := range values {
-			result.Gatherings = append(result.Gatherings, Server{
-				Name: experience.Name, Address: GatheringTargetPrefix + experience.ID,
-				Caption: experience.Caption, imageURL: experience.Image.URL,
 			})
 		}
 	}
@@ -171,7 +159,7 @@ func cacheArtwork(ctx context.Context, directory string, result *File) {
 		return
 	}
 	cache := artworkCache(directory)
-	for _, servers := range [][]Server{result.Featured, result.Gatherings} {
+	for _, servers := range [][]Server{result.Featured} {
 		for index := range servers {
 			image, err := cache.Fetch(ctx, servers[index].imageURL)
 			if err == nil {

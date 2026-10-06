@@ -41,10 +41,6 @@ pub(crate) trait AccountControl {
     fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         None
     }
-    /// `gatherings.v1`: joinable gatherings with their details, when fetched.
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        None
-    }
     /// `profile.v1`: the signed-in profile, when fetched.
     fn profile(&mut self) -> Option<MenuProfile> {
         None
@@ -99,14 +95,6 @@ impl MenuRuntime {
             {
                 self.feeds.selected_featured = None;
             }
-        }
-        if let Some(gatherings) = control.gatherings() {
-            self.feeds.details.extend(
-                gatherings
-                    .iter()
-                    .map(|(card, details)| (card.address.clone(), details.clone())),
-            );
-            self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
         }
         if std::mem::take(&mut self.feeds.profile_refresh_requested) {
             control.refresh_profile();
