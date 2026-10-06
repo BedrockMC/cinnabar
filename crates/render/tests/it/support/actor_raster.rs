@@ -106,6 +106,10 @@ pub(super) fn raster_material_target(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each knob is an independent shader input under test"
+)]
 pub(super) fn raster_material_lighting(
     gpu: &Gpu,
     vertices: &[ActorRigVertex],

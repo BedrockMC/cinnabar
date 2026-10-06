@@ -82,7 +82,8 @@ pub(super) fn cache_layer_skeletons(assets: &RuntimeEntityAssets, state: &mut Ac
 }
 
 /// Poses each layer drawing its own geometry: the actor's clips, recompiled for that geometry,
-/// bind to its bones by name as vanilla animates every controller's model.
+/// bind to its bones by name as vanilla animates every controller's model. Layers sharing a
+/// geometry share one sampled pose.
 pub(super) fn pose_layers(
     evaluator: &Evaluator<'_>,
     variables: &MolangVariables,
@@ -91,18 +92,24 @@ pub(super) fn pose_layers(
     layers: &mut [RenderTextureLayer],
     budget: &mut EvalBudget<'_>,
 ) {
-    for layer in layers.iter_mut() {
-        let Some(geometry) = layer.geometry else {
+    for index in 0..layers.len() {
+        let Some(geometry) = layers[index].geometry else {
             continue;
         };
         let Some(Some(skeleton)) = skeletons.get(&geometry) else {
             continue;
         };
-        let pose = sample_layer_pose(evaluator, variables, skeletons, clips, geometry, budget)
-            .ok()
-            .or_else(|| compose_pose(&skeleton.bones, &[]).map(Arc::from));
+        let pose = match layers[..index]
+            .iter()
+            .find(|earlier| earlier.geometry == Some(geometry))
+        {
+            Some(earlier) => Some(Arc::clone(&earlier.pose)),
+            None => sample_layer_pose(evaluator, variables, skeletons, clips, geometry, budget)
+                .ok()
+                .or_else(|| compose_pose(&skeleton.bones, &[]).map(Arc::from)),
+        };
         if let Some(pose) = pose {
-            layer.pose = pose;
+            layers[index].pose = pose;
         }
     }
 }
