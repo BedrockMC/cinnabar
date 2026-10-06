@@ -24,12 +24,13 @@ def refresh(root, output):
     for name in target["hashes"]:
         target["hashes"][name] = digest(root / target["artifacts"][name])
     write_json(output / target_path, target)
-    foundation_path = Path("assets/registry-foundation-v2193.json")
+    protocol = target["wire_protocol"]
+    foundation_path = Path(f"assets/registry-foundation-v{protocol}.json")
     foundation = json.loads((root / foundation_path).read_text())
     for name, binding in foundation["projection_bindings"].items():
         binding["sha256"] = digest(root / foundation["outputs"][name])
     write_json(output / foundation_path, foundation)
-    fallback_path = Path("assets/vanilla-fallback-source-v2193.json")
+    fallback_path = Path(f"assets/vanilla-fallback-source-v{protocol}.json")
     fallback = json.loads((root / fallback_path).read_text())
     for name in ("inventory", "input_inventory", "registry", "legacy_registry"):
         fallback[name]["sha256"] = digest(root / fallback[name]["path"])

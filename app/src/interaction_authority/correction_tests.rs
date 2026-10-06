@@ -12,6 +12,7 @@ use crate::movement::{
 struct Floor;
 
 impl sim::CollisionWorld for Floor {
+    /// Supplies full blocks for the correction picking fixture.
     fn collision_boxes(
         &self,
         query: sim::Aabb,

@@ -30,6 +30,7 @@ fn envelope(session_id: u64, sequence: u64, event: UiEvent) -> SequencedUiEvent 
     }
 }
 
+/// Builds a translated text packet for the localization fixtures.
 fn raw_text_event(json: &str) -> protocol::UiEvent {
     protocol::UiEvent::RawText(protocol::RawTextEvent {
         text: protocol::TextEvent {

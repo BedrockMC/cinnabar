@@ -186,7 +186,9 @@ mod tests {
         let retained = state.matching_creative_entries(&ledger, name);
         assert_eq!(retained.len(), 1);
         for _ in 0..3 {
-            let repeated = state.matching_creative_entries(&ledger, name);
+            let (repeated, allocations) =
+                crate::allocation_count::count(|| state.matching_creative_entries(&ledger, name));
+            assert_eq!(allocations, 0);
             assert_eq!(repeated.len(), 1);
             assert!(Arc::ptr_eq(
                 retained.indexes.as_ref().unwrap(),
