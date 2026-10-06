@@ -290,6 +290,109 @@ fn retained_renderer_has_zero_steady_work_and_changed_slot_bounded_churn() {
     assert!(world.resource::<gpu::ShapeGpu>().batches.is_empty());
 }
 
+/// Runs real GPU preparation with arena chunks limited to `chunk_bytes`.
+fn limited_prepare(chunk_bytes: u64) -> Option<(World, impl System<In = (), Out = ()>)> {
+    use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+    let native = crate::gpu_snapshot::Gpu::for_fixture("primitive arena binding limits")?;
+    let mut world = World::new();
+    let device = RenderDevice::from(native.device);
+    let limits = bevy::render::settings::WgpuLimits {
+        max_storage_buffer_binding_size: chunk_bytes as u32,
+        ..device.limits()
+    };
+    world.insert_resource(gpu::ShapeGpu::new(&device, &limits));
+    world.insert_resource(device);
+    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(native.queue))));
+    world.insert_resource(PrimitiveShapesScene::default());
+    let mut prepare = IntoSystem::into_system(gpu::prepare);
+    prepare.initialize(&mut world);
+    Some((world, prepare))
+}
+
+fn apply(world: &World, changes: Vec<render_api::primitive_shapes::PrimitiveShapeChange>) {
+    world
+        .resource::<PrimitiveShapesScene>()
+        .store
+        .lock()
+        .unwrap()
+        .apply(render_api::primitive_shapes::PrimitiveShapesEvent {
+            changes,
+            skipped_entries: 0,
+        });
+}
+
+#[test]
+fn arena_growth_partitions_at_the_storage_binding_limit() {
+    let Some((mut world, mut prepare)) = limited_prepare(4 * gpu::INSTANCE_BYTES) else {
+        return;
+    };
+    apply(
+        &world,
+        (0..10).map(|id| line_update(id, id as f32)).collect(),
+    );
+    prepare.run((), &mut world).unwrap();
+    let sizes = |world: &World| -> Vec<u64> {
+        world.resource::<gpu::ShapeGpu>().batches[0]
+            .slots
+            .chunks
+            .iter()
+            .map(|chunk| chunk.size() / gpu::INSTANCE_BYTES)
+            .collect()
+    };
+    assert_eq!(sizes(&world), [4, 4, 2]);
+    let first = world.resource::<gpu::ShapeGpu>().work;
+    assert_eq!(first.bytes, 10 * gpu::INSTANCE_BYTES);
+    prepare.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<gpu::ShapeGpu>().work, first);
+
+    apply(&world, (3..5).map(|id| line_update(id, 0.5)).collect());
+    prepare.run((), &mut world).unwrap();
+    let crossed = world.resource::<gpu::ShapeGpu>().work;
+    assert_eq!(crossed.bytes - first.bytes, 2 * gpu::INSTANCE_BYTES);
+    assert_eq!(crossed.uploads - first.uploads, 2);
+
+    apply(
+        &world,
+        (10..13).map(|id| line_update(id, id as f32)).collect(),
+    );
+    prepare.run((), &mut world).unwrap();
+    assert_eq!(sizes(&world), [4, 4, 4, 1]);
+    let grown = world.resource::<gpu::ShapeGpu>().work;
+    assert_eq!(grown.bytes - crossed.bytes, 3 * gpu::INSTANCE_BYTES);
+    let batch = &world.resource::<gpu::ShapeGpu>().batches[0];
+    assert_eq!(batch.slots.chunk_len(3, batch.instances as usize), 1);
+    assert_eq!(grown.skipped_slots, 0);
+}
+
+#[test]
+fn cross_referenced_arena_stays_in_one_binding_and_counts_excess() {
+    let actor_slots = 4;
+    let Some((mut world, mut prepare)) = limited_prepare(actor_slots * gpu::ACTOR_BYTES) else {
+        return;
+    };
+    let attached = (0..6)
+        .map(|id| match line_update(id, 0.0) {
+            render_api::primitive_shapes::PrimitiveShapeChange::Upsert(mut update) => {
+                update.attached_actor = Some(id as i64);
+                render_api::primitive_shapes::PrimitiveShapeChange::Upsert(update)
+            }
+            other => other,
+        })
+        .collect();
+    apply(&world, attached);
+    world
+        .resource::<PrimitiveShapesScene>()
+        .store
+        .lock()
+        .unwrap()
+        .update_actors(|id| Some([id as f32, 0.0, 0.0]));
+    prepare.run((), &mut world).unwrap();
+    let gpu = world.resource::<gpu::ShapeGpu>();
+    assert_eq!(gpu.actors.chunks.len(), 1);
+    assert!(gpu.actors.chunks[0].size() <= actor_slots * gpu::ACTOR_BYTES);
+    assert_eq!(gpu.work.skipped_slots, 2);
+}
+
 #[test]
 fn primitive_text_material_modes_keep_depth_background_and_facing() {
     use crate::gpu_snapshot::{Draw, Gpu, RasterState, SNAPSHOT_SIDE};
