@@ -541,7 +541,13 @@ impl AccountControl for LauncherAccount {
 
     fn answer_server_trust(&mut self, id: u64, trusted: bool) {
         self.with(|snapshot| snapshot.answered_trust = Some(id));
-        super::server_trust::send(self.socket_dir.clone(), id, trusted);
+        let snapshot = Arc::clone(&self.snapshot);
+        super::server_trust::send(self.socket_dir.clone(), id, trusted, move || {
+            let mut snapshot = snapshot.lock().unwrap_or_else(|poison| poison.into_inner());
+            if snapshot.answered_trust == Some(id) {
+                snapshot.answered_trust = None;
+            }
+        });
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {

@@ -13,15 +13,30 @@ use protocol::launcher_control::{answer_server_trust, poll_events};
 /// How often a per-session core's question is polled, matching the join's event polling.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Answers trust prompt `id`; a lost answer leaves the prompt to end with its join.
-pub(crate) fn send(socket_dir: PathBuf, id: u64, trusted: bool) {
+/// Delivery attempts before an answer is given up and its prompt shown again.
+const ANSWER_ATTEMPTS: u32 = 3;
+
+/// Answers trust prompt `id`, retrying briefly; `undelivered` runs when the answer never reached
+/// the core, so the caller can show the still-pending question again.
+pub(crate) fn send(
+    socket_dir: PathBuf,
+    id: u64,
+    trusted: bool,
+    undelivered: impl FnOnce() + Send + 'static,
+) {
     thread::spawn(move || {
-        let Some(runtime) = runtime() else {
-            return;
-        };
-        if let Err(error) = runtime.block_on(answer_server_trust(&socket_dir, id, trusted)) {
-            bevy::log::warn!(%error, "server trust answer was not delivered");
+        if let Some(runtime) = runtime() {
+            for attempt in 1..=ANSWER_ATTEMPTS {
+                match runtime.block_on(answer_server_trust(&socket_dir, id, trusted)) {
+                    Ok(_) => return,
+                    Err(error) if attempt == ANSWER_ATTEMPTS => {
+                        bevy::log::warn!(%error, "server trust answer was not delivered");
+                    }
+                    Err(_) => thread::sleep(POLL_INTERVAL),
+                }
+            }
         }
+        undelivered();
     });
 }
 
@@ -111,6 +126,45 @@ impl TrustSource for SessionTrust {
 
     fn answer(&self, id: u64, trusted: bool) {
         self.with(|watched| watched.answered = Some(id));
-        send(self.socket_dir.clone(), id, trusted);
+        let watched = Arc::clone(&self.watched);
+        send(self.socket_dir.clone(), id, trusted, move || {
+            let mut watched = watched.lock().unwrap_or_else(|poison| poison.into_inner());
+            if watched.answered == Some(id) {
+                watched.answered = None;
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // An answer that cannot reach its core gives the question back instead of hiding it.
+    #[test]
+    fn an_undelivered_answer_shows_the_question_again() {
+        let dir = std::env::temp_dir().join(format!("cinnabar-trust-{}", std::process::id()));
+        let trust = SessionTrust::watch(dir);
+        let prompt = ServerTrustPrompt {
+            id: 2,
+            url: "http://127.0.0.1:19132".into(),
+            from_session_core: true,
+        };
+        trust.with(|watched| watched.prompt = Some(prompt.clone()));
+        trust.answer(2, true);
+        assert!(
+            trust.prompt().is_none(),
+            "the answered question stayed visible"
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while trust.with(|watched| watched.answered.is_some()) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the question never came back"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        trust.with(|watched| watched.prompt = Some(prompt.clone()));
+        assert_eq!(trust.prompt(), Some(prompt));
     }
 }
