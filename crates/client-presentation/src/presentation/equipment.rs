@@ -16,7 +16,8 @@ mod tests;
 pub use display::FirstPersonHand;
 pub use input::{local_input, remote_input};
 pub use runtime::{
-    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, HeldKind, WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, HeldKind, JavaGrip, WornItem,
+    java_draws_attachable,
 };
 pub use runtime::{EquipmentRuntime, FirstPersonArms, FirstPersonItem, StagedSessionIcons};
 

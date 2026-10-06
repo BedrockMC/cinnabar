@@ -32,6 +32,7 @@ pub(super) fn worn_item(item: &CanonicalItemStack, dye_rgb: Option<u32>) -> Opti
     Some(WornItem {
         identifier: item.identifier.clone()?,
         metadata: item.identity.metadata,
+        damage: item.damage,
         kind: match item.visual {
             ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
             ItemVisualRoute::BlockItem(visual) => HeldKind::Block(visual.0),
@@ -70,6 +71,7 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         armor: armor_slots(stream.authority().actor_armor(runtime_id)),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
+        java: None,
     }
 }
 
@@ -111,6 +113,7 @@ pub fn local_input(
         .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
+        java: None,
     }
 }
 
@@ -123,6 +126,7 @@ mod tests {
         let item = |identifier: &str| WornItem {
             identifier: identifier.into(),
             metadata: 0,
+            damage: None,
             kind: HeldKind::Other,
             dye_rgb: None,
             enchanted: false,

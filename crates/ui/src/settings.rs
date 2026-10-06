@@ -41,6 +41,8 @@ pub struct VideoSettings {
     pub camera_shake: bool,
     pub outline_selection: bool,
     pub damage_bob: f32,
+    /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
+    pub java_animations: bool,
 }
 
 impl Default for VideoSettings {
@@ -61,6 +63,7 @@ impl Default for VideoSettings {
             camera_shake: true,
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
+            java_animations: true,
         }
     }
 }

@@ -108,7 +108,14 @@ fn player_cape_replaces_the_wings_texture_and_suppresses_a_separate_cape_draw() 
     let profile = profile(true);
     let cape = fixture_cape();
     let before = batch.submissions[1].clone();
-    apply_capes(&mut batch, &cape, |_| None, |_| Some(&profile), |_| true);
+    apply_capes(
+        &mut batch,
+        &cape,
+        |_| None,
+        |_| Some(&profile),
+        |_| None,
+        |_| true,
+    );
     assert_eq!(batch.submissions.len(), 2);
     assert!(
         !batch
@@ -136,9 +143,67 @@ fn capeless_player_keeps_the_pack_wings_texture_without_adding_a_skin_layer() {
     let cape = fixture_cape();
     let before = batch.submissions[1].clone();
     let artwork = batch.artwork.clone();
-    apply_capes(&mut batch, &cape, |_| None, |_| Some(&profile), |_| true);
+    apply_capes(
+        &mut batch,
+        &cape,
+        |_| None,
+        |_| Some(&profile),
+        |_| None,
+        |_| true,
+    );
     assert_eq!(batch.submissions.len(), 2);
     assert_eq!(batch.submissions[1], before);
     assert_eq!(batch.artwork, artwork);
     assert_eq!(batch.skin_layers.len(), 1);
+}
+
+#[test]
+fn java_cape_motion_cannot_replace_worn_wing_pose_or_glint() {
+    let mut batch = batch();
+    let mut extra = batch.submissions[1].clone();
+    let location = batch.artwork[&extra.input.identity];
+    extra.input.identity.layer = (0..=u8::MAX)
+        .find(|&layer| {
+            layer != ELYTRA_LAYER && crate::presentation::equipment::is_elytra_layer(layer)
+        })
+        .unwrap();
+    batch.artwork.insert(extra.input.identity, location);
+    batch.submissions.push(extra);
+    let profile = profile(true);
+    let cape = fixture_cape();
+    let before = batch.submissions[1..].to_vec();
+    let java_calls = std::cell::Cell::new(0);
+    apply_capes(
+        &mut batch,
+        &cape,
+        |_| None,
+        |_| Some(&profile),
+        |_| {
+            java_calls.set(java_calls.get() + 1);
+            Some(render_model::java_animation::JavaCapeInput {
+                chase: bevy::math::Vec3::new(0.4, -0.8, 0.7),
+                bob: 0.1,
+                walked: 12.5,
+                sneaking: true,
+                ..Default::default()
+            })
+        },
+        |_| true,
+    );
+    assert_eq!(
+        java_calls.get(),
+        0,
+        "worn wings suppress Java cape evaluation"
+    );
+    assert_eq!(batch.submissions.len(), 3);
+    for (wing, before) in batch.submissions[1..].iter().zip(before) {
+        assert_eq!(wing.input, before.input);
+        assert_eq!(wing.world_from_actor, before.world_from_actor);
+        assert_eq!(wing.material, before.material);
+        assert_eq!(
+            &batch.skin_layers[wing.texture_layer as usize][..4],
+            &[9, 8, 7, 255]
+        );
+        assert!(!batch.artwork.contains_key(&wing.input.identity));
+    }
 }

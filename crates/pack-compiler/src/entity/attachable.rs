@@ -138,7 +138,7 @@ pub fn compile_item_use(behavior_pack: &Path) -> Result<Vec<ItemUseDuration>, As
         }
         let Some(item) = std::fs::read(&path)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|bytes| parse_unique_json(&path, &bytes).ok())
             .and_then(|document| document.get("minecraft:item").cloned())
         else {
             continue;
@@ -921,5 +921,32 @@ mod tests {
                 ("minecraft:iron_spear", 72000)
             ]
         );
+    }
+
+    /// Comments in a food's unrelated effects must not hide its use duration.
+    #[test]
+    fn item_use_durations_accept_commented_food_definitions() {
+        let root = tempfile::tempdir().unwrap();
+        let items = root.path().join("items");
+        std::fs::create_dir(&items).unwrap();
+        std::fs::write(
+            items.join("golden_apple.json"),
+            r#"{"minecraft:item":{
+                "description":{"identifier":"minecraft:golden_apple"},
+                "components":{
+                    "minecraft:use_duration":32,
+                    "minecraft:food":{
+                        "can_always_eat":true, /* Usable at full hunger. */
+                        "effects":[{"duration":120 // Seconds.
+                        }]
+                    }
+                }
+            }}"#,
+        )
+        .unwrap();
+        let durations = compile_item_use(root.path()).unwrap();
+        assert_eq!(durations.len(), 1);
+        assert_eq!(durations[0].identifier.as_ref(), "minecraft:golden_apple");
+        assert_eq!(durations[0].ticks, 32);
     }
 }

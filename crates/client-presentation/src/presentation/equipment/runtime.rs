@@ -20,18 +20,20 @@ use render_model::{
 mod alpha;
 mod diagnostics;
 mod elytra;
+mod java;
 mod modern;
 mod pack;
 mod push;
 mod session;
 mod types;
+pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
 pub use types::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonArms,
-    FirstPersonItem, HeldKind, WornItem,
+    FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, BodyBones, MeshKey};
+use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
 
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
@@ -42,7 +44,7 @@ use super::{
         FirstPersonHand, FirstPersonShape, ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE,
         LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, attach_to_bone,
         first_person_display, head_block_display, held_block_display, held_sprite_display,
-        is_hand_equipped, is_mirrored_art, view_bone,
+        is_hand_equipped, is_rod, view_bone,
     },
 };
 
@@ -53,6 +55,7 @@ fn body_bones(names: Vec<Box<str>>) -> BodyBones {
             .position(|name| name.eq_ignore_ascii_case(wanted))
     };
     BodyBones {
+        right_arm: find("rightArm"),
         right_item: find("rightItem"),
         left_item: find("leftItem"),
         head: find("head"),
@@ -123,7 +126,9 @@ pub struct EquipmentRuntime {
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
     attachables: client_world::AttachablesRuntime,
-    attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
+    attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
+    /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
+    java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
     /// Render-controller models queued beyond the scene's binding geometries.
     selected_geometries: std::collections::BTreeSet<EntityRigId>,
 }
@@ -246,6 +251,7 @@ impl EquipmentRuntime {
         let runtime = Self {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
+            java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
             assets,
             icons,
@@ -314,9 +320,21 @@ impl EquipmentRuntime {
         ] {
             let Some(item) = item else { continue };
             let before = layers.len();
-            self.push_held(body, item, layer, bone, &mut layers);
+            match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
+                Some(grip) => {
+                    if !self.push_attachable(body, item, layer, bone, false, &mut layers) {
+                        self.push_java_held(body, item, &bones, grip, &mut layers);
+                    }
+                }
+                None => self.push_held(body, item, layer, bone, &mut layers),
+            }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
+            } else if input.java.is_some() {
+                // Java draws held items after its red hurt flash.
+                for held in &mut layers[before..] {
+                    held.submission.overlay_rgba8 = 0;
+                }
             }
         }
         let slots = [
@@ -425,7 +443,7 @@ impl EquipmentRuntime {
             FirstPersonShape::Block
         } else {
             FirstPersonShape::Sprite {
-                mirrored_art: is_mirrored_art(&item.identifier),
+                mirrored_art: is_rod(&item.identifier),
             }
         };
         let hand = hand.into();
@@ -450,6 +468,8 @@ impl EquipmentRuntime {
             presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
         })
     }
 
@@ -481,6 +501,8 @@ impl EquipmentRuntime {
             presentation: layer_presentation(body, LAYER_OFF_HAND, mesh, poses, location, 0),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
         })
     }
 

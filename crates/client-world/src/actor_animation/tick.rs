@@ -1,6 +1,10 @@
 use super::{query::FLAG_BABY, *};
 use assets::EntityControllerAnimationTarget;
 
+#[cfg(test)]
+#[path = "tick_cape_tests.rs"]
+mod cape_tests;
+
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ActorTickContext {
@@ -12,6 +16,14 @@ pub(crate) struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub(crate) main_hand: Option<Arc<str>>,
     pub(crate) off_hand: Option<Arc<str>>,
+    /// The main-hand stack's data value.
+    pub(crate) main_hand_metadata: u32,
+    /// A positive network identity distinguishes mutation from replacement of the held stack.
+    pub(crate) main_hand_stack_id: Option<i32>,
+    /// The selected hotbar slot, retained independently from the stack identity.
+    pub(crate) main_hand_slot: u8,
+    /// Current local Java swing length after haste and fatigue; remote swings use the default.
+    pub(crate) java_swing_ticks: i32,
     /// A held crossbow is loaded.
     pub(crate) hand_charged: bool,
     /// Ticks the main-hand item can be used for, or 0 when unknown.
@@ -24,6 +36,10 @@ pub(crate) struct ActorTickContext {
     pub(crate) is_local_first_person: bool,
     /// Local view-bobbing preference; other actor contexts keep the native default.
     pub(crate) view_bobbing: Option<bool>,
+    /// The client's own player.
+    pub(crate) is_local: bool,
+    /// The client's own player is flying.
+    pub(crate) is_flying: bool,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
@@ -91,7 +107,7 @@ pub(super) fn advance_motion(
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
     }
-    if super::horse::is_horse(actor) {
+    if actor.is_horse() {
         motion
             .horse
             .advance(query::actor_flag(actor, query::FLAG_STANDING));
@@ -145,6 +161,43 @@ pub(super) fn advance_motion(
         state.off_hand_animation[0].arm_height,
     );
     state.off_hand_animation[1].arm_height = off_hand_arm_height;
+    let java_held = context
+        .main_hand
+        .as_ref()
+        .map(|identifier| super::java::JavaHeldItem {
+            identifier: Arc::clone(identifier),
+            metadata: context.main_hand_metadata,
+            stack_id: context.main_hand_stack_id.filter(|id| *id > 0),
+        });
+    state.java.advance(&super::java::JavaTick {
+        delta: position_delta,
+        yaw: actor.yaw,
+        swing_ticks: if context.java_swing_ticks > 0 {
+            context.java_swing_ticks
+        } else {
+            ACTOR_SWING_TICKS
+        },
+        hurt_time: actor.status.hurt_time,
+        held: &java_held,
+        held_slot: context.main_hand_slot,
+        riding: context.is_riding,
+        vanilla_posture: swim_amount > 0.0
+            || query::actor_flag(actor, query::FLAG_GLIDING)
+            || query::actor_flag(actor, crate::actor_store::ACTOR_FLAG_CRAWLING)
+            || query::actor_flag(actor, query::FLAG_EMOTING)
+            || actor.is_sleeping(),
+        position: actor.position,
+        velocity: actor.native_velocity(),
+        on_ground: actor.on_ground.unwrap_or(false),
+        alive: !actor.status.dead
+            && actor
+                .attributes
+                .get("minecraft:health")
+                .is_none_or(|health| health.current > 0.0),
+        sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
+        flying: context.is_flying,
+        local: context.is_local,
+    });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
     }
@@ -558,7 +611,7 @@ pub(super) fn apply_engine_variables(
         variables.set(engine.tropical_fish_base, base);
         variables.set(engine.tropical_fish_pattern, pattern);
     }
-    if super::horse::is_horse(actor) {
+    if actor.is_horse() {
         variables.set(engine.horse_stand_anim, motion.horse.stand_amount);
         variables.set(engine.horse_shake_tail, truth(motion.horse.shake_tail()));
         variables.set(

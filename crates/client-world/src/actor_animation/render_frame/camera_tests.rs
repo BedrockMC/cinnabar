@@ -278,6 +278,7 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     store.set_camera_position([4.0, 3.0, 0.0]);
     for alpha in [0.0, 0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
+        // Positive authored X rotation turns toward negative X in the mirrored rig frame.
         let expected = pose::quat_from_euler([-0.75, 0.0, 0.0]);
         assert_rotation(layers[0].pose[0].rotation, expected);
         assert_rotation(layers[1].pose[1].rotation, expected);

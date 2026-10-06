@@ -720,9 +720,14 @@ impl LocalPhysicsController {
     #[must_use]
     pub fn render_eye_position(&self) -> Option<[f32; 3]> {
         let mut feet = self.render_feet_position()?;
-        let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
-        feet[1] += self.eye_offset.height(alpha as f32);
+        feet[1] += self.eye_offset.height(self.tick_alpha());
         Some(feet)
+    }
+
+    /// How far the frame sits between the last two completed ticks, `0..=1`.
+    #[must_use]
+    pub fn tick_alpha(&self) -> f32 {
+        (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0) as f32
     }
 
     /// The interpolated actor origin, independent of the camera's stance offset.

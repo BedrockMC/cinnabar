@@ -1,6 +1,7 @@
 //! Per-frame HUD observation and publication.
 use super::*;
 use bevy::prelude::Transform;
+use client_ui::ui_runtime::inventory_ledger::PlayerInventorySlot;
 
 mod commit;
 mod loading;
@@ -195,6 +196,23 @@ pub(crate) fn prepare_ui_runtime(
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let java_held_item = camera_settings.feel().java_animations
+        && stream
+            .and_then(|stream| {
+                stream
+                    .authority()
+                    .actor_rig(stream.local_player_runtime_id())
+            })
+            .map_or_else(
+                || {
+                    player_runtime
+                        .selected_stack_snapshot()
+                        .is_some_and(|selected| {
+                            matches!(selected.state, PlayerInventorySlot::Present(_))
+                        })
+                },
+                |rig| rig.java_equipped.is_some(),
+            );
     let preview = PreviewCapture {
         skin,
         pose,
@@ -202,7 +220,7 @@ pub(crate) fn prepare_ui_runtime(
             || menu_runtime.is_visible()
             || hud_doll
             || runtime.emotes().is_open(),
-        hands: first_person && !hide_hand && !hand_rig.is_active(),
+        hands: first_person && !hide_hand && !hand_rig.is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,

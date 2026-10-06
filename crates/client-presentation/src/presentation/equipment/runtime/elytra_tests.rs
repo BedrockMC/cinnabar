@@ -151,6 +151,8 @@ fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> Act
         item_animation: [ItemAnimationState::default(); 2],
         off_hand_animation: [ItemAnimationState::default(); 2],
         animation_variables: ActorAnimationVariables::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 
@@ -162,6 +164,7 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
             Some(WornItem {
                 identifier: Arc::from("minecraft:elytra"),
                 metadata: 0,
+                damage: None,
                 kind: HeldKind::Other,
                 dye_rgb: None,
                 enchanted,
@@ -718,4 +721,44 @@ fn installed_elytra_carrier_publishes_worn_wings_with_the_pack_controller() {
         EntityRenderMaterial::Glint
     );
     assert_eq!(enchanted[0].location, draws[0].location);
+}
+
+#[test]
+fn java_grip_preserves_authored_wing_poses_and_enchantment() {
+    let (mut java_runtime, _) = pack_runtime(blending_wing_pack());
+    let (mut vanilla_runtime, _) = pack_runtime(blending_wing_pack());
+    let mut body = player_body(&mut java_runtime);
+    player_body(&mut vanilla_runtime);
+    let mut owner = owner();
+    let vanilla = worn(true);
+    let java = ActorEquipmentInput {
+        java: Some(crate::presentation::equipment::JavaGrip { blocking: true }),
+        ..vanilla.clone()
+    };
+    for (tick, flags) in [(1, 0), (2, 1 << 1), (3, 1 << 32), (4, 1 << 32), (5, 0)] {
+        owner.metadata.insert(0, ActorMetadataValue::Flags(flags));
+        let posed = render_model::java_animation::java_biped(
+            &render_model::java_animation::JavaBipedInput {
+                sneaking: flags == 1 << 1,
+                ..Default::default()
+            },
+        );
+        let (rotation, _) = posed.body.rig_bone(
+            render_model::java_animation::JavaBiped::REST.body,
+            bevy::math::Vec3::ZERO,
+        );
+        let mut bones = body.input.current_bones.to_vec();
+        bones[1].rotation = rotation.to_array();
+        body.input.previous_bones = bones.clone().into();
+        body.input.current_bones = bones.into();
+        let expected = layers(&mut vanilla_runtime, &body, &owner, &vanilla, tick);
+        let actual = layers(&mut java_runtime, &body, &owner, &java, tick);
+        assert_eq!(actual.len(), 1);
+        assert_eq!(actual[0].submission, expected[0].submission);
+        assert_eq!(actual[0].location, expected[0].location);
+        assert_eq!(
+            actual[0].submission.material.kind,
+            EntityRenderMaterial::Glint
+        );
+    }
 }

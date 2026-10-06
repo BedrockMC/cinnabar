@@ -96,7 +96,12 @@ impl ActorStore {
             local_first_person: false,
             local_view_dirty: false,
             local_view_bobbing: true,
+            local_flying: false,
             local_hands: [None, None],
+            local_main_metadata: 0,
+            local_main_stack_id: None,
+            local_main_slot: 0,
+            local_java_swing_ticks: crate::ACTOR_SWING_TICKS,
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,
@@ -123,6 +128,10 @@ impl ActorStore {
         self.animation.start_swing(runtime_id, ticks);
     }
 
+    pub(crate) fn reset_java_equip(&mut self, runtime_id: u64) {
+        self.animation.reset_java_equip(runtime_id);
+    }
+
     /// Feeds the client-authored local-player pose into the shared actor rig, spawning the
     /// synthetic actor on the first call so `actor_rigs()` drives its third-person body.
     /// Items and actions stay client-owned via `exclude_remote_state_for`.
@@ -138,7 +147,12 @@ impl ActorStore {
         self.local_view_dirty |= self.local_first_person != feed.first_person;
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
+        self.local_flying = feed.flying;
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
+        self.local_main_metadata = feed.main_hand_metadata;
+        self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
+        self.local_main_slot = feed.main_hand_slot;
+        self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {
             position: feed.position,
             pitch: feed.pitch,
@@ -186,20 +200,21 @@ impl ActorStore {
                 .insert(self.session_id, self.dimension, actor);
         }
     }
-    /// A retained server appearance wins; otherwise only changed client skin feeds replace the
-    /// synthetic profile, preserving server skin updates between pose samples.
+    /// Retains server appearances while an explicit client preference selects a synthetic profile.
+    /// Unchanged default feeds preserve server skin updates between pose samples.
     fn resolve_local_identity(
         &mut self,
         unique_id: i64,
         feed: &LocalPlayerFeed,
     ) -> ([u8; 16], std::sync::Arc<str>) {
         let synthetic = self.synthetic_local_uuid;
-        if let Some((uuid, username)) = self
-            .players
-            .iter()
-            .chain(self.unlisted_players.iter())
-            .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
-            .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
+        if !feed.prefer_client_skin
+            && let Some((uuid, username)) = self
+                .players
+                .iter()
+                .chain(self.unlisted_players.iter())
+                .find(|(uuid, profile)| Some(**uuid) != synthetic && profile.unique_id == unique_id)
+                .map(|(uuid, profile)| (*uuid, std::sync::Arc::clone(&profile.username)))
         {
             if let Some(stale) = self.synthetic_local_uuid.take()
                 && stale != uuid
@@ -210,15 +225,20 @@ impl ActorStore {
             self.synthetic_local_skin_pending = false;
             return (uuid, username);
         }
+        let uuid = if feed.prefer_client_skin {
+            synthetic.unwrap_or_else(|| self.available_profile_uuid(feed.uuid))
+        } else {
+            feed.uuid
+        };
         let skin_fingerprint = super::profiles::skin_fingerprint(&feed.skin);
         let stale = match self
             .players
-            .get(&feed.uuid)
-            .or_else(|| self.unlisted_players.get(&feed.uuid))
+            .get(&uuid)
+            .or_else(|| self.unlisted_players.get(&uuid))
         {
             Some(profile) => {
                 profile.unique_id != unique_id
-                    || synthetic != Some(feed.uuid)
+                    || synthetic != Some(uuid)
                     || self.synthetic_local_skin != Some(skin_fingerprint)
                     || self.synthetic_local_skin_pending
             }
@@ -226,7 +246,7 @@ impl ActorStore {
         };
         if stale {
             self.upsert_profile(
-                feed.uuid,
+                uuid,
                 PlayerProfile {
                     unique_id,
                     username: std::sync::Arc::clone(&feed.username),
@@ -236,18 +256,19 @@ impl ActorStore {
             );
             self.synthetic_local_skin_pending = self
                 .players
-                .get(&feed.uuid)
-                .or_else(|| self.unlisted_players.get(&feed.uuid))
+                .get(&uuid)
+                .or_else(|| self.unlisted_players.get(&uuid))
                 .is_none_or(|profile| profile.skin != feed.skin);
         }
-        self.synthetic_local_uuid = Some(feed.uuid);
+        self.synthetic_local_uuid = Some(uuid);
         self.synthetic_local_skin = Some(skin_fingerprint);
-        (feed.uuid, std::sync::Arc::clone(&feed.username))
+        (uuid, std::sync::Arc::clone(&feed.username))
     }
 
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
+        self.local_flying = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
         self.actors.clear();
@@ -277,6 +298,7 @@ impl ActorStore {
             return guard;
         }
         self.dimension = dimension;
+        self.local_flying = false;
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
