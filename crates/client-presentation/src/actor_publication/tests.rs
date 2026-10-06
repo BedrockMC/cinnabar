@@ -347,3 +347,80 @@ fn local_jump_body_tracks_camera_render_sample_in_both_third_person_views() {
         );
     }
 }
+
+/// A server pack's glint replaces the startup glint for the session; disconnect restores it.
+#[test]
+fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
+    use std::sync::Arc;
+    let png = |rgba: [u8; 4], width, height| {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(width, height, image::Rgba(rgba))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    };
+    let geometry = assets::ELYTRA_GEOMETRY_IDENTIFIER;
+    let files: Vec<(Box<str>, Vec<u8>)> = vec![
+        ("attachables/wings.json".into(), serde_json::to_vec(&serde_json::json!({
+            "format_version":"1.10.0","minecraft:attachable":{"description":{
+                "identifier":"minecraft:elytra","materials":{"default":"elytra","enchanted":"elytra_glint"},
+                "textures":{"default":"textures/models/wings"},"geometry":{"default":geometry},
+                "render_controllers":["controller.render.wings"]
+            }}
+        })).unwrap()),
+        ("models/entity/wings.json".into(), serde_json::to_vec(&serde_json::json!({
+            "format_version":"1.12.0","minecraft:geometry":[{
+                "description":{"identifier":geometry,"texture_width":64,"texture_height":32},
+                "bones":[{"name":"body","pivot":[0,24,0],
+                    "cubes":[{"origin":[-10,0,0],"size":[10,20,2],"uv":[22,0]}]}]
+            }]
+        })).unwrap()),
+        ("render_controllers/wings.json".into(), br#"{"format_version":"1.8.0","render_controllers":{
+            "controller.render.wings":{"geometry":"Geometry.default","textures":["Texture.default"],
+                "materials":[{"*":"Material.default"}]}
+        }}"#.to_vec()),
+        ("textures/models/wings.png".into(), png([200, 40, 40, 255], 64, 32)),
+        (
+            format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER).into(),
+            png([90, 20, 200, 255], 1, 1),
+        ),
+    ];
+    let compiled = pack_compiler::compile_actor_pack(files)
+        .unwrap()
+        .expect("pack compiles");
+    let catalog = assets::RuntimeEquipmentCatalog::from_parts(
+        compiled.identity,
+        compiled.equipment_bindings,
+        compiled.equipment_textures,
+    )
+    .unwrap();
+    let pack = assets::SessionEntityPack {
+        assets: Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
+        textures: Arc::from([]),
+        bindings: Arc::from([]),
+        equipment: Some(Arc::new(catalog)),
+    };
+    let startup = render::ActorArtworkPages::default().with_actor_glint(render::EquipmentRaster {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([1, 2, 3, 255]),
+    });
+    let mut scene = render::ActorRenderScene::default();
+    let mut ready = super::SessionGeometryReady::default();
+    let glint = |pages: &render::ActorArtworkPages| pages.actor_glint().unwrap().rgba8.to_vec();
+    let (session, ..) = super::apply_session_pack(
+        &mut scene,
+        startup.clone(),
+        Some(&pack),
+        None,
+        &mut ready,
+        None,
+        None,
+    );
+    assert_eq!(glint(&session.unwrap()), [90, 20, 200, 255]);
+    assert_eq!(glint(scene.frame().artwork_pages()), [90, 20, 200, 255]);
+    let (restored, ..) =
+        super::apply_session_pack(&mut scene, startup, None, None, &mut ready, None, None);
+    assert!(restored.is_none());
+    assert_eq!(glint(scene.frame().artwork_pages()), [1, 2, 3, 255]);
+}

@@ -154,6 +154,7 @@ pub(crate) struct ActorGpu {
     maximum_vertex_count: u32,
     skins: GpuSkinArrays,
     sampler: Sampler,
+    glint_sampler: Sampler,
     bind_group: Option<BindGroup>,
     frame_generation: u64,
     geometry_revision: u64,
@@ -238,6 +239,14 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         instance_count: 0,
         maximum_vertex_count: 0,
         skins: GpuSkinArrays::new(&render_device),
+        glint_sampler: render_device.create_sampler(&SamplerDescriptor {
+            label: Some("repeat actor glint sampler"),
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..Default::default()
+        }),
         sampler,
         bind_group: None,
         frame_generation: u64::MAX,
@@ -410,6 +419,10 @@ fn prepare_actor_bind_group(
         gpu.bind_group = None;
         return;
     };
+    let Some((_, glint_view)) = gpu.artwork.glint.as_ref() else {
+        gpu.bind_group = None;
+        return;
+    };
     let view_buffer = view_uniforms
         .uniforms
         .buffer()
@@ -484,6 +497,14 @@ fn prepare_actor_bind_group(
                         resource: BindingResource::TextureView(&gpu.skins.placeholder),
                     },
                     BindGroupEntry {
+                        binding: 12,
+                        resource: BindingResource::TextureView(glint_view),
+                    },
+                    BindGroupEntry {
+                        binding: 13,
+                        resource: BindingResource::Sampler(&gpu.glint_sampler),
+                    },
+                    BindGroupEntry {
                         binding: 11,
                         resource: BindingResource::TextureView(&gpu.skins.placeholder),
                     },
@@ -538,6 +559,14 @@ fn prepare_actor_bind_group(
             BindGroupEntry {
                 binding: 10,
                 resource: BindingResource::TextureView(gpu.skins.view(2)),
+            },
+            BindGroupEntry {
+                binding: 12,
+                resource: BindingResource::TextureView(glint_view),
+            },
+            BindGroupEntry {
+                binding: 13,
+                resource: BindingResource::Sampler(&gpu.glint_sampler),
             },
             BindGroupEntry {
                 binding: 11,

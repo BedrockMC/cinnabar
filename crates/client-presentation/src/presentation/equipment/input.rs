@@ -39,6 +39,7 @@ pub(super) fn worn_item(item: &CanonicalItemStack, dye_rgb: Option<u32>) -> Opti
             _ => HeldKind::Other,
         },
         dye_rgb,
+        enchanted: item.enchanted,
     })
 }
 
@@ -128,6 +129,7 @@ mod tests {
             damage: None,
             kind: HeldKind::Other,
             dye_rgb: None,
+            enchanted: false,
         };
         let equipment = ActorEquipmentInput {
             main: Some(item("minecraft:bow")),

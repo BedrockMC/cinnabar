@@ -253,6 +253,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
         "player_motion": player_motion(world),
+        "primitive_shapes": crate::primitive_shapes::snapshot(world),
         "sidebar": world.get_resource::<UiRuntime>()
             .and_then(|ui| super::scoreboards::snapshot(ui.scoreboards())),
         "screens": screens(world),

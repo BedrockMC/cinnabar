@@ -186,9 +186,15 @@ pub struct EntityAnimationController {
     pub initial_state: u16,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityControllerState {
+    /// Seconds to blend out this state when transitioning to another state.
+    #[serde(default, skip_serializing_if = "is_default_blend")]
+    pub blend_transition: EntityGeometryScalar,
+    /// Chooses the shorter rotation arc when blending controller states.
+    #[serde(default, skip_serializing_if = "is_default_blend")]
+    pub blend_via_shortest_path: bool,
     pub name: u32,
     pub first_animation: u32,
     pub animation_count: u16,
@@ -196,6 +202,11 @@ pub struct EntityControllerState {
     pub transition_count: u16,
     pub on_entry: Option<u32>,
     pub on_exit: Option<u32>,
+}
+
+/// Omits legacy-compatible controller blending defaults from encoded payloads.
+fn is_default_blend<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -726,6 +737,10 @@ fn validate_controller_state(
     state: &EntityControllerState,
     controller_state_count: u16,
 ) -> Result<(), AssetError> {
+    validate_geometry_scalar(state.blend_transition)?;
+    if state.blend_transition.get() < 0.0 {
+        return Err(invalid("entity controller blend duration is negative"));
+    }
     if !molang_symbol_has_kind(compiled, state.name, &[MolangSymbolKind::Name])
         || !range_in_bounds(
             state.first_animation,

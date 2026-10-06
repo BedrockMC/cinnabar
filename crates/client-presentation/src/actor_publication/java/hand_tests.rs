@@ -161,6 +161,7 @@ fn source_for_use(
             metadata: 0,
             damage: None,
             dye_rgb: None,
+            enchanted: false,
             kind: if identifier == "minecraft:stone" {
                 HeldKind::Block(0)
             } else {

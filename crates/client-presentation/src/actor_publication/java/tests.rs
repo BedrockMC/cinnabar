@@ -286,6 +286,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
         damage: None,
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
+        enchanted: false,
     };
     for modern in [FILLED_MAP, "minecraft:crossbow", "minecraft:shield"] {
         let sword = item("minecraft:iron_sword");
@@ -312,6 +313,7 @@ fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
         damage: None,
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
+        enchanted: false,
     };
     let owner = ActorEquipmentInput {
         main: Some(item("minecraft:apple")),
@@ -383,6 +385,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         damage: None,
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
+        enchanted: false,
     };
     for (old, new) in [(ids[0], ids[1]), (ids[1], ids[0])] {
         let mut stream = head_stream();
@@ -501,6 +504,7 @@ fn worn(identifier: &str) -> WornItem {
         damage: None,
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
+        enchanted: false,
     }
 }
 

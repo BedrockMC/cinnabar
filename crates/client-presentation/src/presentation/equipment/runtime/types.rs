@@ -25,6 +25,8 @@ pub struct WornItem {
     pub damage: Option<u32>,
     pub kind: HeldKind,
     pub dye_rgb: Option<u32>,
+    /// Enables the resource pack's enchanted material on worn equipment.
+    pub enchanted: bool,
 }
 
 /// How a held stack is drawn.
@@ -112,10 +114,12 @@ impl FirstPersonArms {
     }
 }
 
+/// Tick-owned actor queries and the sampled render fraction for worn attachables.
 #[derive(Clone, Copy)]
-pub(super) struct ElytraStance {
-    pub(super) sneaking: bool,
-    pub(super) sleeping: bool,
+pub struct EquipmentAnimation<'a> {
+    pub owner: &'a client_world::ActorSnapshot,
+    pub rig: &'a client_world::ActorRigSnapshot<'a>,
+    pub frame_alpha: f32,
 }
 
 pub(super) struct BodyBones {

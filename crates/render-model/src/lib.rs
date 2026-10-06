@@ -11,6 +11,7 @@ mod item_geometry;
 pub mod java_animation;
 mod nametag;
 mod panorama;
+pub mod primitive_shapes;
 mod ui;
 mod ui_textures;
 mod visibility;
