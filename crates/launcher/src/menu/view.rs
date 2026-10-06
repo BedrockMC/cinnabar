@@ -343,6 +343,8 @@ pub struct MenuFriendCard {
     pub world_name: String,
     pub members: String,
     pub xuid: String,
+    /// The world's player limit; zero when the host did not publish one.
+    pub max_members: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -454,6 +456,7 @@ impl From<CatalogFriend> for MenuFriendCard {
             world_name: friend.world_name,
             members,
             xuid: friend.xuid,
+            max_members: u32::try_from(friend.max_members).unwrap_or(0),
         }
     }
 }

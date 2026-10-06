@@ -309,6 +309,7 @@ mod tests {
                 world_name: "Base".into(),
                 members: "1 players".into(),
                 xuid: "1".into(),
+                max_members: 0,
             }])
         }
         fn sign_out(&mut self) -> bool {

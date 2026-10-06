@@ -83,7 +83,11 @@ fn update(
     let presence = discord
         .presence
         .get_or_insert_with(|| Presence::start(application_id));
-    presence.update(state, session.presence_target());
+    let players = world
+        .stream
+        .as_ref()
+        .map(|stream| u32::try_from(stream.authority().player_count()).unwrap_or(u32::MAX));
+    presence.update(state, session.presence_target(), players);
     // A direct `--address` session has no launcher to join through.
     if let Some(address) = presence.take_join()
         && menu.is_launcher()
@@ -134,6 +138,7 @@ mod tests {
             destination: rich_presence::Destination::Experience,
             join: Some("gathering/1".into()),
             badge: None,
+            max_players: None,
         };
         assert!(already_there(Some(&target), "gathering/1"));
         assert!(!already_there(Some(&target), "gathering/2"));

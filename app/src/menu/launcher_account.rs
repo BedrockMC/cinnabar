@@ -519,6 +519,7 @@ fn friend_card(friend: &Friend) -> MenuFriendCard {
         world_name: friend.world_name.clone(),
         members,
         xuid: friend.xuid.clone(),
+        max_members: friend.max_members,
     }
 }
 

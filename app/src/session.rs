@@ -276,6 +276,7 @@ fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
             destination: Destination::LocalWorld(address.to_owned()),
             join: None,
             badge: None,
+            max_players: None,
         };
     }
     let address = address.trim();
@@ -289,6 +290,7 @@ fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
         destination,
         join,
         badge: None,
+        max_players: None,
     }
 }
 
@@ -376,8 +378,10 @@ fn attempt_connect(
     let mut presence = presence_target(&address, local_world);
     if local_world {
         presence.join = menu.hosted_world_address();
+        presence.max_players = menu.hosted_world_max_players();
     } else {
         presence.badge = menu.featured_badge(&address);
+        presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
     let launcher = session.launcher.as_deref().and_then(|slot| {
@@ -703,12 +707,14 @@ mod tests {
             destination,
             join: Some(join.to_owned()),
             badge: None,
+            max_players: None,
         };
         let server = |endpoint: &str| joinable(Destination::Server(endpoint.to_owned()), endpoint);
         let private = |destination| Target {
             destination,
             join: None,
             badge: None,
+            max_players: None,
         };
         assert_eq!(
             presence_target(" play.example.net ", false),

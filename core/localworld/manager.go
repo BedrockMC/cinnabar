@@ -37,6 +37,8 @@ type Status struct {
 	Setup          *SetupStatus `json:"setup,omitempty"` // dedicated-server acquisition, when configured
 	// BackendUnavailableReason mirrors Setup's docker_missing / docker_not_running.
 	BackendUnavailableReason string `json:"backend_unavailable_reason,omitempty"`
+	// MaxPlayers is the running server's player limit, the host included; zero when unknown.
+	MaxPlayers int `json:"max_players,omitempty"`
 }
 
 // StartSpec identifies the world a Runner must host.
@@ -226,6 +228,9 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	status := Status{State: m.state, WorldID: m.world.ID, Backend: m.world.Backend, Paused: m.paused, Error: m.failure}
 	status.PauseSupported = m.inst == nil || canPause(m.inst)
+	if limited, ok := m.inst.(interface{ MaxPlayers() int }); ok {
+		status.MaxPlayers = limited.MaxPlayers()
+	}
 	m.mu.Unlock()
 	if m.setup != nil {
 		setup := m.setup.Status()

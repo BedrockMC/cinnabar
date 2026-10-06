@@ -23,6 +23,8 @@ pub(super) struct LocalWorldsUi {
     joining: Option<String>,
     /// The joined world runs on the dedicated server, which the core hosts for Xbox friends.
     hosted: bool,
+    /// The open world's player limit, as its server reported it.
+    max_players: Option<u32>,
 }
 
 impl Default for LocalWorldsUi {
@@ -34,6 +36,7 @@ impl Default for LocalWorldsUi {
             seed: super::input::field_editor(MenuField::WorldSeed),
             joining: None,
             hosted: false,
+            max_players: None,
         }
     }
 }
@@ -66,6 +69,7 @@ impl MenuRuntime {
             let hosted = world.is_some_and(|world| world.backend == Backend::Bds);
             let name = world.map_or(id, |world| world.name.clone());
             self.request_local_world_join(name, hosted);
+            self.local_ui.max_players = worlds.menu().max_players();
         }
         if self.local_world_joined && self.is_connecting() {
             let name = self.local_ui.joining.as_deref().unwrap_or_default();
@@ -84,6 +88,7 @@ impl MenuRuntime {
                 self.local_world_joined = false;
                 self.local_ui.joining = None;
                 self.local_ui.hosted = false;
+                self.local_ui.max_players = None;
             }
         }
         // The invite screen opens over the pause screen, which stays up beneath it.
@@ -269,6 +274,11 @@ impl MenuRuntime {
                 self.feeds.profile.xuid
             )
         })
+    }
+
+    /// The hosted world's player limit, for the Discord card's party size.
+    pub(crate) fn hosted_world_max_players(&self) -> Option<u32> {
+        self.local_ui.max_players.filter(|_| self.hosting_world())
     }
 }
 

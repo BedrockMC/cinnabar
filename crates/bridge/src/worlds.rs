@@ -181,6 +181,9 @@ pub struct WorldStatus {
     pub setup: Option<Setup>,
     #[serde(default)]
     pub backend_unavailable_reason: Option<UnavailableReason>,
+    /// The running server's player limit, the host included.
+    #[serde(default)]
+    pub max_players: Option<u32>,
 }
 
 /// Local-world preferences kept by the core.
