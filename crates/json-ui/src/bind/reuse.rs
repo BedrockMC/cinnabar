@@ -372,6 +372,17 @@ impl Binder<'_> {
                         reads.add(Data::Item, key, Some(index));
                     }
                     reads.add(Data::Defaults, key, None);
+                    // Reading the shared list, a list later registered for the enclosing item
+                    // would take over (see `attach_item`).
+                    if key == collection
+                        && let Some((parent, index)) = scope.cursor.path.last()
+                    {
+                        reads.add(
+                            Data::Length,
+                            &super::scoped_key(parent, *index, collection),
+                            None,
+                        );
+                    }
                     if source
                         .properties()
                         .any(|name| name == "#collection_total_items")
