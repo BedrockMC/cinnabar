@@ -200,6 +200,7 @@ impl UiRuntime {
                                     icon.network_id == item.stack.network_id
                                         && icon.metadata == item.stack.metadata
                                         && icon.block_runtime_id == item.stack.block_runtime_id
+                                        && icon.extra_data == item.stack.extra_data
                                 })
                         })
                         .map(|item| item.creative_network_id),

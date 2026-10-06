@@ -99,7 +99,7 @@ pub fn assert_installed_shield(
             axis_scale: render_model::UNIT_AXIS_SCALE,
         };
         PreviewHeldPlacement::Authored {
-            bone: attach(identity, *pivot, channels).unwrap(),
+            bone: attach(identity, *pivot, channels, root.binding.is_some()).unwrap(),
             pivot: *pivot,
         }
     });
