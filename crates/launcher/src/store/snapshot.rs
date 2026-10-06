@@ -112,15 +112,17 @@ impl StoreSnapshot {
     }
 }
 
-/// The factory role for a layout row `kind`; anything unknown is a plain offer row.
-pub fn role_for(kind: Option<&str>) -> &'static str {
-    match kind.unwrap_or_default() {
+/// The vanilla row factory a layout row `kind` (its controlId) draws with; `None` for a row the client
+/// has no factory for yet (promo banner, nav buttons, coin bundles, the top-bar layout row).
+pub fn role_for(kind: Option<&str>) -> Option<&'static str> {
+    Some(match kind.unwrap_or("StoreRow") {
+        "StoreRow" => "StoreRow",
         "GridList" => "GridList",
         "VerticalGridList" => "VerticalGridList",
         "HeroRow" => "HeroRow",
         "CarouselRow" => "CarouselRow",
-        _ => "StoreRow",
-    }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -182,9 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_row_kinds_fall_back_to_the_plain_offer_row() {
-        assert_eq!(role_for(Some("GridList")), "GridList");
-        assert_eq!(role_for(Some("Whatever")), "StoreRow");
-        assert_eq!(role_for(None), "StoreRow");
+    fn rows_without_a_client_factory_have_no_role() {
+        assert_eq!(role_for(Some("GridList")), Some("GridList"));
+        assert_eq!(role_for(None), Some("StoreRow"));
+        for kind in ["PromoBanner", "NavButtonRow", "CoinBundleRow", "Layout"] {
+            assert_eq!(role_for(Some(kind)), None, "{kind}");
+        }
     }
 }

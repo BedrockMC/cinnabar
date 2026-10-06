@@ -160,7 +160,7 @@ func TestHomeMapsCuratedRowsAndFillsQueryRows(t *testing.T) {
 		t.Fatalf("page = %+v err=%v", page, err)
 	}
 	curated := page.Rows[0]
-	if curated.Title != "Featured" || curated.Kind != "itemListComp" || len(curated.Offers) != 1 {
+	if curated.Title != "Featured" || curated.Kind != "StoreRow" || len(curated.Offers) != 1 {
 		t.Fatalf("curated row = %+v", curated)
 	}
 	offer := curated.Offers[0]
@@ -219,9 +219,14 @@ func TestSearchMapsCatalogItemsAndMarksOwned(t *testing.T) {
 			ID: "aaaaaaaa-0000-0000-0000-000000000001", ContentType: "MarketplaceDurableCatalog_V1.2",
 			Title:             playfabcatalog.Dictionary[string]{"NEUTRAL": "Alpha"},
 			DisplayProperties: json.RawMessage(`{"creatorName":"Studio"}`),
-			Images:            []playfabcatalog.Image{{Type: "screenshot", URL: "https://cdn.example.test/s.png"}, {Type: "Thumbnail", URL: "https://cdn.example.test/t.png"}},
-			PriceOptions:      playfabcatalog.PriceOptions{{Amounts: []playfabcatalog.PriceAmount{{Value: 320, ItemID: "mc"}}}},
-			Rating:            playfabcatalog.Rating{Average: 4.5, TotalCount: 10},
+			Images: []playfabcatalog.Image{
+				{Type: "Screenshot", Tag: "packicon", URL: "https://cdn.example.test/icon.png"},
+				{Type: "Screenshot", Tag: "panorama", URL: "https://cdn.example.test/pano.png"},
+				{Type: "Screenshot", Tag: "screenshot", URL: "https://cdn.example.test/s.png"},
+				{Type: "Thumbnail", URL: "https://cdn.example.test/t.png"},
+			},
+			PriceOptions: playfabcatalog.PriceOptions{{Amounts: []playfabcatalog.PriceAmount{{Value: 320, ItemID: "mc"}}}},
+			Rating:       playfabcatalog.Rating{Average: 4.5, TotalCount: 10},
 		},
 		{ID: "hidden", Hidden: true, Title: playfabcatalog.Dictionary[string]{"NEUTRAL": "H"}},
 		{ID: "untitled"},
@@ -240,7 +245,8 @@ func TestSearchMapsCatalogItemsAndMarksOwned(t *testing.T) {
 		t.Fatalf("filter = %+v", cat.got[0])
 	}
 	detail, err := client.Offer(context.Background(), "aaaaaaaa-0000-0000-0000-000000000001")
-	if err != nil || len(detail.ScreenshotURLs) != 1 || !detail.Owned {
+	// The pack icon and panorama are Screenshot-typed too; only the screenshot belongs in the carousel.
+	if err != nil || len(detail.ScreenshotURLs) != 1 || detail.ScreenshotURLs[0] != "https://cdn.example.test/s.png" || !detail.Owned {
 		t.Fatalf("detail = %+v err=%v", detail, err)
 	}
 	if _, err := client.Search(context.Background(), SearchQuery{Filter: "a;drop"}); !errors.Is(err, ErrInvalidRequest) {
