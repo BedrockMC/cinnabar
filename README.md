@@ -54,13 +54,18 @@ own logo sits in the card's corner. The timer counts the current session in game
 otherwise. Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The
 card never shows account details, Realm IDs or friend XUIDs.
 
-While you play on a server, an experience or a friend's world, Discord friends can join you from
-your profile or a chat invite. The destination travels only in Discord's join secret, and the
-joining client accepts only addresses it would itself publish. A friend's world still needs the
-joiner to see it through Xbox, as in vanilla. Realms and local worlds are not joinable.
-Cinnabar registers itself with Discord on each launch (`discord-<id>` in
+While you play on a server, an experience, a friend's world or your own hosted world, Discord
+friends can join you from your profile or a chat invite. The destination travels only in Discord's
+join secret, and the joining client accepts only addresses it would itself publish. A friend's world
+still needs the joiner to see it through Xbox, as in vanilla. Realms and Flat worlds are not
+joinable. Cinnabar registers itself with Discord on each launch (`discord-<id>` in
 `HKCU\Software\Classes` on Windows, a `.desktop` handler on Linux, Discord's `games` folder on
 macOS) so an accepted invite starts the game when it is closed.
+
+A Normal (dedicated-server) local world is hosted for Xbox friends while it is open, as vanilla
+hosts worlds: it appears in friends' Friends tab (friends of friends may join, up to 8 players),
+and the pause screen's friends button opens vanilla's Invite to Game screen. Each joiner must log
+in with Xbox Live and present the one-time nonce the session issued them.
 
 ## Beyond vanilla
 
@@ -146,7 +151,7 @@ plan is in `docs/architecture/`.
 | `proxy` | Upstream session, resource-pack download and packet relay. |
 | `authflow`, `authcache` | Microsoft device sign-in and token cache. |
 | `catalog`, `store`, `launcher`, `control` | Menu data: featured servers, Realms, friends, marketplace. |
-| `localworld` | Local worlds on BDS (a container on macOS). |
+| `localworld` | Local worlds on BDS (a container on macOS); `proxy` hosts open ones for Xbox friends. |
 | `packcache` | On-disk cache of server packs. |
 | `update` | Signed update checks. |
 
