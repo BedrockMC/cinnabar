@@ -12,7 +12,6 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
-	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/persona"
 	"github.com/sandertv/gophertunnel/minecraft/service/playermessaging"
@@ -311,5 +310,9 @@ func personaHead(ctx context.Context, discovery *service.Discovery, account *aut
 
 // realmInvites reads the pending Realms invite count through the Realms client.
 func realmInvites(ctx context.Context, account *authcache.Account) (int, error) {
-	return realms.NewClient(account, nil).PendingInviteCount(ctx)
+	client, err := RealmsClient(ctx, account)
+	if err != nil {
+		return 0, err
+	}
+	return client.PendingInviteCount(ctx)
 }

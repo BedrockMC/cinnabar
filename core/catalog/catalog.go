@@ -19,6 +19,10 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
+	"github.com/sandertv/gophertunnel/minecraft/service"
+	"golang.org/x/oauth2"
+	"net/http"
+	"sync"
 )
 
 // File is the small JSON contract consumed by the Rust launcher.
@@ -194,7 +198,52 @@ func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 	if account == nil {
 		return nil, errNoAccount
 	}
-	return listRealms(ctx, realms.NewClient(account, nil))
+	client, err := RealmsClient(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	return listRealms(ctx, client)
+}
+
+// RealmsClient returns the account's Realms client on the discovered endpoint, built once so its
+// client-version negotiation and token cache last across calls.
+func RealmsClient(ctx context.Context, account *authcache.Account) (*realms.Client, error) {
+	if account == nil {
+		return nil, errNoAccount
+	}
+	discovery, err := service.Default(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("discover services: %w", err)
+	}
+	return sharedRealms.get(discovery, account, nil)
+}
+
+var sharedRealms realmsClients
+
+// realmsClients keeps the Realms client of the account the core last served; a core serves one
+// account at a time.
+type realmsClients struct {
+	mu      sync.Mutex
+	account oauth2.TokenSource
+	client  *realms.Client
+}
+
+func (c *realmsClients) get(discovery *service.Discovery, account oauth2.TokenSource, httpClient *http.Client) (*realms.Client, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.client != nil && c.account == account {
+		return c.client, nil
+	}
+	env := new(realms.Environment)
+	if err := discovery.Environment(env); err != nil {
+		return nil, fmt.Errorf("resolve Realms service: %w", err)
+	}
+	client, err := env.NewClient(account, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Realms service: %w", err)
+	}
+	c.account, c.client = account, client
+	return client, nil
 }
 
 // listRealms maps the client's Realms to catalog entries.

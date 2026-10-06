@@ -154,9 +154,11 @@ func resolveRealmTarget(ctx context.Context, address string, account *authcache.
 }
 
 func lookupRealmTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	client := realms.NewClient(account, nil)
+	client, err := catalog.RealmsClient(ctx, account)
+	if err != nil {
+		return nil, err
+	}
 	var realmAddress realms.RealmAddress
-	var err error
 	if strings.HasPrefix(strings.ToLower(address), realmTargetPrefix) {
 		id, parseErr := strconv.Atoi(strings.TrimSpace(address[len(realmTargetPrefix):]))
 		if parseErr != nil || id <= 0 {
