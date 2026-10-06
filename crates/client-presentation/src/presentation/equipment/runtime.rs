@@ -32,7 +32,7 @@ pub use types::{
     ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, FirstPersonItem, HeldKind,
     JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, BodyBones, ElytraStance, MeshKey};
+use types::{ArmorGeometry, AttachableMeshKey, BodyBones, ElytraStance, JavaRasterFrame, MeshKey};
 
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
@@ -126,10 +126,9 @@ pub struct EquipmentRuntime {
     logged_misses: std::collections::HashSet<(Box<str>, &'static str)>,
     poses: PoseMemo,
     attachables: client_world::AttachablesRuntime,
-    attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
+    attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
     /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
-    java_rasters:
-        BTreeMap<(bool, u32, Box<str>), Option<(bevy::math::Mat4, Arc<[RenderBoneTransform]>)>>,
+    java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
 }
 
 impl EquipmentRuntime {
@@ -467,6 +466,7 @@ impl EquipmentRuntime {
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
             java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
         })
     }
 
@@ -499,6 +499,7 @@ impl EquipmentRuntime {
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
             java_camera: None,
+            java_normal_axis: bevy::math::Vec3::Z,
         })
     }
 

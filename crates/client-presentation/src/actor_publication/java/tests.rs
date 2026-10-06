@@ -65,7 +65,7 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
 }
 
 /// Adds uploaded player geometry and optional animated face layers.
-fn uploaded_skin_feed(animated: bool) -> client_world::LocalPlayerFeed {
+pub(super) fn uploaded_skin_feed(animated: bool) -> client_world::LocalPlayerFeed {
     let mut feed = head_feed();
     let geometry = r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.uploaded","texture_width":64,"texture_height":64},"bones":[{"name":"head","pivot":[0,24,0]},{"name":"body","pivot":[0,24,0]},{"name":"rightarm","pivot":[4,22,0]},{"name":"leftarm","pivot":[-4,22,0]},{"name":"rightleg","pivot":[1.9,12,0]},{"name":"leftleg","pivot":[-1.9,12,0]}]}]}"#;
     let image = protocol::SkinAnimation {

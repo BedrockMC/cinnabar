@@ -840,6 +840,7 @@ pub fn prepare_actor_render_frame(
             sky_level: 0,
             daylight: 1.0,
             pad: 0,
+            ..Default::default()
         },
         |stream| {
             let (block, sky) = authoritative_subject_eye
@@ -850,9 +851,18 @@ pub fn prepare_actor_render_frame(
                 // Reserved legacy field; the hand samples the shared world lightmap.
                 daylight: 1.0,
                 pad: 0,
+                ..Default::default()
             }
         },
     );
+    let hand_light = if java_mode {
+        hand_light.with_java_lighting(hand::java_light_matrix(
+            hand_motion.as_deref(),
+            view.rotation(),
+        ))
+    } else {
+        hand_light
+    };
     dropped_items.publish(
         client_world.stream.as_deref(),
         client_world.collisions,

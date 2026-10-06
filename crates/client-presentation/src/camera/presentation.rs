@@ -147,10 +147,10 @@ pub fn advance_presentation_state(
             alive,
             sneaking,
             riding: matches!(physics.mode(), sim::MovementMode::Riding),
-            walks: !matches!(
+            walks: !(matches!(
                 physics.mode(),
                 sim::MovementMode::Flying | sim::MovementMode::Riding
-            ) && !(state.on_ground && sneaking),
+            ) || state.on_ground && sneaking),
             look,
         });
     } else {

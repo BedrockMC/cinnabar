@@ -451,7 +451,7 @@ pub(super) fn hand_source(
             )
             .consume,
         };
-        return vanilla_hand_source(
+        let mut source = vanilla_hand_source(
             HandInputs {
                 stream,
                 presentation,
@@ -465,7 +465,14 @@ pub(super) fn hand_source(
             },
             equipment,
             progress,
-        );
+        )?;
+        let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
+        if main.as_ref().is_some_and(|item| !map(item))
+            && !equipment_input.off.as_ref().is_some_and(map)
+        {
+            source.body = None;
+        }
+        return Some(source);
     }
     let body_pose = &presentation.submission;
     let main_layer = main.as_ref().and_then(|item| {
@@ -496,10 +503,10 @@ pub(super) fn hand_source(
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
-    // Java draws the arm only with an empty hand; an undrawable item shows it too. The pose is
-    // fixed, so it is retargeted once per rig.
+    // A missing held-item image does not make the hand empty. The empty arm's fixed pose is
+    // retargeted once per rig.
     let key = (rig.actor, rig.rig.0, rig.rest_reset_generation);
-    let arm = main_layer.is_none().then(|| {
+    let arm = main.is_none().then(|| {
         let bones = match &cache.arm {
             Some((cached, bones)) if *cached == key => Arc::clone(bones),
             _ => {
@@ -535,3 +542,7 @@ pub(super) fn hand_source(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "java/hand_tests.rs"]
+mod hand_tests;

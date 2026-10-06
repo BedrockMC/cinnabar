@@ -70,7 +70,7 @@ impl EquipmentRuntime {
         let java = java_hand
             .filter(|_| super::java::java_draws_attachable(&item.identifier))
             .and_then(|hand| {
-                let (image_to_rig, rest) = self
+                let raster = self
                     .java_rasters
                     .entry(key.clone())
                     .or_insert_with(|| {
@@ -79,22 +79,28 @@ impl EquipmentRuntime {
                             geometry_index as usize,
                             texture,
                         )?;
-                        Some((
+                        Some(JavaRasterFrame {
                             image_to_rig,
-                            pivots.into_iter().map(super::java::rest_bone).collect(),
-                        ))
+                            rest: pivots.into_iter().map(super::java::rest_bone).collect(),
+                            normal_axis: image_to_rig
+                                .transform_vector3(-bevy::math::Vec3::Y)
+                                .normalize(),
+                        })
                     })
                     .clone()?;
                 let camera = super::java::java_raster_camera(
                     hand,
-                    image_to_rig,
+                    raster.image_to_rig,
                     texture.width,
                     texture.height,
                 );
-                camera.is_finite().then_some((camera, rest))
+                camera
+                    .is_finite()
+                    .then_some((camera, raster.rest, raster.normal_axis))
             });
-        let (java_camera, placed): (_, Arc<[RenderBoneTransform]>) = match java {
-            Some((camera, rest)) => (Some(camera), rest),
+        let (java_camera, placed, java_normal_axis): (_, Arc<[RenderBoneTransform]>, _) = match java
+        {
+            Some((camera, rest, normal_axis)) => (Some(camera), rest, normal_axis),
             None => (
                 None,
                 pose.iter()
@@ -107,6 +113,7 @@ impl EquipmentRuntime {
                     })
                     .collect::<Option<Vec<_>>>()?
                     .into(),
+                bevy::math::Vec3::Z,
             ),
         };
         let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
@@ -135,6 +142,7 @@ impl EquipmentRuntime {
             camera_space: java_camera.is_some(),
             alpha_mode: render::HandItemAlphaMode::Cutout,
             java_camera,
+            java_normal_axis,
         })
     }
 }
