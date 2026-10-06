@@ -116,7 +116,7 @@ pub fn spawn_network<P: Send + 'static>(
                 };
                 let player_game_mode = PlayerGameMode::from_game_data(&game_data);
                 let world_default_game_mode =
-                    PlayerGameMode::world_default_from_game_data(&game_data);
+                    PlayerGameMode::world_default_update_from_game_data(&game_data);
                 let player_game_mode_uses_world_default =
                     PlayerGameMode::bootstrap_uses_world_default(&game_data);
                 if !send_control_event_or_cancel(

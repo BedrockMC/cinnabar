@@ -235,10 +235,16 @@ impl WorldAuthority {
                         event,
                         ..
                     } => {
+                        self.actors
+                            .apply_player_game_mode(actor_unique_id, event.update);
                         if actor_unique_id != self.local_player_unique_id {
                             return Ok(());
                         }
                         UiEvent::GameMode(event)
+                    }
+                    UiEvent::DefaultGameMode(event) => {
+                        self.actors.apply_world_game_mode(event.update);
+                        UiEvent::DefaultGameMode(event)
                     }
                     event => event,
                 };

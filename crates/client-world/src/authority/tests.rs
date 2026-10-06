@@ -117,6 +117,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
         blocks: Arc::from([
             CustomBlock {
                 name: "example:plain".into(),
+                tags: Default::default(),
                 state_count: 1,
                 collides: true,
                 collision_box: None,
@@ -125,6 +126,7 @@ fn persistent_custom_states_decode_before_visual_overlay_is_ready() {
             },
             CustomBlock {
                 name: "example:powered".into(),
+                tags: Default::default(),
                 state_count: 2,
                 collides: true,
                 collision_box: None,
@@ -238,6 +240,7 @@ fn custom_identity_authority(mode: NetworkIdMode) -> WorldAuthority {
 fn plain_identity_block(name: &str) -> CustomBlock {
     CustomBlock {
         name: name.into(),
+        tags: Default::default(),
         state_count: 1,
         collides: true,
         collision_box: None,

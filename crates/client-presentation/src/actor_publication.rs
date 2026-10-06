@@ -68,6 +68,7 @@ pub struct ActorPresentationState<'w, 's> {
     avatar: Res<'w, LocalAvatarPresentation>,
     local_visibility: ResMut<'w, LocalAvatarVisibilityCarrier>,
     settings: Res<'w, CameraSettingsAuthority>,
+    server_camera: Option<Res<'w, crate::camera::ServerCameraView>>,
     view: Res<'w, LocalViewPose>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
 }
@@ -248,6 +249,7 @@ pub fn prepare_actor_render_frame(
         avatar,
         mut local_visibility,
         settings,
+        server_camera,
         view,
         camera,
     } = presentation;
@@ -325,6 +327,9 @@ pub fn prepare_actor_render_frame(
     }
     layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
+    let first_person = server_camera.as_deref().map_or(first_person, |camera| {
+        camera.renders_first_person(first_person)
+    });
     let mut local_feed = input.local_feed;
     if let Some(feed) = local_feed.as_mut() {
         feed.first_person = first_person;
@@ -392,6 +397,7 @@ pub fn prepare_actor_render_frame(
     publish_local_actor_visibility(
         &avatar,
         settings.perspective(),
+        server_camera.as_deref(),
         authoritative_subject_eye,
         authoritative_subject_feet,
         view.rotation(),

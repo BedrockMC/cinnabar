@@ -1,6 +1,8 @@
 use bevy::prelude::{EulerRot, Quat, Vec3};
 use semantic_input::PerspectiveMode;
-use sim::{Aabb, CollisionQuery, CollisionWorld, Vec3 as SimVec3, WorldQueryError};
+use sim::{
+    Aabb, CollisionQuery, CollisionWorld, LenientSkipCounts, Vec3 as SimVec3, WorldQueryError,
+};
 
 use super::{
     CameraRig, CameraSettingsAuthority, THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
@@ -10,6 +12,18 @@ use super::{
 struct Walls(Vec<Aabb>);
 
 impl CollisionWorld for Walls {
+    /// Visits retained fixture shapes without constructing an owned query result.
+    fn visit_collision_boxes_camera_lenient(
+        &self,
+        _query: Aabb,
+        visitor: &mut dyn FnMut(Aabb),
+    ) -> Result<LenientSkipCounts, WorldQueryError> {
+        for shape in &self.0 {
+            visitor(*shape);
+        }
+        Ok(LenientSkipCounts::default())
+    }
+
     fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Ok(CollisionQuery::synthetic(self.0.clone()))
     }
@@ -71,9 +85,51 @@ fn rig_boom_stops_before_a_wall_behind_the_shoulder() {
     )]);
     let pose = collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &wall);
     assert!(pose.translation.abs_diff_eq(
-        Vec3::new(0.0, 2.0, 1.8 - THIRD_PERSON_COLLISION_EPSILON_BLOCKS),
+        Vec3::new(
+            0.0,
+            2.0,
+            4.02_f32.sqrt() - THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+        ),
         1e-5
     ));
     let open = collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &Walls(Vec::new()));
     assert!(open.translation.abs_diff_eq(Vec3::new(0.0, 2.0, 3.0), 1e-5));
+}
+
+#[test]
+fn camera_corner_rays_leave_thin_geometry_between_the_rays_and_allocate_nothing() {
+    let eye = Vec3::ZERO;
+    let rig = CameraRig {
+        offset: Vec3::new(0.0, 0.0, 4.0),
+        ..shoulder()
+    };
+    let thin = Walls(vec![Aabb::new(
+        SimVec3::new(-0.02, -0.02, 1.0),
+        SimVec3::new(0.02, 0.02, 2.0),
+    )]);
+    assert_eq!(
+        collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &thin)
+            .translation
+            .z,
+        4.0
+    );
+    let before = crate::test_allocations::count();
+    for _ in 0..1000 {
+        let _ = collision_safe_rig_pose(eye, Quat::IDENTITY, rig, &thin);
+    }
+    assert_eq!(crate::test_allocations::count() - before, 0);
+}
+
+#[test]
+fn camera_collision_keeps_the_minimum_avoidance_distance() {
+    let wall = Walls(vec![Aabb::new(
+        SimVec3::new(-1.0, -1.0, 0.1),
+        SimVec3::new(1.0, 1.0, 1.0),
+    )]);
+    let rig = CameraRig {
+        offset: Vec3::new(0.0, 0.0, 4.0),
+        ..shoulder()
+    };
+    let result = collision_safe_rig_pose(Vec3::ZERO, Quat::IDENTITY, rig, &wall);
+    assert!((result.translation.z - 0.25).abs() < 1e-6);
 }

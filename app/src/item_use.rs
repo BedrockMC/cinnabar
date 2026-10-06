@@ -292,6 +292,8 @@ pub(crate) struct ItemUseContext<'w, 's> {
     effects: Res<'w, LocalMovementEffectTimeline>,
     network: Res<'w, NetworkHandle>,
     time: Res<'w, Time<Real>>,
+    aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
+    camera: Res<'w, crate::camera::ServerCameraView>,
 }
 
 /// Runs after block use so a press that interacted with a block starts no item use.
@@ -301,6 +303,7 @@ pub(crate) fn produce_item_use(
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
     mut swings: ResMut<SwingTracker>,
+    mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
     runtime.synchronize(context.ui.session_id());
     let focused =
@@ -375,6 +378,7 @@ pub(crate) fn produce_item_use(
         crate::movement::note_click_drop("use", reason);
     }
     let duration = swing_duration(context.effects.mining_effects());
+    let mut rotate_action = false;
     admit_on_tick(
         &mut runtime,
         &mut swings,
@@ -382,8 +386,22 @@ pub(crate) fn produce_item_use(
         &frame,
         stream.local_player_runtime_id(),
         duration,
-        |packets| context.network.send_inventory_packets(packets),
+        |packets| {
+            let rotates = packets.iter().any(protocol::is_aim_assist_rotation_action);
+            let sent = context.network.send_inventory_packets(packets);
+            rotate_action = rotates && sent.is_ok();
+            sent
+        },
     );
+    if rotate_action {
+        crate::camera::aim_assist::rotate_for_action(
+            &context.aim,
+            &context.camera,
+            &mut view,
+            &mut movement,
+            sample.tick,
+        );
+    }
     if let Some((slot, revision)) = runtime.take_emptied_slot() {
         player_runtime
             .inventory

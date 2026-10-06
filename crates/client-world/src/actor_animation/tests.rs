@@ -57,6 +57,7 @@ pub(super) fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) ->
         on_ground: Some(false),
         teleported: false,
         player_mode: None,
+        player_game_mode: None,
         source_tick: None,
         metadata,
         attributes: HashMap::new(),

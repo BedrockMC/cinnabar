@@ -395,6 +395,7 @@ mod tests {
             on_ground: Some(false),
             teleported: false,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::from([(0, ActorMetadataValue::Flags(flags))]),
             attributes: HashMap::new(),

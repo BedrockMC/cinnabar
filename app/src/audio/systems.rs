@@ -35,7 +35,7 @@ pub(crate) fn configure(app: &mut App) {
                 drive_block_cues,
                 drive_consume_audio,
                 drive_actor_audio,
-                pump_audio,
+                pump_audio.after(crate::app::ClientFrameSet::Camera),
                 render::end_stage_span::<AUDIO_STAGE>,
             )
                 .chain()

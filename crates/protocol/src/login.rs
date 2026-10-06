@@ -835,6 +835,10 @@ fn decode_world_raw_with(
             | McpePacketName::CameraShakePacket
             | McpePacketName::CameraInstructionPacket
             | McpePacketName::CameraPresetsPacket
+            | McpePacketName::CameraSplinePacket
+            | McpePacketName::CameraAimAssistPacket
+            | McpePacketName::CameraAimAssistPresetsPacket
+            | McpePacketName::CameraAimAssistActorPriorityPacket
             | McpePacketName::ScriptMessagePacket
     ) {
         return Ok(None);
