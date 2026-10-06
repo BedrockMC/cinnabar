@@ -528,12 +528,7 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
         None => Some(view.feeds.selected_featured.unwrap_or(0)),
     };
     let selected = shown
-        .and_then(|index| {
-            view.featured
-                .iter()
-                .chain(view.gatherings.iter())
-                .nth(index)
-        })
+        .and_then(|index| view.featured.get(index))
         .and_then(|server| view.feeds.details.get(&server.address));
     let portraits = std::iter::once(view.feeds.profile.picture_path.clone())
         .chain(
@@ -550,7 +545,6 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     let thumbnails = view
         .featured
         .iter()
-        .chain(view.gatherings.iter())
         .map(|server| (server.image_path.clone(), THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
@@ -559,10 +553,8 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
             view.feeds.profile.featured_screenshot_path.clone(),
         ))
         .chain(selected.into_iter().flat_map(|details| {
-            details
-                .screenshots
-                .iter()
-                .cloned()
+            std::iter::once(details.banner.clone())
+                .chain(details.screenshots.iter().cloned())
                 .chain(details.games.iter().map(|game| game.image_path.clone()))
         }))
         .map(|path| (path, MAX_ARTWORK_SIDE));
