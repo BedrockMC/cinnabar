@@ -198,8 +198,8 @@ pub struct ActorFramePublication<'w, 's> {
     hand_scene: ResMut<'w, HandRigScene>,
     hand_revision: Local<'s, u64>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
-    /// The main-hand item Java's first-person hand still draws through an equip dip.
-    java_shown: Local<'s, Option<crate::presentation::equipment::WornItem>>,
+    /// Java's first-person hand state across frames.
+    java_hand: Local<'s, java::HandCache>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
@@ -242,7 +242,7 @@ pub fn prepare_actor_render_frame(
         mut hand_scene,
         mut hand_revision,
         hand_motion,
-        mut java_shown,
+        mut java_hand,
         mut equipment,
         mut dropped_items,
         profiler,
@@ -531,28 +531,28 @@ pub fn prepare_actor_render_frame(
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
-            let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
+            let mut equipment_input =
+                local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
             let motion = hand_motion
                 .as_deref()
                 .map_or(Mat4::IDENTITY, hand_motion_matrix);
-            if java_mode
-                && let Some(source) = java::hand_source(
-                    java::HandInputs {
-                        stream,
-                        presentation: presentation.clone(),
-                        equipment_input: &equipment_input,
-                        consume_ticks,
-                        item_animation,
-                        alpha: step.partial_tick,
-                        artwork,
-                        motion,
-                    },
-                    equipment,
-                    &mut java_shown,
-                )
-            {
-                return Some(source);
+            if java_mode {
+                let inputs = java::HandInputs {
+                    stream,
+                    presentation: presentation.clone(),
+                    equipment_input: &equipment_input,
+                    consume_ticks,
+                    item_animation,
+                    alpha: step.partial_tick,
+                    artwork,
+                    motion,
+                };
+                match java::hand_source(inputs, equipment, &mut java_hand) {
+                    Ok(source) => return Some(source),
+                    // Vanilla draws the item Java still holds through the dip.
+                    Err(main) => equipment_input.main = main,
+                }
             }
             let hand = stream.authority().actor_rig(local_runtime_id).map_or(
                 FirstPersonHand {
