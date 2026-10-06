@@ -76,7 +76,7 @@ impl WorldStream {
         let now = Instant::now();
         let frame_deadline = self.frame_deadline.take().unwrap_or_else(|| {
             self.poll_deadline
-                .unwrap_or(now + commit_budget::WORLD_POLL_BUDGET)
+                .unwrap_or(now + self.poll_budget)
         });
         let remaining = frame_deadline.saturating_duration_since(now);
         self.poll_deadline
