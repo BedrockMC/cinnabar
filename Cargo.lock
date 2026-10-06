@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "experience-terminal-client"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "experience-sdk",
  "serde_json",
