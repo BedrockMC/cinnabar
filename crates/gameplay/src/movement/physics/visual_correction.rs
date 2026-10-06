@@ -66,7 +66,11 @@ mod tests {
     #[test]
     fn horizontal_correction_decays_on_ticks_and_interpolates_between_them() {
         let mut offset = VisualCorrection::default();
-        offset.correct(Vec3::new(2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0), Vec3::ZERO);
+        offset.correct(
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::ZERO,
+        );
         offset.tick();
         let step = (4.0_f32 * SPEED_SQUARED_FACTOR).sqrt();
         assert_eq!(offset.offset(0.0).x, 2.0);

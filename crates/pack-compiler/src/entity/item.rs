@@ -464,10 +464,19 @@ mod tests {
     #[test]
     fn atlas_stems_resolve_tga_sources_and_prefer_an_existing_png() {
         let mut sources = BTreeMap::from([("textures/items/leather_helmet.tga", 4)]);
-        assert_eq!(texture_source_index(&sources, "textures/items/leather_helmet.png"), Some(4));
+        assert_eq!(
+            texture_source_index(&sources, "textures/items/leather_helmet.png"),
+            Some(4)
+        );
         sources.insert("textures/items/leather_helmet.png", 9);
-        assert_eq!(texture_source_index(&sources, "textures/items/leather_helmet.png"), Some(9));
-        assert_eq!(texture_source_index(&sources, "textures/items/absent.png"), None);
+        assert_eq!(
+            texture_source_index(&sources, "textures/items/leather_helmet.png"),
+            Some(9)
+        );
+        assert_eq!(
+            texture_source_index(&sources, "textures/items/absent.png"),
+            None
+        );
     }
 
     #[test]
