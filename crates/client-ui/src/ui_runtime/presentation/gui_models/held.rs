@@ -15,6 +15,7 @@ pub(super) fn prepare(
     atlas: &mut atlas::Atlas,
     entities: &RuntimeEntityAssets,
     icons: &RuntimeIconCatalog,
+    icon_refs: &[IconRef],
     equipment: Option<&RuntimeEquipmentCatalog>,
     blocks: &BTreeMap<u32, IconRef>,
 ) -> Result<BTreeMap<ItemVisualKey, PreviewHeldModel>, UiPresentationError> {
@@ -38,7 +39,10 @@ pub(super) fn prepare(
                 let Some(sprite) = icons.sprites().get(entry.sprite as usize) else {
                     continue;
                 };
-                let source = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
+                // Sprite texels already live in the item atlas; keep their original region.
+                let source = *icon_refs
+                    .get(entry.sprite as usize)
+                    .ok_or(UiPresentationError::InvalidFontTexture)?;
                 held_sprite_vertices(
                     usize::from(sprite.width),
                     usize::from(sprite.height),
