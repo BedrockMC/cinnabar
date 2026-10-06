@@ -224,4 +224,60 @@ mod tests {
                 .any(|(b, color)| *color == MENU_ITEM.fill && (b[3] - b[1] - row).abs() < 0.01)
         );
     }
+
+    #[test]
+    fn overflowing_picker_cuts_its_last_visible_account_in_half() {
+        let mut view = manager_view();
+        view.feeds.accounts = (0..30)
+            .map(|index| launcher::accounts::AccountProfile {
+                id: index.to_string(),
+                gamertag: format!("Player{index}"),
+                picture_path: None,
+            })
+            .collect();
+        view.focused_action = Some(MenuAction::SwitchAccount(29));
+        let mut rem = 0.0;
+        let mut focused = None;
+        let (scrolls, _, _) = paint(HashMap::new(), |canvas| {
+            rem = canvas.rem;
+            focused =
+                super::super::modal::draw(canvas, &view, SIZE, &modal(&view, &HashMap::new()))
+                    .unwrap();
+        });
+        let area = scrolls.first().expect("a scrolling list");
+        let rows = area.viewport.height() / (4.8 * rem);
+        assert!(area.max > 0.0);
+        assert!(
+            (rows - rows.floor() - 0.5).abs() < 1e-3,
+            "{rows} rows visible"
+        );
+        let focused = focused.expect("the focused account's place");
+        assert!(
+            focused.bounds[3] > focused.viewport[3],
+            "the last account starts off screen"
+        );
+    }
+
+    #[test]
+    fn account_rows_darken_on_hover_and_press() {
+        let row_fills = |hovered, pressed| {
+            let mut view = manager_view();
+            view.hovered = hovered;
+            view.pressed = pressed;
+            let (fills, _, rem) = draw(&view);
+            let row = 4.8 * rem - EDGE * rem;
+            fills
+                .into_iter()
+                .filter(|(b, color)| color[3] == 255 && (b[3] - b[1] - row).abs() < 0.01)
+                .map(|(_, color)| color)
+                .collect::<Vec<_>>()
+        };
+        let other = Some(MenuAction::SwitchAccount(1));
+        assert_eq!(row_fills(None, None), [MENU_ITEM.fill; 2]);
+        assert_eq!(row_fills(other, None), [MENU_ITEM.fill, MENU_ITEM.hovered]);
+        assert_eq!(row_fills(other, other), [MENU_ITEM.fill, MENU_ITEM.pressed]);
+        // The current account takes no presses, so it never lights up.
+        let current = Some(MenuAction::SwitchAccount(0));
+        assert_eq!(row_fills(current, current), [MENU_ITEM.fill; 2]);
+    }
 }

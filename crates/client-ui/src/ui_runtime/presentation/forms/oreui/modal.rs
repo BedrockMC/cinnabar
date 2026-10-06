@@ -48,13 +48,23 @@ const PAD: f32 = 1.6;
 /// The overlay's padding above and below the panel.
 const MARGIN: f32 = 1.2;
 
+/// Where the keyboard-focused menu item lies unscrolled, for scrolling it into view.
+pub(super) struct FocusedItem {
+    pub(super) bounds: Bounds,
+    pub(super) viewport: Bounds,
+    pub(super) max: f32,
+}
+
+/// The modal's scroll view key.
+pub(super) const SCROLL: &str = "oreui_modal";
+
 /// Draws `modal` centred over the screen; only its own controls take presses.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
     modal: &Modal<'_>,
-) -> Result<(), UiPresentationError> {
+) -> Result<Option<FocusedItem>, UiPresentationError> {
     canvas.hits.clear();
     canvas.fill([0.0, 0.0, size[0], size[1]], OVERLAY_MODAL)?;
     let edge = canvas.r(EDGE);
@@ -80,7 +90,14 @@ pub(super) fn draw(
         0.0
     };
     let room = size[1] - canvas.r(MARGIN) * 2.0 - edge * 2.0 - header - tray;
-    let content = (list + text).min(room.max(0.0));
+    let room = room.max(0.0);
+    let item = canvas.r(ITEM);
+    // An overflowing menu shows whole items less half of one, so a cut row signals scrolling.
+    let content = if list > 0.0 && list + text > room {
+        ((room / item).floor() * item - item * 0.5).max(item * 0.5)
+    } else {
+        (list + text).min(room)
+    };
     let height = edge * 2.0 + header + content + tray;
     let left = (size[0] - width) * 0.5;
     let top = ((size[1] - height) * 0.5).max(0.0);
@@ -101,17 +118,29 @@ pub(super) fn draw(
         }
     }
     if content <= 0.0 {
-        return Ok(());
+        return Ok(None);
     }
     let viewport = [x[0], header_bottom, x[1], content_bottom];
-    let scroll = canvas.begin_scroll("oreui_modal", viewport)?;
+    let focused = modal
+        .items
+        .iter()
+        .position(|entry| entry.action.is_some() && entry.action == view.focused_action)
+        .map(|index| {
+            let top = header_bottom + edge + index as f32 * item;
+            FocusedItem {
+                bounds: [x[0], top, x[1], top + item],
+                viewport,
+                max: (list + text - content).max(0.0),
+            }
+        });
+    let scroll = canvas.begin_scroll(SCROLL, viewport)?;
     let mut y = header_bottom - scroll.offset;
     if list > 0.0 {
         canvas.fill([x[0], y, x[1], y + list], NEUTRAL100)?;
         let mut row = y + edge;
-        for item in &modal.items {
-            menu_item(canvas, view, [x[0], row, x[1], row + canvas.r(ITEM)], item)?;
-            row += canvas.r(ITEM);
+        for entry in &modal.items {
+            menu_item(canvas, view, [x[0], row, x[1], row + item], entry)?;
+            row += item;
         }
         canvas.fill([x[0], row, x[1], row + edge], BORDER)?;
         y += list;
@@ -127,7 +156,8 @@ pub(super) fn draw(
             false,
         )?;
     }
-    canvas.end_scroll(scroll, list + text)
+    canvas.end_scroll(scroll, list + text)?;
+    Ok(focused)
 }
 
 /// The neutral header across `[left, top, right]` with its shadow strip; returns its bottom.

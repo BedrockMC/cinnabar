@@ -172,25 +172,48 @@ impl UiPresentationRuntime {
             .oreui_originals
             .clone()
             .filter(|_| self.form_presentation.oreui_look == Look::Originals);
-        let mut canvas = Canvas::new(
-            nodes,
-            next,
-            &mut self.layouts,
-            &self.font,
-            metrics,
-            self.solid_texture_page,
-            originals.as_deref(),
-        );
-        canvas.offsets = self.menu_scrolls.offsets().clone();
-        modal::draw(
-            &mut canvas,
-            view,
-            size,
-            &accounts::modal(view, &self.menu_artwork.refs),
-        )?;
-        let (hits, scrolls) = (canvas.hits, canvas.scrolls);
-        self.menu_scrolls.set_areas(scrolls);
-        Ok(hits)
+        let picker = accounts::modal(view, &self.menu_artwork.refs);
+        let rollback = (nodes.len(), *next);
+        let mut offsets = self.menu_scrolls.offsets().clone();
+        // A newly focused item off screen scrolls into view, then draws again there.
+        let mut first = true;
+        loop {
+            nodes.truncate(rollback.0);
+            *next = rollback.1;
+            let mut canvas = Canvas::new(
+                nodes,
+                next,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                originals.as_deref(),
+            );
+            canvas.offsets = offsets.clone();
+            let focused = modal::draw(&mut canvas, view, size, &picker)?;
+            let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+            let used = offsets.get(modal::SCROLL).copied().unwrap_or(0.0);
+            let revealed = focused.and_then(|item| {
+                let rect = |b: paint::Bounds| super::super::rect(b[0], b[1], b[2], b[3]).ok();
+                Some(self.menu_scrolls.reveal_focus(
+                    modal::SCROLL,
+                    view.focused_action,
+                    rect(item.bounds),
+                    rect(item.viewport)?,
+                    item.max,
+                ))
+            });
+            match revealed {
+                Some(offset) if first && (offset - used).abs() > f32::EPSILON => {
+                    offsets.insert(modal::SCROLL.to_owned(), offset);
+                    first = false;
+                }
+                _ => {
+                    self.menu_scrolls.set_areas(scrolls);
+                    return Ok(hits);
+                }
+            }
+        }
     }
 }
 
