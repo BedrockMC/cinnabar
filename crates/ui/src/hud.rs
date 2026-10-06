@@ -136,6 +136,16 @@ impl TimedText {
     }
 }
 
+/// What pressing a toast opens, through vanilla's `button.toast_interaction`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ToastPress {
+    /// Server toasts only inform.
+    #[default]
+    Nothing,
+    /// The host's open Discord join requests.
+    JoinRequests,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Toast {
     pub title: Arc<str>,
@@ -145,6 +155,7 @@ pub struct Toast {
     /// When it reaches the screen: toasts show one at a time, in order.
     pub started_millis: u64,
     pub expires_millis: u64,
+    pub press: ToastPress,
 }
 
 impl Toast {
@@ -162,6 +173,7 @@ impl Toast {
             started_millis: received_millis,
             expires_millis: received_millis
                 .saturating_add(TOAST_DISPLAY_MILLIS + TOAST_SLIDE_OUT_MILLIS),
+            press: ToastPress::Nothing,
         }
     }
 

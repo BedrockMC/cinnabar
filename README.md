@@ -62,6 +62,10 @@ joinable. Cinnabar registers itself with Discord on each launch (`discord-<id>` 
 `HKCU\Software\Classes` on Windows, a `.desktop` handler on Linux, Discord's `games` folder on
 macOS) so an accepted invite starts the game when it is closed.
 
+When a Discord user asks to join, a toast names them while you play; press it with a free cursor,
+or open the pause screen, to answer in vanilla's popup, which the launcher menus show directly.
+Accepting sends them Discord's invite; an unanswered request disappears once Discord closes it.
+
 A Normal (dedicated-server) local world is hosted for Xbox friends while it is open, as vanilla
 hosts worlds: it appears in friends' Friends tab (friends of friends may join, up to 8 players),
 and the pause screen's friends button opens vanilla's Invite to Game screen. Each joiner must log

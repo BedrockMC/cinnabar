@@ -155,6 +155,9 @@ impl MenuRuntime {
                 ],
             };
         }
+        if let Some(actions) = self.join_request_focus_actions() {
+            return actions;
+        }
         let nav = || {
             vec![
                 MenuAction::Navigate(MenuScreen::Home),

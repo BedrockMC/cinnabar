@@ -19,6 +19,7 @@ mod focus;
 pub(crate) mod inbox;
 mod input;
 mod invite;
+mod join_requests;
 pub(crate) mod launcher_account;
 mod launcher_core;
 pub(crate) use launcher_core::target_for;
@@ -181,6 +182,8 @@ pub(crate) struct MenuRuntime {
     feeds: MenuFeeds,
     /// The pause screen's invite screen and the invites it queued.
     invite: invite::InviteUi,
+    /// Discord join requests waiting for the host's answer.
+    join_requests: join_requests::JoinRequestUi,
 }
 
 /// Session requests raised by menu actions, for the session controller to take.
@@ -334,6 +337,7 @@ impl MenuRuntime {
             store: self.store_snapshot.clone(),
             hosting: self.hosting_world(),
             invite: self.invite_view(),
+            join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
         }
     }
@@ -729,6 +733,7 @@ impl MenuRuntime {
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
             MenuAction::Invite(action) => self.activate_invite(action),
+            MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
         }
     }
 

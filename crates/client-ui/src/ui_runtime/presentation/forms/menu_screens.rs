@@ -518,6 +518,16 @@ pub(super) fn server_trust_model(url: &str, translate: Translate<'_>) -> json_ui
     })
 }
 
+/// The host's answer to `name`'s Discord join request, with vanilla's Accept and Decline.
+pub(super) fn join_request_model(name: &str, translate: Translate<'_>) -> json_ui::FormModel {
+    json_ui::FormModel::Modal(json_ui::ModalForm {
+        title: crate::menu::join_requests::title(name),
+        body: String::new(),
+        button1: translated(translate, "gui.accept", "Accept"),
+        button2: translated(translate, "gui.decline", "Decline"),
+    })
+}
+
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     let title = if view.editing.is_some() {
         translated(translate, "addServer.title.edit", "Edit Server")

@@ -1,9 +1,11 @@
 //! Maps session ownership to the optional desktop Discord service.
 
+use std::{sync::Arc, time::Duration};
+
 use crate::{menu::MenuRuntime, runtime::world::ClientWorld};
 use bevy::prelude::*;
-use client_ui::ui_runtime::presentation::LoadingStage;
-use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
+use client_ui::ui_runtime::{UiRuntime, presentation::LoadingStage};
+use launcher::menu::{join_requests, settings_options::DISCORD_PRESENCE_OPTION};
 use rich_presence::{Presence, State};
 
 #[derive(Resource)]
@@ -58,6 +60,8 @@ fn joining_screen(stage: Option<LoadingStage>) -> bool {
 fn update(
     mut discord: ResMut<DiscordPresence>,
     mut menu: ResMut<MenuRuntime>,
+    mut runtime: ResMut<UiRuntime>,
+    time: Res<Time<Real>>,
     world: Res<ClientWorld>,
     ui: Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     session: Res<crate::session::SessionController>,
@@ -71,6 +75,7 @@ fn update(
         if discord.presence.is_some() {
             discord.presence = None;
         }
+        menu.clear_join_requests();
         return;
     }
     let state = session_state(
@@ -88,6 +93,7 @@ fn update(
         .as_ref()
         .map(|stream| u32::try_from(stream.authority().player_count()).unwrap_or(u32::MAX));
     presence.update(state, session.presence_target(), players);
+    relay_join_requests(presence, &mut menu, &mut runtime, time.elapsed());
     // A direct `--address` session has no launcher to join through.
     if let Some(address) = presence.take_join()
         && menu.is_launcher()
@@ -96,6 +102,30 @@ fn update(
     {
         info!("joining {address} from a Discord invite");
         menu.request_connect(address);
+    }
+}
+
+/// Moves Discord's new join requests into the menu, toasting them in play, and sends the host's
+/// answers back.
+fn relay_join_requests(
+    presence: &Presence,
+    menu: &mut MenuRuntime,
+    runtime: &mut UiRuntime,
+    now: Duration,
+) {
+    while let Some(request) = presence.take_join_request() {
+        // An open menu shows the popup itself.
+        let title = (!menu.is_visible()).then(|| join_requests::title(&request.name));
+        if menu.push_join_request(request.user_id, request.name, now)
+            && let Some(title) = title
+        {
+            let millis = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
+            runtime.push_client_toast(Arc::from(title), ui::ToastPress::JoinRequests, millis);
+        }
+    }
+    menu.expire_join_requests(now);
+    while let Some((user_id, accept)) = menu.take_join_reply() {
+        presence.reply(user_id, accept);
     }
 }
 

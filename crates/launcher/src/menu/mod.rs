@@ -4,6 +4,7 @@ pub mod auth;
 pub mod disconnect;
 pub mod inbox;
 pub mod invite;
+pub mod join_requests;
 pub mod profile;
 pub mod profile_achievements;
 pub mod settings_options;
@@ -148,6 +149,8 @@ pub enum MenuAction {
     ServerTrust(bool),
     /// A press on the pause screen's invite button or the invite screen.
     Invite(invite::Action),
+    /// Answers the oldest Discord join request: Accept (true) or Decline.
+    JoinRequest(bool),
 }
 
 impl MenuAction {

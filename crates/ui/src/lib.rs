@@ -26,7 +26,7 @@ pub use geometry::{
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole,
     MAX_TOAST_RETAINED_BYTES, MAX_TOASTS, TOAST_DISPLAY_MILLIS, TOAST_SLIDE_IN_MILLIS,
-    TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast,
+    TOAST_SLIDE_OUT_MILLIS, TimedText, TitleDurations, Toast, ToastPress,
 };
 pub use icon::IconRef;
 pub use model::{

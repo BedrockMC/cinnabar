@@ -408,6 +408,8 @@ pub struct MenuView {
     pub hosting: bool,
     /// The invite screen's friends and picks while it is up.
     pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
+    /// Who sent the oldest open Discord join request.
+    pub join_request: Option<String>,
 }
 
 /// The focused text field's caret.
@@ -467,9 +469,16 @@ impl MenuView {
         self.feeds.server_trust.as_ref().filter(|_| self.connecting)
     }
 
+    /// The oldest Discord join request's sender, asked in a popup once no other popup is up.
+    pub fn join_request_prompt(&self) -> Option<&str> {
+        self.join_request
+            .as_deref()
+            .filter(|_| self.dialog.is_none() && self.server_trust_prompt().is_none())
+    }
+
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
-        self.dialog.is_some() || self.server_trust_prompt().is_some()
+        self.dialog.is_some() || self.server_trust_prompt().is_some() || self.join_request.is_some()
     }
 
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
@@ -533,6 +542,7 @@ impl MenuView {
             store: None,
             hosting: false,
             invite: None,
+            join_request: None,
         }
     }
 }

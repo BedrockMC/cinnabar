@@ -102,6 +102,36 @@ fn server_toast_slides_down_from_the_top_holds_then_yields_to_the_next() {
     assert!(text(presentation.toast_draw_nodes(), "Welcome").is_none());
 }
 
+// A join request toast waits behind a server toast, and only it opens anything when pressed.
+#[test]
+fn join_request_toast_queues_behind_server_toasts_and_takes_presses() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let Some(mut presentation) = super::engine_hud_tests::engine_presentation() else {
+        eprintln!(
+            "skipping join_request_toast_queues_behind_server_toasts_and_takes_presses: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let mut runtime = UiRuntime::new(1);
+    push_toast(&mut player_runtime, &mut runtime, 1, "Welcome", "");
+    let title = crate::menu::join_requests::title("Alex");
+    runtime.push_client_toast(Arc::from(title.as_str()), ui::ToastPress::JoinRequests, 0);
+    let top_middle = ui::UiPoint::new(640.0, 4.0).unwrap();
+    build(&player_runtime, &mut presentation, &runtime, 1_000);
+    assert!(text(presentation.toast_draw_nodes(), "Welcome").is_some());
+    assert_eq!(presentation.toast_press_at(top_middle), None);
+    build(&player_runtime, &mut presentation, &runtime, 3_400 + 1_000);
+    assert!(text(presentation.toast_draw_nodes(), &title).is_some());
+    assert_eq!(
+        presentation.toast_press_at(top_middle),
+        Some(ui::ToastPress::JoinRequests)
+    );
+    assert_eq!(
+        presentation.toast_press_at(ui::UiPoint::new(640.0, 400.0).unwrap()),
+        None
+    );
+}
+
 /// Local-only: writes `toast_screen.png` when `CINNABAR_FORM_SNAPSHOT_DIR` is set.
 #[test]
 fn toast_screen_snapshot() {

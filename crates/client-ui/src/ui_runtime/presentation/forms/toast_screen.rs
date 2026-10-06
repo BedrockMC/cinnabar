@@ -1,13 +1,13 @@
-//! Server toasts through vanilla `toast_screen.toast_screen`: the showing toast
-//! is the `toast_factory`'s `popup`, as 26.30 creates one for a ToastRequest.
-//! The popup's offset animation (from above the top edge down 32 px and back)
-//! is evaluated here and handed over as its offset.
+//! Server and client toasts through vanilla `toast_screen.toast_screen`: the
+//! showing toast is the `toast_factory`'s `popup`, as 26.30 creates one for a
+//! ToastRequest. The popup's offset animation (from above the top edge down
+//! 32 px and back) is evaluated here and handed over as its offset.
 
 use std::sync::Arc;
 
 use json_ui::{DataSource, FactoryItem, Scalar};
 use serde_json::{Value, json};
-use ui::UiNode;
+use ui::{ToastPress, UiNode, UiPoint};
 
 use super::super::{
     FONT_DESIGN_PIXEL_TEXELS, TextMetrics, UiPresentationError, UiPresentationRuntime,
@@ -16,12 +16,21 @@ use super::super::{
 use super::engine::{EngineInputs, EngineOutput, ScreenArt};
 use crate::ui_runtime::UiRuntime;
 
+/// Where the popup's `button.menu_select` routes.
+const TOAST_PRESS: &str = "button.toast_interaction";
+
 pub const TOAST_SCREEN: &str = "toast_screen.toast_screen";
 /// How far the popup slides down from above the top edge.
 const TOAST_DISTANCE: f64 = 32.0;
 
 impl UiPresentationRuntime {
-    /// Draw the showing server toast, if any.
+    /// What pressing the showing toast at `point` opens.
+    pub fn toast_press_at(&self, point: UiPoint) -> Option<ToastPress> {
+        let (press, bounds) = self.form_presentation.hud.toast_press?;
+        bounds.contains(point).then_some(press)
+    }
+
+    /// Draw the showing toast, if any, and where it takes presses.
     pub(in super::super) fn append_toast_screen(
         &mut self,
         runtime: &UiRuntime,
@@ -31,6 +40,7 @@ impl UiPresentationRuntime {
         content: [f32; 2],
         now_millis: u64,
     ) -> Result<(), UiPresentationError> {
+        self.form_presentation.hud.toast_press = None;
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Ok(());
         };
@@ -67,7 +77,7 @@ impl UiPresentationRuntime {
             overlay: &[],
         };
         let screen = &mut self.form_presentation.hud.toast;
-        renderer.draw(
+        let frame = renderer.draw(
             ScreenArt {
                 now: self.menu_seconds,
                 ..ScreenArt::default()
@@ -86,6 +96,17 @@ impl UiPresentationRuntime {
                 )
             },
         )?;
+        if toast.press != ToastPress::Nothing
+            && let Some(frame) = frame
+        {
+            let origin = [self.safe_area.left(), self.safe_area.top()];
+            self.form_presentation.hud.toast_press = frame
+                .hits
+                .iter()
+                .filter(|region| region.enabled && region.pressed.as_deref() == Some(TOAST_PRESS))
+                .find_map(|region| super::menus::window_rect(region, frame.scale, origin))
+                .map(|bounds| (toast.press, bounds));
+        }
         Ok(())
     }
 }

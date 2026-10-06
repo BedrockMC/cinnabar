@@ -133,11 +133,7 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         match event {
             HudEvent::Toast { title, message } => {
-                let mut toast = Toast::new(title, message, fifo_sequence, event_millis);
-                toast.expires_millis = event_millis
-                    .saturating_add(self.toast_display_millis)
-                    .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
-                self.hud.push_toast(toast);
+                self.queue_toast(Toast::new(title, message, fifo_sequence, event_millis));
             }
             HudEvent::Health { health } => {
                 // A negative or overflowing SetHealth is semantically odd but
@@ -156,5 +152,21 @@ impl UiRuntime {
             }
         }
         Ok(())
+    }
+
+    /// Queues a client toast, which `press` makes clickable, behind any showing toast.
+    pub fn push_client_toast(&mut self, title: Arc<str>, press: ui::ToastPress, now_millis: u64) {
+        let mut toast = Toast::new(title, Arc::from(""), 0, now_millis);
+        toast.press = press;
+        self.queue_toast(toast);
+    }
+
+    /// Shows `toast` for the player's notification duration, after any toast ahead of it.
+    fn queue_toast(&mut self, mut toast: Toast) {
+        toast.expires_millis = toast
+            .received_millis
+            .saturating_add(self.toast_display_millis)
+            .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
+        self.hud.push_toast(toast);
     }
 }
