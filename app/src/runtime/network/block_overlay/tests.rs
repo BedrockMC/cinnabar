@@ -342,9 +342,13 @@ fn permutation_conditions_evaluate_as_block_molang() {
         },
     );
     let mut gaps = OverlayGaps::default();
-    let closed = super::condition::state_visual(&door, door.state_values(0).as_deref(), &mut gaps);
-    assert_eq!(closed.components.transformation, None);
-    let opened = super::condition::state_visual(&door, door.state_values(1).as_deref(), &mut gaps);
+    let expressions = super::condition::BlockExpressions::new(&door);
+    let mut state = |index| {
+        let values = door.state_values(index);
+        super::condition::state_visual(&door, &expressions, values.as_deref(), &mut gaps)
+    };
+    assert_eq!(state(0).components.transformation, None);
+    let opened = state(1);
     assert_eq!(opened.components, turn(1));
     assert_eq!(
         gaps.unevaluated_permutations, 3,

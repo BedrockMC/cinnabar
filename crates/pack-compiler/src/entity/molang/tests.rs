@@ -212,7 +212,7 @@ fn block_expressions_read_block_states() {
         "df:s" => Some(BlockStateValue::Number(1.0)),
         _ => None,
     };
-    let evaluate = |source| evaluate_block_molang(source, &state);
+    let evaluate = |source| BlockMolang::parse(source)?.evaluate(&state);
     assert_eq!(
         evaluate("q.block_state('minecraft:cardinal_direction') == 'north'"),
         Some(1.0)
@@ -233,4 +233,16 @@ fn block_expressions_read_block_states() {
     );
     assert_eq!(evaluate("q.is_baby"), None, "other queries do not parse");
     assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
+
+// A server-sent flat operator chain cannot exhaust the stack that walks its tree.
+#[test]
+fn block_expressions_bound_their_tree_depth() {
+    let chain = |terms: usize| vec!["1"; terms].join("+");
+    let state = |_: &str| None;
+    assert_eq!(
+        BlockMolang::parse(&chain(1024)).and_then(|expression| expression.evaluate(&state)),
+        Some(1024.0)
+    );
+    assert!(BlockMolang::parse(&chain(16_000)).is_none());
 }

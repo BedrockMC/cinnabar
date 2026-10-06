@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use pack_compiler::{BlockStateValue, evaluate_block_molang};
+use pack_compiler::{BlockMolang, BlockStateValue};
 use protocol::{CustomBlock, CustomStateValue, CustomVisualComponents};
 
 use super::OverlayGaps;
@@ -15,10 +15,47 @@ pub(super) struct StateVisual {
     pub(super) hidden_bones: Box<[Arc<str>]>,
 }
 
+/// A block's permutation conditions and bone visibility, parsed once for all of its states.
+pub(super) struct BlockExpressions {
+    conditions: Box<[Option<BlockMolang>]>,
+    /// Bone visibility of each component set: the base, then each permutation.
+    bones: Box<[Box<[(Arc<str>, Option<BlockMolang>)]>]>,
+}
+
+impl BlockExpressions {
+    pub(super) fn new(block: &CustomBlock) -> Self {
+        let visuals = &block.visual;
+        let bones = |components: &CustomVisualComponents| {
+            components
+                .bone_visibility
+                .iter()
+                .map(|(bone, expression)| (Arc::clone(bone), BlockMolang::parse(expression)))
+                .collect()
+        };
+        Self {
+            conditions: visuals
+                .permutations
+                .iter()
+                .map(|permutation| BlockMolang::parse(&permutation.condition))
+                .collect(),
+            bones: std::iter::once(&visuals.base)
+                .chain(
+                    visuals
+                        .permutations
+                        .iter()
+                        .map(|permutation| &permutation.components),
+                )
+                .map(bones)
+                .collect(),
+        }
+    }
+}
+
 /// Resolves the state whose values follow the block's `state_axes`. Without values (a state
 /// the axes cannot describe) conditions reading block states stay unevaluated and are counted.
 pub(super) fn state_visual(
     block: &CustomBlock,
+    expressions: &BlockExpressions,
     values: Option<&[CustomStateValue]>,
     gaps: &mut OverlayGaps,
 ) -> StateVisual {
@@ -35,19 +72,34 @@ pub(super) fn state_visual(
         })
     };
     let mut components = visuals.base.clone();
-    for permutation in visuals.permutations.iter() {
-        match evaluate_block_molang(&permutation.condition, &block_state) {
-            Some(value) if value != 0.0 => apply(&mut components, &permutation.components),
+    let mut bone_set = 0;
+    for (index, (permutation, condition)) in visuals
+        .permutations
+        .iter()
+        .zip(expressions.conditions.iter())
+        .enumerate()
+    {
+        match condition
+            .as_ref()
+            .and_then(|condition| condition.evaluate(&block_state))
+        {
+            Some(value) if value != 0.0 => {
+                if permutation.components.geometry.is_some() {
+                    bone_set = index + 1;
+                }
+                apply(&mut components, &permutation.components);
+            }
             Some(_) => {}
             None => gaps.unevaluated_permutations += 1,
         }
     }
     // A bone hides when its value rounds to zero; one that cannot evaluate stays visible.
-    let hidden_bones = components
-        .bone_visibility
+    let hidden_bones = expressions.bones[bone_set]
         .iter()
         .filter(|(_, expression)| {
-            evaluate_block_molang(expression, &block_state)
+            expression
+                .as_ref()
+                .and_then(|expression| expression.evaluate(&block_state))
                 .is_some_and(|value| value.round() == 0.0)
         })
         .map(|(bone, _)| Arc::clone(bone))

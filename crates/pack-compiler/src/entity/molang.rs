@@ -18,6 +18,8 @@ use parser::{Binary, Expr, Program, Slot, Unary, parse, parse_with};
 
 /// The only query a block permutation condition or bone visibility may read.
 const BLOCK_QUERIES: &[&str] = &["query.block_state"];
+/// Longest block expression accepted; bounds the depth of its tree, which is walked recursively.
+const MAX_BLOCK_MOLANG_BYTES: usize = 2048;
 
 /// A `query.block_state` result; integer and boolean states read as numbers.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -26,16 +28,33 @@ pub enum BlockStateValue<'a> {
     String(&'a str),
 }
 
-/// Evaluates a block Molang expression against one block state. `None` when it does not parse,
-/// reads a state the block lacks, or uses a string where a number is needed.
-pub fn evaluate_block_molang<'a>(
-    source: &str,
-    block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
-) -> Option<f32> {
-    let Program::Simple(expression) = parse_with(source, BLOCK_QUERIES).ok()? else {
-        return None;
-    };
-    block_value(&expression, block_state)?.number()
+/// A block permutation condition or bone visibility expression, parsed once for every state.
+#[derive(Debug)]
+pub struct BlockMolang(Expr);
+
+impl BlockMolang {
+    /// `None` when the source does not parse in a block context, which reads only
+    /// `query.block_state`.
+    #[must_use]
+    pub fn parse(source: &str) -> Option<Self> {
+        if source.len() > MAX_BLOCK_MOLANG_BYTES {
+            return None;
+        }
+        match parse_with(source, BLOCK_QUERIES).ok()? {
+            Program::Simple(expression) => Some(Self(expression)),
+            Program::Complex(_) => None,
+        }
+    }
+
+    /// The value for one block state; `None` when it reads a state the block lacks or uses a
+    /// string where a number is needed.
+    #[must_use]
+    pub fn evaluate<'a>(
+        &self,
+        block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
+    ) -> Option<f32> {
+        block_value(&self.0, block_state)?.number()
+    }
 }
 
 impl BlockStateValue<'_> {
