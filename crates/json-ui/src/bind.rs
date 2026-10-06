@@ -360,7 +360,7 @@ impl<'a> Binder<'a> {
         let bindings = Arc::clone(&declaration.bindings);
         let built_under = scope.clone();
         let mut scope = scope.clone();
-        self.attach_item(&src, &mut scope);
+        let selection = self.attach_item(&src, &mut scope);
         let control = src.get();
         if !self.data.components.is_empty() {
             scope.layout_key = crate::layout::instance_key(
@@ -421,7 +421,11 @@ impl<'a> Binder<'a> {
         if declaration.radio_group {
             self.radio_state(control, &mut own);
         }
-        let reads = self.own_reads(&declaration, control, src.name(), &scope);
+        let mut reads = self.own_reads(&declaration, control, src.name(), &scope);
+        if let Some(scoped) = selection {
+            // Which list this item reads, and how much of it, follows its item's own list.
+            reads.add(reuse::Data::Length, &scoped, None);
+        }
         let origin = GRID_BOUNDS
             .iter()
             .any(|name| native.props.contains_key(*name))
@@ -499,12 +503,12 @@ impl<'a> Binder<'a> {
     /// `UIControlFactory`'s collection item: a child of a collection panel is
     /// an item at its `collection_index`, `-1` without one. A grid's cell is
     /// its grid item and keeps the enclosing index without one.
-    fn attach_item(&self, src: &Src, scope: &mut Scope) {
-        let Some((collection, grid)) = scope.parent_collection.take() else {
-            return;
-        };
+    /// Enters the collection item `src` is, if any; returns the item-scoped list key that could
+    /// replace the shared list, which the item's reads must track.
+    fn attach_item(&self, src: &Src, scope: &mut Scope) -> Option<String> {
+        let (collection, grid) = scope.parent_collection.take()?;
         if src.prop("ignoreCollectionItem").and_then(Value::as_bool) == Some(true) {
-            return;
+            return None;
         }
         let index = src
             .prop("collection_index")
@@ -513,12 +517,29 @@ impl<'a> Binder<'a> {
             .filter(|index| *index != -1);
         let index = match (index, grid) {
             (Some(index), _) => index,
-            (None, true) => return,
+            (None, true) => return None,
             (None, false) => -1,
         };
+        // A factory or grid instance already entered its own list; a collection panel's child inside a
+        // factory item reads that item's own list when one is registered, else the shared one.
+        let entered = scope
+            .cursor
+            .path
+            .last()
+            .is_some_and(|(key, _)| scope.cursor.keys.get(&collection) == Some(key));
+        let candidate = (!entered)
+            .then(|| scope.cursor.path.last())
+            .flatten()
+            .map(|(parent, at)| scoped_key(parent, *at, &collection));
+        let key = (!entered).then(|| self.collection_key(&collection, scope));
         let cursor = Arc::make_mut(&mut scope.cursor);
         cursor.indices.insert(collection.clone(), index);
+        // Falling back to the shared list drops a key inherited from an outer item's own list.
+        if let Some(key) = key {
+            cursor.keys.insert(collection.clone(), key);
+        }
         cursor.items.push((collection, index));
+        candidate
     }
 
     fn children_of(&mut self, node: &Node, scope: &Scope) -> Vec<Node> {

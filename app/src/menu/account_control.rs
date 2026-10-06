@@ -41,10 +41,6 @@ pub(crate) trait AccountControl {
     fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
         None
     }
-    /// `gatherings.v1`: joinable gatherings with their details, when fetched.
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        None
-    }
     /// `profile.v1`: the signed-in profile, when fetched.
     fn profile(&mut self) -> Option<MenuProfile> {
         None
@@ -100,14 +96,6 @@ impl MenuRuntime {
                 self.feeds.selected_featured = None;
             }
         }
-        if let Some(gatherings) = control.gatherings() {
-            self.feeds.details.extend(
-                gatherings
-                    .iter()
-                    .map(|(card, details)| (card.address.clone(), details.clone())),
-            );
-            self.gatherings = gatherings.into_iter().map(|(card, _)| card).collect();
-        }
         if std::mem::take(&mut self.feeds.profile_refresh_requested) {
             control.refresh_profile();
         }
@@ -122,14 +110,12 @@ impl MenuRuntime {
             control.report_message(event);
         }
         let targets = if self.visible && !self.is_connecting() {
-            let mut seen = std::collections::HashSet::new();
-            // Gatherings have no server until joined, so only featured and saved servers are pinged.
-            self.featured
-                .iter()
-                .map(|server| server.address.clone())
-                .chain(self.servers.iter().map(|server| server.address.clone()))
-                .filter(|address| !address.is_empty() && seen.insert(address.clone()))
-                .collect()
+            ping_targets(
+                self.featured
+                    .iter()
+                    .map(|server| server.address.as_str())
+                    .chain(self.servers.iter().map(|server| server.address.as_str())),
+            )
         } else {
             Vec::new()
         };
@@ -187,9 +173,33 @@ impl MenuRuntime {
     }
 }
 
+/// The featured and saved server addresses a ping round covers, each once. Experiences have no
+/// server until joined, so they are left out.
+fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    addresses
+        .into_iter()
+        .filter(|address| {
+            !address.is_empty() && launcher::menu::pingable(address) && seen.insert(*address)
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An experience has no server until it is joined, so a featured experience is never pinged.
+    #[test]
+    fn experiences_are_not_pinged() {
+        let addresses = [
+            "gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f",
+            "play.example.test",
+            "play.example.test",
+        ];
+        assert_eq!(ping_targets(addresses), ["play.example.test"]);
+    }
 
     struct Fake {
         events: Vec<AccountEvent>,

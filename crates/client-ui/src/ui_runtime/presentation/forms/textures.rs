@@ -167,10 +167,12 @@ impl Textures<'_> {
             .collect()
     }
 
-    /// Whether no source has `path`; a URL still loading is not missing.
+    /// Whether no source has `path`; a URL still loading, or a local file the artwork atlas has not
+    /// packed, is not missing, so it draws nothing instead of white.
     pub(super) fn missing(&self, path: &str) -> bool {
         let key = texture_key(path);
         !is_remote(key)
+            && !std::path::Path::new(path).is_absolute()
             && self.images.is_none_or(|images| !images.contains_key(path))
             && !self.atlas.has_image(key)
             && self.assets.texture(key).is_none()
@@ -313,5 +315,21 @@ mod review_tests {
             textures.texture("textures/ui/test").unwrap().pixels,
             [256.0, 128.0]
         );
+    }
+
+    // Offer art past the atlas drew vanilla's white instead of nothing.
+    #[test]
+    fn an_unpacked_local_file_is_not_missing() {
+        let assets = super::super::tests::mini_carrier();
+        let set = TextureSet::new(0);
+        let atlas = ServerAtlas::new(&[], None, 1);
+        let textures = Textures {
+            assets: &assets,
+            set: &set,
+            atlas: &atlas,
+            images: None,
+        };
+        assert!(!textures.missing("/cache/store-images/a.jpg"));
+        assert!(textures.missing("textures/ui/White"));
     }
 }

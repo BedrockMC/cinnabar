@@ -203,3 +203,46 @@ fn malformed_script_shapes_drop_the_whole_script_for_entities_and_controllers_al
         .unwrap();
     assert!(script.is_some() && dropped == 0);
 }
+
+// Block contexts read only `query.block_state`; strings compare, booleans read as numbers.
+#[test]
+fn block_expressions_read_block_states() {
+    let state = |name: &str| match name {
+        "minecraft:cardinal_direction" => Some(BlockStateValue::String("north")),
+        "df:s" => Some(BlockStateValue::Number(1.0)),
+        _ => None,
+    };
+    let evaluate = |source| BlockMolang::parse(source)?.evaluate(&state);
+    assert_eq!(
+        evaluate("q.block_state('minecraft:cardinal_direction') == 'north'"),
+        Some(1.0)
+    );
+    assert_eq!(
+        evaluate("query.block_state('minecraft:cardinal_direction') != 'north'"),
+        Some(0.0)
+    );
+    assert_eq!(evaluate("q.block_state('df:s')"), Some(1.0));
+    assert_eq!(evaluate("!q.block_state('df:s') || 0"), Some(0.0));
+    assert_eq!(evaluate("1.000000"), Some(1.0));
+    assert_eq!(evaluate("0.000000"), Some(0.0));
+    assert_eq!(evaluate("q.block_state('df:missing') == 1"), None);
+    assert_eq!(
+        evaluate("q.block_state('df:s') == 'true'"),
+        None,
+        "mixed types"
+    );
+    assert_eq!(evaluate("q.is_baby"), None, "other queries do not parse");
+    assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
+
+// A server-sent flat operator chain cannot exhaust the stack that walks its tree.
+#[test]
+fn block_expressions_bound_their_tree_depth() {
+    let chain = |terms: usize| vec!["1"; terms].join("+");
+    let state = |_: &str| None;
+    assert_eq!(
+        BlockMolang::parse(&chain(1024)).and_then(|expression| expression.evaluate(&state)),
+        Some(1024.0)
+    );
+    assert!(BlockMolang::parse(&chain(16_000)).is_none());
+}

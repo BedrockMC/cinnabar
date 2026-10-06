@@ -64,10 +64,20 @@ pub struct MenuRealmCard {
     pub member: bool,
 }
 
+/// Marks a featured address as an experience's ID, joined when selected.
+pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
+
+/// Whether the server at `address` can be pinged; an experience has no server until joined.
+pub fn pingable(address: &str) -> bool {
+    !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
+}
+
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
     pub description: String,
+    /// The details banner; empty uses the first screenshot.
+    pub banner: String,
     pub news_title: String,
     pub news: String,
     pub screenshots: Vec<String>,
@@ -345,11 +355,9 @@ pub struct MenuView {
     pub display_name: String,
     pub servers: Vec<SavedServer>,
     pub featured: Vec<MenuServerCard>,
-    pub gatherings: Vec<MenuServerCard>,
     pub realms: Vec<MenuRealmCard>,
     pub friends: Vec<MenuFriendCard>,
     pub featured_icon: Option<IconRef>,
-    pub gathering_icon: Option<IconRef>,
     pub realm_icon: Option<IconRef>,
     pub friend_icon: Option<IconRef>,
     pub saved_icon: Option<IconRef>,
@@ -395,8 +403,6 @@ pub struct MenuCaret {
 pub struct CatalogFile {
     #[serde(default)]
     pub featured: Vec<MenuServerCard>,
-    #[serde(default)]
-    pub gatherings: Vec<MenuServerCard>,
     #[serde(default)]
     pub realms: Vec<MenuRealmCard>,
     #[serde(default)]
@@ -465,11 +471,9 @@ impl MenuView {
             display_name,
             servers: Vec::new(),
             featured: Vec::new(),
-            gatherings: Vec::new(),
             realms: Vec::new(),
             friends: Vec::new(),
             featured_icon: None,
-            gathering_icon: None,
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,

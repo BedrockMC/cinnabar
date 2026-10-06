@@ -2,6 +2,7 @@
 //! transparent phase. Nothing is queued or drawn while no mod renders. Pass pipelines are
 //! owned per pass revision, so replaced or reloaded passes release them.
 
+mod block_highlights;
 mod passes;
 mod position_box;
 mod primitives;
@@ -17,6 +18,7 @@ use bevy::{
 use mod_render::{RenderOutput, geometry::ModVertex};
 use std::sync::Arc;
 
+pub use block_highlights::MAX_BLOCK_HIGHLIGHTS;
 pub use passes::ModPassLabel;
 
 /// The current mod's render output, extracted whenever the mod commits a change.
@@ -28,6 +30,9 @@ pub struct ModRenderScene {
     primitives: Arc<mod_render::Primitives>,
     pub(crate) marker_vertices: Arc<[ModVertex]>,
     position_box: Option<[[f32; 3]; 2]>,
+    pub(crate) block_vertices: Arc<[ModVertex]>,
+    block_positions: Arc<[[i32; 3]]>,
+    block_color: [f32; 4],
 }
 
 impl ExtractResource for ModRenderScene {
@@ -69,6 +74,21 @@ impl ModRenderScene {
         };
     }
 
+    /// Highlights loaded unit blocks through world geometry, independently of guest primitives.
+    pub fn set_block_highlights(&mut self, positions: &[[i32; 3]], color: [f32; 4]) {
+        let positions = &positions[..positions.len().min(MAX_BLOCK_HIGHLIGHTS)];
+        let valid = color
+            .iter()
+            .all(|v| v.is_finite() && (0.0..=1.0).contains(v));
+        let positions = if valid { positions } else { &[] };
+        if self.block_positions.as_ref() == positions && self.block_color == color {
+            return;
+        }
+        self.block_positions = Arc::from(positions);
+        self.block_color = color;
+        self.block_vertices = block_highlights::build(positions, color).into();
+    }
+
     /// Drops every pass and primitive, as when a mod traps, reloads or is revoked.
     pub fn clear(&mut self) {
         if self.generation != 0 || !self.passes.is_empty() || self.vertex_count() != 0 {
@@ -85,7 +105,7 @@ impl ModRenderScene {
     }
 
     pub fn vertex_count(&self) -> usize {
-        self.vertices.len() + self.marker_vertices.len()
+        self.vertices.len() + self.marker_vertices.len() + self.block_vertices.len()
     }
 }
 

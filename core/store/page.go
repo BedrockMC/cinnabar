@@ -113,11 +113,8 @@ func (c *Client) curatedRow(row *marketplace.Row, list *marketplace.Component) R
 }
 
 func newRow(row *marketplace.Row) Row {
-	out := Row{ID: clip(row.TelemetryID), Title: clip(row.Title()), Offers: []Offer{}}
-	if len(row.Components) > 0 {
-		out.Kind = clip(row.Components[0].Type)
-	}
-	return out
+	// The controlId names the vanilla row factory (StoreRow, HeroRow, CoinBundleRow, ...).
+	return Row{ID: clip(row.TelemetryID), Title: clip(row.Title()), Kind: clip(row.ControlID), Offers: []Offer{}}
 }
 
 // fillRows runs each row's query; a failed search drops its row, and the page fails only when every

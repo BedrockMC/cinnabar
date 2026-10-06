@@ -454,7 +454,7 @@ fn pause_texts() -> Option<Vec<String>> {
     screen_texts(&view)
 }
 
-fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
+pub(super) fn screen_texts(view: &crate::menu::MenuView) -> Option<Vec<String>> {
     let carrier = super::pack_harness::carrier()?;
     let catalog = json_ui::Catalog::from_files(
         carrier

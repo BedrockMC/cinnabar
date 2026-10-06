@@ -367,16 +367,13 @@ fn select(socket_dir: &Path, target: ConnectTarget) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-/// Marks a menu address as a gathering's experience ID, joined when selected.
-pub(super) const GATHERING_ADDRESS_PREFIX: &str = "gathering/";
-
 /// The kind of join `address` starts, for its progress titles.
 pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::JoinKind {
     use launcher::menu::view::JoinKind;
     match target_for(address) {
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,
-        // Friend worlds and gatherings use the external-server title until vanilla's is confirmed.
+        // Friend worlds and experiences use the external-server title until vanilla's is confirmed.
         ConnectTarget::RakNet(_) | ConnectTarget::Friend(_) | ConnectTarget::Gathering(_) => {
             JoinKind::External
         }
@@ -387,7 +384,7 @@ pub(super) fn join_kind(address: &str, local_world: bool) -> launcher::menu::vie
 /// prefixes, else a server that gets the default port when it names none).
 pub(super) fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
-    if let Some(id) = address.strip_prefix(GATHERING_ADDRESS_PREFIX) {
+    if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
         return ConnectTarget::Gathering(id.to_owned());
     }
     if let Some(id) = address.strip_prefix("realm_id/") {
