@@ -25,6 +25,7 @@ use crate::presentation::{
 };
 
 const BOW: &str = "minecraft:bow";
+const BOW_USE_DURATION: u32 = 72_000;
 const FILLED_MAP: &str = "minecraft:filled_map";
 /// Pose bones Java's parts drive, in [`JavaBiped::parts`] order.
 const PART_BONES: [&str; 6] = ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"];
@@ -33,6 +34,17 @@ const REMOTE_SNEAK_DROP: f32 = 0.125;
 const LOCAL_SNEAK_DROP: f32 = 0.2 * 0.4;
 /// Java lifts the model this many pixels above the feet.
 const MODEL_LIFT_PIXELS: f32 = 0.125;
+
+#[path = "java/mounted.rs"]
+mod mounted;
+
+#[cfg(test)]
+#[path = "java/mounted_tests.rs"]
+mod mounted_tests;
+
+#[cfg(test)]
+#[path = "java/clock_tests.rs"]
+mod clock_tests;
 
 /// Java's use of the main-hand `item` at the frame, from the use flag's tick count.
 pub(super) fn java_use(
@@ -45,19 +57,24 @@ pub(super) fn java_use(
     if selected != Some(item) || use_ticks == 0 {
         return None;
     }
-    let ticks = use_ticks as f32;
     if is_java_sword(item) {
         Some(JavaUse::Block)
     } else if item == BOW {
         Some(JavaUse::Bow {
-            pull: ticks - 2.0 + alpha,
+            pull: BOW_USE_DURATION as f32 - use_remaining(BOW_USE_DURATION, use_ticks, alpha),
         })
     } else {
         consume_ticks.map(|duration| JavaUse::Consume {
-            remaining: duration as f32 - ticks + 2.0 - alpha,
+            remaining: use_remaining(duration, use_ticks, alpha),
             duration: duration as f32,
         })
     }
+}
+
+fn use_remaining(duration: u32, use_ticks: u32, alpha: f32) -> f32 {
+    let count = duration.saturating_sub(use_ticks.saturating_sub(1));
+    // Keep the integer countdown and float operation order, including bow rounding.
+    count as f32 - alpha + 1.0
 }
 
 /// Java's bow frame by whole draw ticks: standby, then its three pull frames.
@@ -161,11 +178,16 @@ pub(super) fn third_person<'a>(
     {
         return None;
     }
-    let java_rig = ActorRigSnapshot {
+    let mut java_rig = ActorRigSnapshot {
         previous_body_yaw: rig.java.body_yaw[0],
         body_yaw: rig.java.body_yaw[1],
         ..*rig
     };
+    let head_yaw = head_look(actor, alpha, local.is_some()).0;
+    if let Some(body_yaw) = mounted::body_yaw(stream, actor, head_yaw, alpha) {
+        java_rig.previous_body_yaw = body_yaw;
+        java_rig.body_yaw = body_yaw;
+    }
     let main = match local {
         Some(equipment) => equipment.main.clone(),
         None => remote_input(stream, actor.runtime_id).main,
@@ -241,16 +263,8 @@ fn third_person_input(
 ) -> JavaBipedInput {
     let motion = rig.java;
     let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;
-    let body_yaw = lerp_degrees(motion.body_yaw[0], motion.body_yaw[1], alpha);
-    // Local look arrives every frame; current actor angles advance only at fixed ticks.
-    let (head_yaw, head_pitch) = if local {
-        (actor.received_pose.head_yaw, actor.received_pose.pitch)
-    } else {
-        (
-            lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha),
-            lerp([actor.previous_pose.pitch, actor.pitch]),
-        )
-    };
+    let body_yaw = lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha);
+    let (head_yaw, head_pitch) = head_look(actor, alpha, local);
     let using = actor.is_using_item();
     JavaBipedInput {
         limb_swing: motion.limb_swing[1] - motion.limb_amount[1] * (1.0 - alpha),
@@ -267,6 +281,18 @@ fn third_person_input(
             Some(_) => 1,
         },
         aimed_bow: using && main_hand == Some(BOW),
+    }
+}
+
+fn head_look(actor: &ActorSnapshot, alpha: f32, local: bool) -> (f32, f32) {
+    // Local look arrives every frame; current actor angles advance only at fixed ticks.
+    if local {
+        (actor.received_pose.head_yaw, actor.received_pose.pitch)
+    } else {
+        (
+            lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha),
+            actor.previous_pose.pitch + (actor.pitch - actor.previous_pose.pitch) * alpha,
+        )
     }
 }
 
@@ -473,7 +499,7 @@ mod tests {
         Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap())
     }
 
-    fn head_stream() -> WorldStream {
+    pub(super) fn head_stream() -> WorldStream {
         WorldStream::new_with_asset_sets(
             protocol::WorldBootstrap {
                 dimension: 0,
@@ -491,7 +517,7 @@ mod tests {
         )
     }
 
-    fn head_feed() -> client_world::LocalPlayerFeed {
+    pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         client_world::LocalPlayerFeed {
             uuid: [1; 16],
             username: Arc::from("Player"),
@@ -501,6 +527,7 @@ mod tests {
             position: [0.0, 64.0, 0.0],
             velocity: [0.0; 3],
             on_ground: true,
+            flying: false,
             yaw: 170.0,
             head_yaw: 170.0,
             pitch: 5.0,
@@ -629,6 +656,11 @@ mod tests {
             let actor = stream.authority().actor(1).unwrap();
             let original_actor = actor.clone();
             let rig = stream.authority().actor_rig(1).unwrap();
+            let rig = ActorRigSnapshot {
+                previous_body_yaw: rig.java.body_yaw[0],
+                body_yaw: rig.java.body_yaw[1],
+                ..rig
+            };
             for alpha in [0.0, 0.25, 0.75, 1.0] {
                 let input = third_person_input(&rig, actor, None, alpha, true);
                 let body = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], alpha);
@@ -664,6 +696,11 @@ mod tests {
         actor.received_pose.head_yaw = 25.0;
         actor.received_pose.pitch = -40.0;
         let rig = stream.authority().actor_rig(1).unwrap();
+        let rig = ActorRigSnapshot {
+            previous_body_yaw: rig.java.body_yaw[0],
+            body_yaw: rig.java.body_yaw[1],
+            ..rig
+        };
         for alpha in [0.0, 0.25, 0.75, 1.0] {
             let input = third_person_input(&rig, &actor, None, alpha, false);
             let body = lerp_degrees(rig.java.body_yaw[0], rig.java.body_yaw[1], alpha);

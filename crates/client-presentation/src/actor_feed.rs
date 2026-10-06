@@ -44,6 +44,7 @@ pub fn build_local_player_feed(
         position,
         velocity,
         on_ground: state.on_ground,
+        flying: matches!(physics.mode(), sim::MovementMode::Flying),
         yaw: yaw_degrees,
         head_yaw: yaw_degrees,
         pitch: pitch_degrees,

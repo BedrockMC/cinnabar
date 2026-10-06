@@ -30,6 +30,7 @@ pub(crate) struct ActorTickContext {
     pub(crate) view_bobbing: Option<bool>,
     /// The client's own player.
     pub(crate) is_local: bool,
+    pub(crate) is_local_flying: bool,
     /// Native HUD rendering uses a UI actor context without a first-person hand camera.
     pub(crate) is_in_ui: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
@@ -97,7 +98,7 @@ pub(super) fn advance_motion(
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
     }
-    if super::horse::is_horse(actor) {
+    if actor.is_horse() {
         motion
             .horse
             .advance(query::actor_flag(actor, query::FLAG_STANDING));
@@ -173,6 +174,7 @@ pub(super) fn advance_motion(
                 .is_none_or(|health| health.current > 0.0),
         sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
         local: context.is_local,
+        flying: context.is_local_flying,
     });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {
         state.history.pop_front();
@@ -581,7 +583,7 @@ pub(super) fn apply_engine_variables(
         variables.set(engine.tropical_fish_base, base);
         variables.set(engine.tropical_fish_pattern, pattern);
     }
-    if super::horse::is_horse(actor) {
+    if actor.is_horse() {
         variables.set(engine.horse_stand_anim, motion.horse.stand_amount);
         variables.set(engine.horse_shake_tail, truth(motion.horse.shake_tail()));
         variables.set(

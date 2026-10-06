@@ -43,6 +43,7 @@ fn feed(first_person: bool) -> LocalPlayerFeed {
         position: [0.0, 64.0, 0.0],
         velocity: [0.0; 3],
         on_ground: true,
+        flying: false,
         yaw: 0.0,
         head_yaw: 35.0,
         pitch: 30.0,
