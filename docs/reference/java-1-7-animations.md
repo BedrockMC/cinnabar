@@ -43,13 +43,13 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | Body yaw | Turns 30% toward the walk direction (moving more than 0.05 blocks a tick) or the look while swinging; head lag clamps to ±75, and past 50 degrees the body is pulled a fifth of the lag back. |
 | Pose | Arms `X = cos(0.6662·limb (+π right))·amount`, legs `1.4·` the opposite; riding `-36°` arms, `-72°`/`±18°` legs; holding `X·0.5 - 18°·n` (n = 1, 3 blocking); attack `body Y = 0.2·sin(2π√s)` with the arm points circling the body and the right arm lifted by `1.2·sin(π(1 - (1 - s)⁴)) - 0.75·sin(sπ)·(head X - 0.7)`, `Z = -0.4·sin(sπ)`; sneak body 0.5 rad, arms +0.4, legs at (y 9, z 4), head y 1 (otherwise legs z 0.1); idle `Z ±= 0.05·cos(0.09·age) + 0.05`, `X ±= 0.05·sin(0.067·age)`; bow aim arms `X = -90° + head X`, `Y = -0.1/+0.5 + head Y`. Parts are separate: the head and arms do not follow the body. |
 | Third-person grips | After `T(-1/16, 7/16, 1/16)`: cube `T(0, 0.1875, -0.3125)`, `Rx(20)`, `Ry(45)`, `S(-0.375, -0.375, 0.375)`; bow `T(0, 0.125, 0.3125)`, `Ry(-20)`, `S(0.625, -0.625, 0.625)`, `Rx(-100)`, `Ry(45)`; tools (swords, pickaxes, axes, shovels, hoes, sticks, bones, rods) rods first `Rz(180)`, `T(0, -0.125, 0)`, blocking `T(0.05, 0, -0.1)`, `Ry(-50)`, `Rx(-10)`, `Rz(-60)`, then `T(0, 0.1875, 0)`, `S(0.625, -0.625, 0.625)`, `Rx(-100)`, `Ry(45)`; other items `T(0.25, 0.1875, -0.1875)`, `S(0.375)`, `Rz(60)`, `Rx(-90)`, `Rz(20)`. |
-| Placement | Other players draw 0.125 lower while sneaking. The red hurt flash covers body and armour but not held items. |
+| Placement | Sneaking players draw 0.125 lower (the local player 0.08, its eased step offset). The red hurt flash covers body and armour but not held items. |
 | Blocking trigger | A sword with the using flag; locally, holding use with a sword, since Bedrock never flags that use. |
 
 ## Kept vanilla or left out
 
 - Swimming, crawling, gliding, sleeping and emoting keep vanilla poses: Java 1.7 has none.
 - Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
-- Cape physics, first-person item lighting, the third-person bow pull frames, the cast rod drawn as a stick, the local sneak model drop and the death camera roll are not Java's.
+- Cape physics, first-person item lighting, the third-person bow pull frames, the cast rod drawn as a stick, the local sneak camera drop and the death camera roll are not Java's.
 - Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
 - No hurt particles: Java 1.7 has none tied to the animation.
