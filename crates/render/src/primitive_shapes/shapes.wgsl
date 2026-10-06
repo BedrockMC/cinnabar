@@ -29,10 +29,15 @@ struct VertexOutput {
     @location(3) @interpolate(flat) backface: u32,
 }
 
+// Attachments past the actor arena's binding limit stay hidden, like missing actors.
+fn attached(shape: Shape) -> bool {
+    return shape.flags.z!=0xffffffffu;
+}
+
 // Attachment indices address one compact actor entry shared by every attached shape.
 fn anchor(shape: Shape) -> vec3<f32> {
     var result=shape.transform[3].xyz;
-    if shape.flags.z!=0xffffffffu { result+=actors[shape.flags.z].position; }
+    if attached(shape) && shape.flags.z<arrayLength(&actors) { result+=actors[shape.flags.z].position; }
     return result;
 }
 
@@ -42,7 +47,7 @@ fn visible(shape: Shape, origin: vec3<f32>) -> bool {
     if shape.flags.w==ARROW_KIND_VALUEu && shape.data.z*shape.data.z<ARROW_MIN_LENGTH_SQUARED_VALUE { return false; }
     if shape.flags.y!=ALL_DIMENSIONS_VALUEu && shape.flags.y!=frame.dimension { return false; }
     if shape.lifetime.x>=0.0 && frame.epoch+globals.time>=shape.lifetime.x { return false; }
-    if shape.flags.z!=0xffffffffu && actors[shape.flags.z].valid==0u { return false; }
+    if attached(shape) && (shape.flags.z>=arrayLength(&actors) || actors[shape.flags.z].valid==0u) { return false; }
     var position=origin;
     if shape.flags.w==BOX_KIND_VALUEu { position-=0.5*(shape.transform[0]+shape.transform[1]+shape.transform[2]).xyz; }
     let delta=position-view.world_position;
@@ -82,7 +87,8 @@ fn native_acos(value:f32) -> f32 {
 @vertex
 fn text_vertex(@builtin(vertex_index) vertex:u32,@builtin(instance_index) index:u32) -> VertexOutput {
     let record=texts[index];
-    let shape=shapes[record.flags.x];
+    let in_arena=record.flags.x<arrayLength(&shapes);
+    let shape=shapes[min(record.flags.x,arrayLength(&shapes)-1u)];
     let origin=anchor(shape);
     let at=array<vec2<f32>,6>(vec2(0.0,0.0),vec2(1.0,0.0),vec2(1.0,1.0),vec2(0.0,0.0),vec2(1.0,1.0),vec2(0.0,1.0))[vertex];
     let local=mix(record.rect.xy,record.rect.zw,at);
@@ -104,7 +110,7 @@ fn text_vertex(@builtin(vertex_index) vertex:u32,@builtin(instance_index) index:
         down=-down;
     }
     let textured=record.uv.z>=0.0;
-    var show=visible(shape,origin)&&record.flags.y!=0u;
+    var show=in_arena&&visible(shape,origin)&&record.flags.y!=0u;
 #ifdef TEXT_DEPTH
     show=show&&(record.flags.z&1u)!=0u;
 #else

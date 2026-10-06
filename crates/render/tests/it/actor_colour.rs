@@ -311,7 +311,7 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
     // The fragment reads instance words and the glint image only for glint materials.
     let instance = gpu.buffer(
-        &vec![0.0; render::ACTOR_GPU_INSTANCE_WORDS as usize],
+        &[0.0; render::ACTOR_GPU_INSTANCE_WORDS],
         wgpu::BufferUsages::STORAGE,
     );
     let glint = gpu.blank_texture_view();
