@@ -110,15 +110,15 @@ impl RawTextDocument {
     /// empty text, and each degradation is counted for diagnostics.
     #[must_use]
     pub fn resolve(&self, resolver: &RawTextResolver<'_>) -> ResolvedRawText {
-        self.resolve_with_localized_arguments(resolver, &|_| None)
+        self.resolve_with_localized_arguments(resolver, &|_, _| None)
     }
 
-    /// Localizes resolved translation arguments before substitution; literal components stay literal.
+    /// Localizes translation arguments within the supplied prefix budget; literal components stay literal.
     #[must_use]
     pub fn resolve_with_localized_arguments(
         &self,
         resolver: &RawTextResolver<'_>,
-        localize_argument: &dyn Fn(&str) -> Option<String>,
+        localize_argument: &dyn Fn(&str, usize) -> Option<String>,
     ) -> ResolvedRawText {
         let mut resolved = ResolvedRawText::default();
         for component in self.components.iter() {
@@ -131,7 +131,7 @@ impl RawTextDocument {
 fn resolve_component(
     component: &RawTextComponent,
     resolver: &RawTextResolver<'_>,
-    localize_argument: &dyn Fn(&str) -> Option<String>,
+    localize_argument: &dyn Fn(&str, usize) -> Option<String>,
     resolved: &mut ResolvedRawText,
     depth: usize,
 ) {
@@ -181,7 +181,9 @@ fn resolve_component(
                                 &mut nested,
                                 depth + 1,
                             );
-                            if let Some(localized) = localize_argument(&nested.text) {
+                            if let Some(localized) =
+                                localize_argument(&nested.text, MAX_FORMATTED_PREFIX_BYTES)
+                            {
                                 nested.text.clear();
                                 push_bounded(&mut nested, &localized);
                             }
