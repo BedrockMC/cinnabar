@@ -64,6 +64,7 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
+        self.java_rasters.retain(|(from_pack, _, _), _| !from_pack);
         self.attachable_meshes.retain(|(from_pack, _, _), rig| {
             if *from_pack {
                 self.free_meshes.push(*rig);

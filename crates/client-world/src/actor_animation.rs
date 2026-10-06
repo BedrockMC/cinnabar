@@ -450,6 +450,16 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Drops Java's equip progress to zero at the actor's next tick.
+    pub(crate) fn reset_java_equip(&mut self, runtime_id: u64) {
+        let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {
+            return;
+        };
+        if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.java.reset_equip();
+        }
+    }
+
     /// Restarts the arm swing whose progress feeds `variable.attack_time`.
     pub(crate) fn start_swing(&mut self, runtime_id: u64, ticks: i32) {
         let Some(lifetime) = self.runtime_to_lifetime.get(&runtime_id) else {

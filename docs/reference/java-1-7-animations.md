@@ -27,7 +27,7 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | Rule | Behaviour |
 | --- | --- |
 | Swing timing | 6 ticks; Haste `6 - (1 + amp)`, Mining Fatigue `6 + 2(1 + amp)`; restarts only past its first half; the frame value wraps forward from 5/6 to 1. |
-| Equip | Moves 0.4 a tick toward 1 (same item) or 0; the new item is adopted below 0.1, and the old item stays drawn until then. Starting a use drops it to 0 before that tick's rise. |
+| Equip | Moves 0.4 a tick toward 1 (same item) or 0; the new item is adopted below 0.1, and the old item stays drawn until then. A block placement drops it to 0 before that tick's rise; starting a use does not. |
 | Use counts | Java's in-use count is `duration - use_ticks + 1` for our consecutive using ticks. Eat/drink reads `count - frame + 1`; bow draw is `duration - that`, so `use_ticks - 2 + frame`. |
 | First-person prefix | Eat/drink raise, or (not in use) `T(-0.4·sin(√s·π), 0.2·sin(2√s·π), -0.2·sin(s·π))`; then `T(0.56, -0.52 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(-20·sin(s²π))`, `Rz(-20·sin(√s·π))`, `Rx(-80·sin(√s·π))`, `S(0.4)`. In use there is no swing translate, so block-hitting keeps only the swing turns. |
 | Eat/drink raise | `t` as above, `r = 1 - t/duration`, `k = 1 - (1 - r)^27`: `T(0, |0.1·cos(t/4·π)|` when `r > 0.2`, `0)`, `T(0.6k, -0.5k, 0)`, `Ry(90k)`, `Rx(10k)`, `Rz(30k)`. |
