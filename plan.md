@@ -216,9 +216,17 @@
 
 ## Servers tab experiences
 
-- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. Incomplete
-  parity: experiences show no player count (the game reads gatherings player counts), and a
-  listing-only experience's details panel stays empty until its linked detail page is read.
+- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. The Go core
+  now consumes typed player counts, using the service client's five-minute cache and retaining
+  the last successful values on refresh failure. Counts are requested for visible experience
+  details on an independent worker, so Home cannot delay them; background layout reads do not
+  request them. The existing selected-details binding shows only positive counts as plain
+  decimal numbers, without capacity or digit grouping.
+- Incomplete parity: the OreUI experience banner still needs its count badge wired by its screen
+  owner; this change only supplies data and existing JSON-UI bindings. The menu rereads counts
+  through its independent featured worker every 30 seconds; exact refresh dispatch timing remains
+  unverified. Listing-only experience details still need their linked detail page. No visual or
+  performance gate is closed.
 
 ## Friends tab worlds
 
