@@ -164,6 +164,26 @@ fn camera_lenient_query_keeps_real_walls_while_skipping_unknown_cells() {
     );
     assert!(lenient.skipped.unknown_runtime_id >= 1);
     assert_eq!(lenient.skipped.unloaded_chunk, 0);
+    let mut visited = [None; 4];
+    let mut count = 0;
+    let (skipped, allocations) = crate::allocation_count::measure(|| {
+        world
+            .visit_collision_boxes_camera_lenient(query, &mut |shape| {
+                visited[count] = Some(shape);
+                count += 1;
+            })
+            .unwrap()
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(skipped, lenient.skipped);
+    assert_eq!(
+        visited[..count]
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>(),
+        lenient.value
+    );
 
     // The strict authority surface is untouched: it still fails closed.
     assert_eq!(

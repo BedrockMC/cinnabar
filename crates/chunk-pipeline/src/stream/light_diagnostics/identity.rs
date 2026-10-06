@@ -196,6 +196,7 @@ mod tests {
         stream.set_light_diagnostic_custom_blocks(CustomBlocks {
             blocks: Arc::from([CustomBlock {
                 name: Arc::from("test:roof"),
+                tags: Default::default(),
                 state_count: 2,
                 collides: true,
                 collision_box: None,

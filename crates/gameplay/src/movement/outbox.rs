@@ -225,6 +225,24 @@ impl MovementTicker {
         })
     }
 
+    /// Action aim overrides actor facing on its unsent tick without changing movement or camera input.
+    pub fn override_action_rotation(&mut self, tick: u64, pitch: f32, yaw: f32) -> bool {
+        if !pitch.is_finite() || !yaw.is_finite() {
+            return false;
+        }
+        let Some(sample) = self
+            .outbox
+            .iter_mut()
+            .find(|sample| sample.snapshot.tick == tick)
+        else {
+            return false;
+        };
+        sample.snapshot.pitch = pitch;
+        sample.snapshot.yaw = yaw;
+        sample.snapshot.head_yaw = yaw;
+        true
+    }
+
     /// Flags an attack press that hit nothing on its exact unsent tick.
     pub fn mark_missed_swing(&mut self, tick: u64) -> bool {
         self.mark_unsent_flag(tick, protocol::PlayerInputFlags::MISSED_SWING)

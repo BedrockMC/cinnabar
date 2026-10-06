@@ -98,7 +98,7 @@ async fn play_ingress_preserves_wire_order_across_interleaved_camera_families() 
 }
 
 #[tokio::test]
-async fn unsupported_camera_instruction_is_counted_and_session_survives() {
+async fn invalid_camera_instruction_is_counted_and_session_survives() {
     let transport = scripted_camera_transport(PlayEpilogue::OddCameraInstruction);
     let (mut session, _) = LoginSequence::connect_transport(transport, "RustClient")
         .await

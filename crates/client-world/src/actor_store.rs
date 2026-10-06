@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+mod aim_assist;
+
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
@@ -97,6 +99,7 @@ pub struct ActorSnapshot {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
+    pub player_game_mode: Option<protocol::GameModeUpdate>,
     pub source_tick: Option<u64>,
     pub metadata: HashMap<u32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
@@ -191,6 +194,7 @@ impl ActorSnapshot {
             on_ground: None,
             teleported: false,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
             attributes: HashMap::with_capacity(spawn.attributes.len()),
@@ -244,6 +248,7 @@ impl ActorSnapshot {
             on_ground: Some(feed.on_ground),
             teleported: feed.teleported,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
             attributes: HashMap::new(),
@@ -628,6 +633,10 @@ pub(crate) struct ActorStore {
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
     ignored_movement_components: u64,
+    actor_identifier_skips: u64,
+    player_game_mode_skips: u64,
+    world_default_game_mode: Option<protocol::PlayerGameMode>,
+    aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
@@ -726,7 +735,9 @@ fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
 
 fn event_dimension(event: &ActorEvent) -> Option<i32> {
     match event {
-        ActorEvent::Spawn(event) => Some(event.dimension),
+        ActorEvent::Spawn(event) | ActorEvent::PlayerSpawn { spawn: event, .. } => {
+            Some(event.dimension)
+        }
         ActorEvent::Remove(event) => Some(event.dimension),
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
@@ -734,7 +745,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::PlayerList(_)
         | ActorEvent::Skin { .. }
         | ActorEvent::Status(_)
-        | ActorEvent::TakeItem(_) => None,
+        | ActorEvent::TakeItem(_)
+        | ActorEvent::Identifiers(_) => None,
     }
 }
 

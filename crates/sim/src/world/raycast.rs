@@ -6,6 +6,9 @@ use world::{ChunkCollisionRevision, ChunkKey};
 use super::{MAX_COLLISION_QUERY_EXTENT, PaletteWorld, WorldCollisionIdentity, WorldQueryError};
 use crate::{Aabb, Vec3};
 
+mod camera;
+pub use camera::CameraBlockHit;
+
 const HALO_WIDTH: usize = 3;
 const HALO_CELLS: usize = HALO_WIDTH * HALO_WIDTH * HALO_WIDTH;
 // Normalization plus boundary subtraction/division can separate one exact
@@ -446,20 +449,26 @@ fn opposite_dominant_face(direction: Vec3) -> u8 {
     }
 }
 
+/// Chooses the lowest numbered outward face without allocating candidate storage.
 fn surface_face(point: Vec3, bounds: Aabb, direction: Vec3) -> u8 {
-    let mut faces = Vec::with_capacity(6);
+    let mut face = None;
     for axis in 0..3 {
-        if point[axis] == bounds.min[axis] && direction[axis] <= 0.0 {
-            faces.push(min_face(axis));
-        }
-        if point[axis] == bounds.max[axis] && direction[axis] >= 0.0 {
-            faces.push(max_face(axis));
+        for (on_surface, candidate) in [
+            (
+                point[axis] == bounds.min[axis] && direction[axis] <= 0.0,
+                min_face(axis),
+            ),
+            (
+                point[axis] == bounds.max[axis] && direction[axis] >= 0.0,
+                max_face(axis),
+            ),
+        ] {
+            if on_surface {
+                face = Some(face.map_or(candidate, |current: u8| current.min(candidate)));
+            }
         }
     }
-    faces
-        .into_iter()
-        .min()
-        .unwrap_or_else(|| opposite_dominant_face(direction))
+    face.unwrap_or_else(|| opposite_dominant_face(direction))
 }
 
 const fn min_face(axis: usize) -> u8 {
@@ -520,29 +529,40 @@ impl TraversalState {
         self.next[0].min(self.next[1]).min(self.next[2])
     }
 
-    fn advance(&mut self, crossing: f64) -> Result<Vec<[i32; 3]>, WorldQueryError> {
-        let axes = (0..3)
-            .filter(|&axis| simultaneous_crossing(self.next[axis], crossing))
-            .collect::<Vec<_>>();
-        let mut tied_cells = Vec::new();
-        let full_mask = (1_usize << axes.len()) - 1;
+    /// Returns the at most six partial cells of a simultaneous boundary crossing.
+    fn advance(
+        &mut self,
+        crossing: f64,
+    ) -> Result<impl Iterator<Item = [i32; 3]>, WorldQueryError> {
+        let mut axes = [0; 3];
+        let mut count = 0;
+        for axis in 0..3 {
+            if simultaneous_crossing(self.next[axis], crossing) {
+                axes[count] = axis;
+                count += 1;
+            }
+        }
+        let mut tied_cells = [[0; 3]; 6];
+        let full_mask = (1_usize << count) - 1;
+        let mut length = 0;
         for mask in 1..full_mask {
             let mut cell = self.cell;
-            for (bit, &axis) in axes.iter().enumerate() {
+            for (bit, &axis) in axes[..count].iter().enumerate() {
                 if mask & (1 << bit) != 0 {
                     cell[axis] = cell[axis]
                         .checked_add(self.step[axis])
                         .ok_or(WorldQueryError::CoordinateOutOfRange)?;
                 }
             }
-            tied_cells.push(cell);
+            tied_cells[length] = cell;
+            length += 1;
         }
-        for axis in axes {
+        for &axis in &axes[..count] {
             self.cell[axis] = self.cell[axis]
                 .checked_add(self.step[axis])
                 .ok_or(WorldQueryError::CoordinateOutOfRange)?;
             self.next[axis] += self.delta[axis];
         }
-        Ok(tied_cells)
+        Ok(tied_cells.into_iter().take(length))
     }
 }

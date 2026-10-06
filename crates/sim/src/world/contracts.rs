@@ -68,6 +68,19 @@ pub trait CollisionWorld {
         }
     }
 
+    /// Visits camera colliders in scan order; live palettes borrow shapes without allocating.
+    fn visit_collision_boxes_camera_lenient(
+        &self,
+        query: Aabb,
+        visitor: &mut dyn FnMut(Aabb),
+    ) -> Result<LenientSkipCounts, WorldQueryError> {
+        let boxes = self.collision_boxes_camera_lenient(query)?;
+        for shape in boxes.value {
+            visitor(shape);
+        }
+        Ok(boxes.skipped)
+    }
+
     /// Per-collider provenance companion to [`Self::collision_boxes`].
     ///
     /// The default derives every entry from [`Self::collision_boxes`] with

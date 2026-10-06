@@ -84,6 +84,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = ext.Listener(listen)
 		}
 	}
+	if cfg.cameraTest {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = cameraTestListener(listen)
+		}
+	}
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
