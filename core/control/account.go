@@ -170,7 +170,7 @@ func (store *Store) ObserveServerTrust(prompt proxy.ServerTrustPrompt, pending b
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	switch {
-	case pending:
+	case pending && (store.trustPrompt == nil || prompt.ID > store.trustPrompt.ID):
 		store.trustPrompt = &prompt
 	case store.trustPrompt != nil && store.trustPrompt.ID == prompt.ID:
 		store.trustPrompt = nil

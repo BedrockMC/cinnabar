@@ -471,6 +471,9 @@ pub(crate) fn drive_session(
         &mut session,
     );
     session.controller.publish(&mut menu);
+    if !session.controller.connecting {
+        session.controller.trust = None;
+    }
     if let Some(trust) = session.controller.trust.as_ref() {
         menu.sync_session_trust(trust);
     }

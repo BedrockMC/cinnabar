@@ -68,7 +68,20 @@ impl UiPresentationRuntime {
                 height,
                 self.safe_area,
                 &mut self.menu_scrolls,
-            ),
+            )
+            .and_then(|hits| {
+                // The programmatic fallback has no trust dialog, so the question draws over it.
+                let translate = |key: &str| runtime.translation(key);
+                let trust = self.append_server_trust(
+                    shown,
+                    &translate,
+                    nodes,
+                    next,
+                    metrics,
+                    [width, height],
+                )?;
+                Ok(trust.unwrap_or(hits))
+            }),
         };
         self.form_presentation.ready_menu = if pending
             || previous

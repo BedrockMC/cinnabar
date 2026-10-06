@@ -252,3 +252,13 @@ func TestServerTrustPromptReachesEventsAndTakesItsAnswer(t *testing.T) {
 		t.Fatalf("events = %+v, want the prompt withdrawn", events)
 	}
 }
+
+// A stale pending prompt from an older join never replaces the newer join's prompt.
+func TestStaleServerTrustPromptsAreIgnored(t *testing.T) {
+	store := NewStore()
+	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 5, URL: "http://new:1"}, true)
+	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 4, URL: "http://old:1"}, true)
+	if events := store.Events(); events.ServerTrust == nil || events.ServerTrust.ID != 5 {
+		t.Fatalf("events = %+v, want the newer prompt", events.ServerTrust)
+	}
+}

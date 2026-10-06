@@ -208,3 +208,46 @@ func TestSignedOutIdentityOutlivesTheTrustQuestion(t *testing.T) {
 		t.Fatalf("identity expires after %v, sooner than a join may wait on the trust question", claims.Expiry.Time().Sub(now))
 	}
 }
+
+// A transfer hop asks about the server whatever kind of target it left, local worlds included.
+func TestTransferHopsCarryTheConfiguredTrust(t *testing.T) {
+	trust := &minecraft.FirstUseTrust{}
+	local := &resolvedUpstreamTarget{address: "http://127.0.0.1:19132", network: localNetherNetNetwork{}}
+	hop, ok := networkForAddress(local, "play.example:19132", trust).(addressedServerNetwork)
+	if !ok || hop.ServerTrust != trust {
+		t.Fatalf("hop network = %#v, want the configured trust", hop)
+	}
+}
+
+// Publications reach the client in prompt order, so an older join's prompt cannot replace a newer one.
+func TestServerTrustPromptsPublishInOrder(t *testing.T) {
+	var mu sync.Mutex
+	var order []uint64
+	prompts := NewServerTrustPrompts(func(prompt ServerTrustPrompt, pending bool) {
+		if pending {
+			mu.Lock()
+			order = append(order, prompt.ID)
+			mu.Unlock()
+		}
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, _ = prompts.Confirm(ctx, "http://a:1") }()
+	}
+	for {
+		mu.Lock()
+		n := len(order)
+		mu.Unlock()
+		if n == 20 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	wg.Wait()
+	if !slices.IsSorted(order) {
+		t.Fatalf("prompts published out of order: %v", order)
+	}
+}

@@ -90,6 +90,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 	prepared.resourcePackAdmission = cfg.ResourcePackAdmission
 	prepared.resourcePackAdmissionUpdate = cfg.ResourcePackAdmissionUpdate
 	prepared.connectProgress = cfg.ConnectProgress
+	prepared.serverTrust = cfg.ServerTrust
 	prepared.upstreamClientCache = cfg.UpstreamClientCache
 	transfers := cfg.Transfers
 	if transfers == nil {
@@ -366,12 +367,12 @@ func connectUpstream(
 }
 
 // networkForAddress keeps the resolved transport for the target itself; a server transfer
-// names a plain host:port, which vanilla joins like any addressed server.
-func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft.Network {
+// names a plain host:port, which vanilla joins like any addressed server, whatever the target was.
+func networkForAddress(target *resolvedUpstreamTarget, address string, trust minecraft.ServerTrust) minecraft.Network {
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return remoteServerNetwork(slog.Default(), target.trust)
+	return remoteServerNetwork(slog.Default(), trust)
 }
 
 func dialFollowingTransfers(

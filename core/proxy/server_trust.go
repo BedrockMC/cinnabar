@@ -87,18 +87,19 @@ func NewServerTrustPrompts(publish func(prompt ServerTrustPrompt, pending bool))
 // Confirm asks about url and reports the answer; it gives up when ctx ends.
 func (prompts *ServerTrustPrompts) Confirm(ctx context.Context, url string) (bool, error) {
 	answer := make(chan bool, 1)
+	// Publishing under the lock keeps publications in id order, so an older join's prompt never
+	// lands after a newer one's.
 	prompts.mu.Lock()
 	prompts.next++
-	id := prompts.next
-	prompts.pending[id] = answer
-	prompts.mu.Unlock()
-	prompt := ServerTrustPrompt{ID: id, URL: url}
+	prompt := ServerTrustPrompt{ID: prompts.next, URL: url}
+	prompts.pending[prompt.ID] = answer
 	prompts.publish(prompt, true)
+	prompts.mu.Unlock()
 	defer func() {
 		prompts.mu.Lock()
-		delete(prompts.pending, id)
-		prompts.mu.Unlock()
+		delete(prompts.pending, prompt.ID)
 		prompts.publish(prompt, false)
+		prompts.mu.Unlock()
 	}()
 	select {
 	case trusted := <-answer:
