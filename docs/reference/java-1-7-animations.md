@@ -35,7 +35,8 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | Bow | `Rz(-18)`, `Ry(-12)`, `Rx(-8)`, `T(-0.9, 0.2, 0)`; `d = min((p²/400 + p/10)/3, 1)`; shake `T(0, 0.01·sin(1.3(p - 0.1))·(d - 0.1), 0)` past `d = 0.1`; `T(0, 0, 0.1d)`, `Rz(-335)`, `Ry(-50)`, `T(0, 0.5, 0)`, `S(1, 1, 1 + 0.2d)`, `T(0, -0.5, 0)`, `Ry(50)`, `Rz(335)`. Pull frames: standby, then frames 0/1/2 after more than 0, 13 and from 18 whole draw ticks. |
 | Rods | Fishing rods and on-a-stick items turn `Ry(180)` before drawing. |
 | Flat item draw | `T(0, -0.3, 0)`, `S(1.5)`, `Ry(50)`, `Rz(335)`, `T(-0.9375, -0.0625, 0)` onto the unit slab. Cubes take only the quarter turn. |
-| Empty hand | `T(-0.3·sin(√s·π), 0.4·sin(2√s·π), -0.4·sin(s·π))`, `T(0.64, -0.6 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(70·sin(√s·π))`, `Rz(-20·sin(s²π))`, `T(-1, 3.6, 3.5)`, `Rz(120)`, `Rx(200)`, `Ry(-135)`, `T(5.6, 0, 0)`. Java draws the arm only with an empty hand. |
+| Empty hand | `T(-0.3·sin(√s·π), 0.4·sin(2√s·π), -0.4·sin(s·π))`, `T(0.64, -0.6 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(70·sin(√s·π))`, `Rz(-20·sin(s²π))`, `T(-1, 3.6, 3.5)`, `Rz(120)`, `Rx(200)`, `Ry(-135)`, `T(5.6, 0, 0)`. Ordinary held items hide the arm; maps are the two-arm exception. |
+| First-person lighting | Ambient 0.4 plus two diffuse 0.6 lights along normalized `(0.2, 1, -0.7)` and `(-0.2, 1, 0.7)`. Camera hurt/bob and look rotate the lights before hand sway. Normals use inverse transpose and legacy rescaling by the inverse native Z-row length, including bow stretch. Texture, directional shade and byte-quantized world light multiply in gamma space. |
 | Hand motion | Hurt roll, then view bob, then sway `Rx(0.1·(pitch - armPitch))`, `Ry(0.1·(yaw - armYaw))`; the arm angles move halfway to the look each tick and sway is always on. |
 | View bob | Walk phase `w = -(d + (d - d_prev)·frame)` (one tick ahead); `T(0.5·sin(wπ)·b, -|cos(wπ)·b|, 0)`, `Rz(3·sin(wπ)·b)`, `Rx(5·|cos(wπ - 0.2)·b|)`, `Rx(fall)`. `d += 0.6` per block walked (not flying, riding or sneaking on the ground); `b` eases 40% a tick to the capped 0.1 horizontal speed on the ground; `fall` eases 80% to `15·atan(-0.2·vy)` in the air. Death sets both targets to zero. |
 | Death roll | `Rz(40 - 8000/(deathTicks + frame + 200))` before hurt roll. The body tips by `min(sqrt((deathTicks + frame - 1)/20 · 1.6), 1) · 90°`. |
@@ -54,7 +55,8 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 - Swimming, crawling, gliding, sleeping and emoting keep vanilla poses: Java 1.7 has none.
 - Server-authored player rigs and first-person attachables retain their own poses. Uploaded custom/slim skins remain eligible; local emotes drive their animated skin layers with the same sampled pose as the body.
 - Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
-- Elytra capes, first-person item lighting, the third-person bow pull frames, and the cast rod drawn as a stick are not Java's.
+- Elytra capes, the third-person bow pull frames, and the cast rod drawn as a stick are not Java's.
+- First-person directional lighting follows Java; environment brightness still comes from the shared Bedrock lightmap. Exact Java lightmap colors, tinted multipass saturation and complete frame lighting remain outside the verified scope.
 - Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
 - Recognized living mounts supply the displayed player's body heading. Head lag clamps to ±85°; above 50° the body moves another fifth toward the head, reducing extreme relative head output to ±68°. Mount yaw takes the short interpolation path. The cape retains the player's ordinary body yaw. Nonliving vehicles and unclassified mount identities keep the ordinary player body basis.
 - Active local creative flight freezes the cape's walking phase while its trailing motion and limbs continue. The phase resumes after landing; permission to fly alone does not freeze it.
@@ -69,9 +71,14 @@ readbacks and Cinnabar Windows/DX12 captures check the visible pose and geometry
 comparisons allow floating-point roundoff; these checks do not assert matching lighting,
 modern item behavior, custom mount classification, or full game-frame pixel equality.
 
-The combined PR revision passes 802 tests across client-world, client-presentation and
+The original combined PR revision passed 802 tests across client-world, client-presentation and
 render-model, with 12 existing ignored cases. Touched-crate checks and the optimized
 developer-control client build pass using sccache. Windows/DX12 hidden captures exercise
 flight, landing, horse/boat mounting, yaw wraparound, dismounting, first-person use and
 held-item swaps, both third-person views, and local emote coexistence. These are animation
 and geometry witnesses, not a performance benchmark or full-client pixel comparison.
+
+`java_hand_lights_normals_and_composes_texture_in_gamma` renders the production hand shader
+on a GPU. Original test texels cover arms and item layers, ambient and directional faces,
+world brightness, and nonuniform bow stretch in a rotated raster frame. The publication
+light test checks world look and camera effects while excluding hand sway from light setup.

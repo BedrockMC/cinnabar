@@ -5,6 +5,17 @@ use std::sync::Arc;
 use render::{ActorArtworkLocation, ActorRigSubmission};
 use render_model::EntityRigId;
 
+/// Source catalog, geometry, and selected image identify one attachable raster.
+pub(super) type AttachableMeshKey = (bool, u32, Box<str>);
+
+/// The immutable image frame and pose used by Java's independently placed raster draw.
+#[derive(Clone)]
+pub(super) struct JavaRasterFrame {
+    pub image_to_rig: bevy::math::Mat4,
+    pub rest: Arc<[render_model::RenderBoneTransform]>,
+    pub normal_axis: bevy::math::Vec3,
+}
+
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]
 pub struct WornItem {
@@ -68,6 +79,8 @@ pub struct FirstPersonItem {
     pub alpha_mode: render::HandItemAlphaMode,
     /// Camera from item space under Java's hand stack; the item's bones then sit at rest.
     pub java_camera: Option<bevy::math::Mat4>,
+    /// Java's sprite-depth normal in this rig frame, used for legacy normal rescaling.
+    pub java_normal_axis: bevy::math::Vec3,
 }
 
 /// Which first-person arms the player render controller shows.

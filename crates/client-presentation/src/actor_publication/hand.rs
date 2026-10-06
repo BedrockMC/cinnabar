@@ -3,6 +3,9 @@
 use super::*;
 use crate::presentation::equipment::ActorEquipmentInput;
 
+#[cfg(test)]
+mod lighting_tests;
+
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
 /// below the camera; the pack's first-person arm offsets are authored for that facing.
 pub(super) fn hand_camera_from_rig(scale: f32, motion: Mat4) -> [[f32; 4]; 3] {
@@ -39,7 +42,7 @@ pub(super) fn publish_hand_rig(
     revision: &mut u64,
     source: Option<HandSource>,
     fov_radians: Option<f32>,
-    light: HandRigLight,
+    mut light: HandRigLight,
     partial_tick: f32,
 ) {
     let (Some(source), Some(fov)) = (source, fov_radians) else {
@@ -63,6 +66,7 @@ pub(super) fn publish_hand_rig(
     let mut atlases = [None, None];
     for (index, entry) in source.items.into_iter().enumerate() {
         if let Some((layer, item_atlas)) = entry {
+            light.java_normal_axes[index + 1] = layer.java_normal_axis.extend(0.0).to_array();
             let mut item = layer.presentation.submission;
             item.world_from_actor = match layer.java_camera {
                 Some(camera) => camera_space_rows(source.motion * camera),
@@ -238,6 +242,9 @@ pub(super) fn item_atlas(
 ) -> Option<HandItemAtlas> {
     let page = usize::from(layer.presentation.location.page()).checked_sub(1)?;
     let page = artwork.pages().get(page)?;
+    if layer.presentation.location.layer() >= page.layers() {
+        return None;
+    }
     let (width, height) = page.dimensions();
     Some(HandItemAtlas {
         width,
@@ -253,4 +260,14 @@ pub(super) fn hand_motion_matrix(motion: &crate::camera::FirstPersonHandMotion) 
         * motion.bob.matrix()
         * Mat4::from_rotation_x(motion.sway_pitch_radians)
         * Mat4::from_rotation_y(motion.sway_yaw_radians)
+}
+
+/// Java sets fixed lights after the camera effects and world look, before the lagging hand sway.
+pub(super) fn java_light_matrix(
+    motion: Option<&crate::camera::FirstPersonHandMotion>,
+    look: bevy::math::Quat,
+) -> Mat4 {
+    let (yaw, pitch, _) = look.to_euler(bevy::math::EulerRot::YXZ);
+    let effects = motion.map_or(Mat4::IDENTITY, |motion| motion.hurt * motion.bob.matrix());
+    effects * Mat4::from_rotation_x(-pitch) * Mat4::from_rotation_y(std::f32::consts::PI - yaw)
 }

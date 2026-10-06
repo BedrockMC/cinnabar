@@ -18,8 +18,11 @@
 - Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
   exercise held-item swaps, use, both third-person views, cape motion and local emotes.
 - Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
-  none); held attachables Java never had, the third-person bow pull frames, cast-rod item and first-person
-  item lighting are vanilla. Unclassified mounts retain ordinary player body yaw.
+  none); held attachables Java never had, the third-person bow pull frames and cast-rod item
+  stay vanilla. Unclassified mounts retain ordinary player body yaw.
+- First-person items and the empty arm use Java's fixed directional lights and gamma-space
+  colour multiplication, including normal rescaling during bow stretch. World lightmap
+  colours still follow Bedrock; full-frame lighting parity remains open.
 - Living mount heading and active creative-flight cape phase now use their own observed
   state, with regression witnesses for wraparound, live local look, dismounting, phase
   freezing and walking resumption. Fixed Java 1.7.10 model/matrix fixtures and Windows

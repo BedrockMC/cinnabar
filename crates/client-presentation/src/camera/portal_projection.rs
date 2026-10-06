@@ -176,6 +176,7 @@ mod tests {
             sky_level: 0,
             daylight: 1.0,
             pad: 0,
+            ..Default::default()
         };
         for (index, distortion) in [
             Mat4::IDENTITY,
