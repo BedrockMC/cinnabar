@@ -32,7 +32,6 @@ mod feeds;
 use feeds::{CoreFeeds, catalog_round, feed_round};
 mod message_reports;
 pub(super) mod profile_worker;
-mod server_trust;
 
 #[cfg(all(test, unix))]
 mod profile_polling_tests;
@@ -535,13 +534,14 @@ impl AccountControl for LauncherAccount {
             (snapshot.answered_trust != Some(prompt.id)).then(|| ServerTrustPrompt {
                 id: prompt.id,
                 url: prompt.url.clone(),
+                from_session_core: false,
             })
         })
     }
 
     fn answer_server_trust(&mut self, id: u64, trusted: bool) {
         self.with(|snapshot| snapshot.answered_trust = Some(id));
-        server_trust::send(self.socket_dir.clone(), id, trusted);
+        super::server_trust::send(self.socket_dir.clone(), id, trusted);
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {

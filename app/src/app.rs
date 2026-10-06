@@ -605,6 +605,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             address,
             None,
             client_blob_cache.enables_upstream_client_cache(),
+            false,
         )
         .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
         core_process.replace(child);
