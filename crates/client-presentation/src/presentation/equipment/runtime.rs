@@ -124,6 +124,8 @@ pub struct EquipmentRuntime {
     poses: PoseMemo,
     attachables: client_world::AttachablesRuntime,
     attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
+    /// Render-controller models queued beyond the scene's binding geometries.
+    selected_geometries: std::collections::BTreeSet<EntityRigId>,
 }
 
 impl EquipmentRuntime {
@@ -244,6 +246,7 @@ impl EquipmentRuntime {
         let runtime = Self {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
+            selected_geometries: Default::default(),
             assets,
             icons,
             placements: atlas.placements,

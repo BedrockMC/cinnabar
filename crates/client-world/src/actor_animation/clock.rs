@@ -24,7 +24,7 @@ pub(super) fn prepare(
         *started == 0
             || controllers.iter().any(|state| {
                 state.entered_tick == *started
-                    || state.blend_from.is_some_and(|(_, tick)| tick == *started)
+                    || state.blend_from.is_some_and(|(_, tick, _)| tick == *started)
             })
     });
     let mut updated = std::collections::BTreeSet::new();

@@ -49,17 +49,31 @@ pub(super) fn sample_clips(
 ) -> Result<Vec<LocalDelta>, EvalError> {
     let assets = evaluator.assets;
     let mut local = vec![LocalDelta::default(); bones.len()];
-    let blending = clips.iter().any(|clip| clip.blend.is_some());
-    let mut rotations = blending.then(|| vec![None; bones.len()]);
-    // Both blend sides lerp into one scale that multiplies the pose accumulated so far.
-    let mut blended_scales = blending.then(|| vec![None; bones.len()]);
+    // Shortest-path blends sample each state into its own fresh pose before composing.
+    let mut sides = clips.iter().any(|clip| clip.blend.is_some()).then(|| {
+        [
+            vec![LocalDelta::default(); bones.len()],
+            vec![LocalDelta::default(); bones.len()],
+        ]
+    });
+    let mut pending: Option<ControllerBlend> = None;
     for weighted in clips {
         budget.charge_work()?;
-        if weighted.blend != Some(ControllerBlend::To)
-            && let Some(scales) = blended_scales.as_mut()
+        if let (Some(blend), Some(sides)) = (pending, sides.as_mut())
+            && weighted
+                .blend
+                .is_none_or(|next| blend.incoming && !next.incoming)
         {
-            apply_blended_scales(&mut local, scales);
+            compose_blend(&mut local, sides, blend.amount);
+            pending = None;
         }
+        let pose = match (weighted.blend, sides.as_mut()) {
+            (Some(blend), Some(sides)) => {
+                pending = Some(blend);
+                &mut sides[usize::from(blend.incoming)]
+            }
+            _ => &mut local,
+        };
         let weight = weighted.weight;
         if weight < f32::EPSILON {
             continue;
@@ -91,14 +105,14 @@ pub(super) fn sample_clips(
         // An override clip first restores every bone it animates to its whole default pose.
         if clip.override_previous {
             for channel in channels {
-                *local
+                *pose
                     .get_mut(channel.bone as usize)
                     .ok_or(EvalError::Invalid)? = LocalDelta::default();
             }
         }
         for channel in channels {
             budget.charge_work()?;
-            let bone = local
+            let bone = pose
                 .get_mut(channel.bone as usize)
                 .ok_or(EvalError::Invalid)?;
             // Native blending retains the greatest frame setting across active clips.
@@ -112,41 +126,13 @@ pub(super) fn sample_clips(
                 EntityAnimationProperty::Scale => defaults[axis] * current[axis],
                 _ => defaults[axis] + current[axis],
             });
-            let mut value = sample_channel(
+            let value = sample_channel(
                 assets,
                 channel.first_keyframe,
                 channel.keyframe_count,
                 time,
                 |keyframe| keyframe_value(evaluator, variables, keyframe, this, budget),
             )?;
-            if channel.property == EntityAnimationProperty::Rotation
-                && let Some(rotations) = rotations.as_mut()
-            {
-                let reference = &mut rotations[channel.bone as usize];
-                match weighted.blend {
-                    Some(ControllerBlend::From) => *reference = Some(value),
-                    Some(ControllerBlend::To) => {
-                        if let Some(previous) = reference {
-                            value = std::array::from_fn(|axis| {
-                                previous[axis]
-                                    + (value[axis] - previous[axis] + 180.0).rem_euclid(360.0)
-                                    - 180.0
-                            });
-                        }
-                    }
-                    None => {}
-                }
-            }
-            if channel.property == EntityAnimationProperty::Scale
-                && weighted.blend.is_some()
-                && let Some(scales) = blended_scales.as_mut()
-            {
-                let blended = scales[channel.bone as usize].get_or_insert([1.0; 3]);
-                for (axis, value) in value.into_iter().enumerate() {
-                    blended[axis] += (value - 1.0) * weight;
-                }
-                continue;
-            }
             for (axis, value) in value.into_iter().enumerate() {
                 if channel.property == EntityAnimationProperty::Scale {
                     current[axis] *= 1.0 + (value - 1.0) * weight;
@@ -156,19 +142,29 @@ pub(super) fn sample_clips(
             }
         }
     }
-    if let Some(scales) = blended_scales.as_mut() {
-        apply_blended_scales(&mut local, scales);
+    if let (Some(blend), Some(sides)) = (pending, sides.as_mut()) {
+        compose_blend(&mut local, sides, blend.amount);
     }
     Ok(local)
 }
 
-fn apply_blended_scales(local: &mut [LocalDelta], scales: &mut [Option<[f32; 3]>]) {
-    for (bone, scale) in local.iter_mut().zip(scales) {
-        if let Some(scale) = scale.take() {
-            for axis in 0..3 {
-                bone.scale[axis] *= scale[axis];
-            }
+/// Lerps the outgoing and incoming poses, rotating the short way round, then adds translation
+/// and rotation to `local` and multiplies its scale. Both sides reset for the next blend.
+fn compose_blend(local: &mut [LocalDelta], sides: &mut [Vec<LocalDelta>; 2], amount: f32) {
+    let [from, to] = sides;
+    for ((bone, from), to) in local.iter_mut().zip(from.iter_mut()).zip(to.iter_mut()) {
+        for axis in 0..3 {
+            let (a, b) = (from.translation[axis], to.translation[axis]);
+            bone.translation[axis] += a + (b - a) * amount;
+            let (a, b) = (from.rotation[axis], to.rotation[axis]);
+            bone.rotation[axis] += a + ((b - a + 180.0).rem_euclid(360.0) - 180.0) * amount;
+            let (a, b) = (from.scale[axis], to.scale[axis]);
+            bone.scale[axis] *= a + (b - a) * amount;
         }
+        bone.rotation_relative_to_entity |=
+            from.rotation_relative_to_entity || to.rotation_relative_to_entity;
+        *from = LocalDelta::default();
+        *to = LocalDelta::default();
     }
 }
 
