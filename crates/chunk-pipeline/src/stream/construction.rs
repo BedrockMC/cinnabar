@@ -128,6 +128,7 @@ impl WorldStream {
             arrival_cohort: None,
             poll_deadline: None,
             frame_deadline: None,
+            poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
             publication_allowance: None,
             mesh_changes: VecDeque::new(),
