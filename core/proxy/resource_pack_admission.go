@@ -487,7 +487,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 	}
 	connections.connectPrepared = connections.connect
 	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger)
+		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger, nil)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {

@@ -3,7 +3,9 @@
 //! account catalog and the auth supervisor keep feeding the menu.
 
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuRuntime, MenuServerCard};
-use launcher::menu::view::{JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails};
+use launcher::menu::view::{
+    JoinStage, MenuHome, MenuProfile, PingInfo, ServerDetails, ServerTrustPrompt,
+};
 
 /// Control method names the implementation calls.
 #[allow(dead_code, reason = "named for the core-relay control clients")]
@@ -69,9 +71,26 @@ pub(crate) trait AccountControl {
     }
     /// Whether the menu is connecting, which speeds up event polling.
     fn set_joining(&mut self, _joining: bool) {}
+    /// The join's pending question whether to trust a NetherNet server.
+    fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+        None
+    }
+    /// Answers trust prompt `id`.
+    fn answer_server_trust(&mut self, _id: u64, _trusted: bool) {}
 }
 
 impl MenuRuntime {
+    /// Answers the shown trust prompt; "Don't Trust" also cancels the join.
+    pub(crate) fn answer_server_trust(&mut self, trusted: bool) {
+        let Some(prompt) = self.feeds.server_trust.take() else {
+            return;
+        };
+        self.feeds.server_trust_answer = Some((prompt.id, trusted));
+        if !trusted {
+            self.intents.disconnect = true;
+        }
+    }
+
     /// Pull the core's account state into the menu: lists replace the catalog's,
     /// the status overrides the auth supervisor's, events surface on screen, and
     /// a pending sign-out request is sent.
@@ -142,6 +161,10 @@ impl MenuRuntime {
         if self.is_connecting() {
             self.feeds.join.observe(control.join_stage());
         }
+        if let Some((id, trusted)) = self.feeds.server_trust_answer.take() {
+            control.answer_server_trust(id, trusted);
+        }
+        self.feeds.server_trust = control.server_trust().filter(|_| self.is_connecting());
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
         }
@@ -190,6 +213,7 @@ impl MenuRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::menu::MenuAction;
 
     struct Fake {
         events: Vec<AccountEvent>,
@@ -286,6 +310,84 @@ mod tests {
             super::super::disconnect::describe(&view.disconnect_message.unwrap()).body,
             super::super::disconnect::DisconnectBody::Key("disconnectionScreen.cantConnectToRealm")
         );
+    }
+
+    struct Trusting {
+        prompt: Option<ServerTrustPrompt>,
+        answers: Vec<(u64, bool)>,
+    }
+
+    impl AccountControl for Trusting {
+        fn account_status(&mut self) -> Option<AuthState> {
+            None
+        }
+        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
+            None
+        }
+        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
+            None
+        }
+        fn sign_out(&mut self) -> bool {
+            false
+        }
+        fn poll_event(&mut self) -> Option<AccountEvent> {
+            None
+        }
+        fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+            self.prompt.clone()
+        }
+        fn answer_server_trust(&mut self, id: u64, trusted: bool) {
+            self.answers.push((id, trusted));
+        }
+    }
+
+    // The core's trust question shows while connecting; "Trust and Join" answers it and keeps the
+    // join, while "Don't Trust" and Back answer no and cancel the join.
+    #[test]
+    fn server_trust_prompt_shows_while_joining_and_forwards_the_answer() {
+        let prompt = ServerTrustPrompt {
+            id: 4,
+            url: "http://127.0.0.1:19132".into(),
+        };
+        for (answer, trusted, cancels) in [
+            (MenuAction::ServerTrust(true), true, false),
+            (MenuAction::ServerTrust(false), false, true),
+            (MenuAction::AddBack, false, true),
+        ] {
+            let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+            let mut control = Trusting {
+                prompt: Some(prompt.clone()),
+                answers: Vec::new(),
+            };
+            menu.sync_account_control(&mut control);
+            assert!(
+                menu.view().feeds.server_trust.is_none(),
+                "shown outside a join"
+            );
+            menu.observe_session(crate::session::SessionStatus {
+                connecting: true,
+                owns_directory: false,
+            });
+            menu.sync_account_control(&mut control);
+            assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&prompt));
+            assert_eq!(
+                menu.focus_actions(),
+                vec![
+                    MenuAction::ServerTrust(true),
+                    MenuAction::ServerTrust(false)
+                ]
+            );
+            if answer == MenuAction::AddBack {
+                menu.go_back();
+            } else {
+                menu.activate(answer);
+            }
+            control.prompt = None;
+            menu.sync_account_control(&mut control);
+            assert_eq!(control.answers, vec![(4, trusted)]);
+            assert_eq!(menu.take_disconnect_request(), cancels);
+            assert!(menu.view().feeds.server_trust.is_none());
+        }
     }
 
     #[test]

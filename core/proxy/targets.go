@@ -46,10 +46,12 @@ func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMax
 
 // remoteServerNetwork is the network for a server named by host:port rather than found on the
 // LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
-func remoteServerNetwork(logger *slog.Logger) addressedServerNetwork {
+// A nil trust joins any NetherNet server.
+func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust) addressedServerNetwork {
 	return addressedServerNetwork{minecraft.AddressNetwork{
-		RakNet:    remoteRakNet(),
-		NetherNet: minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+		RakNet:      remoteRakNet(),
+		NetherNet:   minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+		ServerTrust: trust,
 	}}
 }
 
@@ -88,6 +90,7 @@ type resolvedUpstreamTarget struct {
 	local      interface{ Close() error }
 	offline    bool // explicit own-world offline LAN selection, never an authentication fallback
 	realm      bool // vanilla words a failed Realm join as its own
+	trust      minecraft.ServerTrust
 }
 
 // realmJoinError marks a failure while joining a Realm.
@@ -114,7 +117,17 @@ func (target *resolvedUpstreamTarget) close() error {
 	return joined
 }
 
-func resolveUpstreamTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
+// resolveUpstreamTarget resolves address to its transport; trust decides addressed NetherNet joins,
+// including transfer hops from any target.
+func resolveUpstreamTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger, trust minecraft.ServerTrust) (*resolvedUpstreamTarget, error) {
+	target, err := resolveTarget(ctx, address, account, logger, trust)
+	if target != nil {
+		target.trust = trust
+	}
+	return target, err
+}
+
+func resolveTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger, trust minecraft.ServerTrust) (*resolvedUpstreamTarget, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, errors.New("upstream target is empty")
@@ -123,7 +136,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
 		}
-		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger)}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust)}, nil
 	}
 
 	resolveContext, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -139,7 +152,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
-		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger)}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust)}, nil
 	}
 }
 

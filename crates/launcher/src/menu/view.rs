@@ -154,6 +154,17 @@ pub struct MenuFeeds {
     pub home: MenuHome,
     /// The join the progress screen reports while connecting.
     pub join: JoinProgress,
+    /// The join's pending question whether to trust a NetherNet server.
+    pub server_trust: Option<ServerTrustPrompt>,
+    /// The player's answer to that question, until it is sent to the core.
+    pub server_trust_answer: Option<(u64, bool)>,
+}
+
+/// The core asks whether to trust the NetherNet server at `url` before the join goes on.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
 }
 
 /// Which kind of join is under way; picks vanilla's connect title and progress screen.

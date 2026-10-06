@@ -238,7 +238,7 @@ func TestNetherNetTargetsNameTheirSignaling(t *testing.T) {
 			t.Fatalf("%s parsed", address)
 		}
 	}
-	if _, err := resolveUpstreamTarget(context.Background(), id, authcache.NewAccount(context.Background(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil), nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
+	if _, err := resolveUpstreamTarget(context.Background(), id, authcache.NewAccount(context.Background(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil), nil, nil); err == nil || !strings.Contains(err.Error(), "nethernet/jsonrpc/<id>") {
 		t.Fatalf("bare ID error = %v", err)
 	}
 }
@@ -270,7 +270,7 @@ func TestAddressedRakNetProbesFitTheCappedPath(t *testing.T) {
 	}
 	defer server.Close()
 	address := server.LocalAddr().String()
-	addressed, err := resolveUpstreamTarget(context.Background(), address, nil, slog.Default())
+	addressed, err := resolveUpstreamTarget(context.Background(), address, nil, slog.Default(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestSignedOutAddressedNetherNetDialPresentsAnIdentity(t *testing.T) {
 	server := httptest.NewServer(signaling)
 	t.Cleanup(server.Close)
 
-	target, err := resolveUpstreamTarget(t.Context(), server.Listener.Addr().String(), nil, slog.New(slog.DiscardHandler))
+	target, err := resolveUpstreamTarget(t.Context(), server.Listener.Addr().String(), nil, slog.New(slog.DiscardHandler), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
