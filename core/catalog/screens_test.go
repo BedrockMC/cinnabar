@@ -52,7 +52,8 @@ func TestServerTabExperiencesFeedTheFeaturedList(t *testing.T) {
 	if len(hero.Games) != 2 || hero.Games[0].Image.URL != "https://cdn.example.test/a.png" || hero.Games[1].Image.URL != "" {
 		t.Fatalf("games keep only titled activities and HTTPS art: %+v", hero.Games)
 	}
-	if listed.Name != "Hunter" || listed.Caption != "Featured server" || listed.thumbnailURL != "https://cdn.example.test/q.png" {
+	if listed.Name != "Hunter" || listed.Caption != "Featured server" || listed.thumbnailURL != "https://cdn.example.test/q.png" ||
+		listed.Logo.URL != "https://cdn.example.test/q.png" {
 		t.Fatalf("listed = %+v", listed)
 	}
 }
