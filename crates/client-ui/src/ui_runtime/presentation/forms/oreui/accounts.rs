@@ -7,6 +7,10 @@ use super::super::super::IconRef;
 use super::modal::Modal;
 use super::theme::{DESTRUCTIVE_TINT, TEXT};
 use super::widgets::{MenuItem, Variant};
+use ui::{UiNode, UiRect};
+
+use super::super::super::{TextMetrics, UiPresentationError, UiPresentationRuntime};
+use super::paint::Canvas;
 use crate::menu::{MenuAction, MenuScreen, MenuView, auth::AuthState};
 
 /// The picker for `view`, with account pictures from `images` once decoded.
@@ -279,5 +283,68 @@ mod tests {
         // The current account takes no presses, so it never lights up.
         let current = Some(MenuAction::SwitchAccount(0));
         assert_eq!(row_fills(current, current), [MENU_ITEM.fill; 2]);
+    }
+}
+
+impl UiPresentationRuntime {
+    /// Draws the saved-accounts picker over the current screen; returns its hit targets,
+    /// the only ones that then count.
+    pub(in super::super) fn append_oreui_accounts(
+        &mut self,
+        view: &MenuView,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        size: [f32; 2],
+    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        let originals = self
+            .form_presentation
+            .oreui_originals
+            .clone()
+            .filter(|_| self.form_presentation.oreui_look == super::Look::Originals);
+        let picker = modal(view, &self.menu_artwork.refs);
+        let rollback = (nodes.len(), *next);
+        let mut offsets = self.menu_scrolls.offsets().clone();
+        // A newly focused item off screen scrolls into view, then draws again there.
+        let mut first = true;
+        loop {
+            nodes.truncate(rollback.0);
+            *next = rollback.1;
+            let mut canvas = Canvas::new(
+                nodes,
+                next,
+                &mut self.layouts,
+                &self.font,
+                metrics,
+                self.solid_texture_page,
+                originals.as_deref(),
+            );
+            canvas.offsets = offsets.clone();
+            let focused = super::modal::draw(&mut canvas, view, size, &picker)?;
+            let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+            let used = offsets.get(super::modal::SCROLL).copied().unwrap_or(0.0);
+            let revealed = focused.and_then(|item| {
+                let rect = |b: super::paint::Bounds| {
+                    super::super::super::rect(b[0], b[1], b[2], b[3]).ok()
+                };
+                Some(self.menu_scrolls.reveal_focus(
+                    super::modal::SCROLL,
+                    view.focused_action,
+                    rect(item.bounds),
+                    rect(item.viewport)?,
+                    item.max,
+                ))
+            });
+            match revealed {
+                Some(offset) if first && (offset - used).abs() > f32::EPSILON => {
+                    offsets.insert(super::modal::SCROLL.to_owned(), offset);
+                    first = false;
+                }
+                _ => {
+                    self.menu_scrolls.set_areas(scrolls);
+                    return Ok(hits);
+                }
+            }
+        }
     }
 }
