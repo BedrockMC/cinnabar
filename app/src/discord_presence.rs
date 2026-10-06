@@ -2,6 +2,7 @@
 
 use crate::{menu::MenuRuntime, runtime::world::ClientWorld};
 use bevy::prelude::*;
+use client_ui::ui_runtime::presentation::LoadingStage;
 use launcher::menu::settings_options::DISCORD_PRESENCE_OPTION;
 use rich_presence::{Presence, State};
 
@@ -46,6 +47,14 @@ fn session_state(connecting: bool, has_world: bool, launcher: bool, failed: bool
     }
 }
 
+/// The join's loading screens; a dimension change happens inside a live session.
+fn joining_screen(stage: Option<LoadingStage>) -> bool {
+    matches!(
+        stage,
+        Some(LoadingStage::Connecting | LoadingStage::BuildingTerrain)
+    )
+}
+
 fn update(
     mut discord: ResMut<DiscordPresence>,
     menu: Res<MenuRuntime>,
@@ -65,7 +74,7 @@ fn update(
         return;
     }
     let state = session_state(
-        menu.is_connecting() || ui.loading_stage().is_some(),
+        menu.is_connecting() || joining_screen(ui.loading_stage()),
         world.stream.is_some(),
         menu.is_launcher(),
         world.fatal_error.is_some(),
@@ -95,5 +104,14 @@ mod tests {
         assert_eq!(session_state(false, false, false, false), State::Joining);
         assert_eq!(session_state(false, true, false, false), State::Playing);
         assert_eq!(session_state(false, true, false, true), State::Menus);
+    }
+
+    #[test]
+    fn dimension_changes_stay_in_game() {
+        let state = |stage| session_state(joining_screen(stage), true, true, false);
+        assert_eq!(state(Some(LoadingStage::ChangingDimension)), State::Playing);
+        assert_eq!(state(Some(LoadingStage::BuildingTerrain)), State::Joining);
+        assert_eq!(state(Some(LoadingStage::Connecting)), State::Joining);
+        assert_eq!(state(None), State::Playing);
     }
 }
