@@ -24,6 +24,7 @@ impl UiPresentationRuntime {
         }
         let metrics = debug_overlay::fitted_metrics(metrics, content[1]);
         let scale = metrics.scale.get();
+        self.debug_overlay.retain_font(&self.font);
         let cache = &mut self.debug_overlay;
         let inputs = EngineInputs {
             layouts: &mut self.layouts,
