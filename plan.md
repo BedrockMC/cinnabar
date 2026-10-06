@@ -4839,10 +4839,13 @@ system from Phase 2 must have been built pack-stack-aware); disconnect screens w
 reasons; auth/device-code UX polish. Optional stretch: Lunar module toggles surfaced in-client
 via control channel (v1.x, not v1).
 
-- **Marketplace rows — provisional, incomplete.** Layout rows carry catalog queries, not offers;
-  core fills each from its first query via `marketplace.Query.SearchFilter` onto PlayFab
-  `Catalog/Search`, whose vanilla request body is unconfirmed, and rows have no continuation
-  source yet (no "See All"). Does not close the store parity gate (`docs/marketplace-services.md`).
+- **Marketplace rows — provisional, incomplete.** The home is the `storeRoot` known page. Curated rows carry
+  their offers inline; `StoreRow` and `HeroRow` are drawn (the hero row in its pre-content-card form). Query
+  rows are filled from their first query via `marketplace.Query.SearchFilter` onto PlayFab `Catalog/Search`,
+  whose vanilla request body is unconfirmed. Not drawn yet (no client factory data): `PromoBanner`,
+  `NavButtonRow`, `CoinBundleRow` and the `Layout` top-bar row; the core still sends `CoinBundleRow` offers.
+  Curated rows have no "See All" yet (the item list's `linksTo` page). Does not close the store parity gate
+  (`docs/marketplace-services.md`).
 
 ## Phase 7 — Local worlds on dragonfly
 
