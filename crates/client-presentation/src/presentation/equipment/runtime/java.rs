@@ -3,7 +3,7 @@
 
 use bevy::math::Mat4;
 use render_model::java_animation::{
-    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_rod, is_java_sword, is_java_tool,
+    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_sword, is_java_tool,
 };
 
 use super::*;
@@ -56,14 +56,15 @@ impl EquipmentRuntime {
             JavaHeldItem::Bow
         } else if is_java_tool(&item.identifier) {
             JavaHeldItem::Tool {
-                rotate_around: is_java_rod(&item.identifier),
+                rotate_around: render_model::equipment::is_rod(&item.identifier),
                 blocking: grip.blocking && is_java_sword(&item.identifier),
             }
         } else {
             JavaHeldItem::Flat
         };
         // The arm frame, not the hand bone, which vanilla animations still turn.
-        let display = ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind(block)));
+        let display =
+            ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind(block)));
         let (Some(previous), Some(current)) = (
             attach_to_bone(*previous, display),
             attach_to_bone(*current, display),
@@ -73,7 +74,14 @@ impl EquipmentRuntime {
         let poses = self
             .poses
             .share(body, LAYER_MAIN_HAND, [&[previous], &[current]]);
-        layers.push(layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0));
+        layers.push(layer_presentation(
+            body,
+            LAYER_MAIN_HAND,
+            mesh,
+            poses,
+            location,
+            0,
+        ));
         true
     }
 
@@ -102,8 +110,11 @@ impl EquipmentRuntime {
         hand: JavaHand,
     ) -> Option<FirstPersonItem> {
         let (mesh, location, block) = self.held_mesh(item, true)?;
-        let camera =
-            java::first_person_item(hand, mesh_kind(block), is_java_rod(&item.identifier));
+        let camera = java::first_person_item(
+            hand,
+            mesh_kind(block),
+            render_model::equipment::is_rod(&item.identifier),
+        );
         let rest = [rest_bone([0.0; 3])];
         let poses = self
             .poses
@@ -118,7 +129,12 @@ impl EquipmentRuntime {
 }
 
 /// Camera from a raster attachable's rig frame under Java's first-person stack.
-pub(super) fn java_raster_camera(hand: JavaHand, image_to_rig: Mat4, width: u16, height: u16) -> Mat4 {
+pub(super) fn java_raster_camera(
+    hand: JavaHand,
+    image_to_rig: Mat4,
+    width: u16,
+    height: u16,
+) -> Mat4 {
     java::first_person_item(hand, JavaItemMesh::Raster { width, height }, false)
         * image_to_rig.inverse()
 }
@@ -146,9 +162,14 @@ mod tests {
             * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
         let point = Vec4::new(3.5, 0.0, 9.5, 1.0);
         let through = java_raster_camera(hand, image_to_rig, 16, 16) * (image_to_rig * point);
-        let direct =
-            java::first_person_item(hand, JavaItemMesh::Raster { width: 16, height: 16 }, false)
-                * point;
+        let direct = java::first_person_item(
+            hand,
+            JavaItemMesh::Raster {
+                width: 16,
+                height: 16,
+            },
+            false,
+        ) * point;
         assert!(through.abs_diff_eq(direct, 1e-5));
     }
 }

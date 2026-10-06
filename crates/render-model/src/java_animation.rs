@@ -60,7 +60,10 @@ impl JavaPart {
         let rotation = Quat::from_rotation_z(self.angles.z)
             * Quat::from_rotation_y(-self.angles.y)
             * Quat::from_rotation_x(-self.angles.x);
-        (rotation, rig_pivot + Vec3::new(-offset.x, -offset.y, offset.z))
+        (
+            rotation,
+            rig_pivot + Vec3::new(-offset.x, -offset.y, offset.z),
+        )
     }
 }
 
@@ -319,7 +322,11 @@ pub fn first_person_item(hand: JavaHand, mesh: JavaItemMesh, rotate_around: bool
             -java_sin(swing * PI) * 0.2,
         ),
     }
-    stack.translate(0.7 * 0.8, -0.65 * 0.8 - (1.0 - hand.equip) * 0.6, -0.9 * 0.8);
+    stack.translate(
+        0.7 * 0.8,
+        -0.65 * 0.8 - (1.0 - hand.equip) * 0.6,
+        -0.9 * 0.8,
+    );
     stack.rotate_y(45.0);
     stack.rotate_y(-java_sin(swing * swing * PI) * 20.0);
     stack.rotate_z(-java_sin(sqrt(swing) * PI) * 20.0);
@@ -388,7 +395,10 @@ pub enum JavaHeldItem {
     Block,
     Bow,
     /// Tools, swords, sticks and rods; `rotate_around` turns rods over.
-    Tool { rotate_around: bool, blocking: bool },
+    Tool {
+        rotate_around: bool,
+        blocking: bool,
+    },
     Flat,
 }
 
@@ -491,16 +501,7 @@ pub fn is_java_tool(identifier: &str) -> bool {
         .iter()
         .any(|suffix| name.ends_with(suffix))
         || matches!(name, "stick" | "bone")
-        || is_java_rod(name)
-}
-
-/// Rods Java turns over in the hand.
-#[must_use]
-pub fn is_java_rod(identifier: &str) -> bool {
-    matches!(
-        identifier.strip_prefix("minecraft:").unwrap_or(identifier),
-        "fishing_rod" | "carrot_on_a_stick" | "warped_fungus_on_a_stick"
-    )
+        || crate::equipment::is_rod(name)
 }
 
 /// Swords, which Java blocks with.

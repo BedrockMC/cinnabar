@@ -130,7 +130,11 @@ impl JavaMotionState {
             motion.equip[1] = 0.0;
         }
         motion.equip[0] = motion.equip[1];
-        let target = if self.equipped == *tick.held { 1.0 } else { 0.0 };
+        let target = if self.equipped == *tick.held {
+            1.0
+        } else {
+            0.0
+        };
         motion.equip[1] += (target - motion.equip[1]).clamp(-EQUIP_STEP, EQUIP_STEP);
         if motion.equip[1] < EQUIP_SWAP {
             self.equipped.clone_from(tick.held);
@@ -166,10 +170,17 @@ impl JavaMotionState {
         } else {
             0.0
         };
-        motion.bob = [motion.bob[1], motion.bob[1] + (speed - motion.bob[1]) * BOB_FOLLOW];
+        motion.bob = [
+            motion.bob[1],
+            motion.bob[1] + (speed - motion.bob[1]) * BOB_FOLLOW,
+        ];
         let walks = tick.local && !tick.riding && !(tick.on_ground && tick.sneaking);
         let [dx, _, dz] = tick.delta;
-        let step = if walks { dx.hypot(dz) * WALK_PER_BLOCK } else { 0.0 };
+        let step = if walks {
+            dx.hypot(dz) * WALK_PER_BLOCK
+        } else {
+            0.0
+        };
         motion.walked = [motion.walked[1], motion.walked[1] + step];
     }
 
@@ -197,7 +208,9 @@ pub(super) fn retarget(
     }
     let mut posed: Vec<Option<BoneTransform>> = vec![None; bones.len()];
     for index in 0..bones.len() {
-        retarget_bone(index, bones, previous, current, alpha, targets, &mut posed, 0)?;
+        retarget_bone(
+            index, bones, previous, current, alpha, targets, &mut posed, 0,
+        )?;
     }
     posed.into_iter().collect()
 }
@@ -228,8 +241,16 @@ fn retarget_bone(
                 relative(current[parent], current[index]),
                 alpha,
             );
-            let parent =
-                retarget_bone(parent, bones, previous, current, alpha, targets, posed, depth + 1)?;
+            let parent = retarget_bone(
+                parent,
+                bones,
+                previous,
+                current,
+                alpha,
+                targets,
+                posed,
+                depth + 1,
+            )?;
             compose(parent, local)
         }
     };
@@ -367,7 +388,10 @@ mod tests {
         assert!((state.motion.body_yaw[1] - (45.0 + 15.0)).abs() < 1e-4);
         let mut state = JavaMotionState::spawn(0.0);
         state.advance(&tick([0.0, 0.0, 0.2], 0.0));
-        assert!((state.motion.body_yaw[1] - 0.0).abs() < 1e-4, "moving +z faces 0");
+        assert!(
+            (state.motion.body_yaw[1] - 0.0).abs() < 1e-4,
+            "moving +z faces 0"
+        );
         let mut state = JavaMotionState::spawn(0.0);
         state.advance(&JavaTick {
             swinging: true,
@@ -440,10 +464,16 @@ mod tests {
             let (z, speed) = (f64::from(steps[index].0[2]), steps[index].1[2]);
             chase += (z - chase) * 0.25;
             bob += (speed.min(0.1) - bob) * 0.4;
-            assert!((f64::from(motion.cape[1][2]) - (chase - z)).abs() < 1e-4, "tick {index}");
+            assert!(
+                (f64::from(motion.cape[1][2]) - (chase - z)).abs() < 1e-4,
+                "tick {index}"
+            );
             assert!((motion.bob[1] - bob).abs() < 1e-6);
         }
-        assert!((history[40].cape[1][2] + 0.6).abs() < 1e-3, "three steps behind");
+        assert!(
+            (history[40].cape[1][2] + 0.6).abs() < 1e-3,
+            "three steps behind"
+        );
         assert!(history[46].cape[1][2].abs() < history[41].cape[1][2].abs());
         assert_eq!(history[0].cape, [[0.0; 3]; 2]);
     }

@@ -44,12 +44,7 @@ impl Gl {
 }
 
 /// `renderItemInFirstPerson`'s held-item branch up to `renderItem`, in call order.
-fn java_first_person(
-    swing: f64,
-    equip: f64,
-    using: Option<JavaUse>,
-    rotate_around: bool,
-) -> Gl {
+fn java_first_person(swing: f64, equip: f64, using: Option<JavaUse>, rotate_around: bool) -> Gl {
     let mut gl = Gl::new();
     match using {
         Some(JavaUse::Consume {
@@ -163,8 +158,14 @@ fn sprite_front_points() -> Vec<(Vec3, DVec3)> {
 #[test]
 fn table_trig_snaps_to_the_java_sine_table() {
     for radians in [0.0, 0.1, 1.0, -1.3, 2.5, 7.0, -40.0] {
-        assert_eq!(java_sin(radians) as f64, table_sin(f64::from(radians)) as f32 as f64);
-        assert_eq!(java_cos(radians) as f64, table_cos(f64::from(radians)) as f32 as f64);
+        assert_eq!(
+            java_sin(radians) as f64,
+            table_sin(f64::from(radians)) as f32 as f64
+        );
+        assert_eq!(
+            java_cos(radians) as f64,
+            table_cos(f64::from(radians)) as f32 as f64
+        );
     }
     assert_eq!(java_cos(0.0), 1.0);
     assert_eq!(java_sin(0.0), 0.0);
@@ -268,7 +269,11 @@ fn empty_hand_corners_project_where_java_draws_them() {
             table_sin(s.sqrt() * PI64 * 2.0) * 0.4,
             -table_sin(s * PI64) * 0.4,
         )
-        .translatef(0.8 * 0.8, -0.75 * 0.8 - (1.0 - f64::from(equip)) * 0.6, -0.9 * 0.8)
+        .translatef(
+            0.8 * 0.8,
+            -0.75 * 0.8 - (1.0 - f64::from(equip)) * 0.6,
+            -0.9 * 0.8,
+        )
         .rotatef(45.0, 0.0, 1.0, 0.0)
         .rotatef(table_sin(s.sqrt() * PI64) * 70.0, 0.0, 1.0, 0.0)
         .rotatef(-table_sin(s * s * PI64) * 20.0, 0.0, 0.0, 1.0)
@@ -400,9 +405,15 @@ fn third_person_items_land_where_java_draws_them() {
             .rotatef(45.0, 0.0, 1.0, 0.0)
             .scalef(-0.375, -0.375, 0.375)
             .rotatef(90.0, 0.0, 1.0, 0.0);
-        let block = ours_world * third_person_item(JavaHeldItem::Block, JavaItemMesh::Block).as_dmat4();
+        let block =
+            ours_world * third_person_item(JavaHeldItem::Block, JavaItemMesh::Block).as_dmat4();
         for corner in [DVec3::splat(0.5), DVec3::new(-0.5, 0.5, -0.5)] {
-            assert!(block.transform_point3(corner).distance(gl.0.transform_point3(corner)) < 1e-5);
+            assert!(
+                block
+                    .transform_point3(corner)
+                    .distance(gl.0.transform_point3(corner))
+                    < 1e-5
+            );
         }
     }
 }
@@ -481,13 +492,17 @@ fn sneaking_riding_blocking_and_aiming_set_their_java_poses() {
 
 #[test]
 fn java_item_classes_follow_their_java_items() {
-    for tool in ["minecraft:iron_sword", "minecraft:stone_pickaxe", "minecraft:stick"] {
+    for tool in [
+        "minecraft:iron_sword",
+        "minecraft:stone_pickaxe",
+        "minecraft:stick",
+    ] {
         assert!(is_java_tool(tool));
     }
     for flat in ["minecraft:blaze_rod", "minecraft:mace", "minecraft:apple"] {
         assert!(!is_java_tool(flat));
     }
-    assert!(is_java_rod("minecraft:fishing_rod") && is_java_tool("minecraft:fishing_rod"));
+    assert!(is_java_tool("minecraft:fishing_rod"));
     assert!(is_java_sword("minecraft:diamond_sword") && !is_java_sword("minecraft:bow"));
 }
 
@@ -532,7 +547,10 @@ fn cape_angles_follow_java_formulas() {
         })
     };
     let java = |chase: [f64; 3], yaw: f64, bob: f64, walked: f64, sneaking: bool| {
-        let (s, c) = (table_sin(yaw * PI64 / 180.0), -table_cos(yaw * PI64 / 180.0));
+        let (s, c) = (
+            table_sin(yaw * PI64 / 180.0),
+            -table_cos(yaw * PI64 / 180.0),
+        );
         let mut lift = (chase[1] * 10.0).clamp(-6.0, 32.0);
         let back = ((chase[0] * s + chase[2] * c) * 100.0).max(0.0);
         let side = (chase[0] * c - chase[2] * s) * 100.0;
@@ -556,8 +574,14 @@ fn cape_angles_follow_java_formulas() {
             f64::from(walked),
             sneaking,
         );
-        assert!((f64::from(tilt) - java_tilt).abs() < 1e-3, "{chase:?}: {tilt} vs {java_tilt}");
-        assert!((f64::from(side) - java_side).abs() < 1e-3, "{chase:?}: {side} vs {java_side}");
+        assert!(
+            (f64::from(tilt) - java_tilt).abs() < 1e-3,
+            "{chase:?}: {tilt} vs {java_tilt}"
+        );
+        assert!(
+            (f64::from(side) - java_side).abs() < 1e-3,
+            "{chase:?}: {side} vs {java_side}"
+        );
     }
     assert_eq!(angles([0.0; 3], 0.0, 0.0, 0.0, false), (6.0, 0.0));
 }
@@ -583,11 +607,14 @@ fn cape_corners_land_where_java_draws_them() {
         .rotatef(-f64::from(side), 0.0, 1.0, 0.0)
         .rotatef(180.0, 0.0, 1.0, 0.0);
     let mut rest = Gl::new();
-    rest.translatef(0.0, 0.0, 0.125).rotatef(180.0, 0.0, 1.0, 0.0);
+    rest.translatef(0.0, 0.0, 0.125)
+        .rotatef(180.0, 0.0, 1.0, 0.0);
     let rig = rig_from_java_model().as_dmat4();
     for corner in [DVec3::new(-5.0, 0.0, -1.0), DVec3::new(5.0, 16.0, 0.0)] {
         let java = rig.transform_point3(posed.0.transform_point3(corner / 16.0));
-        let bind = rig.transform_point3(rest.0.transform_point3(corner / 16.0)).as_vec3();
+        let bind = rig
+            .transform_point3(rest.0.transform_point3(corner / 16.0))
+            .as_vec3();
         let ours = (rotation * (bind - pivot) + translation).as_dvec3();
         assert!(ours.distance(java) < 1e-5, "{corner}: {ours} vs {java}");
     }

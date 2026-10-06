@@ -25,9 +25,9 @@ mod pack;
 mod push;
 mod session;
 mod types;
+pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
-pub use java::java_draws_attachable;
 pub use types::{
     ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, FirstPersonItem, HeldKind,
     JavaGrip, WornItem,
@@ -43,7 +43,7 @@ use super::{
         FirstPersonHand, FirstPersonShape, ItemDisplay, LAYER_BOOTS, LAYER_CHESTPLATE,
         LAYER_HELMET, LAYER_LEGGINGS, LAYER_MAIN_HAND, LAYER_OFF_HAND, attach_to_bone,
         first_person_display, head_block_display, held_block_display, held_sprite_display,
-        is_hand_equipped, is_mirrored_art, view_bone,
+        is_hand_equipped, is_rod, view_bone,
     },
     elytra,
 };
@@ -128,7 +128,8 @@ pub struct EquipmentRuntime {
     attachables: client_world::AttachablesRuntime,
     attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
     /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
-    java_rasters: BTreeMap<(bool, u32, Box<str>), Option<(bevy::math::Mat4, Arc<[RenderBoneTransform]>)>>,
+    java_rasters:
+        BTreeMap<(bool, u32, Box<str>), Option<(bevy::math::Mat4, Arc<[RenderBoneTransform]>)>>,
 }
 
 impl EquipmentRuntime {
@@ -440,7 +441,7 @@ impl EquipmentRuntime {
             FirstPersonShape::Block
         } else {
             FirstPersonShape::Sprite {
-                mirrored_art: is_mirrored_art(&item.identifier),
+                mirrored_art: is_rod(&item.identifier),
             }
         };
         let hand = hand.into();

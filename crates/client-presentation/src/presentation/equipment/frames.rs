@@ -13,7 +13,7 @@ use render_model::{ActorRigVertex, RenderBoneTransform};
 
 use super::display::{
     FirstPersonHand, FirstPersonShape, attach_to_bone, first_person_display, held_block_display,
-    held_sprite_display, is_hand_equipped, is_mirrored_art, view_bone,
+    held_sprite_display, is_hand_equipped, is_rod, view_bone,
 };
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
 
@@ -350,7 +350,7 @@ fn render_first_person_held_item_frames() {
                 } else {
                     first_person_display(
                         FirstPersonShape::Sprite {
-                            mirrored_art: is_mirrored_art(identifier),
+                            mirrored_art: is_rod(identifier),
                         },
                         REST,
                     )

@@ -13,7 +13,7 @@ use super::{
     atlas::{ATLAS_SIDE, SpriteAtlas},
     display::{
         FirstPersonHand, FirstPersonShape, ItemDisplay, attach_to_bone, first_person_display,
-        held_block_display, is_mirrored_art,
+        held_block_display, is_rod,
     },
     runtime::{FirstPersonArms, layer_presentation},
 };
@@ -756,7 +756,7 @@ fn first_person_equip_dip_and_mirrored_art() {
     let turned = first_person_display(FirstPersonShape::Sprite { mirrored_art: true }, REST);
     let half_turn = rest.rotation.inverse() * turned.rotation;
     assert!(half_turn.angle_between(Quat::IDENTITY) > 3.0);
-    assert!(is_mirrored_art("minecraft:fishing_rod") && !is_mirrored_art("minecraft:stick"));
+    assert!(is_rod("minecraft:fishing_rod") && !is_rod("minecraft:stick"));
     let block = first_person_display(FirstPersonShape::Block, REST);
     assert!((block.scale - 0.4).abs() < 1e-5);
     assert!(
