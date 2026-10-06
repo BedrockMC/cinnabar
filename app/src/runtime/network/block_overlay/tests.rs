@@ -318,35 +318,197 @@ fn overlay_extends_runtime_assets_after_base_ids() {
     assert!(base.with_block_overlay(2, &compiled.overlay).is_err());
 }
 
-// Only block_state equality conjunctions evaluate; anything else is unknown, not false.
+// Conditions evaluate as block Molang; one that cannot evaluate is counted, not false.
 #[test]
-fn permutation_conditions_evaluate_only_supported_terms() {
-    let direction = CustomStateValue::String("west".into());
-    let open = CustomStateValue::Bool(true);
-    let state = |name: &str| match name {
-        "minecraft:cardinal_direction" => Some(&direction),
-        "test:open" => Some(&open),
-        _ => None,
+fn permutation_conditions_evaluate_as_block_molang() {
+    let open = |condition: &str| CustomPermutation {
+        condition: condition.into(),
+        components: turn(1),
     };
-    let evaluate = |condition| super::condition::evaluate(condition, &state);
-    assert_eq!(
-        evaluate("q.block_state('minecraft:cardinal_direction') == 'west'"),
-        Some(true)
+    let door = block(
+        "test:door",
+        2,
+        CustomBlockVisuals {
+            permutations: Box::new([
+                open("q.block_state('test:open')"),
+                open("q.block_state('test:open') == 1 || q.block_state('test:missing')"),
+                open("math.random(0, 1) > 0.5"),
+            ]),
+            state_axes: Box::new([CustomStateAxis {
+                name: "test:open".into(),
+                values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+            }]),
+            ..CustomBlockVisuals::default()
+        },
     );
+    let mut gaps = OverlayGaps::default();
+    let expressions = super::condition::BlockExpressions::new(&door);
+    let mut state = |index| {
+        let values = door.state_values(index);
+        super::condition::state_visual(&door, &expressions, values.as_deref(), &mut gaps)
+    };
+    assert_eq!(state(0).components.transformation, None);
+    let opened = state(1);
+    assert_eq!(opened.components, turn(1));
     assert_eq!(
-        evaluate("query.block_state(\"minecraft:cardinal_direction\") != 'west'"),
-        Some(false)
+        gaps.unevaluated_permutations, 3,
+        "the missing state when closed, and the random roll in both states"
     );
+}
+
+// A trait state and a property both vary: each palette index resolves its own permutation.
+#[test]
+fn sequential_states_with_several_axes_resolve_permutations() {
+    let facing = |value: &str, quarters| CustomPermutation {
+        condition: format!("q.block_state('minecraft:cardinal_direction') == '{value}'").into(),
+        components: turn(quarters),
+    };
+    let mut generator = generator();
+    let visual = Arc::make_mut(&mut generator.visual);
+    visual.permutations = Box::new([facing("west", 1), facing("north", 2)]);
+    let mut axes = visual.state_axes.to_vec();
+    axes.push(CustomStateAxis {
+        name: "test:lit".into(),
+        values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+    });
+    visual.state_axes = axes.into_boxed_slice();
+    generator.state_count = 8;
+    let blocks = CustomBlocks {
+        blocks: vec![generator].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&view(), &blocks, false, None).expect("overlay");
+    assert_eq!(compiled.gaps.unevaluated_permutations, 0);
+    let template = |state: usize| compiled.overlay.visuals[state].model_template;
+    // Palette order: cardinal south, west, north, east, then the same with `test:lit` set.
+    assert_eq!(template(1), template(5), "west, lit or not");
+    assert_eq!(template(2), template(6), "north, lit or not");
+    assert_ne!(template(1), template(2));
+    assert_eq!(template(0), template(3), "south and east keep the base");
+}
+
+const BONE_GEOMETRY: &str = r#"{"format_version": "1.12.0", "minecraft:geometry": [{
+    "description": {"identifier": "geometry.bones", "texture_width": 16, "texture_height": 16},
+    "bones": [
+        {"name": "a", "cubes": [{"origin": [-8, 0, -8], "size": [16, 4, 16], "uv": [0, 0]}]},
+        {"name": "b", "cubes": [{"origin": [-8, 4, -8], "size": [16, 4, 16], "uv": [0, 0]}]},
+        {"name": "c", "cubes": [{"origin": [-8, 8, -8], "size": [16, 4, 16], "uv": [0, 0]}]},
+        {"name": "d", "parent": "c", "cubes": [{"origin": [-8, 12, -8], "size": [16, 4, 16], "uv": [0, 0]}]}
+    ]}]}"#;
+
+fn bone_components(bones: &[(&str, &str)]) -> CustomVisualComponents {
+    CustomVisualComponents {
+        geometry: Some("geometry.bones".into()),
+        bone_visibility: bones
+            .iter()
+            .map(|&(bone, expression)| (bone.into(), expression.into()))
+            .collect(),
+        materials: materials("lucky"),
+        ..CustomVisualComponents::default()
+    }
+}
+
+/// The four-pixel slabs a state draws, numbered from the bottom by their north faces.
+fn shown_slabs(compiled: &super::CompiledBlockOverlay, state: usize) -> Vec<i16> {
+    let visual = compiled.overlay.visuals[state];
+    if visual.kind == VisualKind::Invisible {
+        return Vec::new();
+    }
+    let template = compiled.overlay.model_templates[visual.model_template as usize];
+    let mut bottoms = compiled.overlay.model_quads[template.quad_start as usize..]
+        [..template.quad_count as usize]
+        .iter()
+        .filter(|quad| quad.flags & 7 == 5)
+        .map(|quad| {
+            quad.positions
+                .iter()
+                .map(|corner| corner[1])
+                .min()
+                .unwrap_or(0)
+                / 64
+        })
+        .collect::<Vec<_>>();
+    bottoms.sort_unstable();
+    bottoms.dedup();
+    bottoms
+}
+
+// Mirrors a vanilla server's definition: string constants and per-state Molang, applied to the
+// named bone's own cubes only, with a permutation's geometry bringing its own visibility.
+#[test]
+fn bone_visibility_hides_bones_per_state() {
+    let cardinal = CustomStateAxis {
+        name: "minecraft:cardinal_direction".into(),
+        values: ["south", "west", "north", "east"]
+            .map(|value| CustomStateValue::String(value.into()))
+            .into(),
+    };
+    let directed = block(
+        "test:directed",
+        4,
+        CustomBlockVisuals {
+            base: bone_components(&[
+                (
+                    "a",
+                    "q.block_state('minecraft:cardinal_direction') == 'north'",
+                ),
+                ("b", "1.000000"),
+                ("c", "0.000000"),
+                ("missing", "0.000000"),
+            ]),
+            state_axes: Box::new([cardinal]),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let switched = block(
+        "test:switched",
+        2,
+        CustomBlockVisuals {
+            base: bone_components(&[]),
+            permutations: Box::new([CustomPermutation {
+                condition: "q.block_state('test:s')".into(),
+                components: bone_components(&[("a", "0.000000"), ("b", "0.4"), ("d", "-0.5")]),
+            }]),
+            state_axes: Box::new([CustomStateAxis {
+                name: "test:s".into(),
+                values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+            }]),
+        },
+    );
+    let hidden = block(
+        "test:hidden",
+        1,
+        CustomBlockVisuals {
+            base: bone_components(&[("a", "0"), ("b", "0"), ("c", "0"), ("d", "false")]),
+            ..CustomBlockVisuals::default()
+        },
+    );
+    let blocks = CustomBlocks {
+        blocks: vec![directed, switched, hidden].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(
+        &view_with_geometry(BONE_GEOMETRY.as_bytes()),
+        &blocks,
+        false,
+        None,
+    )
+    .expect("overlay");
+    assert_eq!(shown_slabs(&compiled, 0), [1, 3], "south hides a and c");
     assert_eq!(
-        evaluate(
-            "(q.block_state('test:open') == true) && q.block_state('minecraft:cardinal_direction') == 'west'"
-        ),
-        Some(true)
+        shown_slabs(&compiled, 2),
+        [0, 1, 3],
+        "north shows a; d is not hidden with c"
     );
-    assert_eq!(evaluate("q.block_state('test:open') == false"), Some(false));
-    assert_eq!(evaluate("q.block_state('test:missing') == 1"), None);
-    assert_eq!(evaluate("q.block_state('test:open') || true"), None);
-    assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+    assert_eq!(shown_slabs(&compiled, 4), [0, 1, 2, 3]);
+    assert_eq!(
+        shown_slabs(&compiled, 5),
+        [2, 3],
+        "0.4 rounds to zero, -0.5 away from it"
+    );
+    assert_eq!(compiled.overlay.visuals[6].kind, VisualKind::Invisible);
 }
 
 // Flipbook framing is bounded before copies are cut and each frame is shrunk.

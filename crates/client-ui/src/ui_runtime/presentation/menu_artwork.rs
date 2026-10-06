@@ -32,6 +32,10 @@ const MAX_ARTWORKS: usize = 64;
 /// Longest side kept for a list thumbnail (server logos, gamerpics, badges), so
 /// a whole featured list fits the art pages beside banners.
 pub const THUMBNAIL_SIDE: u32 = 128;
+/// Marketplace art sides: a card thumbnail, and the offer page's key art and screenshots. Both
+/// keep 16:9 art several to a 1024 art page next to the title, so a screen's images all pack.
+const STORE_CARD_SIDE: u32 = 192;
+const STORE_FEATURE_SIDE: u32 = 480;
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub(super) const TITLE_KEY: &str = "textures/ui/title";
 /// Prefix of a server-pack texture's full-resolution copy on the art pages, so
@@ -515,18 +519,16 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     if view.screen == crate::menu::MenuScreen::Profile {
         return profile_art(view);
     }
+    if view.screen == crate::menu::MenuScreen::Store {
+        return store_art(view);
+    }
     // The Servers tab shows the first experience until a server is picked.
     let shown = match view.feeds.selected_saved {
         Some(_) => None,
         None => Some(view.feeds.selected_featured.unwrap_or(0)),
     };
     let selected = shown
-        .and_then(|index| {
-            view.featured
-                .iter()
-                .chain(view.gatherings.iter())
-                .nth(index)
-        })
+        .and_then(|index| view.featured.get(index))
         .and_then(|server| view.feeds.details.get(&server.address));
     let portraits = std::iter::once(view.feeds.profile.picture_path.clone())
         .chain(
@@ -543,7 +545,6 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     let thumbnails = view
         .featured
         .iter()
-        .chain(view.gatherings.iter())
         .map(|server| (server.image_path.clone(), THUMBNAIL_SIDE));
     let full = home_art(&view.feeds.home)
         .into_iter()
@@ -552,18 +553,10 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
             view.feeds.profile.featured_screenshot_path.clone(),
         ))
         .chain(selected.into_iter().flat_map(|details| {
-            details
-                .screenshots
-                .iter()
-                .cloned()
+            std::iter::once(details.banner.clone())
+                .chain(details.screenshots.iter().cloned())
                 .chain(details.games.iter().map(|game| game.image_path.clone()))
         }))
-        .chain(
-            view.store
-                .as_deref()
-                .map(crate::store::StoreSnapshot::image_paths)
-                .unwrap_or_default(),
-        )
         .map(|path| (path, MAX_ARTWORK_SIDE));
     portraits
         .chain(
@@ -580,6 +573,26 @@ pub fn view_paths(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
 }
 
 /// Queues Profile card art first, followed by only the achievements Overview draws.
+/// The Marketplace draws only its offer art, so the start screen's art does not take its pages.
+fn store_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
+    let Some(store) = view.store.as_deref() else {
+        return Vec::new();
+    };
+    let mut paths = store.image_paths();
+    // Feature art packs first: where a large image lands on the shelves decides how much else fits.
+    paths.sort_by_key(|(_, art)| *art != launcher::store::StoreArt::Feature);
+    paths
+        .into_iter()
+        .map(|(path, art)| {
+            let side = match art {
+                launcher::store::StoreArt::Card => STORE_CARD_SIDE,
+                launcher::store::StoreArt::Feature => STORE_FEATURE_SIDE,
+            };
+            (path, side)
+        })
+        .collect()
+}
+
 fn profile_art(view: &crate::menu::MenuView) -> Vec<(String, u32)> {
     let profile = &view.feeds.profile;
     let mut paths = vec![
@@ -622,6 +635,9 @@ fn home_art(home: &crate::menu::MenuHome) -> Vec<String> {
     }
     paths
 }
+
+#[cfg(test)]
+mod store_tests;
 
 #[cfg(test)]
 mod tests {

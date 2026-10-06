@@ -8,8 +8,10 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"github.com/df-mc/go-nethernet/endpoint"
 	"log/slog"
 	"net"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,24 +29,19 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 )
 
-func TestSelectFriendWorldPrefersFriendsJoinable(t *testing.T) {
-	worlds := []p2p.World{
-		{OwnerID: "1", Joinability: p2p.JoinabilityInviteOnly, WorldName: "invite"},
-		{OwnerID: "2", Joinability: p2p.JoinabilityFriends, WorldName: "other"},
-		{OwnerID: "1", Joinability: p2p.JoinabilityFriends, WorldName: "friends"},
+// The join picks the owner's world the friends tab lists, never an invite-only or empty one.
+func TestSelectFriendWorldPicksAListedWorld(t *testing.T) {
+	listed := p2p.World{OwnerID: "1", HostName: "Host", MemberCount: 1, BroadcastSetting: p2p.BroadcastSettingFriendsOfFriends}
+	invite, empty, other := listed, listed, listed
+	invite.BroadcastSetting, invite.WorldName = p2p.BroadcastSettingInviteOnly, "invite"
+	empty.MemberCount, empty.WorldName = 0, "empty"
+	other.OwnerID, other.WorldName = "2", "other"
+	listed.WorldName = "listed"
+	if got := selectFriendWorld([]p2p.World{invite, empty, other, listed}, "1", "self"); got == nil || got.WorldName != "listed" {
+		t.Fatalf("selected %+v, want the listed world", got)
 	}
-	if got := selectFriendWorld(worlds, "1"); got == nil || got.WorldName != "friends" {
-		t.Fatalf("selected %+v, want friends world", got)
-	}
-}
-
-func TestSelectFriendWorldFallsBackToInviteOnlyThenNil(t *testing.T) {
-	worlds := []p2p.World{{OwnerID: "1", Joinability: p2p.JoinabilityInviteOnly, WorldName: "invite"}}
-	if got := selectFriendWorld(worlds, "1"); got == nil || got.WorldName != "invite" {
-		t.Fatalf("selected %+v, want invite-only world", got)
-	}
-	if got := selectFriendWorld(worlds, "9"); got != nil {
-		t.Fatalf("selected %+v for an absent owner", got)
+	if got := selectFriendWorld([]p2p.World{invite, empty}, "1", "self"); got != nil {
+		t.Fatalf("selected %+v, want none", got)
 	}
 }
 
@@ -298,4 +295,35 @@ func TestAddressedRakNetProbesFitTheCappedPath(t *testing.T) {
 			t.Fatalf("%s: first probe id %#x carries %d bytes, want an Open Connection Request 1 of at most %d", name, buffer[0], n, remoteMaxMTU-28)
 		}
 	}
+}
+
+// A signed-out join that the probe sends to NetherNet presents a self-signed identity, since BDS
+// refuses anonymous HTTP offers even with online-mode off.
+func TestSignedOutAddressedNetherNetDialPresentsAnIdentity(t *testing.T) {
+	signaling := endpoint.HandlerConfig{Logger: slog.New(slog.DiscardHandler)}.New()
+	t.Cleanup(func() { _ = signaling.Close() })
+	listener, err := nethernet.ListenConfig{Log: slog.New(slog.DiscardHandler), DisableTrickleICE: true}.Listen(signaling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	server := httptest.NewServer(signaling)
+	t.Cleanup(server.Close)
+
+	target, err := resolveUpstreamTarget(t.Context(), server.Listener.Addr().String(), nil, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	conn, err := target.network.DialContext(ctx, target.address)
+	if err != nil {
+		t.Fatalf("signed-out NetherNet dial: %v", err)
+	}
+	_ = conn.Close()
 }

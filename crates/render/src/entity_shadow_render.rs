@@ -101,8 +101,10 @@ fn install_graph(world: &mut World) {
         EntityShadowLabel,
         Node3d::MainTransmissivePass,
     ));
-    // Occlusion-culled terrain drawn after the opaque pass must be shaded too.
-    let _ = graph.try_add_node_edge(crate::chunk::GpuCullLateLabel, EntityShadowLabel);
+    // Whichever plugin installs second orders shadows after late terrain draws.
+    if graph.get_node_state(crate::chunk::GpuCullLateLabel).is_ok() {
+        let _ = graph.try_add_node_edge(crate::chunk::GpuCullLateLabel, EntityShadowLabel);
+    }
 }
 
 #[derive(Resource)]

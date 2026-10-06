@@ -10,7 +10,7 @@ use super::super::super::{
     FONT_DESIGN_PIXEL_TEXELS, IconRef, TextMetrics, UiPresentationError, rect,
 };
 use super::super::menu_caret::TextSpot;
-use super::theme::{EDGE, Rgba, TEXT_DIMMEST, TEXT_SHADOW, Type};
+use super::theme::{Bundle, EDGE, Rgba, TEXT_DIMMEST, TEXT_SHADOW, Type};
 use crate::menu::MenuAction;
 
 /// `style`'s text scale over the frame metrics: the open font's default line is the
@@ -49,6 +49,7 @@ pub(super) struct Canvas<'a> {
     pub(super) scrolls: Vec<ScrollArea>,
     /// Where text fields drew their text, for placing a pressed caret.
     pub(super) spots: Vec<TextSpot>,
+    pub(super) bundle: Bundle,
     /// The clipping node drawing attaches to, and its bounds.
     clip: Option<(UiNodeId, Bounds)>,
 }
@@ -89,6 +90,7 @@ impl<'a> Canvas<'a> {
             offsets: HashMap::new(),
             scrolls: Vec::new(),
             spots: Vec::new(),
+            bundle: Bundle::Menus,
             clip: None,
         }
     }
@@ -157,7 +159,8 @@ impl<'a> Canvas<'a> {
         self.fill([b[2] - w, b[1] + w, b[2], b[3] - w], color)
     }
 
-    /// One-texel inner edges: top and left in `top`, bottom and right in `bottom`.
+    /// One-texel inner edges: top and left in `top`, bottom and right in `bottom`. The
+    /// top-right and bottom-left texels blend `top` over `bottom`, as vanilla's art does.
     pub(super) fn specular(
         &mut self,
         b: Bounds,
@@ -165,10 +168,10 @@ impl<'a> Canvas<'a> {
         bottom: Rgba,
     ) -> Result<(), UiPresentationError> {
         let w = self.r(EDGE);
-        self.fill([b[0], b[1], b[2], b[1] + w], top)?;
-        self.fill([b[0], b[1] + w, b[0] + w, b[3] - w], top)?;
         self.fill([b[0], b[3] - w, b[2], b[3]], bottom)?;
-        self.fill([b[2] - w, b[1] + w, b[2], b[3] - w], bottom)
+        self.fill([b[2] - w, b[1], b[2], b[3] - w], bottom)?;
+        self.fill([b[0], b[1], b[2], b[1] + w], top)?;
+        self.fill([b[0], b[1] + w, b[0] + w, b[3]], top)
     }
 
     /// One-texel top and bottom edges only.

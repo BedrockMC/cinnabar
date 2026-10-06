@@ -15,7 +15,7 @@ use bevy::prelude::Resource;
 use crossbeam_channel::{Receiver, Sender, bounded};
 use protocol::launcher_control::{
     self, Account, AuthState as CoreAuth, ConnectProgress, ConnectStage, FeaturedServer, Friend,
-    Gathering, Home, Message, MessageEvent, Profile, Realm, ServerPing,
+    Home, Message, MessageEvent, Profile, Realm, ServerPing,
 };
 
 use super::account_control::{AccountControl, AccountEvent};
@@ -62,7 +62,6 @@ struct Snapshot {
     friends: Option<Vec<Friend>>,
     /// Delivered once per fetch.
     featured: Option<Vec<FeaturedServer>>,
-    gatherings: Option<Vec<Gathering>>,
     profile: Option<Result<Profile, ()>>,
     ping_targets: Vec<String>,
     pings: Option<Vec<ServerPing>>,
@@ -82,7 +81,6 @@ impl Snapshot {
         self.friends = None;
         self.profile = None;
         self.home = None;
-        self.gatherings = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
             let _ = wake.try_send(());
@@ -578,34 +576,6 @@ impl AccountControl for LauncherAccount {
         Some(servers.iter().map(featured_card).collect())
     }
 
-    fn gatherings(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-        let gatherings = self.with(|snapshot| snapshot.gatherings.take())?;
-        Some(
-            gatherings
-                .iter()
-                .filter(|gathering| !gathering.id.is_empty())
-                .map(|gathering| {
-                    let card = MenuServerCard {
-                        name: gathering.name.clone(),
-                        address: format!(
-                            "{}{}",
-                            super::launcher_core::GATHERING_ADDRESS_PREFIX,
-                            gathering.id
-                        ),
-                        caption: gathering.caption.clone(),
-                        image_path: gathering.image.path.clone(),
-                        icon: None,
-                    };
-                    let details = ServerDetails {
-                        description: gathering.description.clone(),
-                        ..ServerDetails::default()
-                    };
-                    (card, details)
-                })
-                .collect(),
-        )
-    }
-
     /// Queues an inbox action on the dedicated reporting worker.
     fn report_message(&mut self, event: MessageEvent) {
         let _ = self.message_reports.send(event);
@@ -698,6 +668,7 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
     };
     let details = ServerDetails {
         description: server.description.clone(),
+        banner: server.background.path.clone(),
         news_title: server.news_title.clone(),
         news: server.news.clone(),
         screenshots: server
@@ -831,6 +802,10 @@ mod tests {
             name: "S".into(),
             address: "a.test:19132".into(),
             news: "Update".into(),
+            background: protocol::launcher_control::Artwork {
+                url: "https://a.test/bg.png".into(),
+                path: "/art/bg.img".into(),
+            },
             screenshots: vec![
                 protocol::launcher_control::Artwork {
                     url: "https://a.test/s.png".into(),
@@ -847,6 +822,7 @@ mod tests {
         assert_eq!(card.address, "a.test:19132");
         assert_eq!(details.news, "Update");
         assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
+        assert_eq!(details.banner, "/art/bg.img");
     }
 
     #[test]
