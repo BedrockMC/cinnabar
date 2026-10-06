@@ -429,3 +429,16 @@ func TestEntitlementsRefreshAsksTheServiceFirst(t *testing.T) {
 		t.Fatalf("a cached read refreshed: %d err=%v", refreshes.Load(), err)
 	}
 }
+
+// An offer on a running free sale is quoted at zero, not its list price.
+func TestOffersOnAFreeSaleCostNothing(t *testing.T) {
+	var item marketplace.Item
+	if err := json.Unmarshal([]byte(`{"id":"aaaaaaaa-0000-0000-0000-000000000001","title":"Alpha",
+"price":{"listPrice":990,"currencyId":"mc","saleInfo":{"salePrice":0}}}`), &item); err != nil {
+		t.Fatal(err)
+	}
+	offer, ok := offerFromMarketItem(&item)
+	if !ok || len(offer.Prices) != 1 || offer.Prices[0] != (Price{"mc", 0}) {
+		t.Fatalf("offer = %+v ok = %v", offer, ok)
+	}
+}
