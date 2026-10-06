@@ -471,7 +471,7 @@ pub(crate) enum Patch {
     /// The control's new fields (childless) when they changed, and its children's changes.
     Update(Option<Box<ResolvedControl>>, Children),
     /// A whole new tree.
-    Full(ResolvedControl),
+    Full(Box<ResolvedControl>),
 }
 
 pub(crate) enum Children {
@@ -484,7 +484,7 @@ pub(crate) enum Children {
 /// The tree's changes since the last bind, settling its bake memory.
 pub(super) fn patch(node: &mut Node, components: &Components) -> Patch {
     if !node.track.fresh && node.track.prior.is_none() && node.track.baked.is_none() {
-        return Patch::Full(bake_full(node, components));
+        return Patch::Full(Box::new(bake_full(node, components)));
     }
     patch_node(node, components)
 }
@@ -500,7 +500,7 @@ fn patch_node(node: &mut Node, components: &Components) -> Patch {
             prior.children,
         ),
         // A control new to the tree replaces nothing a patch can address.
-        None if node.track.fresh => return Patch::Full(bake_full(node, components)),
+        None if node.track.fresh => return Patch::Full(Box::new(bake_full(node, components))),
         None => {
             let keys = node
                 .track

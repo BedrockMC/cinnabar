@@ -1,8 +1,7 @@
 //! Incremental refreshes must produce exactly what rebuilding every control does.
 
-#[path = "support/java_pack.rs"]
-mod java_pack;
 use crate::support;
+use crate::support::java_pack;
 
 use std::sync::Arc;
 
@@ -15,6 +14,9 @@ use json_ui::{
     resolve,
 };
 use serde_json::Value;
+
+/// A named model edit and the subtree it should dirty.
+type Change<T> = (&'static str, &'static str, fn(&mut T));
 
 struct FixedText;
 
@@ -345,7 +347,7 @@ fn hud_changes_rebuild_only_their_subtree() {
     let total = Pair::new(&catalog, HUD_SCREEN, hud_context(&Context::desktop()))
         .refresh(hud_data_source(&model), "cold")
         .placed;
-    let changes: [(&str, &str, fn(&mut HudModel)); 3] = [
+    let changes: [Change<HudModel>; 3] = [
         ("chat", "chat", |model| {
             model.chat.push(Timed {
                 text: "new line".into(),
@@ -866,7 +868,7 @@ fn collection_changes_rebuild_only_their_list() {
     for _ in 0..3 {
         pair.refresh(screen.data(), "settle");
     }
-    let cases: [(&str, &str, fn(&mut Synthetic)); 5] = [
+    let cases: [Change<Synthetic>; 5] = [
         ("row added", "/rows", |screen| {
             screen.rows.push(("row 4".into(), true))
         }),
