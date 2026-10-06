@@ -658,6 +658,8 @@ dependencies = [
  "launcher",
  "meshing",
  "mod-host",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
  "pack-compiler",
  "particles",
  "player-state",

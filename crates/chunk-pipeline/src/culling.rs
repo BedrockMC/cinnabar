@@ -1,3 +1,4 @@
+mod camera;
 mod grid;
 mod incremental;
 mod visible_set;
@@ -35,6 +36,15 @@ pub(crate) fn cave_visible_sub_chunks(
     visible.iter().collect()
 }
 
+/// Deterministic work performed by the latest cave visibility update.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CaveVisibilityWork {
+    pub explored_exits: usize,
+    pub proof_exits: usize,
+    pub additions: usize,
+    pub rebuilt: bool,
+}
+
 /// Reusable traversal state, retained while graph additions preserve existing paths.
 #[derive(Default)]
 pub struct CaveVisibilityScratch {
@@ -48,11 +58,15 @@ pub struct CaveVisibilityScratch {
     checkpoint: (u64, u64, usize),
     camera_present: bool,
     added_visible: Vec<SubChunkKey>,
-    #[cfg(test)]
-    explored_exits: usize,
+    work: CaveVisibilityWork,
 }
 
 impl CaveVisibilityScratch {
+    /// Work counters exclude unchanged frames skipped by the caller.
+    pub fn work(&self) -> CaveVisibilityWork {
+        self.work
+    }
+
     /// Dense id for `key`: its grid cell, or a slot past the cells for an overflow key.
     fn node(&mut self, grid: &ConnectivityGrid, key: SubChunkKey) -> Option<(u32, u64)> {
         match grid.slot(key) {
@@ -71,6 +85,7 @@ impl CaveVisibilityScratch {
         }
     }
 
+    /// Reads a resident node through its dense or overflow identity.
     fn describe(&self, grid: &ConnectivityGrid, node: u32) -> (SubChunkKey, u64) {
         let cells = grid.cell_count() as u32;
         if node < cells {
@@ -120,10 +135,10 @@ pub(crate) fn fill_visible(
     scratch.camera = Some(camera);
     scratch.checkpoint = grid.checkpoint();
     scratch.camera_present = grid.contains_key(&camera);
-    #[cfg(test)]
-    {
-        scratch.explored_exits = 0;
-    }
+    scratch.work = CaveVisibilityWork {
+        rebuilt: true,
+        ..Default::default()
+    };
     visible.reset(camera, grid.dims());
     if scratch.visited.len() != grid.cell_count() {
         scratch.visited.clear();
@@ -166,10 +181,7 @@ fn propagate(grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
         let (key, _) = scratch.describe(grid, node);
         let mut exits = u64::from(exits);
         while exits != 0 {
-            #[cfg(test)]
-            {
-                scratch.explored_exits += 1;
-            }
+            scratch.work.explored_exits += 1;
             let exit = Face::ALL[exits.trailing_zeros() as usize];
             exits &= exits - 1;
             let Some(next) = adjacent(key, exit) else {
@@ -195,6 +207,7 @@ const fn touched_faces(bits: u64) -> u64 {
     faces
 }
 
+/// Steps to a face neighbor without overflowing world coordinates.
 fn adjacent(key: SubChunkKey, face: Face) -> Option<SubChunkKey> {
     let (x, y, z) = match face {
         Face::NegativeX => (key.x.checked_sub(1)?, key.y, key.z),
@@ -207,6 +220,7 @@ fn adjacent(key: SubChunkKey, face: Face) -> Option<SubChunkKey> {
     Some(SubChunkKey::new(key.dimension, x, y, z))
 }
 
+/// Maps an exit to the neighboring sub-chunk entry face.
 const fn opposite(face: Face) -> Face {
     match face {
         Face::NegativeX => Face::PositiveX,
@@ -218,5 +232,7 @@ const fn opposite(face: Face) -> Face {
     }
 }
 
+#[cfg(test)]
+mod camera_tests;
 #[cfg(test)]
 mod tests;

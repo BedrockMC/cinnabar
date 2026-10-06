@@ -1,5 +1,8 @@
 use hashbrown::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::VecDeque,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use meshing::FaceConnectivity;
 use world::SubChunkKey;
@@ -42,7 +45,8 @@ pub(crate) struct ConnectivityGrid {
     len: usize,
     identity: u64,
     epoch: u64,
-    additions: Vec<SubChunkKey>,
+    additions: VecDeque<SubChunkKey>,
+    additions_start: usize,
 }
 
 impl Default for ConnectivityGrid {
@@ -56,7 +60,8 @@ impl Default for ConnectivityGrid {
             len: 0,
             identity: NEXT_GRID_ID.fetch_add(1, Ordering::Relaxed),
             epoch: 0,
-            additions: Vec::new(),
+            additions: VecDeque::new(),
+            additions_start: 0,
         }
     }
 }
@@ -64,18 +69,31 @@ impl Default for ConnectivityGrid {
 impl ConnectivityGrid {
     /// Identifies this graph, its slot layout and the retained addition history.
     pub(super) fn checkpoint(&self) -> (u64, u64, usize) {
-        (self.identity, self.epoch, self.additions.len())
+        (
+            self.identity,
+            self.epoch,
+            self.additions_start + self.additions.len(),
+        )
     }
 
     /// Additions since a checkpoint remain valid only within the same graph epoch.
-    pub(super) fn additions_since(&self, offset: usize) -> &[SubChunkKey] {
-        &self.additions[offset..]
+    pub(super) fn additions_since(
+        &self,
+        offset: usize,
+    ) -> impl ExactSizeIterator<Item = &SubChunkKey> {
+        self.additions.iter().skip(offset - self.additions_start)
     }
 
-    /// Retires incremental readers after a destructive change or bounded journal rollover.
+    /// Slow readers rebuild only when their additions have actually left the bounded journal.
+    pub(super) fn retains_additions(&self, offset: usize) -> bool {
+        (self.additions_start..=self.additions_start + self.additions.len()).contains(&offset)
+    }
+
+    /// Retires incremental readers after a destructive change or slot-layout change.
     fn invalidate_traversals(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.additions.clear();
+        self.additions_start = 0;
     }
     #[must_use]
     pub(crate) const fn len(&self) -> usize {
@@ -146,9 +164,10 @@ impl ConnectivityGrid {
                 self.grow();
             }
             if self.additions.len() == MAX_ADDITIONS {
-                self.invalidate_traversals();
+                self.additions.pop_front();
+                self.additions_start += 1;
             }
-            self.additions.push(key);
+            self.additions.push_back(key);
         } else if previous != Some(value) {
             self.invalidate_traversals();
         }
