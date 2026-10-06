@@ -47,7 +47,8 @@ Discord presence is enabled by default using the built-in application; turn it o
 `CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching. No bot token or
 client secret is needed. Setting the override to `0` disables presence entirely.
 
-With the Discord desktop app running and activity sharing enabled, presence shows menus, joining,
+With the Discord desktop app running and activity sharing enabled, presence shows menus (also while
+joining, so the in-world card is not held behind Discord's update rate limit),
 `Playing on host:port`, `Singleplayer: <world>`, or a Realm, friend's world or experience without
 its identifier, plus the original app icon served from GitHub. On a featured server the server's
 own logo sits in the card's corner. The timer counts the current session in game and the launch
