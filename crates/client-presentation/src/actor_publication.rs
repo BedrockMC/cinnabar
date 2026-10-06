@@ -527,6 +527,14 @@ pub fn prepare_actor_render_frame(
     // First person draws the player's own rig near the camera: the visible arms with every other
     // bone hidden, and a drawable held item in its own first-person frame. Anything not covered
     // (an undrawable item) leaves the CPU viewmodel in charge.
+    if java_mode
+        && let Some(rig) = client_world
+            .stream
+            .as_ref()
+            .and_then(|stream| stream.authority().actor_rig(local_runtime_id))
+    {
+        java_hand.remember(&rig, input.local_equipment.main.as_ref());
+    }
     let hand_source: Option<HandSource> = if first_person && input.renders_game {
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;

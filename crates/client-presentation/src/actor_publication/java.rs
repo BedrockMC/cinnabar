@@ -284,6 +284,17 @@ pub(super) struct HandCache {
     arm: Option<((u32, usize), Arc<[RenderBoneTransform]>)>,
 }
 
+impl HandCache {
+    /// Remembers the held item once Java's equip adopts it, in any perspective.
+    pub(super) fn remember(&mut self, rig: &ActorRigSnapshot<'_>, main: Option<&WornItem>) {
+        if let (Some(item), Some(equipped)) = (main, rig.java_equipped)
+            && item.identifier == *equipped
+        {
+            self.shown = Some(item.clone());
+        }
+    }
+}
+
 /// Java's first-person hand: the item it still draws through an equip dip, or its empty arm.
 /// `Err` leaves vanilla's hand, holding the item to draw, for items Java never had (maps in
 /// either hand, crossbows, shields).
@@ -307,10 +318,7 @@ pub(super) fn hand_source(
         return Err(equipment_input.main.clone());
     };
     let main = rig.java_equipped.and_then(|equipped| match &equipment_input.main {
-        Some(item) if item.identifier == *equipped => {
-            cache.shown = Some(item.clone());
-            Some(item.clone())
-        }
+        Some(item) if item.identifier == *equipped => Some(item.clone()),
         _ => cache
             .shown
             .clone()
