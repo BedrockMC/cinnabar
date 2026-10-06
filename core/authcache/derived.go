@@ -117,32 +117,33 @@ type derivedState struct {
 // state only briefly and is never held across a network request: each credential is derived in its
 // own flight, so one hung request never delays an unrelated credential.
 type Account struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	gate        chan struct{}
-	oauthGate   chan struct{} // orders OAuth reads with the binding change each applies
-	path        string
-	diagnostics io.Writer
-	oauth       oauth2.TokenSource
-	binding     string
-	client      string
-	device      xasd.TokenSource
-	deviceToken *xasd.Token
-	session     *accountSession
-	xstsTokens  map[string]*xsts.Token // last XSTS token per relying party restored or returned
-	environment *service.AuthorizationEnvironment
-	cachedEnv   *derivedEnvironment
-	service     *service.Token
-	services    service.TokenSource // native source seeded with service; rebuilt after every restore
-	sessionID   string              // Session-Id every service request names for this launch
-	playfab     *playfab.Client     // logged in on first need; closed only by Close
-	resolver    *nsal.Resolver      // PlayFab's endpoint resolver; keeps NSAL title data for the account's life
-	closed      atomic.Bool
-	refreshing  atomic.Bool            // one KeepFresh per account
-	exchanging  atomic.Bool            // one early service exchange per account
-	persisted   string                 // fingerprint of the bundle bytes last read or written
-	rejected    map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
-	deps        derivedDeps
+	ctx           context.Context
+	cancel        context.CancelFunc
+	gate          chan struct{}
+	oauthGate     chan struct{} // orders OAuth reads with the binding change each applies
+	path          string
+	diagnostics   io.Writer
+	diagnosticsMu sync.Mutex // diagnostics are written outside the gate
+	oauth         oauth2.TokenSource
+	binding       string
+	client        string
+	device        xasd.TokenSource
+	deviceToken   *xasd.Token
+	session       *accountSession
+	xstsTokens    map[string]*xsts.Token // last XSTS token per relying party restored or returned
+	environment   *service.AuthorizationEnvironment
+	cachedEnv     *derivedEnvironment
+	service       *service.Token
+	services      service.TokenSource // native source seeded with service; rebuilt after every restore
+	sessionID     string              // Session-Id every service request names for this launch
+	playfab       *playfab.Client     // logged in on first need; closed only by Close
+	resolver      *nsal.Resolver      // PlayFab's endpoint resolver; keeps NSAL title data for the account's life
+	closed        atomic.Bool
+	refreshing    atomic.Bool            // one KeepFresh per account
+	exchanging    atomic.Bool            // one early service exchange per account
+	persisted     string                 // fingerprint of the bundle bytes last read or written
+	rejected      map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
+	deps          derivedDeps
 
 	flightMu sync.Mutex
 	flights  map[string]*flight
@@ -223,6 +224,8 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 }
 
 func (s *Account) diagnostic(event, layer, reason string) {
+	s.diagnosticsMu.Lock()
+	defer s.diagnosticsMu.Unlock()
 	_, _ = fmt.Fprintf(s.diagnostics, "AUTH_ACCEL_CACHE event=%s layer=%s reason=%s\n", event, layer, reason)
 }
 
@@ -333,12 +336,24 @@ func (s *Account) deriveXSTS(ctx context.Context, relyingParty string) (*xsts.To
 	if err != nil {
 		return nil, err
 	}
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	rejected := s.rejectedLocked(relyingParty, token)
+	s.unlock()
+	if rejected {
+		// The request overlapped an invalidation and read the refused token before SISU evicted it.
+		session.InvalidateXSTSToken(relyingParty, token)
+		if token, err = session.XSTSToken(ctx, relyingParty); err != nil {
+			return nil, err
+		}
+	}
 	deviceToken, deviceErr := device.DeviceToken(ctx)
 	if err := s.lock(ctx); err != nil {
 		return nil, err
 	}
 	changed := false
-	if s.session == session {
+	if s.session == session && !s.rejectedLocked(relyingParty, token) {
 		changed = s.xstsTokens[relyingParty] != token
 		s.xstsTokens[relyingParty] = token
 		if deviceErr == nil && s.device == device && s.deviceToken != deviceToken {
@@ -353,6 +368,11 @@ func (s *Account) deriveXSTS(ctx context.Context, relyingParty string) (*xsts.To
 	s.diagnostic("refresh", "xsts", "expired")
 	s.publish(ctx)
 	return token, nil
+}
+
+func (s *Account) rejectedLocked(relyingParty string, token *xsts.Token) bool {
+	rejected := s.rejected[relyingParty]
+	return rejected != nil && token != nil && rejected.Token == token.Token
 }
 
 // InvalidateXSTSToken evicts rejected through SISU and persists the eviction so no reload, in this
@@ -844,6 +864,14 @@ func (s *Account) persistLocked(snapshot *sisu.Snapshot) {
 	device, proofKey := s.deviceToken, s.device.ProofKey()
 	if device == nil || proofKey == nil {
 		return
+	}
+	if snapshot != nil {
+		// A snapshot taken before an invalidation finished may still hold the refused token.
+		for relyingParty, token := range snapshot.XSTSTokens {
+			if s.rejectedLocked(relyingParty, token) {
+				delete(snapshot.XSTSTokens, relyingParty)
+			}
+		}
 	}
 	key, err := x509.MarshalECPrivateKey(proofKey)
 	if err != nil {
