@@ -57,7 +57,7 @@ fn joining_screen(stage: Option<LoadingStage>) -> bool {
 
 fn update(
     mut discord: ResMut<DiscordPresence>,
-    menu: Res<MenuRuntime>,
+    mut menu: ResMut<MenuRuntime>,
     world: Res<ClientWorld>,
     ui: Res<client_ui::ui_runtime::presentation::UiPresentationRuntime>,
     session: Res<crate::session::SessionController>,
@@ -80,10 +80,22 @@ fn update(
         world.fatal_error.is_some(),
     );
     let application_id = discord.application_id;
-    discord
+    let presence = discord
         .presence
-        .get_or_insert_with(|| Presence::start(application_id))
-        .update(state, session.destination());
+        .get_or_insert_with(|| Presence::start(application_id));
+    presence.update(state, session.presence_target());
+    // A direct `--address` session has no launcher to join through.
+    if let Some(address) = presence.take_join()
+        && menu.is_launcher()
+        && !already_there(session.presence_target(), &address)
+    {
+        info!("joining {address} from a Discord invite");
+        menu.request_connect(address);
+    }
+}
+
+fn already_there(target: Option<&rich_presence::Target>, address: &str) -> bool {
+    target.and_then(|target| target.join.as_deref()) == Some(address)
 }
 
 pub(crate) fn shutdown(app: &mut App) {
@@ -113,5 +125,16 @@ mod tests {
         assert_eq!(state(Some(LoadingStage::BuildingTerrain)), State::Joining);
         assert_eq!(state(Some(LoadingStage::Connecting)), State::Joining);
         assert_eq!(state(None), State::Playing);
+    }
+
+    #[test]
+    fn an_invite_to_the_current_destination_does_not_reconnect() {
+        let target = rich_presence::Target {
+            destination: rich_presence::Destination::Realm,
+            join: Some("realm_id/1".into()),
+        };
+        assert!(already_there(Some(&target), "realm_id/1"));
+        assert!(!already_there(Some(&target), "realm_id/2"));
+        assert!(!already_there(None, "realm_id/1"));
     }
 }
