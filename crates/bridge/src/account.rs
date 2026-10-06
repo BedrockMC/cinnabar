@@ -79,30 +79,11 @@ pub struct FeaturedServer {
     #[serde(default)]
     pub logo: Artwork,
     #[serde(default)]
+    pub background: Artwork,
+    #[serde(default)]
     pub screenshots: Vec<Artwork>,
     #[serde(default)]
     pub games: Vec<FeaturedGame>,
-}
-
-/// A community gathering; the core joins it by `id` only when the player connects.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct Gathering {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub caption: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub creator: String,
-    #[serde(default)]
-    pub image: Artwork,
-    #[serde(default)]
-    pub start_unix: i64,
-    #[serde(default)]
-    pub end_unix: i64,
 }
 
 /// The signed-in account as the start and profile screens show it.
@@ -365,7 +346,7 @@ pub enum ConnectTarget {
     Realm(String),
     /// A friend's XUID from [`Friend::xuid`].
     Friend(String),
-    /// A gathering's experience ID from [`Gathering::id`].
+    /// A featured experience's ID, from a `gathering/<id>` featured server address.
     Gathering(String),
 }
 
@@ -529,12 +510,6 @@ struct FeaturedBody {
 }
 
 #[derive(Deserialize)]
-struct GatheringsBody {
-    #[serde(default)]
-    gatherings: Vec<Gathering>,
-}
-
-#[derive(Deserialize)]
 struct ProfileBody {
     #[serde(default)]
     profile: Profile,
@@ -617,12 +592,6 @@ pub async fn poll_events(socket_dir: &Path) -> Result<Events, BridgeError> {
 pub async fn list_featured_servers(socket_dir: &Path) -> Result<Vec<FeaturedServer>, BridgeError> {
     let body: FeaturedBody = call::<_, ()>(socket_dir, "featured_servers.v1", None).await?;
     Ok(body.servers)
-}
-
-/// Lists the community gatherings.
-pub async fn list_gatherings(socket_dir: &Path) -> Result<Vec<Gathering>, BridgeError> {
-    let body: GatheringsBody = call::<_, ()>(socket_dir, "gatherings.v1", None).await?;
-    Ok(body.gatherings)
 }
 
 /// Addresses one `ping.v1` request may carry (the core's `catalog.MaxPingTargets`);
@@ -827,18 +796,13 @@ mod tests {
     fn screen_feeds_parse_leniently() {
         let featured = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"servers":[
             {"name":"S","address":"a.test:19132","logo":{"url":"https://a.test/l.png"},
+             "background":{"path":"/art/bg.img"},
              "games":[{"title":"Skywars"}],"future":true},{}]}}"#;
         let body: FeaturedBody = parse_response(featured).expect("featured");
         assert_eq!(body.servers.len(), 2);
         assert_eq!(body.servers[0].logo.url, "https://a.test/l.png");
+        assert_eq!(body.servers[0].background.path, "/art/bg.img");
         assert_eq!(body.servers[0].games[0].title, "Skywars");
-        let gatherings = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1}}"#;
-        assert!(
-            parse_response::<GatheringsBody>(gatherings)
-                .expect("gatherings")
-                .gatherings
-                .is_empty()
-        );
         let profile = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
             "profile":{"gamertag":"Steve","xuid":"1","gamerpic":{"path":"/art/p.img"}}}}"#;
         let body: ProfileBody = parse_response(profile).expect("profile");

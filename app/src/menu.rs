@@ -122,7 +122,6 @@ pub(crate) struct MenuRuntime {
     /// The session controller's last published state.
     session: SessionStatus,
     featured: Vec<MenuServerCard>,
-    gatherings: Vec<MenuServerCard>,
     realms: Vec<MenuRealmCard>,
     friends: Vec<MenuFriendCard>,
     catalog_message: Option<String>,
@@ -298,11 +297,9 @@ impl MenuRuntime {
             display_name: self.display_name.clone(),
             servers: self.servers.clone(),
             featured: self.featured.clone(),
-            gatherings: self.gatherings.clone(),
             realms: self.realms.clone(),
             friends: self.friends.clone(),
             featured_icon: None,
-            gathering_icon: None,
             realm_icon: None,
             friend_icon: None,
             saved_icon: None,
@@ -493,7 +490,6 @@ impl MenuRuntime {
                 action,
                 MenuAction::PlaySaved(_)
                     | MenuAction::PlayFeatured(_)
-                    | MenuAction::PlayGathering(_)
                     | MenuAction::PlayRealm(_)
                     | MenuAction::PlayFriend(_)
                     | MenuAction::PlayLocalWorld(_)
@@ -576,11 +572,6 @@ impl MenuRuntime {
             }
             MenuAction::PlayFeatured(index) => {
                 if let Some(server) = self.featured.get(index) {
-                    self.request_connect(server.address.clone());
-                }
-            }
-            MenuAction::PlayGathering(index) => {
-                if let Some(server) = self.gatherings.get(index) {
                     self.request_connect(server.address.clone());
                 }
             }

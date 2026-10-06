@@ -356,26 +356,32 @@ impl UiPresentationRuntime {
         [width, height]: [f32; 2],
     ) -> Option<MenuHits> {
         let dialog = view.dialog?;
+        if dialog == crate::menu::MenuDialog::Accounts {
+            self.form_presentation.menu_sounds = Vec::new();
+            let rollback = (nodes.len(), *next);
+            return Some(
+                match self.append_oreui_accounts(view, nodes, next, metrics, [width, height]) {
+                    Ok(hits) => (hits, Vec::new()),
+                    Err(_) => {
+                        nodes.truncate(rollback.0);
+                        *next = rollback.1;
+                        (Vec::new(), Vec::new())
+                    }
+                },
+            );
+        }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Some((Vec::new(), Vec::new()));
         };
         let rollback = (nodes.len(), *next);
         let translate = |key: &str| runtime.translation(key);
-        let accounts = dialog == crate::menu::MenuDialog::Accounts;
         let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
-        let mut data = if accounts {
-            super::accounts::data(view)
-        } else {
-            json_ui::form_data_source(&model)
-        };
-        let reference = if accounts {
-            super::accounts::SCREEN
-        } else if dialog
+        let mut data = json_ui::form_data_source(&model);
+        let reference = if dialog
             == crate::menu::MenuDialog::SettingsSupport(
                 crate::menu::settings_support::SupportDialog::Help,
-            )
-        {
+            ) {
             super::settings_support::help_data(&mut data, &translate);
             "rating_prompt.rating_prompt_screen"
         } else {
@@ -424,22 +430,15 @@ impl UiPresentationRuntime {
         let mut keys = Vec::new();
         let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
-            let action = if accounts {
-                let Some(action) = super::accounts::action(view, region) else {
-                    continue;
-                };
-                action
-            } else {
-                match region.pressed.as_deref() {
-                    Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
-                    Some(
-                        "popup_dialog.rightcancel_button"
-                        | "popup_dialog.escape"
-                        | "button.menu_exit"
-                        | "button.rating_no_button",
-                    ) => MenuAction::DismissDialog,
-                    _ => continue,
-                }
+            let action = match region.pressed.as_deref() {
+                Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
+                Some(
+                    "popup_dialog.rightcancel_button"
+                    | "popup_dialog.escape"
+                    | "button.menu_exit"
+                    | "button.rating_no_button",
+                ) => MenuAction::DismissDialog,
+                _ => continue,
             };
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));

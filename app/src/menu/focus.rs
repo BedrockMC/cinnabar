@@ -218,7 +218,6 @@ impl MenuRuntime {
                 match self.server_tab {
                     MenuServerTab::Featured => {
                         actions.extend((0..self.featured.len()).map(MenuAction::PlayFeatured));
-                        actions.extend((0..self.gatherings.len()).map(MenuAction::PlayGathering));
                     }
                     MenuServerTab::Favorites => actions.extend(
                         self.servers
