@@ -32,7 +32,7 @@ impl SettingsGroup {
                     | "classic_box_selection"
                     | "ingame_player_names"
                     | "view_bobbing"
-                    | "java_animations"
+                    | "animations"
                     | "camera_shake"
                     | "transparent_leaves"
                     | "bubble_particles"
