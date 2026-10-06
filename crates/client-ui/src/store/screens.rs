@@ -89,7 +89,7 @@ pub struct StoreScreens {
 
 fn sdl_context(base: &Context) -> Context {
     base.clone()
-        .with_flag("content_cards_enabled", true)
+        .with_flag("content_cards_enabled", false)
         .with_flag("is_sidebar_navigation_enabled", false)
         .with_flag("use_animation", false)
 }
@@ -287,10 +287,12 @@ fn offer_lists(
 ) {
     let path = image_lookup(snapshot);
     let is_grid = matches!(row.role, "GridList" | "VerticalGridList");
+    // Without content card styles a row draws vanilla's pre-content-card offer panel.
+    let role = if is_grid { "Generic" } else { "GenericOLD" };
     let mut items: Vec<CollectionItem> = row
         .offers
         .iter()
-        .map(|offer| offer_item("Generic", offer, &path, tr))
+        .map(|offer| offer_item(role, offer, &path, tr))
         .collect();
     if row.continuation.is_some() && !is_grid {
         items.push(show_more_item(tr));
