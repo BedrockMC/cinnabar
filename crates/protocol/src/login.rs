@@ -934,3 +934,6 @@ mod credits_ingress_tests;
 
 #[cfg(test)]
 mod block_sync_tests;
+
+#[cfg(test)]
+mod primitive_shapes_ingress_tests;
