@@ -142,7 +142,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         current_bones.extend(reference_matrices(&input.input.current_bones, &pivots).unwrap());
         let instance_index = instances.len() as u32;
         instances.push(ActorGpuInstance {
-            glint: [0.0; 3],
+            glint: input.material.glint.parameters(),
             world_from_actor: input.world_from_actor,
             previous_bone_base: base,
             current_bone_base: base,

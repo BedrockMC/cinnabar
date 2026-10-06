@@ -426,8 +426,9 @@ mod tests {
         assert!(gpu.prepare(&pages, &device, &queue));
         assert_eq!(gpu.pages.len(), 1);
         assert_eq!(gpu.identity, Some(([1; 32], [3; 32])));
-        pages.identity = [0; 32];
-        assert!(gpu.prepare(&pages, &device, &queue));
-        assert!(gpu.pages.is_empty() && gpu.identity.is_none());
+        // Without artwork the old pages go, but the glint stays bound for player skins.
+        assert!(gpu.prepare(&ActorArtworkPages::default(), &device, &queue));
+        assert!(gpu.pages.is_empty() && gpu.glint.is_some());
+        assert_eq!(gpu.identity, Some(([0; 32], [0; 32])));
     }
 }
