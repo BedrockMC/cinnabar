@@ -11,8 +11,11 @@ pub(super) struct VertexPages {
     pub(super) pages: Vec<Arc<[ActorRigVertex]>>,
     pub(super) fingerprints: Vec<u64>,
     by_content: BTreeMap<(usize, u64), Vec<usize>>,
-    by_pointer: BTreeMap<(usize, usize), (Arc<[ActorRigVertex]>, usize)>,
+    by_pointer: BTreeMap<(usize, usize), PinnedPage>,
 }
+
+/// The source allocation is held so its address key can't be reused by another slice.
+type PinnedPage = (Arc<[ActorRigVertex]>, usize);
 
 impl VertexPages {
     pub(super) fn retained(pages: &[Arc<[ActorRigVertex]>], fingerprints: &[u64]) -> Self {

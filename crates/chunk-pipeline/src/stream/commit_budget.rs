@@ -17,8 +17,7 @@ impl WorldStream {
         self.poll_budget = if interval.is_zero() {
             WORLD_POLL_BUDGET
         } else {
-            (interval / WORLD_POLL_INTERVAL_SHARE)
-                .clamp(WORLD_POLL_BUDGET_FLOOR, WORLD_POLL_BUDGET)
+            (interval / WORLD_POLL_INTERVAL_SHARE).clamp(WORLD_POLL_BUDGET_FLOOR, WORLD_POLL_BUDGET)
         };
     }
 
