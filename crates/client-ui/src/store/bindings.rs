@@ -64,6 +64,8 @@ pub fn offer_values(
         values.insert(name.to_owned(), value);
     };
     set("#title_label", text(offer.title.clone()));
+    // The title and creator info cells bind `#visible` to this name unless a cell names its own.
+    set("#offer_info_text_visible_binding", Scalar::Bool(true));
     set(
         "#is_creator_label_visible",
         Scalar::Bool(!creator.is_empty()),
