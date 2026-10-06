@@ -104,6 +104,22 @@ fn catalog() -> ChatAutocompleteCatalog {
     catalog
 }
 
+#[test]
+fn command_names_match_substrings_case_insensitively() {
+    let catalog = catalog();
+    let completion = catalog.complete("/MODE", 5).unwrap();
+    assert_eq!(completion.suggestions.as_ref(), [Arc::from("/gamemode")]);
+    let completion = catalog.complete("/iv", 3).unwrap();
+    assert_eq!(completion.suggestions.as_ref(), [Arc::from("/give")]);
+    assert!(
+        catalog
+            .complete("/unavailable", 12)
+            .unwrap()
+            .suggestions
+            .is_empty()
+    );
+}
+
 fn suggest(catalog: &ChatAutocompleteCatalog, input: &str) -> Vec<String> {
     complete(catalog, input, CompletionContext::default()).0
 }

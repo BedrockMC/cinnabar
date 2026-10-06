@@ -191,7 +191,11 @@ pub(crate) fn prepare_ui_runtime(
             emote_preview,
         );
     }
-    let hide_hand = settings.value("hide_hand") != 0;
+    let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+        settings.value("hide_hud") != 0,
+        settings.value("hide_hand") != 0,
+    );
+    let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person =
         camera_settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
@@ -278,6 +282,7 @@ pub(crate) fn prepare_ui_runtime(
     let nametags = client_world
         .stream
         .as_ref()
+        .filter(|_| overlays.nametags)
         .zip(
             cameras
                 .single()

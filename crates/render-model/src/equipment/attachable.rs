@@ -36,11 +36,14 @@ pub fn attach(
     let hand_scale = hand.translation_scale[3] * hand.axis_scale[0];
     let [x, y, z] = channels.translation;
     let offset = Vec3::new(-x, y, z) / 16.0;
+    let mut local_pivot = Vec3::from_array(pivot);
+    // Bound model parts use the shared humanoid origin before inheriting the hand pose.
+    local_pivot.y -= assets::gui_item::SHIELD_MODEL_PART_HEIGHT / 16.0;
     let origin = Vec3::new(
         hand.translation_scale[0],
         hand.translation_scale[1],
         hand.translation_scale[2],
-    ) + hand_rotation * ((Vec3::from_array(pivot) + offset) * hand_scale);
+    ) + hand_rotation * ((local_pivot + offset) * hand_scale);
     let turned = (hand_rotation * authored_rotation(channels.rotation)).normalize();
     let [sx, sy, sz] = channels.scale;
     let bone = RenderBoneTransform {

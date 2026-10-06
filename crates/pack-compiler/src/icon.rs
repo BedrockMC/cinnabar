@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::entity::compile_entity_assets_with_report;
 
 mod bake;
+mod block_entity;
 mod blocks;
 mod carried;
 mod cube;
@@ -119,27 +120,44 @@ fn compile(
     let mut model_item_visuals = 0usize;
     let mut shield_sprite = None;
 
-    let mut sprite_for_source =
-        |source_index: u32, sprites: &mut Vec<IconSprite>| -> Result<Option<u32>, AssetError> {
-            if let Some(existing) = sprite_by_source.get(&source_index) {
-                return Ok(*existing);
+    let mut sprite_for_source = |source_index: u32,
+                                 sprites: &mut Vec<IconSprite>|
+     -> Result<Option<u32>, AssetError> {
+        if let Some(existing) = sprite_by_source.get(&source_index) {
+            return Ok(*existing);
+        }
+        let source = &compiled.sources[source_index as usize];
+        let mut decoded = sprite_source(root, source)?;
+        if source
+            .path
+            .strip_prefix("textures/items/leather_")
+            .is_some_and(|suffix| {
+                ["helmet", "chestplate", "leggings", "boots", "horse_armor"]
+                    .iter()
+                    .any(|name| suffix == format!("{name}.png") || suffix == format!("{name}.tga"))
+            })
+        {
+            let dye = assets::DEFAULT_LEATHER_RGB;
+            let tint = [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8];
+            for pixel in decoded.rgba8.chunks_exact_mut(4) {
+                let texel = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                pixel.copy_from_slice(&assets::color_mask_texel(texel, tint));
             }
-            let source = &compiled.sources[source_index as usize];
-            let decoded = sprite_source(root, source)?;
-            let Some((sprite, strip)) = bounded_sprite(decoded) else {
-                skipped_oversized += 1;
-                sprite_by_source.insert(source_index, None);
-                return Ok(None);
-            };
-            animation_strips += usize::from(strip);
-            let index =
-                u32::try_from(sprites.len()).map_err(|_| AssetError::InvalidCompiledAssets {
-                    detail: "icon sprite count exceeds platform".into(),
-                })?;
-            sprites.push(sprite);
-            sprite_by_source.insert(source_index, Some(index));
-            Ok(Some(index))
+        }
+        let Some((sprite, strip)) = bounded_sprite(decoded) else {
+            skipped_oversized += 1;
+            sprite_by_source.insert(source_index, None);
+            return Ok(None);
         };
+        animation_strips += usize::from(strip);
+        let index =
+            u32::try_from(sprites.len()).map_err(|_| AssetError::InvalidCompiledAssets {
+                detail: "icon sprite count exceeds platform".into(),
+            })?;
+        sprites.push(sprite);
+        sprite_by_source.insert(source_index, Some(index));
+        Ok(Some(index))
+    };
 
     let mut visual_sprites: Vec<Option<u32>> = Vec::with_capacity(compiled.item_visuals.len());
     for visual in compiled.item_visuals.iter() {
@@ -200,7 +218,9 @@ fn compile(
         } = visual.route
         {
             let flat_sprite = flat_sprites.get(&block.0);
-            let model_sprite = model_sprites.get(&block.0);
+            let model_sprite = model_sprites
+                .get(&(block.0, visual.key.metadata))
+                .or_else(|| model_sprites.get(&(block.0, 0)));
             flat_block_visuals += usize::from(flat_sprite.is_some());
             model_block_visuals += usize::from(model_sprite.is_some());
             if let Some(&sprite) = flat_sprite

@@ -12,12 +12,9 @@ fn has_face(mesh: &ChunkMesh, face: Face) -> bool {
         .any(|quad| quad.origin() == ORIGIN && quad.face() == face)
 }
 
-// Vanilla classic WATER material 5 compares neighbouring primary
-// block type with air, not its opacity. Deferred model 1 instead compares material;
-// non-water liquids do not enter this special gate. Top admission is separate.
 #[test]
-fn classic_water_hides_non_air_primary_contacts_even_without_opaque_faces() {
-    for neighbour in [GLASS, CROSS, OTHER_LIQUID, NON_WATER_LIQUID, SOLID] {
+fn classic_water_hides_full_cube_and_liquid_contacts() {
+    for neighbour in [GLASS, OTHER_LIQUID, NON_WATER_LIQUID, SOLID] {
         for (face, adjacent) in [
             (Face::NegativeX, [7, 8, 8]),
             (Face::PositiveX, [9, 8, 8]),
@@ -37,6 +34,21 @@ fn classic_water_hides_non_air_primary_contacts_even_without_opaque_faces() {
                     .all(|(index, quad)| quad.lighting_index() == index as u32)
             );
         }
+    }
+}
+
+#[test]
+fn classic_water_keeps_faces_beside_thin_non_occluding_primary_geometry() {
+    for (face, adjacent) in [
+        (Face::NegativeX, [7, 8, 8]),
+        (Face::PositiveX, [9, 8, 8]),
+        (Face::NegativeZ, [8, 8, 7]),
+        (Face::PositiveZ, [8, 8, 9]),
+        (Face::NegativeY, [8, 7, 8]),
+    ] {
+        let output = mesh(&blocks(&[(WATER_SOURCE, ORIGIN), (CROSS, adjacent)]));
+        let quad = output.liquid_quads().iter().find(|quad| quad.origin() == ORIGIN && quad.face() == face).expect("water remains visible beside thin geometry");
+        assert!(!quad.is_two_sided());
     }
 }
 
@@ -85,7 +97,7 @@ fn neighbour_primary_controls_contact_admission_not_its_additional_water() {
                 &[(ORIGIN, 1), ([9, 8, 8], 2)],
             ),
         ]));
-        assert_eq!(has_face(&output, Face::PositiveX), primary == AIR);
+        assert_eq!(has_face(&output, Face::PositiveX), primary != GLASS);
         assert!(has_face(&output, Face::NegativeX));
         assert!(has_face(&output, Face::PositiveY));
     }

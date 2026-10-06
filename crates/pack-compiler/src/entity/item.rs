@@ -147,11 +147,11 @@ pub(super) fn compile(
                 if block_wins(&key) {
                     continue;
                 }
-                let route = source_indices.get(variant.source_path.as_ref()).map_or(
+                let route = texture_source_index(&source_indices, &variant.source_path).map_or(
                     ItemVisualDefinitionRoute::Missing,
                     |source| ItemVisualDefinitionRoute::Sprite {
                         texture: ItemTextureReference {
-                            source: *source,
+                            source,
                             variant: variant.variant,
                         },
                     },
@@ -199,11 +199,11 @@ pub(super) fn compile(
                     ));
                 }
             }
-            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+            let route = texture_source_index(&source_indices, &variant.source_path).map_or(
                 ItemVisualDefinitionRoute::Missing,
                 |source| ItemVisualDefinitionRoute::Sprite {
                     texture: ItemTextureReference {
-                        source: *source,
+                        source,
                         variant: variant.variant,
                     },
                 },
@@ -241,11 +241,11 @@ pub(super) fn compile(
             let Some(variant) = variants.get(legacy.variant) else {
                 continue;
             };
-            let route = source_indices.get(variant.source_path.as_ref()).map_or(
+            let route = texture_source_index(&source_indices, &variant.source_path).map_or(
                 ItemVisualDefinitionRoute::Missing,
                 |source| ItemVisualDefinitionRoute::Sprite {
                     texture: ItemTextureReference {
-                        source: *source,
+                        source,
                         variant: variant.variant,
                     },
                 },
@@ -421,6 +421,14 @@ fn parse_texture_variants(definition: &Value) -> Result<Vec<TextureVariant>, Ass
         .collect()
 }
 
+/// Atlas stems prefer PNG and fall back to TGA, matching terrain texture resolution.
+fn texture_source_index(sources: &BTreeMap<&str, u32>, path: &str) -> Option<u32> {
+    sources.get(path).copied().or_else(|| {
+        let stem = path.strip_suffix(".png")?;
+        sources.get(format!("{stem}.tga").as_str()).copied()
+    })
+}
+
 fn canonical_texture_path(texture: &str) -> String {
     if texture.ends_with(".png") || texture.ends_with(".tga") {
         texture.replace('\\', "/")
@@ -452,6 +460,15 @@ fn read_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atlas_stems_resolve_tga_sources_and_prefer_an_existing_png() {
+        let mut sources = BTreeMap::from([("textures/items/leather_helmet.tga", 4)]);
+        assert_eq!(texture_source_index(&sources, "textures/items/leather_helmet.png"), Some(4));
+        sources.insert("textures/items/leather_helmet.png", 9);
+        assert_eq!(texture_source_index(&sources, "textures/items/leather_helmet.png"), Some(9));
+        assert_eq!(texture_source_index(&sources, "textures/items/absent.png"), None);
+    }
 
     #[test]
     fn reviewed_routes_require_the_exact_dragonfly_version_and_module_sum() {

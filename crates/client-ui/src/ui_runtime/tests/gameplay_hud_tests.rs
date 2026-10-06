@@ -625,6 +625,52 @@ fn odd_metadata_values_are_counted_and_skipped_without_disconnect() {
 }
 
 #[test]
+fn localized_text_packets_resolve_marked_keys_for_chat_and_popups() {
+    let bytes = assets::encode_lang_catalog(
+        [9; 32],
+        [10; 32],
+        &[assets::LangEntry {
+            key: "multiplayer.player.joined".into(),
+            value: "%s joined the game".into(),
+        }],
+    )
+    .unwrap();
+    for kind in [TextKind::Raw, TextKind::System, TextKind::Popup] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut runtime = UiRuntime::new(1);
+        runtime.set_lang_catalog(Arc::new(
+            assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+        ));
+        runtime
+            .apply(
+                &mut player_runtime,
+                envelope(
+                    1,
+                    1,
+                    UiEvent::Text(TextEvent {
+                        category: TextCategory::Parameters,
+                        kind,
+                        needs_translation: true,
+                        source: None,
+                        message: Arc::from("§e%multiplayer.player.joined"),
+                        parameters: Arc::from([Arc::from("Alex")]),
+                        xuid: Arc::from(""),
+                        platform_chat_id: Arc::from(""),
+                        filtered_message: None,
+                    }),
+                ),
+            )
+            .unwrap();
+        let message = if kind == TextKind::Popup {
+            runtime.hud().actionbar().unwrap().text.as_ref()
+        } else {
+            runtime.chat().messages().back().unwrap().message.as_ref()
+        };
+        assert_eq!(message, "§eAlex joined the game");
+    }
+}
+
+#[test]
 fn lang_catalog_resolves_rawtext_translation_and_item_names() {
     let mut player_runtime = player_state::PlayerState::new(1);
 

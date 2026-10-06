@@ -27,7 +27,7 @@ const (
 	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-v2193.bin"
 	v2193PhysicsBREGInputPath = "crates/assets/data/block-registry-v2193.bin"
 	v2193PhysicsBREGSHA256    = v2193FoundationBlockSHA256
-	v2193PhysicsReservedCount = 662
+	v2193PhysicsReservedCount = 662 - v2193EducationStateCount
 )
 
 func writeV2193PhysicsProjection(bregPath, pmmpRoot, prismarineRoot, outputPath, shaOutputPath, manifestPath string) error {
@@ -163,6 +163,9 @@ func crossCheckV2193PhysicsManifest(payload []byte) error {
 	}
 	if manifest.Projection.DeniedCount != v2193PhysicsReservedCount {
 		return fmt.Errorf("v2193 projection manifest denies %d states, want exactly %d", manifest.Projection.DeniedCount, v2193PhysicsReservedCount)
+	}
+	if manifest.Projection.EducationStates != v2193EducationStateCount {
+		return fmt.Errorf("v2193 projection manifest has %d Education states, want %d", manifest.Projection.EducationStates, v2193EducationStateCount)
 	}
 	if manifest.Output.SHA256 != v2193PhysicsBREGSHA256 {
 		return fmt.Errorf("v2193 projection manifest binds BREG SHA-256 %q, want %q", manifest.Output.SHA256, v2193PhysicsBREGSHA256)

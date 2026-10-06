@@ -198,7 +198,7 @@ fn unchanged_camera_and_frame_input_retains_completed_geometry_poses_without_res
     for _ in 0..3 {
         let mut frame = store.render_frame(0.0);
         let layers = frame.layers(1).unwrap();
-        for (layer, completed) in layers.iter().zip(&completed) {
+        for (layer, completed) in layers.iter().zip(completed.iter()) {
             assert!(Arc::ptr_eq(&layer.pose, &completed.pose));
             assert!(Arc::ptr_eq(&layer.previous_pose, &completed.previous_pose));
         }

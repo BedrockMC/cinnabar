@@ -59,6 +59,8 @@ pub fn definitions() -> Value {
                 "move": { "type": "object", "properties": { "forward": { "type": "number" }, "strafe": { "type": "number" } }, "description": "Sign of each axis holds key.forward/back and key.right/left; 0 releases" },
                 "jump": { "type": "boolean" }, "sneak": { "type": "boolean" }, "sprint": { "type": "boolean" },
                 "hotbar": { "type": "integer", "minimum": 1, "maximum": 9 },
+                "cursor": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Logical window coordinates for menu clicks and dragging; does not move the OS pointer." },
+                "text": { "type": "string", "description": "Insert text into the focused editor through keyboard messages." },
                 "look": { "type": "object", "properties": {
                     "yaw": { "type": "number" }, "pitch": { "type": "number" },
                     "relative": { "type": "boolean" }, "frames": { "type": "integer", "description": "Turn over this many frames (0 snaps)" }
