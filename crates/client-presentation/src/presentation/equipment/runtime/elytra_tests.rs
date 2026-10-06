@@ -503,6 +503,73 @@ fn worn_wings_draw_every_material_group_once() {
     }
 }
 
+/// Vanilla's `elytra` and `elytra_glint` resolve no pack state and keep the alpha-tested,
+/// double-sided `entity_alphatest` settings they derive.
+#[test]
+fn vanilla_wing_materials_keep_alpha_tested_double_sided_state() {
+    let alpha_tested = assets::EntityRenderMaterialState {
+        alpha_test: true,
+        cull: false,
+        ..Default::default()
+    };
+    for material in ["elytra", "entity_alphatest"] {
+        let mut files = wing_pack();
+        edit_json(&mut files, "attachables/elytra.json", |document| {
+            document["minecraft:attachable"]["description"]["materials"] =
+                serde_json::json!({"default":material,"enchanted":"elytra_glint"});
+        });
+        let (mut runtime, _) = pack_runtime(files);
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        for enchanted in [false, true] {
+            let draws = layers(&mut runtime, &body, &owner, &worn(enchanted), 1);
+            assert_eq!(
+                draws[0].submission.material.state,
+                Some(alpha_tested),
+                "{material} enchanted={enchanted}"
+            );
+        }
+    }
+}
+
+/// A pack wing group keeps its own resolved emissive or translucent material settings.
+#[test]
+fn worn_wing_groups_keep_their_authored_material_state() {
+    let emissive = assets::EntityRenderMaterialState {
+        alpha_test: true,
+        cull: false,
+        emissive: true,
+        ..Default::default()
+    };
+    let translucent = assets::EntityRenderMaterialState {
+        blend: true,
+        ..Default::default()
+    };
+    for (material, expected) in [
+        ("entity_emissive_alpha", emissive),
+        ("entity_alphablend", translucent),
+    ] {
+        let mut files = wing_pack();
+        edit_json(&mut files, "attachables/elytra.json", |document| {
+            document["minecraft:attachable"]["description"]["materials"] =
+                serde_json::json!({"default":"entity_alphatest","alt":material});
+        });
+        edit_json(&mut files, "render_controllers/wings.json", |document| {
+            document["render_controllers"]["controller.render.wings"]["materials"] =
+                serde_json::json!([{"*":"Material.default"},{"right_wing":"Material.alt"}]);
+        });
+        let (mut runtime, _) = pack_runtime(files);
+        let body = player_body(&mut runtime);
+        let draws = layers(&mut runtime, &body, &owner(), &worn(false), 1);
+        assert_eq!(draws.len(), 2);
+        assert_eq!(
+            draws[1].submission.material.state,
+            Some(expected),
+            "{material}"
+        );
+    }
+}
+
 /// Two controllers blending at once compose with their own progress, even when one
 /// controller's incoming clip carries no weight.
 #[test]
