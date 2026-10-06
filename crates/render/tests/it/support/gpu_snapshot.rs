@@ -132,6 +132,26 @@ impl Gpu {
             })
     }
 
+    /// A zeroed 1x1 2D texture for bindings a draw never samples.
+    pub fn blank_texture_view(&self) -> wgpu::TextureView {
+        self.device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default())
+    }
+
     /// Renders production entry points with reverse depth, then reads their actual pixels.
     pub fn render(&self, source: &str, vertex: &str, draws: &[Draw<'_>]) -> Vec<u8> {
         self.render_with_state(source, vertex, draws, RasterState::default())

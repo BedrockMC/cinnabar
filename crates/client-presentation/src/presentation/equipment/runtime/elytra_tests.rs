@@ -405,7 +405,7 @@ fn worn_blend_samples_an_overriding_state_apart_from_the_outgoing_state() {
     assert!(bevy::math::Quat::from_array(wing.rotation).abs_diff_eq(expected, 1e-5));
 }
 
-/// A render controller's alternate wing model is queued for the scene before it draws.
+/// A conditionally selected wing model is queued for the scene before it draws.
 #[test]
 fn worn_wings_queue_geometry_their_render_controller_selects() {
     let mut files = wing_pack();
@@ -426,7 +426,7 @@ fn worn_wings_queue_geometry_their_render_controller_selects() {
             }
             "render_controllers/wings.json" => {
                 document["render_controllers"]["controller.render.wings"]["geometry"] =
-                    serde_json::json!("Geometry.alt");
+                    serde_json::json!("query.is_gliding ? Geometry.alt : Geometry.default");
             }
             _ => continue,
         }
@@ -435,12 +435,16 @@ fn worn_wings_queue_geometry_their_render_controller_selects() {
     let (mut runtime, _) = pack_runtime(files);
     let body = player_body(&mut runtime);
     runtime.take_pending_geometries();
-    let owner = owner();
-    let draws = layers(&mut runtime, &body, &owner, &worn(false), 1);
-    let rig = draws[0].submission.input.rig;
+    let mut owner = owner();
+    let folded = layers(&mut runtime, &body, &owner, &worn(false), 1);
+    assert!(runtime.take_pending_geometries().is_empty());
+    owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 32));
+    let gliding = layers(&mut runtime, &body, &owner, &worn(false), 2);
+    let rig = gliding[0].submission.input.rig;
+    assert_ne!(rig, folded[0].submission.input.rig);
     let queued = runtime.take_pending_geometries();
     assert!(queued.iter().any(|geometry| geometry.id == rig));
-    layers(&mut runtime, &body, &owner, &worn(false), 2);
+    layers(&mut runtime, &body, &owner, &worn(false), 3);
     assert!(runtime.take_pending_geometries().is_empty());
 }
 
