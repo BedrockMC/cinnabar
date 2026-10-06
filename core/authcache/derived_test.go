@@ -918,3 +918,69 @@ func TestAccountKeepsOneSessionIDAcrossRebuilds(t *testing.T) {
 		t.Fatalf("Session-Ids = (exchanges %q, mint %q), want one per account", starts, mints)
 	}
 }
+
+// An XSTS request that read a token before its invalidation finished never returns or reinstalls it.
+func TestXSTSOverlappingInvalidationNeverReturnsTheRejectedToken(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The SISU cache still holds the token, as when an invalidation has recorded it but not yet evicted it.
+	account.session = newAccountSession(account, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: generationDeviceSource{}})
+	rejected := state.SISU.XSTSTokens[cachedRelyingParty]
+	account.rejected = map[string]*xsts.Token{cachedRelyingParty: rejected}
+	delete(account.xstsTokens, cachedRelyingParty)
+	token, err := account.deriveXSTS(context.Background(), cachedRelyingParty)
+	if token != nil && token.Token == rejected.Token {
+		t.Fatal("overlapping request returned the rejected token")
+	}
+	if err == nil {
+		t.Fatal("offline re-request succeeded")
+	}
+	if account.xstsTokens[cachedRelyingParty] != nil {
+		t.Fatal("overlapping request reinstalled the rejected token")
+	}
+}
+
+// A snapshot taken before an invalidation finished never writes the rejected token back to disk.
+func TestStaleSnapshotNeverPublishesTheRejectedToken(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	rejected := account.xstsTokens[cachedRelyingParty]
+	account.rejected = map[string]*xsts.Token{cachedRelyingParty: rejected}
+	account.publish(context.Background())
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.SISU.XSTSTokens[cachedRelyingParty] != nil {
+		t.Fatal("publish wrote the rejected token")
+	}
+}
+
+// Diagnostics written by concurrent credential calls never race on the caller's writer.
+func TestConcurrentCallsSerializeDiagnostics(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	var diagnostics bytes.Buffer
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics, derivedDeps{})
+	defer account.Close()
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if _, err := account.XSTSToken(context.Background(), cachedRelyingParty); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+}
