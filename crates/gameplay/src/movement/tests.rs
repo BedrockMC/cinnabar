@@ -113,3 +113,85 @@ fn action_rotation_updates_only_the_matching_unsent_actor_facing() {
     assert_eq!(changed.position, previous.position);
     assert_eq!(changed.delta, previous.delta);
 }
+
+/// Ticker with ticks 101 and 102 queued and a release held behind 101.
+fn held_release_ticker() -> MovementTicker {
+    use crate::test_support::survival_mining::completed;
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, completed(101).position);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(completed(101)).unwrap();
+    assert!(ticker.override_action_rotation(101, 15.0, 30.0));
+    ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.enqueue_completed_physics(completed(102)).unwrap();
+    ticker
+}
+
+/// Flushes up to `budget` inputs, returning the identities handed to transport.
+fn flush_identities(ticker: &mut MovementTicker, budget: usize) -> Vec<PhysicsSendIdentity> {
+    let mut sent = Vec::new();
+    flush_player_auth_inputs(
+        ticker,
+        budget,
+        Some(crate::test_support::survival_mining::evidence()),
+        |identity, _packet| {
+            sent.push(identity);
+            Ok::<_, ()>(())
+        },
+    )
+    .unwrap();
+    sent
+}
+
+#[test]
+fn held_release_fences_newer_facing_until_the_release_is_admitted() {
+    let mut ticker = held_release_ticker();
+    let sent = flush_identities(&mut ticker, 8);
+    assert_eq!(sent.iter().map(|id| id.tick).collect::<Vec<_>>(), [101]);
+    ticker.send_held_release(|_| panic!("the facing tick is not written yet"));
+    assert!(ticker.acknowledge_physics_send(sent[0]));
+    ticker.send_held_release(|_| Err(crate::BatchSendError::Full));
+    assert!(ticker.has_held_release());
+    assert!(
+        flush_identities(&mut ticker, 8).is_empty(),
+        "tick 102 must not overtake a backpressured release"
+    );
+    let mut released = 0;
+    ticker.send_held_release(|packets| {
+        released = packets.len();
+        Ok(())
+    });
+    assert_eq!(released, 1);
+    assert!(!ticker.has_held_release());
+    let sent = flush_identities(&mut ticker, 8);
+    assert_eq!(sent.iter().map(|id| id.tick).collect::<Vec<_>>(), [102]);
+}
+
+#[test]
+fn authority_change_drops_a_held_release_whose_facing_never_went_out() {
+    let mut ticker = held_release_ticker();
+    ticker.reanchor_surface_spawn(102, [0.0, 70.0, 0.0]);
+    assert!(!ticker.has_held_release());
+    ticker.send_held_release(|_| panic!("the facing input was discarded"));
+
+    let mut ticker = held_release_ticker();
+    let sent = flush_identities(&mut ticker, 8);
+    ticker.begin_respawn_search();
+    // A write acknowledged under the old epoch must not revive the release.
+    ticker.acknowledge_physics_send(sent[0]);
+    assert!(!ticker.has_held_release());
+}
+
+#[test]
+fn held_release_survives_an_authority_change_after_its_facing_was_written() {
+    let mut ticker = held_release_ticker();
+    let sent = flush_identities(&mut ticker, 1);
+    assert!(ticker.acknowledge_physics_send(sent[0]));
+    ticker.reanchor_surface_spawn(102, [0.0, 70.0, 0.0]);
+    let mut released = false;
+    ticker.send_held_release(|_| {
+        released = true;
+        Ok(())
+    });
+    assert!(released);
+}
