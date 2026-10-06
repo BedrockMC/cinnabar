@@ -109,14 +109,20 @@ impl StoreSnapshot {
         });
         let mut seen: Vec<(String, StoreArt)> = Vec::new();
         for (url, art) in detail.chain(rows) {
-            if let Some(path) = self.images.get(url)
-                && !seen.iter().any(|(seen, _)| seen == path)
-            {
-                seen.push((path.clone(), art));
-                if seen.len() == MAX_VISIBLE_IMAGES {
-                    break;
+            let Some(path) = self.images.get(url) else {
+                continue;
+            };
+            // An image shown both as a card and as feature art decodes at the larger size.
+            if let Some((_, kept)) = seen.iter_mut().find(|(seen, _)| seen == path) {
+                if art == StoreArt::Feature {
+                    *kept = art;
                 }
+                continue;
             }
+            if seen.len() == MAX_VISIBLE_IMAGES {
+                break;
+            }
+            seen.push((path.clone(), art));
         }
         seen
     }
@@ -231,6 +237,37 @@ mod tests {
                 ("/c/a.png".to_owned(), StoreArt::Feature),
                 ("/c/b.png".to_owned(), StoreArt::Card)
             ]
+        );
+    }
+
+    // A hero tile sharing its image with an earlier card kept the card size and drew blurred.
+    #[test]
+    fn a_shared_image_takes_its_largest_art_size() {
+        let snapshot = StoreSnapshot {
+            rows: vec![
+                DisplayRow {
+                    id: None,
+                    title: String::new(),
+                    role: "StoreRow",
+                    offers: vec![offer("a", Some("https://x.test/a"))],
+                    continuation: None,
+                },
+                DisplayRow {
+                    id: None,
+                    title: String::new(),
+                    role: "HeroRow",
+                    offers: vec![offer("a", Some("https://x.test/a"))],
+                    continuation: None,
+                },
+            ],
+            images: [("https://x.test/a".to_owned(), "/c/a.png".to_owned())]
+                .into_iter()
+                .collect(),
+            ..StoreSnapshot::empty()
+        };
+        assert_eq!(
+            snapshot.image_paths(),
+            [("/c/a.png".to_owned(), StoreArt::Feature)]
         );
     }
 }
