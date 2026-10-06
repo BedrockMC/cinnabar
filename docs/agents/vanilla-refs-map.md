@@ -2228,3 +2228,8 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
   `R:ActorAnimationControllerPlayer:1327`). Interrupted blends therefore restart
   from that outgoing state's clip rather than a snapshot of the previously
   blended pose.
+- `crates/client-world/src/actor_animation/pose.rs`: shortest-path blends sample
+  each state into a fresh bone map, lerp them, then add translation/rotation and
+  multiply scale into the accumulated map (`ActorAnimationControllerPlayer::blendViaShortestPath`,
+  `R:ActorAnimationControllerPlayer:2395`); other blends apply both state players
+  onto the shared map with weights `w` and `1 - w` (`R:ActorAnimationControllerPlayer:1158`).

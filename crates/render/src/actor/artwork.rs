@@ -515,6 +515,9 @@ impl ActorArtworkPages {
     pub fn identity(&self) -> [u8; 32] {
         self.identity
     }
+    pub fn actor_glint(&self) -> Option<&EquipmentRaster> {
+        self.actor_glint.as_ref()
+    }
 
     /// Recognizes clones of the exact artwork snapshot without scanning pixels or routes.
     pub fn shares_storage_with(&self, other: &Self) -> bool {

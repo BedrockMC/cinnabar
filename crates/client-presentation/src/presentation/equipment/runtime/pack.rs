@@ -35,6 +35,19 @@ impl EquipmentRuntime {
             .collect()
     }
 
+    /// The catalog's shared enchantment raster, which binds apart from equipment pages.
+    pub fn actor_glint(catalog: &RuntimeEquipmentCatalog) -> Option<EquipmentRaster> {
+        catalog
+            .textures()
+            .iter()
+            .find(|texture| texture.identifier.as_ref() == assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
+            .map(|texture| EquipmentRaster {
+                width: texture.width,
+                height: texture.height,
+                rgba8: Arc::clone(&texture.rgba8),
+            })
+    }
+
     /// Geometries the actor scene must register for the pack's attachables, under pack
     /// equipment rig ids.
     pub fn pack_geometries(

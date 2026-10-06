@@ -3,7 +3,10 @@
 use super::{pack_runtime, player_body};
 use crate::presentation::equipment::{
     display::LAYER_CHESTPLATE,
-    runtime::{ActorEquipmentInput, EquipmentAnimation, EquipmentRuntime, HeldKind, WornItem},
+    runtime::{
+        ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, EquipmentRuntime, HeldKind,
+        WornItem,
+    },
 };
 use assets::{EntityRenderMaterial, EntityRigFallback};
 use client_world::{
@@ -275,8 +278,8 @@ fn enchanted_wings_keep_the_chest_texture_and_reuse_unchanged_pose_without_new_g
     assert!(runtime.take_pending_geometries().is_empty());
 }
 
-#[test]
-fn worn_transition_blends_short_wing_angles_and_preserves_identical_scale() {
+/// Wings whose states blend over 0.1 s by shortest path and share one body scale.
+fn blending_wing_pack() -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = wing_pack();
     for (path, bytes) in &mut files {
         if path.as_ref() == "animation_controllers/wings.json" {
@@ -303,7 +306,12 @@ fn worn_transition_blends_short_wing_angles_and_preserves_identical_scale() {
             *bytes = serde_json::to_vec(&document).unwrap();
         }
     }
-    let (mut runtime, _) = pack_runtime(files);
+    files
+}
+
+#[test]
+fn worn_transition_blends_short_wing_angles_and_preserves_identical_scale() {
+    let (mut runtime, _) = pack_runtime(blending_wing_pack());
     let body = player_body(&mut runtime);
     let mut owner = owner();
     let input = worn(false);
@@ -325,6 +333,44 @@ fn worn_transition_blends_short_wing_angles_and_preserves_identical_scale() {
     assert!(
         (wing.axis_scale[0] - 1.067).abs() < 1e-5,
         "matching state scales must stay unchanged while blending"
+    );
+}
+
+/// A direct scale before the controller must not pop while the controller blends.
+#[test]
+fn worn_blend_scales_multiply_into_earlier_direct_animations() {
+    let mut files = blending_wing_pack();
+    for (path, bytes) in &mut files {
+        let mut document: serde_json::Value = match path.as_ref() {
+            "attachables/elytra.json" | "animations/wings.json" => {
+                serde_json::from_slice(bytes).unwrap()
+            }
+            _ => continue,
+        };
+        if path.as_ref() == "attachables/elytra.json" {
+            let description = &mut document["minecraft:attachable"]["description"];
+            description["animations"]["grow"] = serde_json::json!("animation.wings.grow");
+            description["scripts"]["animate"] = serde_json::json!(["grow", "controller"]);
+        } else {
+            document["animations"]["animation.wings.grow"] =
+                serde_json::json!({"loop":true,"bones":{"body":{"scale":2}}});
+        }
+        *bytes = serde_json::to_vec(&document).unwrap();
+    }
+    let (mut runtime, _) = pack_runtime(files);
+    let body = player_body(&mut runtime);
+    let mut owner = owner();
+    let input = worn(false);
+    let scale =
+        |draws: &[EquipmentPresentation]| draws[0].submission.input.current_bones[1].axis_scale[0];
+    let folded = layers(&mut runtime, &body, &owner, &input, 1);
+    assert!((scale(&folded) - 2.0 * 1.067).abs() < 1e-4);
+    owner.metadata.insert(0, ActorMetadataValue::Flags(1 << 32));
+    let halfway = layers(&mut runtime, &body, &owner, &input, 2);
+    assert!(
+        (scale(&halfway) - 2.0 * 1.067).abs() < 1e-4,
+        "blend scale {} must multiply the direct scale",
+        scale(&halfway)
     );
 }
 
