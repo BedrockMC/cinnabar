@@ -354,7 +354,7 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
         (1, 8 | 4, false, false),
         (1, 8 | 2, false, true),
     ] {
-        let material = pipeline::test_material(mode);
+        let material = specialized_material(mode);
         let fragment = material.fragment.as_ref().unwrap();
         // `#ifdef` checks registered names, including definitions whose boolean value is false.
         let definitions: Vec<&str> = material
@@ -447,4 +447,22 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
             &pixels[center..center + 4]
         );
     }
+}
+
+/// The descriptor the pipeline cache would build for a material mode.
+fn specialized_material(mode: u8) -> bevy::render::render_resource::RenderPipelineDescriptor {
+    use bevy::render::render_resource::Specializer;
+    let mut result = pipeline::descriptor();
+    pipeline::ShapeSpecializer
+        .specialize(
+            pipeline::Key {
+                msaa: bevy::prelude::Msaa::Off,
+                hdr: false,
+                gamma: true,
+                mode,
+            },
+            &mut result,
+        )
+        .unwrap();
+    result
 }

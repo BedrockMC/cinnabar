@@ -29,7 +29,7 @@ use bevy::{
 
 pub(super) const TEXT_FRONT_FACE: FrontFace = FrontFace::Cw;
 
-struct ShapeSpecializer;
+pub(super) struct ShapeSpecializer;
 #[derive(Resource)]
 pub(super) struct ShapePipeline {
     variants: Variants<RenderPipeline, ShapeSpecializer>,
@@ -94,7 +94,7 @@ impl FromWorld for ShapePipeline {
 }
 
 /// Builds the shared base descriptor before applying text material differences.
-fn descriptor() -> RenderPipelineDescriptor {
+pub(super) fn descriptor() -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("primitive shape pipeline".into()),
         vertex: VertexState {
@@ -138,11 +138,11 @@ fn descriptor() -> RenderPipelineDescriptor {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, SpecializerKey)]
-struct Key {
-    msaa: Msaa,
-    hdr: bool,
-    gamma: bool,
-    mode: u8,
+pub(super) struct Key {
+    pub(super) msaa: Msaa,
+    pub(super) hdr: bool,
+    pub(super) gamma: bool,
+    pub(super) mode: u8,
 }
 
 impl Specializer<RenderPipeline> for ShapeSpecializer {
@@ -193,24 +193,6 @@ impl Specializer<RenderPipeline> for ShapeSpecializer {
         }
         Ok(key)
     }
-}
-
-/// Exposes the actual specialized descriptor to GPU material regression fixtures.
-#[cfg(test)]
-pub(super) fn test_material(mode: u8) -> RenderPipelineDescriptor {
-    let mut result = descriptor();
-    ShapeSpecializer
-        .specialize(
-            Key {
-                msaa: Msaa::Off,
-                hdr: false,
-                gamma: true,
-                mode,
-            },
-            &mut result,
-        )
-        .unwrap();
-    result
 }
 
 /// Reuses bind groups until an arena or shared view/clock buffer changes identity.
