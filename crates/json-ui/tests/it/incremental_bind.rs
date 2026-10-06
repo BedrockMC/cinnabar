@@ -951,11 +951,23 @@ const SCOPED_PANEL: &str = r##"{
     "type": "label", "text": "#title", "size": ["default", 10],
     "bindings": [ { "binding_type": "collection", "binding_collection_name": "heroes", "binding_name": "#title" } ]
   },
+  "sub": {
+    "type": "label", "text": "#title", "size": ["default", 10],
+    "bindings": [ { "binding_type": "collection", "binding_collection_name": "heroes", "binding_name": "#title" } ]
+  },
   "row": {
     "type": "stack_panel", "size": ["100%c", 10], "collection_name": "heroes",
     "controls": [
       { "a@sp.cell": { "collection_index": 0 } },
-      { "b@sp.cell": { "collection_index": 1 } }
+      { "b@sp.cell": { "collection_index": 1 } },
+      { "nested": {
+          "type": "panel", "size": ["100%c", 10], "collection_index": 1,
+          "controls": [ { "subs": {
+            "type": "stack_panel", "size": ["100%c", "100%c"], "collection_name": "subs",
+            "property_bag": { "#collection_length": 1 },
+            "factory": { "name": "subs_factory", "control_name": "sp.sub" }
+          } } ]
+      } }
     ]
   },
   "root": {
@@ -970,7 +982,7 @@ const SCOPED_PANEL: &str = r##"{
 }"##;
 
 // A settled collection panel kept reading the shared list after its item's own list appeared, and
-// stale cells after that list shrank or went away.
+// stale cells after that list shrank or went away, including cells reached through a nested factory.
 #[test]
 fn a_scoped_list_registered_later_reaches_settled_collection_panels() {
     let catalog = Catalog::from_files([
@@ -991,6 +1003,7 @@ fn a_scoped_list_registered_later_reaches_settled_collection_panels() {
             vec![CollectionItem::new("r"), CollectionItem::new("r")],
         );
         data.set_collection("heroes", vec![title("shared0"), title("shared1")]);
+        data.set_collection("subs", vec![CollectionItem::new("s")]);
         let lists = [vec![title("A"), title("B")], vec![title("C"), title("D")]];
         for (row, list) in lists.into_iter().enumerate() {
             if scoped > 0 {
