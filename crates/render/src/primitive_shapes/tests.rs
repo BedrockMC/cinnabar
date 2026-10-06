@@ -393,6 +393,48 @@ fn cross_referenced_arena_stays_in_one_binding_and_counts_excess() {
     assert_eq!(gpu.work.skipped_slots, 2);
 }
 
+/// Unchanged frames with retained bind groups must not allocate.
+#[test]
+fn retained_bind_groups_allocate_nothing() {
+    use bevy::{
+        diagnostic::FrameCount,
+        ecs::system::RunSystemOnce,
+        render::{
+            globals::GlobalsBuffer,
+            renderer::{RenderDevice, RenderQueue},
+            view::{ViewUniforms, prepare_view_uniforms},
+        },
+    };
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ViewUniforms>();
+    world.init_resource::<FrameCount>();
+    world.run_system_once(prepare_view_uniforms).unwrap();
+    let device = world.resource::<RenderDevice>().clone();
+    let mut globals = GlobalsBuffer::default();
+    globals
+        .buffer
+        .write_buffer(&device, world.resource::<RenderQueue>());
+    world.insert_resource(globals);
+    world.insert_resource(gpu::ShapeGpu::new(&device, &device.limits()));
+    world.insert_resource(PrimitiveShapesScene::default());
+    world.init_resource::<pipeline::ShapePipeline>();
+    apply(world, vec![line_update(0, 0.0)]);
+    world.run_system_once(gpu::prepare).unwrap();
+    let mut bind = IntoSystem::into_system(pipeline::prepare_bind_groups);
+    bind.initialize(world);
+    bind.run((), world).unwrap();
+    assert_eq!(
+        world.resource::<gpu::ShapeGpu>().batches[0]
+            .bind_groups
+            .len(),
+        1
+    );
+    let before = crate::alloc_count::thread_allocations();
+    bind.run((), world).unwrap();
+    assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
+}
+
 #[test]
 fn primitive_text_material_modes_keep_depth_background_and_facing() {
     use crate::gpu_snapshot::{Draw, Gpu, RasterState, SNAPSHOT_SIDE};
