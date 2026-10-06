@@ -195,24 +195,6 @@ impl Specializer<RenderPipeline> for ShapeSpecializer {
     }
 }
 
-/// Exposes the actual specialized descriptor to GPU material regression fixtures.
-#[cfg(test)]
-pub(super) fn test_material(mode: u8) -> RenderPipelineDescriptor {
-    let mut result = descriptor();
-    ShapeSpecializer
-        .specialize(
-            Key {
-                msaa: Msaa::Off,
-                hdr: false,
-                gamma: true,
-                mode,
-            },
-            &mut result,
-        )
-        .unwrap();
-    result
-}
-
 /// Reuses bind groups until an arena or shared view/clock buffer changes identity.
 pub(super) fn prepare_bind_groups(
     device: Res<RenderDevice>,
@@ -383,3 +365,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawShapeBatch {
         RenderCommandResult::Success
     }
 }
+
+#[cfg(test)]
+#[path = "pipeline_tests.rs"]
+mod tests;
