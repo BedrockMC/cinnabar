@@ -668,6 +668,7 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
     };
     let details = ServerDetails {
         description: server.description.clone(),
+        banner: server.background.path.clone(),
         news_title: server.news_title.clone(),
         news: server.news.clone(),
         screenshots: server
@@ -801,6 +802,10 @@ mod tests {
             name: "S".into(),
             address: "a.test:19132".into(),
             news: "Update".into(),
+            background: protocol::launcher_control::Artwork {
+                url: "https://a.test/bg.png".into(),
+                path: "/art/bg.img".into(),
+            },
             screenshots: vec![
                 protocol::launcher_control::Artwork {
                     url: "https://a.test/s.png".into(),
@@ -817,6 +822,7 @@ mod tests {
         assert_eq!(card.address, "a.test:19132");
         assert_eq!(details.news, "Update");
         assert_eq!(details.screenshots, vec!["/art/t.img".to_owned()]);
+        assert_eq!(details.banner, "/art/bg.img");
     }
 
     #[test]

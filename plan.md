@@ -1,3 +1,9 @@
+## Servers tab experiences
+
+- The Servers tab lists the ServerTab layout's experiences, joined by experience ID. Incomplete
+  parity: experiences show no player count (the game reads gatherings player counts), and a
+  listing-only experience's details panel stays empty until its linked detail page is read.
+
 ## Friends tab worlds
 
 - Friends' worlds follow the vanilla list rule (`p2p.World.Listed`): members and a host, the player's

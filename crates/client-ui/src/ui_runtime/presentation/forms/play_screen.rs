@@ -5,7 +5,9 @@
 
 use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
-use crate::menu::{MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo};
+use crate::menu::{
+    MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo, pingable,
+};
 
 const FEATURED: &str = "third_party_server_network_worlds";
 const PERSONAL_REALMS: &str = "personal_realms";
@@ -22,6 +24,11 @@ fn ping_texture(ping: Option<&PingInfo>) -> &'static str {
         Some(ping) if ping.online => "textures/ui/Ping_Red",
         _ => "textures/ui/Ping_Offline_Red",
     }
+}
+
+/// A featured row's ping icon; an experience, having no server to ping, shows none.
+fn featured_ping_texture(pingable: bool, ping: Option<&PingInfo>) -> &'static str {
+    if pingable { ping_texture(ping) } else { "" }
 }
 
 fn player_count(ping: Option<&PingInfo>) -> String {
@@ -126,13 +133,14 @@ fn featured_servers(view: &MenuView, data: &mut DataSource) {
         .enumerate()
         .map(|(index, server)| {
             let ping = view.feeds.pings.get(&server.address);
+            let pingable = pingable(&server.address);
             CollectionItem::default()
                 .with("#third_party_toggle_index", Scalar::Num(index as f64))
                 .with("#server_player_count", text(player_count(ping)))
-                .with("#texture_name", text(ping_texture(ping)))
+                .with("#texture_name", text(featured_ping_texture(pingable, ping)))
                 .with(
                     "#is_network_available_and_ping_not_loading",
-                    Scalar::Bool(ping.is_some()),
+                    Scalar::Bool(ping.is_some() || !pingable),
                 )
                 .with("#third_party_server_name", text(server.name.clone()))
                 .with("#third_party_server_message", text(server.caption.clone()))
@@ -156,12 +164,16 @@ fn featured_servers(view: &MenuView, data: &mut DataSource) {
         data.select_radio("server_navigation_toggle", index);
     }
     let ping = view.feeds.pings.get(&server.address);
-    flag(data, "#ping_ready_thirdparty", ping.is_some());
+    let pingable = pingable(&server.address);
+    flag(data, "#ping_ready_thirdparty", ping.is_some() || !pingable);
     data.set_global(
         "#info_third_party_server_player_count",
         text(player_count(ping)),
     );
-    data.set_global("#info_ping_texture_name", text(ping_texture(ping)));
+    data.set_global(
+        "#info_ping_texture_name",
+        text(featured_ping_texture(pingable, ping)),
+    );
     data.set_global(
         "#info_server_ping",
         text(
@@ -320,6 +332,27 @@ mod tests {
     use json_ui::{HitKind, RectOut};
 
     use super::*;
+
+    /// An experience has no server to ping, so its row shows no ping icon instead of a stale one.
+    #[test]
+    fn experiences_show_no_ping_icon() {
+        let pong = PingInfo {
+            online: true,
+            players: 1,
+            max_players: 10,
+            ping_ms: 20,
+        };
+        assert!(!pingable("gathering/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"));
+        assert_eq!(featured_ping_texture(false, None), "");
+        assert_eq!(
+            featured_ping_texture(true, Some(&pong)),
+            "textures/ui/Ping_Green"
+        );
+        assert_eq!(
+            featured_ping_texture(true, None),
+            "textures/ui/Ping_Offline_Red"
+        );
+    }
 
     fn card(name: &str) -> MenuServerCard {
         MenuServerCard {

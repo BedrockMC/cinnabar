@@ -25,6 +25,7 @@ type FeaturedServer struct {
 	NewsTitle    string   `json:"news_title,omitempty"`
 	News         string   `json:"news,omitempty"`
 	Logo         Image    `json:"logo"`
+	Background   Image    `json:"background"` // the details panel's banner
 	Screenshots  []Image  `json:"screenshots"`
 	Games        []Game   `json:"games"`
 	Tags         []string `json:"tags,omitempty"`
@@ -222,6 +223,9 @@ func featuredServers(tab *layout.Layout) []FeaturedServer {
 				server.thumbnailURL = url
 			}
 		}
+		if background := experience.BackgroundImage.URL(); validArtworkURL(background) {
+			server.Background.URL = background
+		}
 		for _, activity := range experience.Activities {
 			game := Game{
 				Title:       strings.TrimSpace(activity.Title.Value),
@@ -266,7 +270,7 @@ func FeaturedImages(servers []FeaturedServer) []*Image {
 	var images []*Image
 	for index := range servers {
 		server := &servers[index]
-		images = append(images, &server.Logo)
+		images = append(images, &server.Logo, &server.Background)
 		for shot := range server.Screenshots {
 			images = append(images, &server.Screenshots[shot])
 		}

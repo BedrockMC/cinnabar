@@ -23,6 +23,7 @@ import (
 const serverTabFixture = `{"title":{"value":""},"refreshPolicy":{"timeToLiveInSeconds":3600},"body":{"fabs":[
 {"$type":"ExperienceFab","id":"hero","variant":"feature-play","experience":{"experienceId":"b7f5596c-e811-49ec-b318-80ff3c435d1d",
  "title":{"value":" OneBlock "},"creatorName":"Maker","description":{"value":" Skyblock. "},
+ "backgroundImage":{"full":{"url":"https://cdn.example.test/bg.png"}},
  "logoImage":{"full":{"url":"https://cdn.example.test/logo.png"}},
  "activities":[{"title":{"value":"Play"},"subtitle":{"value":"Solo"},"description":{"value":"Go"},"image":{"half":{"url":"https://cdn.example.test/a.png"}}},
   {"title":{"value":""},"subtitle":{"value":""}},{"title":{"value":"Insecure"},"image":{"full":{"url":"http://insecure.test/x.png"}}}],
@@ -46,7 +47,7 @@ func TestServerTabExperiencesFeedTheFeaturedList(t *testing.T) {
 	hero, listed := servers[0], servers[1]
 	if hero.Name != "OneBlock" || hero.Address != GatheringTargetPrefix+"b7f5596c-e811-49ec-b318-80ff3c435d1d" ||
 		hero.Caption != "Hello" || hero.Description != "Skyblock." || hero.Logo.URL != "https://cdn.example.test/logo.png" ||
-		hero.thumbnailURL != "https://cdn.example.test/f.png" {
+		hero.thumbnailURL != "https://cdn.example.test/f.png" || hero.Background.URL != "https://cdn.example.test/bg.png" {
 		t.Fatalf("hero = %+v", hero)
 	}
 	if len(hero.Games) != 2 || hero.Games[0].Image.URL != "https://cdn.example.test/a.png" || hero.Games[1].Image.URL != "" {
@@ -84,11 +85,11 @@ func TestArtworkPruningKeepsTheNewestFiles(t *testing.T) {
 func TestFeaturedImagesPointIntoTheServers(t *testing.T) {
 	servers := []FeaturedServer{{Screenshots: []Image{{URL: "https://a.test/s.png"}}, Games: []Game{{}}}}
 	images := FeaturedImages(servers)
-	if len(images) != 3 {
+	if len(images) != 4 {
 		t.Fatalf("images = %d", len(images))
 	}
-	images[1].Path = "/cache/s.img"
-	if servers[0].Screenshots[0].Path != "/cache/s.img" {
+	images[1].Path, images[2].Path = "/cache/bg.img", "/cache/s.img"
+	if servers[0].Background.Path != "/cache/bg.img" || servers[0].Screenshots[0].Path != "/cache/s.img" {
 		t.Fatal("paths must land in the servers")
 	}
 }

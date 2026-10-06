@@ -180,9 +180,7 @@ fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String>
     addresses
         .into_iter()
         .filter(|address| {
-            !address.is_empty()
-                && !address.starts_with(super::launcher_core::GATHERING_ADDRESS_PREFIX)
-                && seen.insert(*address)
+            !address.is_empty() && launcher::menu::pingable(address) && seen.insert(*address)
         })
         .map(str::to_owned)
         .collect()
