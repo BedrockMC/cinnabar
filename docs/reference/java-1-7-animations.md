@@ -1,6 +1,10 @@
 # Java 1.7 animations
 
-Owner-mandated default, switchable to vanilla Bedrock with Video › Java 1.7 Animations (live, persisted). With the toggle off every path is the vanilla one. Code: `render-model::java_animation` (pose, cape and matrix stacks), `client-world` `actor_animation/java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
+Owner-mandated default, selected with Video › Animations: Java 1.7 or Bedrock (live, persisted). The selector uses the same dropdown and radio controls as Graphics mode, with pointer, keyboard and controller access. Selecting Bedrock keeps every vanilla path.
+
+New installs and existing installs with no saved animation preference default to Java 1.7. Saved toggle values migrate: on selects Java 1.7; off selects Bedrock.
+
+Code: `render-model::java_animation` (pose, cape and matrix stacks), `client-world` `actor_animation/java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
 
 ## Frame mapping
 
@@ -55,7 +59,7 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 - Swimming, crawling, gliding, sleeping and emoting keep vanilla poses: Java 1.7 has none.
 - Server-authored player rigs and first-person attachables retain their own poses. Uploaded custom/slim skins remain eligible; local emotes drive their animated skin layers with the same sampled pose as the body.
 - Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
-- Elytra capes, the third-person bow pull frames, and the cast rod drawn as a stick are not Java's.
+- Elytra keeps its authored wing poses in both animation modes and hides the separate cape while worn. When a cape is present, its texture replaces the wing texture. The third-person bow pull frames and the cast rod drawn as a stick are not Java's.
 - First-person directional lighting follows Java; environment brightness still comes from the shared Bedrock lightmap. Exact Java lightmap colors, tinted multipass saturation and complete frame lighting remain outside the verified scope.
 - Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
 - Recognized living mounts supply the displayed player's body heading. Head lag clamps to ±85°; above 50° the body moves another fifth toward the head, reducing extreme relative head output to ±68°. Mount yaw takes the short interpolation path. The cape retains the player's ordinary body yaw. Nonliving vehicles and unclassified mount identities keep the ordinary player body basis.

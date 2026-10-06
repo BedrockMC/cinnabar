@@ -24,8 +24,21 @@ pub struct SettingDefinition {
     pub default: i32,
 }
 
-/// Caption of the Video toggle between Java 1.7 and vanilla player animations.
-pub const JAVA_ANIMATIONS_LABEL: &str = "Java 1.7 Animations";
+/// Ordered animation choices shared by the registry and the Video selector.
+pub const ANIMATION_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "animations_radio_java",
+        label: "Java 1.7",
+    },
+    SettingChoice {
+        name: "animations_radio_bedrock",
+        label: "Bedrock",
+    },
+];
+
+/// The default choice uses Java animation while Bedrock retains the vanilla paths.
+pub const ANIMATIONS_OPTION: SettingDefinition =
+    dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
 
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
@@ -237,7 +250,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     toggle("ingame_player_names", "options.ingamePlayerNames", true),
     toggle("view_bobbing", "options.viewBobbing", true),
-    toggle("java_animations", JAVA_ANIMATIONS_LABEL, true),
+    ANIMATIONS_OPTION,
     toggle("camera_shake", "options.screenShake", true),
     toggle("transparent_leaves", "options.transparentleaves", true),
     toggle("bubble_particles", "options.bubbleparticles", true),

@@ -310,12 +310,38 @@ fn vsync_defaults_on_and_persists_into_runtime_settings() {
 }
 
 #[test]
-fn java_animations_default_on_and_persist_into_runtime_settings() {
+fn animations_default_to_java_and_persist_both_choices() {
     let mut settings = SettingsOptions::default();
+    let index = index("animations");
+    assert_eq!(settings.get(index), 0);
     assert!(settings.user_settings().video.java_animations);
-    settings.set(index("java_animations"), 0);
-    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    assert!(!loaded.user_settings().video.java_animations);
-    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
-    assert!(legacy.user_settings().video.java_animations);
+    for choice in [1, 0] {
+        settings.set(index, choice);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.get(index), choice);
+        assert_eq!(loaded.user_settings().video.java_animations, choice == 0);
+    }
+    let untouched = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(untouched.user_settings().video.java_animations);
+    settings.set(index, 1);
+    settings.reset_group(super::SettingsGroup::Video);
+    assert!(settings.user_settings().video.java_animations);
+}
+
+#[test]
+fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
+    for (toggle, choice) in [(0, 1), (1, 0)] {
+        let legacy = serde_json::json!({ "values": { "java_animations": toggle } });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(loaded.value("animations"), choice);
+        assert_eq!(loaded.user_settings().video.java_animations, toggle != 0);
+        let saved = serde_json::to_value(&loaded).unwrap();
+        assert!(saved["values"].get("java_animations").is_none());
+        assert_eq!(saved["values"]["animations"], choice);
+        let selected = serde_json::json!({
+            "values": { "java_animations": toggle, "animations": toggle }
+        });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&selected).unwrap()).unwrap();
+        assert_eq!(loaded.value("animations"), toggle);
+    }
 }
