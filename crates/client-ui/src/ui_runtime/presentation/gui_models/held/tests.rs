@@ -119,10 +119,25 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
 
 #[test]
 fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_hands() {
+    use crate::test_support::{fixture_font, fixture_hud};
+    use crate::ui_runtime::presentation::UiPresentationRuntime;
     let (entities, icons) = banner_catalog();
     assert!(icons.block_sheets().is_empty());
+    let presentation =
+        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), Arc::new(icons))
+            .unwrap();
+    let icons = presentation.icon_catalog.as_deref().unwrap();
+    let icon_refs = presentation.icon_refs.as_deref().unwrap();
     let mut atlas = atlas::Atlas::new(1, super::super::MODEL_PAGES);
-    let models = prepare(&mut atlas, &entities, &icons, None, &BTreeMap::new()).unwrap();
+    let models = prepare(
+        &mut atlas,
+        &entities,
+        icons,
+        icon_refs,
+        None,
+        &BTreeMap::new(),
+    )
+    .unwrap();
     assert_eq!(models.len(), icons.entries().len());
     let skin = IconRef {
         page: 0,
@@ -157,9 +172,76 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
                 .iter()
                 .all(|placement| matches!(placement, PreviewHeldPlacement::Sprite { .. }))
         );
+        assert_eq!(
+            model.source,
+            presentation
+                .item_icon(&definition.key.identifier, definition.key.metadata)
+                .unwrap()
+        );
         let right = draw([Some(model), None]).vertices().len();
         let left = draw([None, Some(model)]).vertices().len();
         assert!(right > bare && left > bare);
         assert_eq!(draw([Some(model); 2]).vertices().len(), right + left - bare);
     }
+    assert!(
+        atlas.finish().unwrap().0.is_empty(),
+        "sprite meshes must not upload duplicate source pages"
+    );
+}
+
+#[test]
+fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
+    use crate::test_support::{fixture_font, fixture_hud};
+    use crate::ui_runtime::presentation::UiPresentationRuntime;
+    use assets::carriers;
+    let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(carriers::COMPILED_DIR);
+    let read = |carrier: &carriers::Carrier| {
+        let path = compiled.join(carrier.output);
+        match std::fs::read(&path) {
+            Ok(bytes) => Ok(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "skipping installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget: missing {}; run make assets",
+                    path.display()
+                );
+                Err(())
+            }
+            Err(error) => panic!("read installed GUI fixture {}: {error}", path.display()),
+        }
+    };
+    let (Ok(world), Ok(entities), Ok(icons), Ok(equipment)) = (
+        read(&carriers::WORLD),
+        read(&carriers::ENTITY),
+        read(&carriers::ICON),
+        read(&carriers::EQUIPMENT),
+    ) else {
+        return;
+    };
+    let world = assets::RuntimeAssets::decode(&world).unwrap();
+    let entities = RuntimeEntityAssets::decode(&entities).unwrap();
+    let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());
+    let equipment = Arc::new(RuntimeEquipmentCatalog::decode(&equipment).unwrap());
+    let mut presentation =
+        UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).unwrap();
+    presentation.set_equipment_catalog(Some(equipment));
+    presentation.set_gui_models(&world, &entities).unwrap();
+    let mut sprites = 0;
+    for (key, model) in &presentation.gui_models.held {
+        if matches!(model.placements[0], PreviewHeldPlacement::Sprite { .. }) {
+            assert_eq!(
+                model.source,
+                presentation
+                    .item_icon(&key.identifier, key.metadata)
+                    .unwrap()
+            );
+            assert!((model.source.page as usize) < presentation.textures.dynamic_start());
+            sprites += 1;
+        }
+    }
+    assert!(
+        sprites > 0,
+        "installed items exercise the resident sprite path"
+    );
 }
