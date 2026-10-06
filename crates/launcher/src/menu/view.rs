@@ -164,6 +164,19 @@ pub struct MenuFeeds {
     pub home: MenuHome,
     /// The join the progress screen reports while connecting.
     pub join: JoinProgress,
+    /// The join's pending question whether to trust a NetherNet server.
+    pub server_trust: Option<ServerTrustPrompt>,
+    /// The player's answer to that question, until it is sent to the core that asked.
+    pub server_trust_answer: Option<(ServerTrustPrompt, bool)>,
+}
+
+/// The core asks whether to trust the NetherNet server at `url` before the join goes on.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
+    /// Asked by a per-session core rather than the launcher core; ids are per core.
+    pub from_session_core: bool,
 }
 
 /// Which kind of join is under way; picks vanilla's connect title and progress screen.
@@ -437,6 +450,16 @@ impl From<CatalogFriend> for MenuFriendCard {
 }
 
 impl MenuView {
+    /// The join's pending trust question, which draws as a popup over the join screen.
+    pub fn server_trust_prompt(&self) -> Option<&ServerTrustPrompt> {
+        self.feeds.server_trust.as_ref().filter(|_| self.connecting)
+    }
+
+    /// Whether a popup draws over the screen and takes its input.
+    pub fn popup_open(&self) -> bool {
+        self.dialog.is_some() || self.server_trust_prompt().is_some()
+    }
+
     /// Whether the launcher is waiting for the player to complete device-code sign-in.
     pub fn auth_state_awaiting_code(&self) -> bool {
         matches!(self.auth_state, AuthState::AwaitingCode { .. })

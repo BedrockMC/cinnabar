@@ -967,3 +967,76 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
         }
     }
 }
+
+// The join's trust question draws vanilla's modal popup over everything, and only its answers take
+// presses, even with a launcher dialog open beneath it.
+#[test]
+fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping server_trust_question_draws_the_vanilla_popup_and_owns_the_input: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let player_runtime = player_state::PlayerState::new(1);
+    let mut view = crate::menu::MenuView::new(true, "Player".into());
+    view.connecting = true;
+    view.dialog = Some(crate::menu::MenuDialog::Exit);
+    view.feeds.server_trust = Some(crate::menu::ServerTrustPrompt {
+        id: 1,
+        url: "http://127.0.0.1:19132".into(),
+        from_session_core: false,
+    });
+    let actions = super::test_support::draw_menu_actions(&player_runtime, &mut presentation, &view);
+    let texts =
+        super::pack_harness::drawn_texts(super::pack_harness::menu_nodes(&presentation)).join(" ");
+    for expected in [
+        "Trust this server?",
+        "You are connecting to",
+        "http://127.0.0.1:19132",
+        "Trust and Join",
+        "Don't Trust",
+    ] {
+        assert!(
+            texts.contains(expected),
+            "missing {expected:?} in {texts:?}"
+        );
+    }
+    for answer in [true, false] {
+        assert!(
+            actions.contains(&crate::menu::MenuAction::ServerTrust(answer)),
+            "{actions:?}"
+        );
+    }
+    assert!(
+        actions
+            .iter()
+            .all(|action| matches!(action, crate::menu::MenuAction::ServerTrust(_))),
+        "{actions:?}"
+    );
+}
+
+// A language's translation of the question wins over vanilla's English and names the URL.
+#[test]
+fn server_trust_question_reads_the_active_language() {
+    let translate = |key: &str| {
+        (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
+    };
+    let json_ui::FormModel::Modal(modal) =
+        super::menu_screens::server_trust_model("http://a:1", &translate)
+    else {
+        panic!("the trust question is a modal popup");
+    };
+    assert_eq!(
+        (
+            modal.title.as_str(),
+            modal.body.as_str(),
+            modal.button1.as_str()
+        ),
+        (
+            "Trust this server?",
+            "Vertrauen http://a:1?",
+            "Trust and Join"
+        )
+    );
+}

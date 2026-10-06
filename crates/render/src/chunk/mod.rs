@@ -102,7 +102,7 @@ pub use instance::ChunkRenderInstance;
 mod texture_reload;
 mod textures;
 pub use texture_reload::ChunkTextureReload;
-mod transparent;
+pub(crate) mod transparent;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_ORIGIN_BYTES, CHUNK_SHADER_HANDLE,
@@ -250,10 +250,6 @@ pub use textures::{
 };
 #[allow(unused_imports)]
 use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceMetric};
-#[allow(unused_imports)]
-use transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws, transparent_liquid_phase_distance,
-};
 #[allow(unused_imports)]
 use transparent::model::{
     TransparentModelAddressIdentity, TransparentModelAllocationIdentity,

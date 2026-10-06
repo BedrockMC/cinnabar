@@ -18,7 +18,7 @@ pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, EXPERIENCE_ADDRESS_PREFIX, InboxItem, JoinKind,
     JoinProgress, JoinStage, LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard,
     MenuGameCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo,
-    SavedServer, ServerDetails, pingable,
+    SavedServer, ServerDetails, ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -141,6 +141,8 @@ pub enum MenuAction {
     /// A press on a Marketplace screen.
     Store(crate::store::StoreAction),
     GlobalResources(crate::global_resources::Action),
+    /// Answers the join's server trust prompt: "Trust and Join" (true) or "Don't Trust".
+    ServerTrust(bool),
 }
 
 impl MenuAction {
