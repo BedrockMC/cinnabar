@@ -111,7 +111,13 @@ fn third_person_bound_root_stays_at_the_hand_under_rotation_and_scale() {
     let pivot = [0.0, assets::gui_item::SHIELD_MODEL_PART_HEIGHT / 16.0, 0.0];
     let posed = attach(hand, pivot, BoneChannels::default()).unwrap();
     assert_eq!(posed.translation_scale, hand.translation_scale);
-    assert!(posed.rotation.iter().zip(hand.rotation).all(|(actual, expected)| (actual - expected).abs() < 1e-6));
+    assert!(
+        posed
+            .rotation
+            .iter()
+            .zip(hand.rotation)
+            .all(|(actual, expected)| (actual - expected).abs() < 1e-6)
+    );
 }
 
 #[test]

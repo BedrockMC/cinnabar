@@ -162,7 +162,10 @@ pub fn dispatch_inventory_key(
             .scroll_loom(rows, super::screen_recipes::LOOM_PATTERNS.len());
         return None;
     }
-    if drop && !runtime.screen_state().text_focused() {
+    if drop && runtime.screen_state().text_focused() {
+        return None;
+    }
+    if drop {
         if runtime
             .inventory_ledger(player_runtime)
             .cursor_stack()

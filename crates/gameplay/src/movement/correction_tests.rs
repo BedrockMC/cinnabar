@@ -133,16 +133,34 @@ fn corrections_update_authority_immediately_and_smooth_only_the_presented_pose()
         sim::MovementInput::default(),
         &world,
     );
-    assert_eq!(frame.completed_ticks, 1, "a correction preserves the partial simulation tick");
-    assert_eq!(frame.samples[0].position[0], 2.0, "network samples always use corrected authority");
-    physics.advance(Duration::from_millis(25), sim::MovementInput::default(), &world);
+    assert_eq!(
+        frame.completed_ticks, 1,
+        "a correction preserves the partial simulation tick"
+    );
+    assert_eq!(
+        frame.samples[0].position[0], 2.0,
+        "network samples always use corrected authority"
+    );
+    physics.advance(
+        Duration::from_millis(25),
+        sim::MovementInput::default(),
+        &world,
+    );
     let halfway = physics.render_eye_position().unwrap()[0];
     assert!(halfway > before[0] && halfway < 2.0);
-    physics.advance(Duration::from_millis(125), sim::MovementInput::default(), &world);
+    physics.advance(
+        Duration::from_millis(125),
+        sim::MovementInput::default(),
+        &world,
+    );
     assert_eq!(physics.render_eye_position().unwrap()[0], 2.0);
 
     physics.reanchor_network_position([12.0, 2.620_01, 0.0], 200, true);
-    assert_eq!(physics.render_eye_position().unwrap()[0], 12.0, "explicit teleports have no stale correction offset");
+    assert_eq!(
+        physics.render_eye_position().unwrap()[0],
+        12.0,
+        "explicit teleports have no stale correction offset"
+    );
 }
 
 /// Axis collisions describe the motion that produced a position, so they cannot

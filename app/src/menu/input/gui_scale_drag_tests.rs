@@ -101,6 +101,17 @@ fn relayout(app: &mut App) {
         })
 }
 
+/// Finds a usable slider press through the same public hit test as pointer input.
+fn settings_slider_point(presentation: &UiPresentationRuntime, index: u16) -> Option<Vec2> {
+    (0..PHYSICAL[1]).step_by(8).find_map(|y| {
+        (0..PHYSICAL[0]).step_by(8).find_map(|x| {
+            let point = UiPoint::new(x as f32, y as f32).unwrap();
+            matches!(presentation.hit_test_menu(point), Some(MenuAction::SettingsOption(candidate, _)) if candidate == index)
+                .then_some(Vec2::new(x as f32, y as f32))
+        })
+    })
+}
+
 #[test]
 fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
     let Some(presentation) = engine_presentation() else {
@@ -145,7 +156,7 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
         .id();
     app.update();
     let view = app.world().resource::<MenuRuntime>().view();
-    let track =
+    let middle =
         app.world_mut()
             .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
                 presentation.set_menu_view(Some(view));
@@ -159,8 +170,8 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
                             DpiScale::new(1.0).unwrap(),
                         )
                         .unwrap();
-                    if let Some(track) = presentation.settings_slider_track(index) {
-                        return track;
+                    if let Some(point) = settings_slider_point(&presentation, index) {
+                        return point;
                     }
                     assert!(presentation.scroll_menu(
                         UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap(),
@@ -170,10 +181,6 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
                 }
                 panic!("the field of view slider enters the viewport after scrolling");
             });
-    let middle = Vec2::new(
-        (track.min().x() + track.max().x()) / 2.0,
-        (track.min().y() + track.max().y()) / 2.0,
-    );
     pointer(&mut app, window, middle, Some(ButtonState::Pressed));
     pointer(&mut app, window, Vec2::ZERO, None);
     assert_eq!(

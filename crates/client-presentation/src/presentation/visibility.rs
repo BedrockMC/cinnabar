@@ -7,6 +7,7 @@ pub struct GameplayOverlayVisibility {
 }
 
 impl GameplayOverlayVisibility {
+    /// Hide HUD suppresses both overlays while retaining the independent hand preference.
     pub const fn new(hide_hud: bool, hide_hand: bool) -> Self {
         Self {
             hand: !hide_hud && !hide_hand,

@@ -53,6 +53,7 @@ pub(super) struct IconBlocks {
 }
 
 impl IconBlocks {
+    /// The registry identifier of a compiled block visual.
     pub(super) fn name(&self, visual: BlockVisualId) -> Option<&str> {
         self.records
             .get(visual.0 as usize)
@@ -214,7 +215,7 @@ impl IconBlocks {
         if !file.is_file() {
             return Ok(None);
         }
-        Ok(super::bounded_sprite(decode_texture(&file, path)?).map(|(sprite, _)| sprite))
+        Ok(super::sprites::bounded_sprite(decode_texture(&file, path)?).map(|(sprite, _)| sprite))
     }
 }
 

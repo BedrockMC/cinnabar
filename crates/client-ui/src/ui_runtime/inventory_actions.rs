@@ -87,7 +87,7 @@ pub fn recipe_book_entries<'a>(
         let items = visible_creative_entries(ledger, state);
         if state.creative_tab == super::presentation::screens::SEARCH_TAB {
             return items
-                .into_iter()
+                .iter()
                 .map(|item| BookEntry::Creative {
                     item,
                     grouped: false,
@@ -96,7 +96,7 @@ pub fn recipe_book_entries<'a>(
         }
         let mut entries = Vec::with_capacity(items.len());
         let mut open: Option<u32> = None;
-        for item in items {
+        for item in items.iter() {
             let group = catalog
                 .groups
                 .get(item.group as usize)
@@ -165,7 +165,7 @@ enum Clicked {
 pub fn visible_creative_entries<'a>(
     ledger: &'a PlayerInventoryLedger,
     state: &ScreenState,
-) -> Vec<&'a CreativeItem> {
+) -> super::screen_state::CreativeEntries<'a> {
     state.matching_creative_entries(ledger, |item| item_name(ledger, item))
 }
 

@@ -70,10 +70,12 @@ func educationRenderRecord(identity Record) (Record, bool, error) {
 	return record, true, nil
 }
 
+// isEducationConstructionName limits admission to the three construction blocks.
 func isEducationConstructionName(name string) bool {
 	return name == "minecraft:allow" || name == "minecraft:deny" || name == "minecraft:border_block"
 }
 
+// applyEducationCollisionSeeds joins construction states to exact pinned collision facts.
 func applyEducationCollisionSeeds(records []Record, root string) error {
 	statesPath, shapesPath := filepath.Join(root, "blockStates.json"), filepath.Join(root, "blockCollisionShapes.json")
 	if err := requirePinnedPhysicsFile(statesPath, pinnedPrismarineStatesSHA, "Education state order"); err != nil {
@@ -123,6 +125,7 @@ func applyEducationCollisionSeeds(records []Record, root string) error {
 	return nil
 }
 
+// applyEducationLightProperties uses identified light facts for admitted construction states.
 func applyEducationLightProperties(projection v2193Projection, properties []byte, source map[string]PMMPLightProperties) error {
 	for index, record := range projection.records {
 		if projection.classes[index] != v2193ClassEducation {

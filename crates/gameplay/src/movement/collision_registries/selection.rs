@@ -161,6 +161,7 @@ fn torch_shape(record: &RegistryRecord) -> Option<Aabb> {
     Some(bounds(min, max))
 }
 
+/// Selectable wall-sign bounds sit against the supporting face without movement collision.
 fn wall_sign_shape(record: &RegistryRecord) -> Option<Aabb> {
     let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
     let facing = state["facing_direction"]["value"].as_u64()?;

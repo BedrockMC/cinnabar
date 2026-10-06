@@ -52,6 +52,7 @@ pub(super) struct Model<'a> {
 }
 
 impl<'a> Model<'a> {
+    /// Builds a model from source rectangles and its own inventory projection.
     pub(super) fn textured(
         quads: impl IntoIterator<Item = ([[f32; 3]; 4], [[f32; 2]; 4], &'a IconSprite)>,
         projection: fn([f32; 3]) -> [f32; 3],
@@ -75,6 +76,7 @@ impl<'a> Model<'a> {
         }
     }
 
+    /// Preserves flat model lighting for inventory materials without face shading.
     pub(super) fn unshaded(mut self) -> Self {
         self.face_lighting = false;
         self

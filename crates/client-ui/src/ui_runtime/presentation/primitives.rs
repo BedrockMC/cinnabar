@@ -22,7 +22,10 @@ pub(super) fn resolve_chat_line<'a>(
             let arguments = node
                 .parameters
                 .iter()
-                .map(|parameter| json_ui::localize_text(parameter, &translate).into_owned())
+                .map(|parameter| {
+                    json_ui::localize_parameter_prefix(parameter, &translate, usize::MAX)
+                        .into_owned()
+                })
                 .collect::<Vec<_>>();
             if arguments.is_empty() {
                 template
@@ -126,6 +129,29 @@ mod tests {
             _ => None,
         });
         assert_eq!(resolved, "Selected Play");
+    }
+
+    #[test]
+    fn translation_arguments_keep_unmarked_names_and_literal_percent_text() {
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "wrap",
+            &[
+                "menu.play",
+                "100% literal %menu.play",
+                "%missing",
+                "%menu.play",
+            ],
+        );
+        assert_eq!(
+            resolve_chat_line(&node, |key| match key {
+                "wrap" => Some(Arc::from("%s | %s | %s | %s")),
+                "menu.play" => Some(Arc::from("Play")),
+                _ => None,
+            }),
+            "menu.play | 100% literal %menu.play | %missing | Play"
+        );
     }
 
     #[test]

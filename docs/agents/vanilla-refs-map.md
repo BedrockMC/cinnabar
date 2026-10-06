@@ -2252,7 +2252,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Pinned `textures/item_texture.json` supplies extensionless leather icon sources. Helmet, leggings, boots and horse armor are `.tga`; chestplate is `.png`. Retail color-mask material rules preserve the low-alpha original-color trim and make all surviving texels opaque.
 
 ## crates/meshing/src/liquid.rs
-- `BlockTessellator::tessellateLiquidInWorld` side/bottom admission and reverse-face winding are separate decisions. Reference 26.30 `by-owner/b/BlockTessellator.cpp`; the liquid/primary layering contract keeps exposed liquid faces beside a standing sign.
+- Current `BlockTessellator::tessellateLiquidInWorld` (`0x06a1b960`, artifact 6, 1.26.50.26) reads extra-layer air for classic side/bottom admission and primary-layer air for reverse winding. `BlockTessellatorCache::getExtraBlock` and `getBlock` in the 26.30 reference corroborate the two distinct virtual slots.
 
 ## crates/assets/src/banner.rs
 ## crates/assets/src/block_entity_geometry.rs
@@ -2399,3 +2399,6 @@ was not used as version evidence.
 - `crates/client-ui/src/ui_runtime/presentation/primitive_shapes.rs`: current `ScriptTextPrimitive::applyUpdatedData` `0x109193240` retains parsed `TextObjectRoot` or literal; `Renderer::onBeginRender` `0x104446fa0` resolves only when the helper dirty flag or player input/interaction mode changes. Domain dynamic-text markers preserve common-patch refresh without rebuilding literal text geometry.
 
 - Equal packet updates: current `ClientScriptPrimitiveShapesDataComponent::handlePacket` `0x1022bab10` unconditionally marks an existing present-type entry dirty after its updater, with no equality check. `generateDiscVerts` `0x10443ed90` zero-segment branch initializes both closing vertices and packed colors to zero, then appends the closing pair unconditionally.
+
+## Translation parameter localization
+- `Localization::_get` localizes a parameter only when it begins with `%`, using the whole remaining parameter as a key; unresolved keys retain the original argument. Ordinary player names and embedded percent text are literal. R:Localization:1830-1940.

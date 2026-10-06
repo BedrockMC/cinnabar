@@ -27,6 +27,7 @@ impl sim::CollisionWorld for Floor {
     }
 }
 
+/// Runs picking from the published view against the retained world.
 fn pick(
     physics: &LocalPhysicsController,
     world: &ClientWorld,

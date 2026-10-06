@@ -90,12 +90,13 @@ impl UiRuntime {
     }
 }
 
+/// Resolves only marked whole-key arguments within their output budget.
 fn localize_argument(
     text: &str,
     translate: &dyn Fn(&str) -> Option<Arc<str>>,
     max_bytes: usize,
 ) -> Option<String> {
-    match json_ui::localize_text_prefix(text, translate, max_bytes) {
+    match json_ui::localize_parameter_prefix(text, translate, max_bytes) {
         Cow::Borrowed(_) => None,
         Cow::Owned(localized) => Some(localized),
     }
@@ -109,12 +110,12 @@ mod tests {
 
     #[test]
     fn rawtext_argument_expansion_bounds_catalog_work_and_retained_capacity() {
-        let argument = "%x!".repeat(protocol::MAX_RAW_TEXT_OUTPUT_BYTES / "%x!".len());
+        let argument = "%x";
         let document = protocol::parse_raw_text(&format!(
             r#"{{"rawtext":[{{"translate":"wrap","with":["{argument}"]}}]}}"#
         ))
         .unwrap();
-        let expanded: Arc<str> = "x".repeat(1_024).into();
+        let expanded: Arc<str> = "x".repeat(protocol::MAX_RAW_TEXT_OUTPUT_BYTES + 1).into();
         let lookups = Cell::new(0);
         let translate = |key: &str| match key {
             "wrap" => Some(Arc::from("%s")),
@@ -140,19 +141,13 @@ mod tests {
                     lookups.get()
                 );
                 assert!(localized.capacity() <= max_bytes);
-                assert!(lookups.get() <= max_bytes / expanded.len() + 1);
+                assert_eq!(lookups.get(), 1);
                 Some(localized)
             },
         );
         assert_eq!(resolved.text.len(), protocol::MAX_RAW_TEXT_OUTPUT_BYTES);
         assert!(resolved.truncated);
-        assert!(resolved.text.bytes().enumerate().all(|(index, byte)| {
-            byte == if index % (expanded.len() + 1) == expanded.len() {
-                b'!'
-            } else {
-                b'x'
-            }
-        }));
+        assert!(resolved.text.bytes().all(|byte| byte == b'x'));
     }
 
     #[test]

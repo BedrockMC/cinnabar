@@ -79,6 +79,7 @@ const SHADE_DOWN: f32 = 0.5;
 const SHADE_Z: f32 = 0.8;
 const SHADE_X: f32 = 0.6;
 
+/// Directional brightness in the shared terrain face order.
 pub(super) const fn tile_face_shade(face: usize) -> f32 {
     [SHADE_X, SHADE_X, SHADE_DOWN, SHADE_UP, SHADE_Z, SHADE_Z][face]
 }

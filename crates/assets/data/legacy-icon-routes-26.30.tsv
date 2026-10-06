@@ -18,6 +18,7 @@ minecraft:bamboo_door	0	bamboo_door	0	0x10a7a0d2c
 minecraft:bamboo_hanging_sign	0	sign_bamboo_hanging	0	0x10a79c4bf
 minecraft:bamboo_raft	0	boat	7	0x10a79cdb1
 minecraft:bamboo_sign	0	bamboo_sign	0	0x10a7a0d75
+minecraft:banner	0	sign	0	0x10a79fdc4
 minecraft:bed	0	bed	0	0x10a79def5
 minecraft:birch_boat	0	boat	2	0x10a79cbd1
 minecraft:birch_chest_boat	0	chest_boat	2	0x10a79cf37
