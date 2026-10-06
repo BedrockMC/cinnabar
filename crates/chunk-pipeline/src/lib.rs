@@ -3,7 +3,7 @@
 mod culling;
 mod stream;
 
-pub use culling::{CaveVisibilityScratch, CaveVisibleSet};
+pub use culling::{CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet};
 
 #[cfg(feature = "benchmark-support")]
 #[doc(hidden)]
