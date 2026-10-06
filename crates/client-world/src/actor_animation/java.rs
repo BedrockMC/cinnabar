@@ -248,7 +248,14 @@ fn translation(bone: BoneTransform) -> [f32; 3] {
 /// `child` in `parent`'s frame, matching the pose composer's scale handling.
 fn relative(parent: BoneTransform, child: BoneTransform) -> BoneTransform {
     let inverse = conjugate(parent.rotation);
-    let parent_scale = total_scale(&parent);
+    // A parent hidden by a zero scale leaves its children's offsets unscaled.
+    let parent_scale = total_scale(&parent).map(|scale| {
+        if scale.abs() > f32::EPSILON {
+            scale
+        } else {
+            1.0
+        }
+    });
     let offset: [f32; 3] =
         std::array::from_fn(|axis| translation(child)[axis] - translation(parent)[axis]);
     let local = rotate_vector(inverse, offset);
@@ -461,6 +468,23 @@ mod tests {
 
     fn root(rotation: [f32; 4], translation: [f32; 3]) -> BoneTransform {
         with_scale(rotation, translation, [1.0; 3])
+    }
+
+    /// A child of a zero-scaled parent still retargets to finite transforms.
+    #[test]
+    fn retarget_survives_a_zero_scaled_parent() {
+        let bones = vec![
+            RuntimeBone::default(),
+            RuntimeBone {
+                parent: Some(0),
+                ..Default::default()
+            },
+        ];
+        let hidden = with_scale([0.0, 0.0, 0.0, 1.0], [0.0, 24.0, 0.0], [0.0; 3]);
+        let pose = vec![hidden, root([0.0, 0.0, 0.0, 1.0], [0.0, 24.0, 3.0])];
+        let target = root([0.0, 0.0, 0.0, 1.0], [1.0, 20.0, 0.0]);
+        let posed = retarget(&bones, &pose, &pose, 0.0, &[Some(target), None]).unwrap();
+        assert_eq!(translation(posed[1]), [1.0, 20.0, 3.0]);
     }
 
     /// Untargeted children keep their animated offset from the parent under its new transform.
