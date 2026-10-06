@@ -138,6 +138,13 @@ fn release_local_terrain(wait_for_actor_pipelines: bool) {
             client_world.dimension_transfer.active(),
             frame_generation < if wait_for_actor_pipelines { 12 } else { 11 }
         );
+        assert_eq!(
+            presentation.loading_stage(),
+            client_world
+                .dimension_transfer
+                .active()
+                .then_some(LoadingStage::ChangingDimension)
+        );
     }
     assert!(presentation.startup_mut().completion_queued);
     assert!(client_world.fatal_error.is_none());

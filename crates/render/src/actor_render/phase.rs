@@ -34,7 +34,7 @@ pub(super) fn queue_actors(
         .executed_instances
         .store(0, std::sync::atomic::Ordering::Relaxed);
     let view_count = params.views.iter().count();
-    if params.gpu.instance_count == 0 || params.gpu.bind_group.is_none() {
+    if params.gpu.instance_count == 0 {
         params.witness.observe_queue(ActorQueueWitness {
             prepared_instances: params.gpu.instance_count,
             bind_group: params.gpu.bind_group.is_some(),

@@ -564,6 +564,7 @@ fn bone_visibility_hides_bones_per_state() {
                 name: "test:s".into(),
                 values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
             }]),
+            ..CustomBlockVisuals::default()
         },
     );
     let hidden = block(

@@ -89,7 +89,7 @@ impl ActorPipeline {
 }
 
 fn prewarm_materials() -> impl Iterator<Item = u32> {
-    [
+    let ordinary = [
         assets::EntityRenderMaterial::Default,
         assets::EntityRenderMaterial::DissolveDepth,
         assets::EntityRenderMaterial::DissolveColor,
@@ -104,11 +104,24 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
                         cull,
                         blend,
                         depth_write,
+                        ..Default::default()
                     }))
                 })
             })
         })
-    })
+    });
+    let additive = [false, true].into_iter().flat_map(|cull| {
+        [false, true].into_iter().map(move |depth_write| {
+            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+                cull,
+                depth_write,
+                blend: true,
+                additive: true,
+                ..Default::default()
+            }))
+        })
+    });
+    ordinary.chain(additive)
 }
 
 pub(super) fn prepare_actor_pipelines(
@@ -304,6 +317,7 @@ pub(super) struct ActorPipelineContract {
     cull: bool,
     blend: bool,
     depth_write: bool,
+    additive: bool,
 }
 
 impl ActorPipelineKey {
@@ -314,6 +328,7 @@ impl ActorPipelineKey {
                 cull: false,
                 blend: false,
                 depth_write: true,
+                ..Default::default()
             },
         );
         let kind = match self.material & assets::EntityRenderMaterialState::KIND_MASK {
@@ -341,6 +356,7 @@ impl ActorPipelineKey {
             cull: state.cull,
             blend: state.blend,
             depth_write: state.depth_write,
+            additive: state.blend && state.additive,
         }
     }
 }
@@ -369,20 +385,10 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .as_mut()
                 .unwrap()
                 .depth_write_enabled = state.depth_write;
-            if state.blend {
-                let alpha = bevy::render::render_resource::BlendComponent {
-                    src_factor: bevy::render::render_resource::BlendFactor::SrcAlpha,
-                    dst_factor: bevy::render::render_resource::BlendFactor::OneMinusSrcAlpha,
-                    operation: bevy::render::render_resource::BlendOperation::Add,
-                };
-                descriptor.fragment.as_mut().unwrap().targets[0]
-                    .as_mut()
-                    .unwrap()
-                    .blend = Some(bevy::render::render_resource::BlendState {
-                    color: alpha,
-                    alpha,
-                });
-            }
+            descriptor.fragment.as_mut().unwrap().targets[0]
+                .as_mut()
+                .unwrap()
+                .blend = crate::actor::material::blend_state(state);
         }
         let kind = key.material & assets::EntityRenderMaterialState::KIND_MASK;
         if kind == assets::EntityRenderMaterial::DissolveDepth as u32 {

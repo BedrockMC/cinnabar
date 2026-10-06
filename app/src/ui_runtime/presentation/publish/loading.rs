@@ -133,6 +133,8 @@ pub(super) fn prepare_loading(
         Some(LoadingStage::Connecting)
     } else if released && !client_world.dimension_transfer.active() {
         None
+    } else if client_world.dimension_transfer.active() {
+        Some(LoadingStage::ChangingDimension)
     } else {
         Some(LoadingStage::BuildingTerrain)
     });

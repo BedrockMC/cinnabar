@@ -48,6 +48,7 @@ pub use render::{
     EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
     EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
     MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    entity_render_pattern_matches,
 };
 #[path = "v4/rig.rs"]
 mod rig;

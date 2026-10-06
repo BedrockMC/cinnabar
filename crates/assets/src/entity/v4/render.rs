@@ -33,6 +33,12 @@ pub struct EntityRenderMaterialState {
     pub cull: bool,
     pub blend: bool,
     pub depth_write: bool,
+    /// Texture alpha weights world lighting; colored alpha-zero texels remain emissive.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub emissive: bool,
+    /// Enabled blending uses One/One rather than SourceAlpha/OneMinusSrcAlpha.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub additive: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -42,6 +48,8 @@ impl Default for EntityRenderMaterialState {
             cull: true,
             blend: false,
             depth_write: true,
+            emissive: false,
+            additive: false,
         }
     }
 }
@@ -53,6 +61,8 @@ impl EntityRenderMaterialState {
     pub const CULL: u32 = 1 << 10;
     pub const BLEND: u32 = 1 << 11;
     pub const DISABLE_DEPTH_WRITE: u32 = 1 << 12;
+    pub const EMISSIVE: u32 = 1 << 13;
+    pub const ADDITIVE: u32 = 1 << 14;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -60,6 +70,8 @@ impl EntityRenderMaterialState {
             cull: word & Self::CULL != 0,
             blend: word & Self::BLEND != 0,
             depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
+            emissive: word & Self::EMISSIVE != 0,
+            additive: word & Self::ADDITIVE != 0,
         })
     }
 }
@@ -91,6 +103,16 @@ impl EntityRenderMaterial {
                         0
                     } else {
                         EntityRenderMaterialState::DISABLE_DEPTH_WRITE
+                    }
+                    | if state.emissive {
+                        EntityRenderMaterialState::EMISSIVE
+                    } else {
+                        0
+                    }
+                    | if state.additive {
+                        EntityRenderMaterialState::ADDITIVE
+                    } else {
+                        0
                     }
             }
         }
@@ -135,6 +157,9 @@ pub struct EntityRenderLayer {
     /// Draws unlit, ignoring world light.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub ignore_lighting: bool,
+    /// Expression multiplying light RGB, including controllers that ignore world lighting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light_color_multiplier: Option<u32>,
 }
 
 fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
@@ -174,6 +199,29 @@ pub struct EntityRenderCandidate {
 pub struct EntityRenderVisibility {
     pub pattern: Box<str>,
     pub condition: u32,
+}
+
+/// Matches admitted bone-name patterns without allocating; ASCII case is ignored.
+pub fn entity_render_pattern_matches(pattern: &str, name: &str) -> bool {
+    let (leading, rest) = match pattern.strip_prefix('*') {
+        Some(rest) => (true, rest),
+        None => (false, pattern),
+    };
+    let (trailing, core) = match rest.strip_suffix('*') {
+        Some(core) => (true, core),
+        None => (false, rest),
+    };
+    let (name, core) = (name.as_bytes(), core.as_bytes());
+    let at = |start: usize| {
+        name.get(start..start + core.len())
+            .is_some_and(|window| window.eq_ignore_ascii_case(core))
+    };
+    match (leading, trailing) {
+        (true, true) => (0..=name.len().saturating_sub(core.len())).any(at),
+        (true, false) => name.len() >= core.len() && at(name.len() - core.len()),
+        (false, true) => at(0),
+        (false, false) => name.eq_ignore_ascii_case(core),
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -224,6 +272,9 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             || !colors_valid(&layer.on_fire_color)
             || !colors_valid(&layer.hurt_color)
             || !colors_valid(&layer.uv_anim)
+            || layer
+                .light_color_multiplier
+                .is_some_and(|index| !expression(index))
             || !range_in_bounds(
                 layer.first_geometry,
                 u32::from(layer.geometry_count),

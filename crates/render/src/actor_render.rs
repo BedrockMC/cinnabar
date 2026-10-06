@@ -116,7 +116,9 @@ fn install_actor_render(app: &mut App) {
         .add_systems(
             Render,
             (
-                prepare_actor_resources.in_set(RenderSystems::PrepareResources),
+                prepare_actor_resources
+                    .in_set(RenderSystems::Queue)
+                    .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 prepare_actor_pipelines
                     .in_set(RenderSystems::Queue)

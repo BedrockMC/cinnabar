@@ -91,6 +91,39 @@ fn center(frame: &[u8]) -> &[u8] {
 }
 
 #[test]
+fn controller_light_multiplier_scales_lit_and_unlit_rgb_without_changing_alpha() {
+    let Some(gpu) = Gpu::for_fixture(
+        "controller_light_multiplier_scales_lit_and_unlit_rgb_without_changing_alpha",
+    ) else {
+        return;
+    };
+    let plane = cube([16, 0, 16], true, false);
+    for light in [0, render::pack_actor_light(15, 15)] {
+        for multiplier in [0.0, 0.5, 1.0] {
+            let material = render::ActorMaterial {
+                light_color_multiplier: multiplier,
+                ..Default::default()
+            };
+            let frame = actor_raster::raster_material_lighting(
+                &gpu,
+                &plane,
+                material,
+                false,
+                [[255; 4]; 2],
+                true,
+                false,
+                light,
+            );
+            let expected = (multiplier * f32::from(u8::MAX)).round() as i32;
+            for channel in &center(&frame)[..3] {
+                assert!((i32::from(*channel) - expected).abs() <= 1);
+            }
+            assert_eq!(center(&frame)[3], u8::MAX);
+        }
+    }
+}
+
+#[test]
 fn dragon_and_dissolve_materials_reject_volume_backfaces() {
     let Some(gpu) = Gpu::for_fixture("dragon_and_dissolve_materials_reject_volume_backfaces")
     else {

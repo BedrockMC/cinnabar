@@ -111,19 +111,19 @@ pub use atmosphere::{
 };
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{
-    AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BannerLayer, BannerModel, BannerMount, BeaconModel,
-    BedModel, BellAttachment, BellModel, BlockEntityAtlas, BlockEntityAtlasImage, BlockEntityFrame,
-    BlockEntityKind, BlockEntityLight, BlockEntityRenderPlugin, BlockEntityScene,
-    BlockEntitySubmission, BlockEntityVertex, BlockSelectionFrame, BlockSelectionTarget,
-    ChestModel, ChestPair, ChestVariant, ConduitModel, CopperAge, CrackInstance, CrackQuad,
-    CrackShape, CrystalBeamModel, DRAGON_DEATH_BLEND, DecoratedPotModel, DragonDeathModel, Facing,
-    ItemFrameModel, MAX_BANNER_LAYERS, MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS,
-    SceneClock, ShulkerModel, SignFace, SignModel, SignMount, SkullKind, SkullModel, SkullMount,
-    SpawnerModel, StaticItemPlacement, StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL,
-    TEXT_SLOT_COUNT, TextureRef, banner_color, bed_color, block_matrix, crack_shape_from_template,
-    crack_texture_name, floor_yaw_degrees, item_frame_item_transform, lid_angle_radians,
-    matrix_rows, pattern_texture, sherd_pattern, shulker_color_from_block_name, skull_geometry,
-    swing_degrees,
+    AtlasRect, BLOCK_ENTITY_VERTEX_WORDS, BLOCK_SELECTION_VERTICES_PER_EDGE, BannerLayer,
+    BannerModel, BannerMount, BeaconModel, BedModel, BellAttachment, BellModel, BlockEntityAtlas,
+    BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind, BlockEntityLight,
+    BlockEntityRenderPlugin, BlockEntityScene, BlockEntitySubmission, BlockEntityVertex,
+    BlockSelectionFrame, BlockSelectionTarget, ChestModel, ChestPair, ChestVariant, ConduitModel,
+    CopperAge, CrackInstance, CrackQuad, CrackShape, CrystalBeamModel, DRAGON_DEATH_BLEND,
+    DecoratedPotModel, DragonDeathModel, Facing, ItemFrameModel, MAX_BANNER_LAYERS,
+    MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
+    SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
+    StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
+    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
+    sherd_pattern, shulker_color_from_block_name, skull_geometry, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,

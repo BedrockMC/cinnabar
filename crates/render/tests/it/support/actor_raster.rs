@@ -94,6 +94,28 @@ pub(super) fn raster_material_target(
     srgb: bool,
     gamma: bool,
 ) -> Vec<u8> {
+    raster_material_lighting(
+        gpu,
+        vertices,
+        material,
+        below,
+        texels,
+        srgb,
+        gamma,
+        render::pack_actor_light(15, 15),
+    )
+}
+
+pub(super) fn raster_material_lighting(
+    gpu: &Gpu,
+    vertices: &[ActorRigVertex],
+    material: render::ActorMaterial,
+    below: bool,
+    texels: [[u8; 4]; 2],
+    srgb: bool,
+    gamma: bool,
+    light: u32,
+) -> Vec<u8> {
     let clip = Mat4::from_cols(
         Vec4::new(2.0, 0.0, 0.0, 0.0),
         Vec4::ZERO,
@@ -113,10 +135,11 @@ pub(super) fn raster_material_target(
         world_from_actor: affine,
         partial_tick: 1.0,
         uv_anim: render::IDENTITY_UV_ANIM,
-        light: render::pack_actor_light(15, 15),
+        light,
         multitexture_layers: [u32::MAX; 2],
         material: material.gpu_word(),
         dissolve_multiplier: 1.0,
+        light_color_multiplier: material.light_color_multiplier,
         ..Default::default()
     };
     let instance = gpu.buffer(
@@ -230,17 +253,7 @@ pub(super) fn raster_material_target(
         fragment: "actor_fragment",
         vertices: 0..vertices.len() as u32,
         bindings: &bindings,
-        blend: material.state.filter(|state| state.blend).map(|_| {
-            let component = wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            };
-            wgpu::BlendState {
-                color: component,
-                alpha: component,
-            }
-        }),
+        blend: material.blend_state(),
         write_depth: material.state.is_none_or(|state| state.depth_write),
     }];
     if srgb {

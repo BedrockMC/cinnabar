@@ -7,6 +7,36 @@ impl ActorMaterial {
     pub fn gpu_word(self) -> u32 {
         self.kind.word(self.state)
     }
+
+    pub fn blend_state(self) -> Option<bevy::render::render_resource::BlendState> {
+        self.state.and_then(blend_state)
+    }
+}
+
+pub(crate) fn blend_state(
+    state: EntityRenderMaterialState,
+) -> Option<bevy::render::render_resource::BlendState> {
+    use bevy::render::render_resource::{BlendComponent, BlendFactor, BlendOperation, BlendState};
+    if !state.blend {
+        return None;
+    }
+    let component = BlendComponent {
+        src_factor: if state.additive {
+            BlendFactor::One
+        } else {
+            BlendFactor::SrcAlpha
+        },
+        dst_factor: if state.additive {
+            BlendFactor::One
+        } else {
+            BlendFactor::OneMinusSrcAlpha
+        },
+        operation: BlendOperation::Add,
+    };
+    Some(BlendState {
+        color: component,
+        alpha: component,
+    })
 }
 
 pub(crate) fn state(word: u32) -> Option<EntityRenderMaterialState> {
@@ -19,12 +49,14 @@ mod tests {
 
     #[test]
     fn authored_actor_states_roundtrip_without_changing_the_shader_kind() {
-        for bits in 0..16 {
+        for bits in 0..64 {
             let expected = EntityRenderMaterialState {
                 alpha_test: bits & 1 != 0,
                 cull: bits & 2 != 0,
                 blend: bits & 4 != 0,
                 depth_write: bits & 8 != 0,
+                emissive: bits & 16 != 0,
+                additive: bits & 32 != 0,
             };
             let material = ActorMaterial {
                 kind: assets::EntityRenderMaterial::Default,

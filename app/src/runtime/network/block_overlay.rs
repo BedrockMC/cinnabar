@@ -113,7 +113,10 @@ pub(super) fn compile_block_overlay(
         if hashed {
             for state in states {
                 let mut visual = condition::state_visual(
-                    block, &expressions, Some(&state.values), &mut builder.gaps,
+                    block,
+                    &expressions,
+                    Some(&state.values),
+                    &mut builder.gaps,
                 );
                 legacy.apply(&block.name, &mut visual.components);
                 builder.push_state(&visual);
@@ -127,7 +130,10 @@ pub(super) fn compile_block_overlay(
                 condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
             legacy.apply(&block.name, &mut visual.components);
             builder.push_state(&visual);
-            builder.overlay.hashes.push(identities_complete.then(|| states[state as usize].hash));
+            builder
+                .overlay
+                .hashes
+                .push(identities_complete.then(|| states[state as usize].hash));
         }
     }
     if let Some(keys) = vanilla_keys {
