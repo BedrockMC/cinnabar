@@ -332,7 +332,7 @@ impl WorldStream {
         };
         let expected_kind = if self.known_air.contains(&key) {
             LightSubChunkKind::KnownAir
-        } else if self.authority.terrain().sub_chunk(key).is_some() {
+        } else if self.authority.terrain().contains_sub_chunk(key) {
             LightSubChunkKind::Resident
         } else {
             LightSubChunkKind::Unknown
@@ -353,7 +353,7 @@ impl WorldStream {
     }
     pub(in crate::stream) fn light_source_is_known(&self, key: SubChunkKey) -> bool {
         self.resident.contains(&key)
-            && (self.known_air.contains(&key) || self.authority.terrain().sub_chunk(key).is_some())
+            && (self.known_air.contains(&key) || self.authority.terrain().contains_sub_chunk(key))
     }
     pub(in crate::stream) fn mesh_light_halo(&self, center: SubChunkKey) -> Option<MeshLightHalo> {
         let mut slots = std::array::from_fn(|_| None);
@@ -393,7 +393,7 @@ impl WorldStream {
         })
     }
     pub(in crate::stream) fn light_block_snapshot(&self, key: SubChunkKey) -> LightBlockSnapshot {
-        let mut blocks = BTreeMap::new();
+        let mut blocks = SectionSnapshot::default();
         for sample_key in key.mesh_dependents() {
             if !self.light_source_is_known(sample_key) {
                 continue;
@@ -427,24 +427,22 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn light_prior_snapshot(&self, key: SubChunkKey) -> LightPriorSnapshot {
-        let keys = key.mesh_dependents().collect::<BTreeSet<_>>();
-        let direct_sky = keys
-            .iter()
+        let keys = || key.mesh_dependents();
+        let direct_sky = keys()
             .filter_map(|sample_key| {
                 self.lighting
                     .direct_sky
-                    .get(sample_key)
+                    .get(&sample_key)
                     .cloned()
-                    .map(|direct| (*sample_key, direct))
+                    .map(|direct| (sample_key, direct))
             })
             .collect();
-        let trusted_boundaries = keys
-            .iter()
-            .copied()
+        let trusted_boundaries = keys()
             .filter(|sample_key| *sample_key != key && self.light_is_current(*sample_key))
+            .map(|key| (key, ()))
             .collect();
         LightPriorSnapshot {
-            light: self.lighting.store.snapshot_keys(keys),
+            light: self.lighting.store.snapshot_keys(keys()),
 
             direct_sky,
             trusted_boundaries,
@@ -519,15 +517,18 @@ impl WorldStream {
         self.resident.column(key.chunk()).copied()
     }
 
-    /// Extends the vanilla sky ceiling to include taller loaded columns.
+    /// Extends the admitted sky ceiling to include taller loaded columns.
     pub(in crate::stream) fn light_column_top_sub_chunk_y(&self, key: SubChunkKey) -> Option<i32> {
-        let vanilla_top = vanilla_dimension_range(key.dimension).and_then(|range| {
-            range
-                .base_sub_chunk_y
-                .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
-                .checked_sub(1)
-        });
-        vanilla_top
+        let declared_top = self
+            .authority
+            .dimension_range(key.dimension)
+            .and_then(|range| {
+                range
+                    .base_sub_chunk_y
+                    .checked_add(i32::try_from(range.sub_chunk_count).ok()?)?
+                    .checked_sub(1)
+            });
+        declared_top
             .into_iter()
             .chain(self.light_column_sources(key).map(|source| source.y))
             .max()

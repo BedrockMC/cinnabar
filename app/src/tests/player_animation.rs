@@ -460,6 +460,8 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
         cape_rig,
         |runtime_id| world.authority().actor_rig(runtime_id),
         |runtime_id| world.authority().actor_player_profile(runtime_id),
+        |_| None,
+        |_| false,
     );
     let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());
@@ -493,6 +495,7 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
     LocalPlayerFeed {
         uuid: [5; 16],
+        prefer_client_skin: false,
         username: "local".into(),
         skin: PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
         position: [0.0, 64.0, 0.0],
@@ -503,6 +506,11 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         pitch: 40.0,
         main_hand: main_hand.map(Arc::from),
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        flying: false,
         teleported: false,
         first_person: true,
         view_bobbing: true,

@@ -29,7 +29,7 @@ fn stream() -> WorldStream {
     })
 }
 
-fn lit_stream(dimension: i32) -> WorldStream {
+pub(super) fn lit_stream(dimension: i32) -> WorldStream {
     WorldStream::new_with_assets(
         WorldBootstrap {
             dimension,
@@ -163,7 +163,7 @@ pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
     panic!("light convergence exceeded the bounded test iteration limit");
 }
 
-fn install_current_light(
+pub(super) fn install_current_light(
     stream: &mut WorldStream,
     key: SubChunkKey,
     block: u8,

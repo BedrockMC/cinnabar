@@ -8,8 +8,10 @@ mod dropped_item;
 mod entity_shadow;
 pub mod equipment;
 mod item_geometry;
+pub mod java_animation;
 mod nametag;
 mod panorama;
+pub mod primitive_shapes;
 mod ui;
 mod ui_textures;
 mod visibility;
@@ -20,14 +22,15 @@ pub use actor::{
     DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, RenderBoneTransform,
     STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE,
-    append_entity_cube_vertices, attachable_geometry, default_actor_skin_rgba8,
-    diagnostic_geometry, entity_geometry, equipment_geometry, equipment_rig_id,
-    find_geometry_index, geometry_bone_names, geometry_bone_pivots, geometry_from_geometry_index,
-    geometry_from_runtime_assets, install_default_player_skin, is_equipment_rig_id,
-    is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id, item_mesh_rig_id,
-    layer_geometries, layer_geometry_rig_id, normalize_actor_skin, normalize_actor_skin_cached,
-    pack_equipment_rig_id, pack_geometries, pack_rig_id, resolve_geometry_bones, skin_geometry,
-    skin_rig_id, standard_biped_overlay_vertices, standard_biped_vertices,
+    append_entity_cube_vertices, attachable_geometry, attachable_raster_frame,
+    default_actor_skin_rgba8, diagnostic_geometry, entity_geometry, equipment_geometry,
+    equipment_rig_id, find_geometry_index, geometry_bone_names, geometry_bone_pivots,
+    geometry_from_geometry_index, geometry_from_runtime_assets, install_default_player_skin,
+    is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,
+    item_mesh_rig_id, layer_geometries, layer_geometry_rig_id, normalize_actor_skin,
+    normalize_actor_skin_cached, pack_equipment_rig_id, pack_geometries, pack_rig_id,
+    resolve_geometry_bones, skin_geometry, skin_rig_id, standard_biped_overlay_vertices,
+    standard_biped_vertices,
 };
 pub use chunk_metrics::{
     ModelWorkloadCount, ModelWorkloadMetricsSnapshot, TransparentSortMetricsSnapshot,

@@ -182,6 +182,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
         render: EntityRenderData {
             layers: vec![EntityRenderLayer {
                 material: Default::default(),
+                material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
@@ -196,6 +197,7 @@ pub(in crate::actor_animation) fn compiled_fixture() -> CompiledEntityAssets {
                 first_geometry: 0,
                 geometry_count: 0,
                 ignore_lighting: false,
+                light_color_multiplier: None,
             }]
             .into_boxed_slice(),
             slots: vec![EntityRenderSlot {
@@ -246,6 +248,8 @@ fn owner_rig() -> ActorRigSnapshot<'static> {
         item_animation: [ItemAnimationState::default(); 2],
         off_hand_animation: [ItemAnimationState::default(); 2],
         animation_variables: ActorAnimationVariables::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 
@@ -518,6 +522,7 @@ fn attachable_queries_are_remaining_ticks_without_changing_entity_units() {
         0.25
     );
     context.attachable = Some(AttachableQueryContext {
+        worn: false,
         first_person: true,
         off_hand: false,
         is_paperdoll: false,
@@ -1095,3 +1100,6 @@ fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
     // resource_pack/attachables/shield.entity.json:36-45; animations/shield.animation.json:17.
     assert!((sample(true) - sample(false) + 30.1).abs() < 0.001);
 }
+
+#[path = "worn_tests.rs"]
+mod worn_tests;

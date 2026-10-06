@@ -114,6 +114,11 @@ pub fn update_camera_fov(
     mut cameras: Query<&mut Projection, With<FlyCamera>>,
 ) {
     let modifier = fov_state.advance(inputs.target_modifier(), time.delta_secs());
+    let modifier = if server.gameplay_fov_enabled() {
+        modifier
+    } else {
+        1.0
+    };
     let base = settings.horizontal_fov_degrees();
     let rig_delta = settings.rig().map_or(0.0, |rig| rig.fov_delta_degrees);
     let fov_degrees = server
@@ -176,6 +181,7 @@ mod tests {
             sky_level: 0,
             daylight: 1.0,
             pad: 0,
+            ..Default::default()
         };
         for (index, distortion) in [
             Mat4::IDENTITY,
@@ -249,5 +255,81 @@ mod tests {
         apply_distortion(&mut projection, Mat4::IDENTITY);
         assert!(matches!(projection, Projection::Perspective(_)));
         assert_eq!(projection.get_clip_from_view(), original);
+    }
+    #[test]
+    fn free_camera_suppresses_gameplay_fov_and_clear_restores_the_retained_modifier() {
+        use crate::camera::server_view::ViewContext;
+        use protocol::{CameraEvent, CameraInstructionEvent, CameraPreset, CameraSetInstruction};
+        let mut app = App::new();
+        app.init_resource::<Time>()
+            .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<CameraFovInputs>()
+            .init_resource::<CameraFovState>()
+            .init_resource::<ServerCameraView>()
+            .add_systems(Update, update_camera_fov);
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Projection::default()))
+            .id();
+        app.world_mut().resource_mut::<CameraFovInputs>().sprinting = true;
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs(1));
+        app.update();
+        let base = app
+            .world()
+            .resource::<CameraSettingsAuthority>()
+            .horizontal_fov_degrees();
+        let fov = |world: &World| match world.get::<Projection>(camera).unwrap() {
+            Projection::Perspective(projection) => projection.fov,
+            _ => panic!("perspective expected"),
+        };
+        assert!(fov(app.world()) > base.to_radians());
+        let context = ViewContext {
+            base: Transform::IDENTITY,
+            subject: Transform::IDENTITY,
+            base_fov: base,
+            actors: &|_| None,
+        };
+        {
+            let mut server = app.world_mut().resource_mut::<ServerCameraView>();
+            server.apply(
+                1,
+                &CameraEvent::Presets(
+                    vec![CameraPreset {
+                        name: "free_effects".into(),
+                        inherit_from: "minecraft:free".into(),
+                        player_effects: Some(true),
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+                &context,
+            );
+            server.apply(
+                2,
+                &CameraEvent::Instruction(CameraInstructionEvent {
+                    set: Some(CameraSetInstruction {
+                        preset_id: 0,
+                        ease: None,
+                        position: None,
+                        rotation_degrees: None,
+                        facing_position: None,
+                        view_offset: None,
+                        entity_offset: None,
+                        default_preset: None,
+                        remove_ignore_starting_values: false,
+                    }),
+                    ..Default::default()
+                }),
+                &context,
+            );
+        }
+        app.update();
+        assert_eq!(fov(app.world()), base.to_radians());
+        app.world_mut().resource_mut::<ServerCameraView>().clear();
+        app.update();
+        assert!(fov(app.world()) > base.to_radians());
     }
 }

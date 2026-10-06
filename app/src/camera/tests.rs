@@ -65,7 +65,7 @@ impl CollisionWorld for LenientCameraFixture {
 }
 
 #[test]
-fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
+fn third_person_boom_traces_eight_corners_and_stops_before_solid_geometry() {
     let subject = Vec3::new(0.0, 2.0, 0.0);
     let world = CameraCollisionFixture {
         boxes: vec![Aabb::new(
@@ -86,7 +86,7 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
         Vec3::new(
             0.0,
             2.0,
-            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
+            4.02_f32.sqrt() - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS,
         ),
         1.0e-5,
     ));
@@ -95,7 +95,6 @@ fn third_person_boom_sweeps_a_radius_point_and_stops_before_solid_geometry() {
 #[test]
 fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_before_hit() {
     let subject = Vec3::new(0.0, 2.0, 0.0);
-    let diagonal = std::f32::consts::FRAC_1_SQRT_2;
     let cases = [
         (
             "wall",
@@ -104,7 +103,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 1.0, 2.0),
                 SimVec3::new(1.0, 3.0, 3.0),
             )],
-            1.8,
+            4.02_f32.sqrt(),
         ),
         (
             "corner",
@@ -113,7 +112,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 Aabb::new(SimVec3::new(1.5, 1.0, -1.0), SimVec3::new(2.0, 3.0, 4.0)),
                 Aabb::new(SimVec3::new(-1.0, 1.0, 1.5), SimVec3::new(4.0, 3.0, 2.0)),
             ],
-            1.3 / diagonal,
+            3.95_f32.sqrt(),
         ),
         (
             "ceiling",
@@ -122,7 +121,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 4.0, -1.0),
                 SimVec3::new(1.0, 4.5, 5.0),
             )],
-            1.8 / diagonal,
+            7.25_f32.sqrt(),
         ),
         (
             "floor",
@@ -131,7 +130,7 @@ fn third_person_boom_handles_compound_wall_corner_ceiling_floor_transitions_befo
                 SimVec3::new(-1.0, 0.5, -1.0),
                 SimVec3::new(1.0, 1.0, 5.0),
             )],
-            0.8 / diagonal,
+            1.65_f32.sqrt(),
         ),
     ];
 
@@ -231,7 +230,7 @@ fn third_person_boom_stops_at_a_real_wall_beside_a_skipped_cell() {
         Vec3::new(
             0.0,
             2.0,
-            1.8 - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
+            4.02_f32.sqrt() - camera::THIRD_PERSON_COLLISION_EPSILON_BLOCKS
         ),
         1.0e-5,
     ));

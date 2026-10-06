@@ -1,5 +1,5 @@
 //! Mod world primitives: one premultiplied, depth-tested, non-writing draw per view, after
-//! the world's own transparent geometry.
+//! the world's own transparent geometry. Block highlights use a separate through-world draw.
 
 use super::ModRenderScene;
 use bevy::{
@@ -47,6 +47,7 @@ pub(super) fn install(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .init_resource::<PrimitivePipeline>()
         .add_render_command::<Transparent3d, DrawPrimitiveCommands>()
+        .add_render_command::<Transparent3d, DrawBlockHighlightCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
@@ -66,6 +67,8 @@ pub(crate) struct PrimitiveGpu {
     capacity: u64,
     uploaded: Arc<[ModVertex]>,
     uploaded_marker: Arc<[ModVertex]>,
+    uploaded_blocks: Arc<[ModVertex]>,
+    block_count: u32,
     pub(crate) vertex_count: u32,
     frame: Buffer,
     bind_group: Option<BindGroup>,
@@ -87,6 +90,8 @@ pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         capacity: 6,
         uploaded: Arc::from([]),
         uploaded_marker: Arc::from([]),
+        uploaded_blocks: Arc::from([]),
+        block_count: 0,
         vertex_count: 0,
         frame: device.create_buffer(&BufferDescriptor {
             label: Some("mod primitive frame"),
@@ -110,13 +115,17 @@ fn prepare(
     let needed = scene.vertex_count() as u64;
     let grew = needed > gpu.capacity;
     if grew {
-        let capacity = needed
-            .next_power_of_two()
-            .min((mod_render::geometry::MAX_VERTICES + super::position_box::VERTICES) as u64);
+        let capacity = needed.next_power_of_two().min(
+            (mod_render::geometry::MAX_VERTICES
+                + super::position_box::VERTICES
+                + super::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::VERTICES_PER_BLOCK)
+                as u64,
+        );
         gpu.vertices = vertex_buffer(&device, capacity);
         gpu.capacity = capacity;
         gpu.bind_group = None;
     }
+    let previous_primitive_count = gpu.uploaded.len() + gpu.uploaded_marker.len();
     let [guest_changed, marker_changed] = upload_changes(
         &gpu.uploaded,
         &gpu.uploaded_marker,
@@ -140,8 +149,27 @@ fn prepare(
     if marker_changed {
         gpu.uploaded_marker = Arc::clone(&scene.marker_vertices);
     }
-    gpu.vertex_count = needed.min(gpu.capacity) as u32;
-    if gpu.vertex_count > 0 {
+    let primitive_count = scene.vertices.len() + scene.marker_vertices.len();
+    let blocks_changed = block_upload_changed(
+        &gpu.uploaded_blocks,
+        &scene.block_vertices,
+        previous_primitive_count,
+        primitive_count,
+        grew,
+    );
+    if blocks_changed && !scene.block_vertices.is_empty() {
+        queue.write_buffer(
+            &gpu.vertices,
+            primitive_count as u64 * VERTEX_BYTES,
+            bytemuck::cast_slice(&scene.block_vertices),
+        );
+    }
+    if blocks_changed {
+        gpu.uploaded_blocks = Arc::clone(&scene.block_vertices);
+    }
+    gpu.vertex_count = primitive_count as u32;
+    gpu.block_count = scene.block_vertices.len() as u32;
+    if needed > 0 {
         let frame = [time.elapsed_secs_wrapped(), time.delta_secs(), 0.0, 0.0];
         queue.write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
     }
@@ -160,9 +188,29 @@ fn upload_changes(
     ]
 }
 
+fn block_upload_changed(
+    previous: &Arc<[ModVertex]>,
+    next: &Arc<[ModVertex]>,
+    previous_offset: usize,
+    next_offset: usize,
+    grew: bool,
+) -> bool {
+    grew || previous_offset != next_offset || !Arc::ptr_eq(previous, next)
+}
+
 #[cfg(test)]
 mod upload_tests {
     use super::*;
+
+    #[test]
+    fn unchanged_blocks_skip_upload_but_prefix_resize_moves_their_suffix() {
+        let vertices: Arc<[ModVertex]> = vec![ModVertex::default(); 36].into();
+        assert!(!block_upload_changed(&vertices, &vertices, 108, 108, false));
+        assert!(block_upload_changed(&vertices, &vertices, 108, 114, false));
+        assert!(block_upload_changed(&vertices, &vertices, 108, 108, true));
+        let moved: Arc<[ModVertex]> = vec![ModVertex::default(); 36].into();
+        assert!(block_upload_changed(&vertices, &moved, 108, 108, false));
+    }
 
     #[test]
     fn marker_motion_uploads_only_its_suffix_and_guest_resize_moves_that_suffix() {
@@ -273,6 +321,7 @@ impl FromWorld for PrimitivePipeline {
 pub(crate) struct PrimitiveKey {
     pub(crate) msaa: Msaa,
     pub(crate) hdr: bool,
+    pub(crate) through_world: bool,
 }
 
 impl Specializer<RenderPipeline> for PrimitiveSpecializer {
@@ -284,6 +333,16 @@ impl Specializer<RenderPipeline> for PrimitiveSpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        descriptor.label = Some(if key.through_world {
+            "block highlights pipeline".into()
+        } else {
+            "mod primitive pipeline".into()
+        });
+        descriptor.depth_stencil.as_mut().unwrap().depth_compare = if key.through_world {
+            CompareFunction::Always
+        } else {
+            CompareFunction::GreaterEqual
+        };
         descriptor.fragment.as_mut().unwrap().targets[0]
             .as_mut()
             .unwrap()
@@ -353,39 +412,59 @@ pub(crate) fn queue(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &Msaa)>,
 ) {
-    // Queue precedes the upload, so this frame's scene decides; the draw reads the upload.
-    if scene.is_none_or(|scene| scene.vertex_count() == 0) {
-        return;
-    }
-    let draw_function = draw_functions.read().id::<DrawPrimitiveCommands>();
+    // Queue precedes upload, so this frame's scene decides; the draw reads the upload.
+    let Some(scene) = scene else { return };
+    let regular = scene.vertices.len() + scene.marker_vertices.len() > 0;
+    let highlights = !scene.block_vertices.is_empty();
+    let draw_functions = draw_functions.read();
     for (view_entity, main_entity, view, msaa) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        let Ok(pipeline_id) = pipeline.specialize(
-            &cache,
-            PrimitiveKey {
-                msaa: *msaa,
-                hdr: view.hdr,
-            },
-        ) else {
-            continue;
-        };
-        phase.add(Transparent3d {
-            entity: (view_entity, *main_entity),
-            pipeline: pipeline_id,
-            draw_function,
-            distance: PRIMITIVE_DISTANCE,
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: false,
-        });
+        for through_world in [false, true] {
+            if !(if through_world { highlights } else { regular }) {
+                continue;
+            }
+            let Ok(pipeline_id) = pipeline.specialize(
+                &cache,
+                PrimitiveKey {
+                    msaa: *msaa,
+                    hdr: view.hdr,
+                    through_world,
+                },
+            ) else {
+                continue;
+            };
+            phase.add(Transparent3d {
+                entity: (view_entity, *main_entity),
+                pipeline: pipeline_id,
+                draw_function: if through_world {
+                    draw_functions.id::<DrawBlockHighlightCommands>()
+                } else {
+                    draw_functions.id::<DrawPrimitiveCommands>()
+                },
+                distance: PRIMITIVE_DISTANCE
+                    + if through_world {
+                        PRIMITIVE_DISTANCE * 0.1
+                    } else {
+                        0.0
+                    },
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: false,
+            });
+        }
     }
 }
 
 pub(crate) type DrawPrimitiveCommands = crate::gpu_timing::GpuDrawSpan<
     { crate::RuntimeStage::GpuModPrimitives as usize },
     (SetItemPipeline, SetPrimitiveBindGroup, DrawPrimitives),
+>;
+
+pub(crate) type DrawBlockHighlightCommands = crate::gpu_timing::GpuDrawSpan<
+    { crate::RuntimeStage::GpuModPrimitives as usize },
+    (SetItemPipeline, SetPrimitiveBindGroup, DrawBlockHighlights),
 >;
 
 pub(crate) struct SetPrimitiveBindGroup;
@@ -429,6 +508,29 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPrimitives {
             return RenderCommandResult::Skip;
         }
         pass.draw(0..count, 0..1);
+        RenderCommandResult::Success
+    }
+}
+
+pub(crate) struct DrawBlockHighlights;
+
+impl<P: PhaseItem> RenderCommand<P> for DrawBlockHighlights {
+    type Param = SRes<PrimitiveGpu>;
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    fn render<'w>(
+        _item: &P,
+        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
+        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        gpu: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let gpu = gpu.into_inner();
+        if gpu.block_count == 0 {
+            return RenderCommandResult::Skip;
+        }
+        pass.draw(gpu.vertex_count..gpu.vertex_count + gpu.block_count, 0..1);
         RenderCommandResult::Success
     }
 }

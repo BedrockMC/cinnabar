@@ -24,6 +24,10 @@ pub trait PhysicsObservation {
     fn last_world_identity(&self) -> Option<&WorldCollisionIdentity>;
     /// Reports whether gameplay currently owns player translation.
     fn is_active(&self) -> bool;
+    /// How far the frame sits between the last two completed ticks.
+    fn tick_alpha(&self) -> f32 {
+        1.0
+    }
 }
 
 /// Collision facts used by camera obstruction and sound material queries.

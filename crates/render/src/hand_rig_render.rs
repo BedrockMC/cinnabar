@@ -89,17 +89,36 @@ impl Plugin for HandRigRenderPlugin {
     }
 }
 
-/// Block/sky are raw 0..=15 levels at the player; daylight scales the sky channel. 16 bytes.
+/// World light levels and optional Java directional lights in the hand's camera frame.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HandRigLight {
     pub block_level: u32,
     pub sky_level: u32,
     pub daylight: f32,
     pub pad: u32,
+    /// The first direction's W enables Java shading; zero preserves vanilla's material.
+    pub java_lights: [[f32; 4]; 2],
+    /// Native Z normals in each rig's frame: body, main hand, offhand.
+    pub java_normal_axes: [[f32; 4]; 3],
 }
 
-const _: () = assert!(size_of::<HandRigLight>() == 16);
+impl HandRigLight {
+    /// Sets Java's two fixed lights after view bob and look rotation, before hand sway.
+    pub fn with_java_lighting(mut self, camera_from_light: Mat4) -> Self {
+        self.java_lights =
+            [Vec3::new(0.2, 1.0, -0.7), Vec3::new(-0.2, 1.0, 0.7)].map(|direction| {
+                camera_from_light
+                    .transform_vector3(direction.normalize())
+                    .extend(1.0)
+                    .to_array()
+            });
+        self.java_normal_axes = [Vec3::Z.extend(0.0).to_array(); 3];
+        self
+    }
+}
+
+const _: () = assert!(size_of::<HandRigLight>() == 96);
 
 /// The equipment atlas page an item instance samples (layer chosen by the instance's
 /// `texture_layer` with its top bit set).
@@ -330,7 +349,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         }),
         view_uniform: uniform("first-person rig view", &[0u8; 64]),
         material,
-        light_uniform: uniform("first-person rig light", &[0u8; 16]),
+        light_uniform: uniform("first-person rig light", &[0u8; size_of::<HandRigLight>()]),
         instances: None,
         vertices: default(),
         spans: None,
@@ -839,7 +858,7 @@ fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 8,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -849,11 +868,11 @@ fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 9,
-                visibility: ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16),
+                    min_binding_size: BufferSize::new(size_of::<HandRigLight>() as u64),
                 },
                 count: None,
             },

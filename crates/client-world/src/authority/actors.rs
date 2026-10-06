@@ -143,9 +143,24 @@ impl WorldAuthority {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
+    /// Drops the local player's Java equip progress to zero at its next tick.
+    pub fn reset_local_java_equip(&mut self) {
+        self.actors.reset_java_equip(self.local_player_runtime_id);
+    }
     /// Borrows the current actor with this runtime ID.
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
+    }
+
+    /// Publishes the session's level mode before remote players are admitted.
+    pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
+        self.actors.apply_world_game_mode(mode);
+    }
+
+    /// Uses the native class or the server-advertised constructor for custom actor targets.
+    #[must_use]
+    pub fn camera_aim_assist_eligible(&self, actor: &ActorSnapshot) -> Option<bool> {
+        self.actors.camera_aim_assist_eligible(actor)
     }
     /// Unique id of the local player's actor.
     pub fn local_player_unique_id(&self) -> i64 {
@@ -203,9 +218,40 @@ impl WorldAuthority {
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[crate::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
+    /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
+    /// other bones keep their animated offsets from their parents.
+    pub fn actor_retargeted_pose(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: &[Option<crate::BoneTransform>],
+    ) -> Option<Vec<crate::BoneTransform>> {
+        self.actors
+            .actor_retargeted_pose(runtime_id, partial_tick, targets)
+    }
+    /// The animated skin layers at the frame fraction, each retargeted by the model-space
+    /// targets `targets` builds from its skeleton's bone names and rest pose.
+    pub fn actor_retargeted_layers(
+        &self,
+        runtime_id: u64,
+        partial_tick: f32,
+        targets: impl Fn(
+            &[Box<str>],
+            &[crate::BoneTransform],
+        ) -> Option<Vec<Option<crate::BoneTransform>>>,
+    ) -> Option<Vec<crate::SkinRenderLayer>> {
+        self.actors
+            .actor_retargeted_layers(runtime_id, partial_tick, targets)
+    }
     /// Iterates the retained actor rigs for presentation.
     pub fn actor_rigs(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.actors.actor_rigs()
+    }
+    /// Borrows controller states that completed authored actor animation evaluation.
+    pub fn actor_particle_controllers(
+        &self,
+    ) -> impl Iterator<Item = crate::ActorParticleController<'_>> {
+        self.actors.actor_particle_controllers()
     }
     /// Returns counters from the authoritative actor animation runtime.
     pub const fn actor_animation_stats(&self) -> ActorAnimationStats {

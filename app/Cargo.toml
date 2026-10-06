@@ -22,7 +22,7 @@ enhanced = ["render/enhanced"]
 # Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
 local-mods = ["mod-host/execution"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control"]
+developer-control = ["dep:developer-control", "dep:objc2", "dep:objc2-app-kit"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 
@@ -35,6 +35,7 @@ gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }
 client-ui = { path = "../crates/client-ui" }
 launcher = { path = "../crates/launcher" }
+rich-presence = { path = "../crates/rich-presence" }
 player-state = { path = "../crates/player-state" }
 inventory = { path = "../crates/inventory" }
 bytes.workspace = true
@@ -74,6 +75,10 @@ world = { path = "../crates/world" }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-io = "2"

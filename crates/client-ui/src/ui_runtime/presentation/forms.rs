@@ -2,6 +2,8 @@
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
 pub mod book_screen;
 pub mod chat_coordinates;
+mod chat_link_dialog;
+mod chat_links;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
@@ -21,6 +23,7 @@ pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
+pub mod java_animations_setting;
 pub mod join_progress;
 pub mod loading_screen;
 #[cfg(test)]
@@ -75,6 +78,8 @@ pub mod sign_editor;
 pub mod snapshot;
 pub mod start_feed;
 #[cfg(test)]
+mod store_tests;
+#[cfg(test)]
 pub mod tests;
 pub mod textures;
 pub mod toast_screen;
@@ -118,6 +123,8 @@ pub(super) struct FormPresentation {
     container: Option<(EngineFrame, containers::ScreenLayout)>,
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(crate::menu::MenuAction, String)>,
+    /// Keyboard/controller actions include scroll content outside the viewport.
+    pub(super) menu_focus_actions: Vec<crate::menu::MenuAction>,
     /// The engine menu's press sounds by action; carried across the per-frame reset.
     menu_sounds: Vec<(crate::menu::MenuAction, json_ui::ControlSound)>,
     /// The form whose render path was last logged, so each form logs once.

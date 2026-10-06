@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+mod aim_assist;
+
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
@@ -19,16 +21,18 @@ pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
-// Protocol 1001 metadata keys retained verbatim by ActorSnapshot.
+// Metadata keys retained verbatim by ActorSnapshot.
 const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
-const SCALE_METADATA_KEY: u32 = 38;
+/// Raw server actor scale, applied independently of the visual definition's scale.
+pub const SCALE_METADATA_KEY: u32 = 38;
 const NAMETAG_METADATA_KEY: u32 = 4;
-const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
 pub(crate) const VARIANT_METADATA_KEY: u32 = 2;
-const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
-/// `minecraft:collision_box` in the vanilla `player.json` definition.
-const PLAYER_COLLISION_WIDTH: f32 = 0.6;
-const PLAYER_COLLISION_HEIGHT: f32 = 1.8;
+/// Unscaled actor collision width supplied by the server.
+pub const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
+/// Unscaled actor collision height supplied by the server.
+pub const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
+const DEFAULT_ACTOR_COLLISION_WIDTH: f32 = 0.6;
+const DEFAULT_ACTOR_COLLISION_HEIGHT: f32 = 1.8;
 pub(crate) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
 pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
 const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
@@ -40,6 +44,7 @@ const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_SWIMMING: u32 = 57;
 const ACTOR_FLAG_USING_ITEM: u32 = 4;
 const ACTOR_FLAG_SPRINTING: u32 = 3;
+pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
 const ACTOR_FLAG_GLIDING: u32 = 32;
 pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
 pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
@@ -94,6 +99,7 @@ pub struct ActorSnapshot {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
+    pub player_game_mode: Option<protocol::GameModeUpdate>,
     pub source_tick: Option<u64>,
     pub metadata: HashMap<u32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
@@ -188,6 +194,7 @@ impl ActorSnapshot {
             on_ground: None,
             teleported: false,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
             attributes: HashMap::with_capacity(spawn.attributes.len()),
@@ -241,6 +248,7 @@ impl ActorSnapshot {
             on_ground: Some(feed.on_ground),
             teleported: feed.teleported,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
             attributes: HashMap::new(),
@@ -308,19 +316,31 @@ impl ActorSnapshot {
         self.head_yaw = pose.head_yaw;
     }
 
-    /// Feet-anchored `(min, max)` box from the width and height metadata; a player
-    /// missing either falls back to its definition's collision box.
+    /// Feet-anchored `(min, max)` box with server scale applied once.
+    /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
         let player = matches!(self.kind, ActorKind::Player { .. });
-        let dimension = |key, player_default| match self.metadata.get(&key) {
+        let dimension = |key, default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
                 Some(*value)
             }
-            _ => player.then_some(player_default),
+            Some(ActorMetadataValue::Float(_)) => player.then_some(default),
+            _ => Some(default),
         };
-        let half_width = dimension(BOUNDING_BOX_WIDTH_METADATA_KEY, PLAYER_COLLISION_WIDTH)? * 0.5;
-        let height = dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY, PLAYER_COLLISION_HEIGHT)?;
+        let scale = self.render_scale();
+        let half_width = dimension(
+            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            DEFAULT_ACTOR_COLLISION_WIDTH,
+        )? * scale
+            * 0.5;
+        let height = dimension(
+            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            DEFAULT_ACTOR_COLLISION_HEIGHT,
+        )? * scale;
+        if !half_width.is_finite() || !height.is_finite() {
+            return None;
+        }
         let [x, y, z] = self.position;
         Some((
             [x - half_width, y, z - half_width],
@@ -367,11 +387,11 @@ impl ActorSnapshot {
     }
 
     /// The server-set render scale (metadata `Scale`), multiplying the model's own scale; an
-    /// absent, non-finite or non-positive value reads 1.
+    /// absent, non-finite or negative value reads 1. Zero hides the body while retaining its actor.
     #[must_use]
     pub fn render_scale(&self) -> f32 {
         match self.metadata.get(&SCALE_METADATA_KEY) {
-            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale > 0.0 => *scale,
+            Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }
     }
@@ -512,6 +532,7 @@ pub struct PlayerProfile {
 /// when the flag word holding it was absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MovementFlagUpdate {
+    pub immobile: Option<bool>,
     pub sneaking: Option<bool>,
     pub sprinting: Option<bool>,
     pub gliding: Option<bool>,
@@ -547,6 +568,7 @@ impl MovementFlagUpdate {
             flags.map(|flags| flags & (1_u64 << bit) != 0)
         };
         Some(Self {
+            immobile: bit(ACTOR_FLAG_IMMOBILE),
             sneaking: bit(ACTOR_FLAG_SNEAKING),
             sprinting: bit(ACTOR_FLAG_SPRINTING),
             gliding: bit(ACTOR_FLAG_GLIDING),
@@ -556,19 +578,22 @@ impl MovementFlagUpdate {
     }
 }
 
-/// Client-authored identity and pose for the local player's own third-person rig, which the
-/// server never spawns as an actor. When the player list carries no self entry, the skin backs
-/// a synthetic profile keyed by `uuid`; a real echo overrides it.
+/// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
+/// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
     pub skin: PlayerSkin,
+    /// Uses the client appearance locally while retaining any server profile for restoration.
+    pub prefer_client_skin: bool,
     pub position: [f32; 3],
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
+    /// Active flight from the client's completed movement mode, rather than server abilities.
+    pub flying: bool,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -576,6 +601,14 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// The main-hand stack's data value.
+    pub main_hand_metadata: u32,
+    /// Positive server identity for the selected stack, if one is available.
+    pub main_hand_stack_id: Option<i32>,
+    /// Selected hotbar slot; equal stacks in different slots still re-equip.
+    pub main_hand_slot: u8,
+    /// Current Java swing duration, recalculated from the active effects each tick.
+    pub java_swing_ticks: i32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -611,6 +644,10 @@ pub(crate) struct ActorStore {
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
     ignored_movement_components: u64,
+    actor_identifier_skips: u64,
+    player_game_mode_skips: u64,
+    world_default_game_mode: Option<protocol::PlayerGameMode>,
+    aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
@@ -635,8 +672,13 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     local_view_dirty: bool,
     local_view_bobbing: bool,
+    local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_main_metadata: u32,
+    local_main_stack_id: Option<i32>,
+    local_main_slot: u8,
+    local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
@@ -669,6 +711,7 @@ mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod mount;
 mod movement_interpolation;
 mod placement;
 mod projectile;
@@ -709,7 +752,9 @@ fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
 
 fn event_dimension(event: &ActorEvent) -> Option<i32> {
     match event {
-        ActorEvent::Spawn(event) => Some(event.dimension),
+        ActorEvent::Spawn(event) | ActorEvent::PlayerSpawn { spawn: event, .. } => {
+            Some(event.dimension)
+        }
         ActorEvent::Remove(event) => Some(event.dimension),
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
@@ -717,7 +762,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::PlayerList(_)
         | ActorEvent::Skin { .. }
         | ActorEvent::Status(_)
-        | ActorEvent::TakeItem(_) => None,
+        | ActorEvent::TakeItem(_)
+        | ActorEvent::Identifiers(_) => None,
     }
 }
 
@@ -745,3 +791,12 @@ mod velocity_tests;
 
 #[cfg(test)]
 mod movement_duration_tests;
+
+#[cfg(test)]
+mod scale_tests;
+
+#[cfg(test)]
+mod bounds_tests;
+
+#[cfg(test)]
+mod movement_flags_tests;
