@@ -132,7 +132,14 @@ changing gameplay. `render_frame` is render-world time excluding drawable acquis
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
-window they appear in. `gpu_frame` spans the first to last timestamp; node stages
+window they appear in. `gpu_frame` spans the first to last timestamp only when the sampled graph covers the frame.
+On Metal, queries attach to existing owned render passes: stock Bevy passes and
+shared draw categories remain unmeasured, and `gpu_frame` stays absent. Empty
+compute marker passes do not produce usable timestamps on Apple GPUs. Pass categories
+sum elapsed latencies, including gaps and overlapping GPU work; they are not GPU
+active time and must not be added. Invalid timestamp pairs are skipped, so a
+category may cover only some of its passes. Check coverage against native traces.
+Node stages
 are `gpu_shadows`, `gpu_opaque`, `gpu_transparent`, `gpu_ui`, `gpu_hand`,
 `gpu_post`, `gpu_tonemapping`, `gpu_fxaa` and `gpu_blit`. With
 `RUST_MCBE_STAGE_PROFILE=1` on adapters with in-pass timestamps (not Apple GPUs),
@@ -157,3 +164,20 @@ preparation. No trace file is written during normal updates. A full recording
 drops subsequent events and sets `truncated`; inspect this flag before choosing
 a measurement window. Surface preparation includes schedule overhead and is an
 upper bound on drawable acquisition, not proof that macOS caused a stall.
+
+Build with the `bedrock-client/frame-trace` feature for named Bevy schedules,
+systems, graph nodes, command generation, queue submission and presentation spans.
+Chrome tracing writes through Bevy's trace writer and changes the workload; use a
+short diagnostic run, separate from the matched long captures.
+
+`RUST_MCBE_STAGE_PROFILE_EVENTS` sets the bounded event budget (default 131,072;
+maximum 2,097,152). Invalid values retain the default. Exported traces include the
+capacity, exact dropped-event count, a wall-clock anchor and game-clock frame
+anchors. GPU counter events carry a readback sequence and duration in nanoseconds;
+their timestamp is receipt time, not GPU execution time or a CPU-frame identity.
+
+Keep native profiler bundles outside git. Export only explicitly selected timing
+and stack tables; never export the trace table of contents or process metadata,
+which can include environment variables. Use scheduler states and sampled stacks
+to separate blocked time from runnable delay and active work. Profiling overhead
+and unavailable GPU categories must be reported separately.
