@@ -9,6 +9,8 @@ const MAX_STATES_PER_BLOCK: u64 = 1 << 16;
 
 /// Permutations one custom block may define before extras are ignored.
 const MAX_PERMUTATIONS: usize = 1024;
+/// Bone visibility entries one geometry component may define before extras are ignored.
+const MAX_BONE_VISIBILITY: usize = 256;
 /// Material instances one component set may define before extras are ignored.
 const MAX_MATERIAL_INSTANCES: usize = 64;
 /// The namespace of vanilla's own blocks.
@@ -46,13 +48,14 @@ pub struct CustomBox {
     pub max: [f32; 3],
 }
 
-/// State identities and visual components of a custom block definition.
+/// The render-relevant parts of a custom block definition.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomBlockVisuals {
     pub base: CustomVisualComponents,
     /// In definition order; later matching permutations override earlier ones.
     pub permutations: Box<[CustomPermutation]>,
-    /// Block states in definition order, properties first, then trait states.
+    /// Block states in palette order: placement trait states, then properties in list order.
+    /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
     /// A declared state could not be represented by the named axes.
     pub state_identity_incomplete: bool,
@@ -62,6 +65,8 @@ pub struct CustomBlockVisuals {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomVisualComponents {
     pub geometry: Option<Arc<str>>,
+    /// `bone_visibility` of the same geometry component: bone name and Molang expression.
+    pub bone_visibility: Box<[(Arc<str>, Arc<str>)]>,
     pub materials: Option<Box<[CustomMaterialInstance]>>,
     pub transformation: Option<CustomTransformation>,
     /// `minecraft:light_dampening`, the sky/block light a full block filters (0..=15).
@@ -70,7 +75,7 @@ pub struct CustomVisualComponents {
     pub light_emission: Option<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomMaterialInstance {
     /// `*`, a face name, or a named instance a geometry face refers to.
     pub name: Arc<str>,
@@ -78,8 +83,6 @@ pub struct CustomMaterialInstance {
     pub render_method: Option<Arc<str>>,
     /// `tint_method`: `default_foliage`, `birch_foliage`, `evergreen_foliage`, `dry_foliage`, `grass`, `water`, or `none`.
     pub tint_method: Option<Arc<str>>,
-    pub ambient_occlusion: Option<f32>,
-    pub face_dimming: Option<bool>,
 }
 
 /// Rotation in quarter turns about each axis, then scale and translation.
@@ -118,44 +121,36 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
-    /// Canonical named-state combinations, with the last axis varying fastest.
-    /// Incomplete definitions have no usable state identities.
+    /// Every state in palette order with its network block hash, for sessions whose block
+    /// ids are hashes.
     #[must_use]
     pub fn hashed_states(&self) -> Vec<CustomHashedState> {
         let axes = &self.visual.state_axes;
-        if self.visual.state_identity_incomplete || axes.iter().any(|axis| axis.values.is_empty()) {
+        if self.visual.state_identity_incomplete { return Vec::new(); }
+        let Some(total) = axis_combinations(axes) else {
             return Vec::new();
-        }
-        let total = axes.iter().fold(1_u64, |total, axis| {
-            total.saturating_mul(axis.values.len() as u64)
-        });
-        if total > MAX_STATES_PER_BLOCK {
-            return Vec::new();
-        }
+        };
         (0..total)
-            .map(|mut index| {
-                let mut picks = vec![0_usize; axes.len()];
-                for (pick, axis) in picks.iter_mut().zip(axes.iter()).rev() {
-                    let len = axis.values.len() as u64;
-                    *pick = (index % len) as usize;
-                    index /= len;
-                }
-                let values: Box<[CustomStateValue]> = picks
-                    .iter()
-                    .zip(axes.iter())
-                    .map(|(&pick, axis)| axis.values[pick].clone())
-                    .collect();
-                CustomHashedState {
-                    hash: block_state_network_hash(
-                        &self.name,
-                        axes.iter()
-                            .map(|axis| axis.name.as_ref())
-                            .zip(values.iter()),
-                    ),
+            .filter_map(|index| {
+                let values = decode_state(axes, index)?;
+                Some(CustomHashedState {
+                    hash: block_state_network_hash(&self.name, axes.iter().map(|axis| axis.name.as_ref()).zip(values.iter())),
                     values,
-                }
+                })
             })
             .collect()
+    }
+
+    /// The value on each of `state_axes` of the state at `index` in the block's palette run;
+    /// `None` when the axes do not account for every state.
+    #[must_use]
+    pub fn state_values(&self, index: u32) -> Option<Box<[CustomStateValue]>> {
+        let axes = &self.visual.state_axes;
+        if self.visual.state_identity_incomplete { return None; }
+        if axis_combinations(axes)? != u64::from(self.state_count) {
+            return None;
+        }
+        decode_state(axes, u64::from(index))
     }
 
     /// Vanilla orders the sequential block palette by FNV-1 64 of the name, then the name.
@@ -163,6 +158,29 @@ impl CustomBlock {
     pub fn sort_key(&self) -> u64 {
         block_name_sort_key(&self.name)
     }
+}
+
+/// The number of states the axes span, or `None` past the per-block bound or for an empty axis.
+fn axis_combinations(axes: &[CustomStateAxis]) -> Option<u64> {
+    axes.iter()
+        .try_fold(1_u64, |total, axis| {
+            (!axis.values.is_empty()).then(|| total.saturating_mul(axis.values.len() as u64))
+        })
+        .filter(|&total| total <= MAX_STATES_PER_BLOCK)
+}
+
+/// Mixed-radix decode of a palette index: the first axis varies fastest.
+fn decode_state(axes: &[CustomStateAxis], mut index: u64) -> Option<Box<[CustomStateValue]>> {
+    let values = axes
+        .iter()
+        .map(|axis| {
+            let len = axis.values.len() as u64;
+            let pick = (index % len) as usize;
+            index /= len;
+            axis.values[pick].clone()
+        })
+        .collect();
+    (index == 0).then_some(values)
 }
 
 /// Returns vanilla's sequential palette sort key for a block name.
@@ -306,6 +324,33 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     let mut states = 1_u64;
     let mut state_axes = Vec::new();
     let mut state_identity_incomplete = false;
+    let enabled = root
+        .list("traits")
+        .iter()
+        .flat_map(|trait_| {
+            trait_
+                .field("enabled_states")
+                .map(enabled_flags)
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>();
+    // Trait states come first, in vanilla's fixed order, whatever order the traits are listed in.
+    for (name, values) in TRAIT_STATES {
+        if enabled
+            .iter()
+            .any(|state| state.strip_prefix("minecraft:").unwrap_or(state) == name)
+        {
+            states = states.checked_mul(values.len() as u64)?;
+            state_axes.push(CustomStateAxis {
+                name: format!("minecraft:{name}").into(),
+                values: values
+                    .iter()
+                    .map(|value| CustomStateValue::String((*value).into()))
+                    .collect(),
+            });
+        }
+    }
+    state_identity_incomplete |= enabled.iter().any(|state| !TRAIT_STATES.iter().any(|(name, _)| *name == state.strip_prefix("minecraft:").unwrap_or(state)));
     for property in root.list("properties") {
         let values = property.list("enum");
         states = states.checked_mul(values.len().max(1) as u64)?;
@@ -315,33 +360,6 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             state_axes.push(CustomStateAxis {
                 name: name.as_str().into(),
                 values: parsed_values.into_boxed_slice(),
-            });
-        } else {
-            state_identity_incomplete = true;
-        }
-    }
-    for name in root.list("traits").iter().flat_map(|trait_| {
-        trait_
-            .field("enabled_states")
-            .map(enabled_flags)
-            .unwrap_or_default()
-    }) {
-        states = states.checked_mul(trait_state_values(&name))?;
-        if let Some(values) = trait_state_names(&name) {
-            let integer = name == "facing_direction";
-            state_axes.push(CustomStateAxis {
-                name: format!("minecraft:{name}").into(),
-                values: values
-                    .iter()
-                    .enumerate()
-                    .map(|(index, value)| {
-                        if integer {
-                            CustomStateValue::Int(index as i64)
-                        } else {
-                            CustomStateValue::String((*value).into())
-                        }
-                    })
-                    .collect(),
             });
         } else {
             state_identity_incomplete = true;
@@ -446,7 +464,8 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     let Some(components) = components else {
         return CustomVisualComponents::default();
     };
-    let geometry = match components.field("minecraft:geometry") {
+    let geometry_component = components.field("minecraft:geometry");
+    let geometry = match geometry_component {
         Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
         Some(compound) => match compound.field("identifier") {
             Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
@@ -454,6 +473,26 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
         },
         None => None,
     };
+    let bone_visibility =
+        match geometry_component.and_then(|geometry| geometry.field("bone_visibility")) {
+            // Vanilla sends every entry as a string; numeric tags are kept for lenient servers.
+            Some(Nbt::Compound(bones)) => bones
+                .iter()
+                .take(MAX_BONE_VISIBILITY)
+                .filter_map(|(bone, value)| {
+                    let expression: Arc<str> = match value {
+                        Nbt::String(expression) => expression.as_str().into(),
+                        value => value
+                            .number()
+                            .filter(|value| value.is_finite())?
+                            .to_string()
+                            .into(),
+                    };
+                    Some((bone.as_str().into(), expression))
+                })
+                .collect(),
+            _ => Box::default(),
+        };
     let materials = components
         .field("minecraft:material_instances")
         .and_then(|instances| match instances.field("materials") {
@@ -481,23 +520,6 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
                         texture: texture.as_str().into(),
                         render_method,
                         tint_method,
-                        ambient_occlusion: material
-                            .field("ambient_occlusion")
-                            .and_then(Nbt::number)
-                            .map(|value| value as f32)
-                            .filter(|value| value.is_finite() && *value >= 0.0),
-                        face_dimming: material
-                            .field("packed_bools")
-                            .and_then(Nbt::number)
-                            .filter(|value| value.is_finite())
-                            .map(|value| value as i64 & 1 != 0)
-                            .or_else(|| {
-                                material
-                                    .field("face_dimming")
-                                    .and_then(Nbt::number)
-                                    .filter(|value| matches!(*value, 0.0 | 1.0))
-                                    .map(|value| value != 0.0)
-                            }),
                     })
                 })
                 .collect()
@@ -544,6 +566,7 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     };
     CustomVisualComponents {
         geometry,
+        bone_visibility,
         materials,
         transformation,
         light_dampening: nibble("minecraft:light_dampening", "lightLevel")
@@ -552,23 +575,20 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
     }
 }
 
-/// Values a placement trait state contributes; unknown states contribute one.
-fn trait_state_values(state: &str) -> u64 {
-    trait_state_names(state).map_or(1, |values| values.len() as u64)
-}
-
-/// Trait state values in the order vanilla enumerates the same block states
-/// (public canonical block-state data).
-fn trait_state_names(state: &str) -> Option<&'static [&'static str]> {
-    match state {
-        "cardinal_direction" => Some(&["south", "west", "north", "east"]),
-        "facing_direction" | "block_face" => {
-            Some(&["down", "up", "north", "south", "west", "east"])
-        }
-        "vertical_half" => Some(&["bottom", "top"]),
-        _ => None,
-    }
-}
+/// Placement trait states in the order vanilla adds them to a block (`placement_position`, then
+/// `placement_direction`), each with its values in palette order.
+const TRAIT_STATES: [(&str, &[&str]); 4] = [
+    (
+        "block_face",
+        &["down", "up", "north", "south", "west", "east"],
+    ),
+    ("vertical_half", &["bottom", "top"]),
+    ("cardinal_direction", &["south", "west", "north", "east"]),
+    (
+        "facing_direction",
+        &["down", "up", "north", "south", "west", "east"],
+    ),
+];
 
 fn state_value(value: &Nbt) -> Option<CustomStateValue> {
     match value {
@@ -591,400 +611,7 @@ fn enabled_flags(value: &Nbt) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        CustomBlock, CustomBlockVisuals, CustomSelection, CustomStateAxis, CustomStateValue,
-        Definition, block_name_sort_key,
-    };
+mod tests;
 
-    fn parse_definition(bytes: &[u8]) -> Option<Definition> {
-        super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
-    }
-
-    // Every state axis combination appears once with a distinct hash.
-    #[test]
-    fn hashed_states_enumerate_axes_and_hash_distinctly() {
-        let block = CustomBlock {
-            name: "ns:b".into(),
-            state_count: 6,
-            collides: true,
-            collision_box: None,
-            selection: CustomSelection::Default,
-            visual: std::sync::Arc::new(CustomBlockVisuals {
-                state_axes: Box::new([
-                    CustomStateAxis {
-                        name: "ns:a".into(),
-                        values: Box::new([
-                            CustomStateValue::Bool(false),
-                            CustomStateValue::Bool(true),
-                        ]),
-                    },
-                    CustomStateAxis {
-                        name: "ns:c".into(),
-                        values: Box::new([
-                            CustomStateValue::Int(0),
-                            CustomStateValue::Int(1),
-                            CustomStateValue::Int(2),
-                        ]),
-                    },
-                ]),
-                ..CustomBlockVisuals::default()
-            }),
-        };
-        let states = block.hashed_states();
-        assert_eq!(states.len(), 6);
-        assert_eq!(states[1].values[1], CustomStateValue::Int(1));
-        let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
-        assert_eq!(hashes.len(), 6);
-        let plain = CustomBlock {
-            visual: std::sync::Arc::new(CustomBlockVisuals::default()),
-            ..block
-        };
-        assert_eq!(plain.hashed_states().len(), 1);
-    }
-
-    fn string(value: &str) -> Vec<u8> {
-        let mut bytes = vec![value.len() as u8];
-        bytes.extend_from_slice(value.as_bytes());
-        bytes
-    }
-
-    fn named(tag: u8, name: &str) -> Vec<u8> {
-        let mut bytes = vec![tag];
-        bytes.extend(string(name));
-        bytes
-    }
-
-    #[test]
-    fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
-        for with_named_property in [false, true] {
-            let mut nbt = named(10, "");
-            nbt.extend(named(9, "properties"));
-            nbt.extend([10, if with_named_property { 4 } else { 2 }]);
-            if with_named_property {
-                nbt.extend(named(8, "name"));
-                nbt.extend(string("example:variant"));
-                nbt.extend(named(9, "enum"));
-                nbt.extend([8, 2]);
-                nbt.extend(string("only"));
-                nbt.push(0);
-            }
-            nbt.extend(named(9, "enum"));
-            nbt.extend([8, 2]);
-            nbt.extend(string("unnamed"));
-            nbt.extend([0, 0]);
-            let blocks =
-                super::CustomBlocks::from_definitions([("example:incomplete", nbt.as_slice())]);
-            assert_eq!(blocks.blocks.len(), 1);
-            assert_eq!(blocks.skipped, 0);
-            let block = &blocks.blocks[0];
-            assert_eq!(block.state_count, 1);
-            assert_eq!(
-                block.visual.state_axes.len(),
-                usize::from(with_named_property)
-            );
-            assert!(block.collides);
-            assert!(
-                block.hashed_states().is_empty(),
-                "an unnamed singleton cannot create an identity; named_neighbor={with_named_property}"
-            );
-        }
-    }
-
-    #[test]
-    fn unsupported_property_and_trait_states_do_not_form_partial_identities() {
-        for unsupported_trait in [false, true] {
-            let mut nbt = named(10, "");
-            if unsupported_trait {
-                nbt.extend(named(9, "traits"));
-                nbt.extend([10, 2]);
-                nbt.extend(named(10, "enabled_states"));
-                nbt.extend(named(1, "unknown_state"));
-                nbt.extend([1, 0, 0]);
-            } else {
-                nbt.extend(named(9, "properties"));
-                nbt.extend([10, 2]);
-                nbt.extend(named(8, "name"));
-                nbt.extend(string("example:unsupported"));
-                nbt.extend(named(9, "enum"));
-                nbt.extend([10, 4, 0, 0, 0]);
-            }
-            nbt.push(0);
-            let blocks =
-                super::CustomBlocks::from_definitions([("example:incomplete", nbt.as_slice())]);
-            assert_eq!(blocks.blocks.len(), 1);
-            let block = &blocks.blocks[0];
-            assert_eq!(block.state_count, if unsupported_trait { 1 } else { 2 });
-            assert!(block.collides);
-            assert!(
-                block.hashed_states().is_empty(),
-                "unsupported states cannot form identities; unsupported_trait={unsupported_trait}"
-            );
-        }
-    }
-
-    #[test]
-    fn placement_trait_and_enum_properties_multiply_states() {
-        let mut nbt = named(10, "");
-        nbt.extend(named(9, "properties"));
-        nbt.extend([10, 4]);
-        for values in [2_u8, 3] {
-            nbt.extend(named(9, "enum"));
-            nbt.extend([8, values * 2]);
-            for index in 0..values {
-                nbt.extend(string(&index.to_string()));
-            }
-            nbt.push(0);
-        }
-        nbt.extend(named(9, "traits"));
-        nbt.extend([10, 2]);
-        nbt.extend(named(10, "enabled_states"));
-        nbt.extend(named(1, "cardinal_direction"));
-        nbt.extend([1, 0, 0]);
-        nbt.extend(named(10, "components"));
-        nbt.extend(named(1, "minecraft:collision_box"));
-        nbt.extend([0, 0, 0]);
-        let definition = parse_definition(&nbt).expect("definition");
-        assert_eq!(
-            (definition.state_count, definition.collides),
-            (2 * 3 * 4, false)
-        );
-        let axes = &definition.visual.state_axes;
-        assert_eq!(axes.len(), 1, "unnamed properties carry no axis");
-        assert_eq!(axes[0].name.as_ref(), "minecraft:cardinal_direction");
-        assert_eq!(
-            axes[0].values[0],
-            super::CustomStateValue::String("south".into())
-        );
-    }
-
-    fn string_field(name: &str, value: &str) -> Vec<u8> {
-        let mut bytes = named(8, name);
-        bytes.extend(string(value));
-        bytes
-    }
-
-    #[test]
-    fn network_light_descriptions_retain_zero_dampening_and_emission() {
-        // Native serialization uses byte tags; accept numeric server variants too.
-        for dampening_tag in [1, 3] {
-            let mut nbt = named(10, "");
-            nbt.extend(named(10, "components"));
-            for (component, field, tag, level) in [
-                (
-                    "minecraft:light_dampening",
-                    "lightLevel",
-                    dampening_tag,
-                    0_u8,
-                ),
-                ("minecraft:light_emission", "emission", 1, 13),
-            ] {
-                nbt.extend(named(10, component));
-                nbt.extend(named(tag, field));
-                nbt.extend([level, 0]); // Zero has the same byte/zigzag-int encoding.
-            }
-            nbt.extend([0, 0]);
-            let visual = parse_definition(&nbt).expect("network definition").visual;
-            assert_eq!(visual.base.light_dampening, Some(0));
-            assert_eq!(visual.base.light_emission, Some(13));
-        }
-    }
-
-    #[test]
-    fn network_legacy_light_filter_retains_transparent_plant_dampening() {
-        for level in [0, 15] {
-            let mut nbt = named(10, "");
-            nbt.extend(named(10, "components"));
-            nbt.extend(named(10, "minecraft:block_light_filter"));
-            nbt.extend(named(1, "lightLevel"));
-            nbt.extend([level, 0, 0, 0]);
-            let visual = parse_definition(&nbt).expect("network definition").visual;
-            assert_eq!(visual.base.light_dampening, Some(level));
-        }
-    }
-
-    #[test]
-    fn network_material_lighting_choices_remain_distinct() {
-        use crate::nbt_tree::Nbt;
-        let components = |ao, dimming| {
-            Nbt::Compound(vec![(
-                "minecraft:material_instances".into(),
-                Nbt::Compound(vec![(
-                    "materials".into(),
-                    Nbt::Compound(vec![(
-                        "*".into(),
-                        Nbt::Compound(vec![
-                            ("texture".into(), Nbt::String("test:plant".into())),
-                            ("ambient_occlusion".into(), Nbt::Byte(ao)),
-                            ("face_dimming".into(), Nbt::Byte(dimming)),
-                        ]),
-                    )]),
-                )]),
-            )])
-        };
-        let choices = [(0, 0), (0, 1), (1, 0), (1, 1)].map(|(ao, dimming)| {
-            super::visual_components(Some(&components(ao, dimming))).materials
-        });
-        for (index, first) in choices.iter().enumerate() {
-            for second in &choices[index + 1..] {
-                assert_ne!(first, second);
-            }
-        }
-    }
-
-    #[test]
-    fn scalar_light_components_remain_lenient_for_odd_values() {
-        use crate::nbt_tree::Nbt;
-        let components = |value| Nbt::Compound(vec![("minecraft:light_dampening".into(), value)]);
-        for (value, expected) in [
-            (Nbt::Int(0), Some(0)),
-            (Nbt::Int(30), Some(15)),
-            (Nbt::Int(-1), Some(0)),
-            (Nbt::Float(f64::NAN), None),
-            (Nbt::String("unknown".into()), None),
-        ] {
-            let visual = super::visual_components(Some(&components(value)));
-            assert_eq!(visual.light_dampening, expected);
-        }
-    }
-
-    #[test]
-    fn visual_components_and_permutations_are_retained() {
-        let mut nbt = named(10, "");
-        nbt.extend(named(10, "components"));
-        nbt.extend(named(10, "minecraft:geometry"));
-        nbt.extend(string_field("identifier", "geometry.ore"));
-        nbt.push(0);
-        nbt.extend(named(10, "minecraft:material_instances"));
-        nbt.extend(named(10, "materials"));
-        nbt.extend(named(10, "*"));
-        nbt.extend(string_field("texture", "ore_top"));
-        nbt.extend([0, 0, 0]);
-        nbt.push(0);
-        nbt.extend(named(9, "permutations"));
-        nbt.extend([10, 2]);
-        nbt.extend(string_field("condition", "q.block_state('x') == 'y'"));
-        nbt.extend(named(10, "components"));
-        nbt.extend(named(10, "minecraft:transformation"));
-        nbt.extend(named(3, "RY"));
-        nbt.push(4);
-        nbt.extend(named(5, "SX"));
-        nbt.extend(2.0_f32.to_le_bytes());
-        nbt.extend([0, 0, 0]);
-        nbt.push(0);
-        let visual = parse_definition(&nbt).expect("definition").visual;
-        assert_eq!(visual.base.geometry.as_deref(), Some("geometry.ore"));
-        let materials = visual.base.materials.as_deref().expect("materials");
-        assert_eq!(
-            (materials[0].name.as_ref(), materials[0].texture.as_ref()),
-            ("*", "ore_top")
-        );
-        let permutation = &visual.permutations[0];
-        assert_eq!(permutation.condition.as_ref(), "q.block_state('x') == 'y'");
-        let transform = permutation
-            .components
-            .transformation
-            .expect("transformation");
-        assert_eq!(
-            transform.rotation,
-            [0, 2, 0],
-            "zigzag 4 is two quarter turns"
-        );
-        assert_eq!(transform.scale, [2.0, 1.0, 1.0]);
-    }
-
-    // Origin is bottom-centre in sixteenths; a full 16-cube maps to the unit block.
-    #[test]
-    fn collision_box_maps_sixteenths_to_block_units() {
-        use crate::nbt_tree::Nbt;
-        let list = |values: [f64; 3]| Nbt::List(values.map(Nbt::Float).into());
-        let boxed = |origin, size| {
-            Nbt::Compound(vec![
-                ("origin".to_owned(), list(origin)),
-                ("size".to_owned(), list(size)),
-            ])
-        };
-        let full = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0])).unwrap();
-        assert_eq!((full.min, full.max), ([0.0; 3], [1.0; 3]));
-        let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
-        assert_eq!(slab.max, [1.0, 0.5, 1.0]);
-        assert!(super::box_component(&boxed([0.0; 3], [0.0; 3])).is_none());
-    }
-
-    #[test]
-    fn review_custom_box_rejects_nonfinite_narrowed_and_computed_coordinates() {
-        use super::{Nbt, box_component};
-        let boxed = |origin: [f64; 3], size: [f64; 3]| {
-            Nbt::Compound(vec![
-                ("origin".into(), Nbt::List(origin.map(Nbt::Float).into())),
-                ("size".into(), Nbt::List(size.map(Nbt::Float).into())),
-            ])
-        };
-        assert!(box_component(&boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0])).is_none());
-        assert!(box_component(&boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0])).is_none());
-    }
-
-    // A disabled selection box makes the block untargetable; a box overrides the default.
-    #[test]
-    fn selection_box_component_is_parsed() {
-        let selection = |body: Vec<u8>| {
-            let mut nbt = named(10, "");
-            nbt.extend(named(10, "components"));
-            nbt.extend(named(10, "minecraft:selection_box"));
-            nbt.extend(body);
-            nbt.extend([0, 0, 0]);
-            parse_definition(&nbt).expect("definition").selection
-        };
-        assert_eq!(
-            selection(named(1, "enabled").into_iter().chain([0]).collect()),
-            CustomSelection::Disabled
-        );
-        assert_eq!(selection(Vec::new()), CustomSelection::Default);
-    }
-
-    #[test]
-    fn truncated_definition_is_rejected() {
-        assert!(parse_definition(&[10, 0, 9]).is_none());
-    }
-
-    // Vanilla definitions admit base states; custom definitions also need overlay visuals.
-    #[test]
-    fn only_vanilla_namespace_definitions_are_not_server_blocks() {
-        let definition = |block_id: &[u8]| {
-            let mut nbt = named(10, "");
-            nbt.extend(named(10, "vanilla_block_data"));
-            nbt.extend(named(3, "block_id"));
-            nbt.extend_from_slice(block_id);
-            nbt.extend([0, 0]);
-            nbt
-        };
-        // Zigzag varints of 1464 and 10000.
-        let vanilla = definition(&[0xf0, 0x16]);
-        let server = definition(&[0xa0, 0x9c, 0x01]);
-        let blocks = super::CustomBlocks::from_definitions([
-            ("minecraft:light_gray_concrete_stairs", vanilla.as_slice()),
-            ("benergistics:controller", server.as_slice()),
-        ]);
-        let names = blocks
-            .blocks
-            .iter()
-            .map(|block| block.name.as_ref())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            (names, blocks.skipped),
-            (vec!["benergistics:controller"], 0)
-        );
-        assert_eq!(
-            blocks.vanilla_blocks.as_ref(),
-            &[std::sync::Arc::<str>::from(
-                "minecraft:light_gray_concrete_stairs"
-            )]
-        );
-    }
-
-    #[test]
-    fn sort_key_is_fnv1_64_of_the_name() {
-        assert_eq!(block_name_sort_key(""), 0xcbf2_9ce4_8422_2325);
-        assert_eq!(block_name_sort_key("a"), 0xaf63_bd4c_8601_b7be);
-    }
-}
+#[cfg(test)]
+mod compatibility_tests;

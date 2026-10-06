@@ -68,7 +68,26 @@ impl UiPresentationRuntime {
                 height,
                 self.safe_area,
                 &mut self.menu_scrolls,
-            ),
+            )
+            .map(|hits| {
+                // The programmatic fallback has no trust popup, so vanilla's draws over it.
+                if shown.server_trust_prompt().is_none() {
+                    return hits;
+                }
+                let state = ViewState::default();
+                let popup = self.append_dialog(
+                    runtime,
+                    shown,
+                    &state,
+                    nodes,
+                    next,
+                    metrics,
+                    [width, height],
+                );
+                let (hits, keys) = popup.unwrap_or((hits, Vec::new()));
+                self.form_presentation.menu_keys = keys;
+                hits
+            }),
         };
         self.form_presentation.ready_menu = if pending
             || previous
@@ -214,7 +233,7 @@ impl UiPresentationRuntime {
         for (index, layer) in layers.into_iter().enumerate() {
             if !renderer
                 .scene_settings(layer.reference, &layer.context)
-                .renders(index == top && view.dialog.is_none())
+                .renders(index == top && !view.popup_open())
             {
                 continue;
             }
@@ -318,7 +337,7 @@ impl UiPresentationRuntime {
         }
         self.add_menu_text_spots(spots);
         self.form_presentation.menu_sounds = sounds;
-        // A launcher dialog opens the vanilla popup and takes over the input.
+        // A launcher dialog or the join's trust question opens the vanilla popup and takes the input.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
         {
@@ -330,8 +349,8 @@ impl UiPresentationRuntime {
 }
 
 impl UiPresentationRuntime {
-    /// The vanilla popup for `view`'s open dialog, drawn over its screen, with
-    /// the only hit targets that then count.
+    /// The vanilla popup for the join's trust question or else `view`'s open dialog, drawn over
+    /// its screen, with the only hit targets that then count.
     #[allow(clippy::too_many_arguments)]
     fn append_dialog(
         &mut self,
@@ -343,27 +362,48 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         [width, height]: [f32; 2],
     ) -> Option<MenuHits> {
-        let dialog = view.dialog?;
+        let trust = view.server_trust_prompt();
+        let dialog = if trust.is_some() {
+            None
+        } else {
+            Some(view.dialog?)
+        };
+        if dialog == Some(crate::menu::MenuDialog::Accounts) {
+            self.form_presentation.menu_sounds = Vec::new();
+            let rollback = (nodes.len(), *next);
+            return Some(
+                match self.append_oreui_accounts(view, nodes, next, metrics, [width, height]) {
+                    Ok(hits) => (hits, Vec::new()),
+                    Err(_) => {
+                        nodes.truncate(rollback.0);
+                        *next = rollback.1;
+                        (Vec::new(), Vec::new())
+                    }
+                },
+            );
+        }
         let Some(renderer) = self.form_presentation.engine.as_deref() else {
             return Some((Vec::new(), Vec::new()));
         };
         let rollback = (nodes.len(), *next);
         let translate = |key: &str| runtime.translation(key);
-        let accounts = dialog == crate::menu::MenuDialog::Accounts;
-        let (model, confirm) = menu_screens::dialog_model(view, dialog, &translate);
-        let context = json_ui::form_context(&model, &menu_screens::retail_context());
-        let mut data = if accounts {
-            super::accounts::data(view)
-        } else {
-            json_ui::form_data_source(&model)
+        let (model, confirm, dismiss) = match (trust, dialog) {
+            (Some(prompt), _) => (
+                menu_screens::server_trust_model(&prompt.url, &translate),
+                MenuAction::ServerTrust(true),
+                MenuAction::ServerTrust(false),
+            ),
+            (None, dialog) => {
+                let (model, confirm) = menu_screens::dialog_model(view, dialog?, &translate);
+                (model, confirm, MenuAction::DismissDialog)
+            }
         };
-        let reference = if accounts {
-            super::accounts::SCREEN
-        } else if dialog
-            == crate::menu::MenuDialog::SettingsSupport(
+        let context = json_ui::form_context(&model, &menu_screens::retail_context());
+        let mut data = json_ui::form_data_source(&model);
+        let reference = if dialog
+            == Some(crate::menu::MenuDialog::SettingsSupport(
                 crate::menu::settings_support::SupportDialog::Help,
-            )
-        {
+            )) {
             super::settings_support::help_data(&mut data, &translate);
             "rating_prompt.rating_prompt_screen"
         } else {
@@ -412,22 +452,15 @@ impl UiPresentationRuntime {
         let mut keys = Vec::new();
         let mut sounds = Vec::new();
         for region in popup.hits.iter().filter(|region| region.enabled) {
-            let action = if accounts {
-                let Some(action) = super::accounts::action(view, region) else {
-                    continue;
-                };
-                action
-            } else {
-                match region.pressed.as_deref() {
-                    Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
-                    Some(
-                        "popup_dialog.rightcancel_button"
-                        | "popup_dialog.escape"
-                        | "button.menu_exit"
-                        | "button.rating_no_button",
-                    ) => MenuAction::DismissDialog,
-                    _ => continue,
-                }
+            let action = match region.pressed.as_deref() {
+                Some("popup_dialog.left_button" | "button.rating_yes_button") => confirm,
+                Some(
+                    "popup_dialog.rightcancel_button"
+                    | "popup_dialog.escape"
+                    | "button.menu_exit"
+                    | "button.rating_no_button",
+                ) => dismiss,
+                _ => continue,
             };
             if let Some(bounds) = window_rect(region, popup.scale, origin) {
                 hits.push((action, bounds));

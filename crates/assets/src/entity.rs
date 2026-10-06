@@ -316,6 +316,9 @@ struct EntityCatalogPayload {
     render: EntityRenderData,
 }
 
+/// An encoded entity carrier payload.
+pub type EntityCarrierBlob = Box<[u8]>;
+
 #[derive(Clone, Debug)]
 pub struct RuntimeEntityAssets {
     carrier_identity: Option<[u8; 32]>, // SHA-256 of the decoded carrier file
@@ -447,7 +450,7 @@ impl RuntimeEntityAssets {
     /// matches what a decode of that encoding reports.
     pub fn from_compiled_encoded(
         compiled: CompiledEntityAssets,
-    ) -> Result<(Self, Option<Box<[u8]>>), AssetError> {
+    ) -> Result<(Self, Option<EntityCarrierBlob>), AssetError> {
         use sha2::{Digest, Sha256};
         let blob = encode_entity_blob(&compiled).ok();
         let assets = Self {

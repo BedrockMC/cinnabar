@@ -283,7 +283,7 @@ pub use transparent::sort::{
 use transparent::sort::{
     INITIAL_TRANSPARENT_SLOT_REFS, MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
     MAX_TRANSPARENT_RETIRED_BYTES, TransparentAddressIdentity, TransparentCandidateCache,
-    TransparentGroupInput, TransparentGroupOrder, TransparentLiquidPhaseGroup,
+    TransparentGroupInput, TransparentGroupOrder, TransparentGroups, TransparentLiquidPhaseGroup,
     TransparentSortRuntime, TransparentSortWork, TransparentStagedSnapshot,
     TransparentWorkerResult, build_transparent_group, changed_ref_spans, distinct_tint_count,
     ensure_transparent_ref_capacity, prepare_transparent_sorts, sort_transparent_groups,
