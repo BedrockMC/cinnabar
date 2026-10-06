@@ -264,9 +264,9 @@ fn transfer_handoff_address(host: &str, port: u16) -> Option<String> {
     (!trimmed.is_empty()).then(|| format_transfer_address(trimmed, port))
 }
 
-/// Where a join to `address` plays and the address a Discord invite joins: servers by endpoint
-/// with a port, local worlds by name and never joinable, and Realms, friends and experiences
-/// joinable without showing their identifiers.
+/// Where a join to `address` plays and the address a Discord invite joins. Only servers (by
+/// endpoint with a port) and experiences are joinable; Realms, friends' worlds and local
+/// worlds are named without identifiers and carry no invite.
 fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
     use protocol::launcher_control::ConnectTarget;
     use rich_presence::{Destination, Target};
@@ -278,15 +278,17 @@ fn presence_target(address: &str, local_world: bool) -> rich_presence::Target {
     }
     let address = address.trim();
     let (destination, join) = match crate::menu::target_for(address) {
-        ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), endpoint),
-        ConnectTarget::Realm(_) => (Destination::Realm, address.to_owned()),
-        ConnectTarget::Friend(_) => (Destination::FriendWorld, address.to_owned()),
-        ConnectTarget::Gathering(_) => (Destination::Experience, address.to_owned()),
+        ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
+        ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
+        ConnectTarget::Realm(_) => (Destination::Realm, None),
+        ConnectTarget::Friend(_) => (Destination::FriendWorld, None),
     };
-    Target {
-        destination,
-        join: Some(join),
-    }
+    Target { destination, join }
+}
+
+/// Whether a received invite names a destination Cinnabar itself makes joinable.
+pub(crate) fn invite_joinable(address: &str) -> bool {
+    presence_target(address, false).join.as_deref() == Some(address)
 }
 
 #[derive(SystemParam)]
@@ -683,15 +685,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presence_names_servers_with_ports_and_hides_realm_friend_and_experience_ids() {
+    fn only_servers_and_experiences_are_joinable_and_ids_stay_off_the_card() {
         use rich_presence::{Destination, Target};
         let server = |endpoint: &str| Target {
             destination: Destination::Server(endpoint.to_owned()),
             join: Some(endpoint.to_owned()),
         };
-        let hidden = |destination, join: &str| Target {
+        let private = |destination| Target {
             destination,
-            join: Some(join.to_owned()),
+            join: None,
         };
         assert_eq!(
             presence_target(" play.example.net ", false),
@@ -707,24 +709,28 @@ mod tests {
         );
         assert_eq!(
             presence_target(" realm_id/123", false),
-            hidden(Destination::Realm, "realm_id/123")
+            private(Destination::Realm)
         );
         assert_eq!(
             presence_target("friend_xuid/2535400000000000", false),
-            hidden(Destination::FriendWorld, "friend_xuid/2535400000000000")
+            private(Destination::FriendWorld)
         );
         let experience = format!("{}fixture", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
         assert_eq!(
             presence_target(&experience, false),
-            hidden(Destination::Experience, &experience)
+            Target {
+                destination: Destination::Experience,
+                join: Some(experience.clone()),
+            }
         );
         assert_eq!(
             presence_target("My World", true),
-            Target {
-                destination: Destination::LocalWorld("My World".into()),
-                join: None,
-            }
+            private(Destination::LocalWorld("My World".into()))
         );
+        assert!(invite_joinable("play.example.net:19132"));
+        assert!(invite_joinable(&experience));
+        assert!(!invite_joinable("realm_id/123"));
+        assert!(!invite_joinable("friend_xuid/2535400000000000"));
     }
 
     #[test]

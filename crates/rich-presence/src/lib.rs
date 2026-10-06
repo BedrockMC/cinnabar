@@ -82,7 +82,6 @@ impl State {
         };
         state.truncate(state.floor_char_boundary(MAX_STATE_BYTES));
         let activity = Activity::new()
-            .details(launcher::PRODUCT_NAME)
             .state(state)
             .assets(|assets| {
                 assets

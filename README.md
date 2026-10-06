@@ -53,11 +53,10 @@ its identifier, plus the original app icon served from GitHub. The timer counts 
 in game and the launch otherwise. Updates run over local IPC, reconnect automatically and follow
 Discord's rate limit. The card never shows account details, Realm IDs or friend XUIDs.
 
-While you play on a server, Realm, friend's world or experience, Discord friends can join you from
-your profile or a chat invite. The destination travels only in Discord's join secret, and the
-joining client accepts only addresses it would itself publish. Joining still needs whatever the
-destination requires (Realm membership, Xbox friendship with the world's owner). Local worlds are
-not joinable. Cinnabar registers itself with Discord on each launch (`discord-<id>` in
+While you play on a server or an experience, Discord friends can join you from your profile or a
+chat invite. The destination travels only in Discord's join secret, and the joining client accepts
+only addresses it would itself publish. Realms, friends' worlds and local worlds are not joinable.
+Cinnabar registers itself with Discord on each launch (`discord-<id>` in
 `HKCU\Software\Classes` on Windows, a `.desktop` handler on Linux, Discord's `games` folder on
 macOS) so an accepted invite starts the game when it is closed.
 

@@ -58,7 +58,8 @@ fn activity_states_keep_start_time_and_exclude_account_and_join_data() {
     let mut states = Vec::new();
     for state in [State::Menus, State::Joining, State::Playing] {
         let payload = serde_json::to_value(state.activity(1234, None)).unwrap();
-        assert_eq!(payload["details"], launcher::PRODUCT_NAME);
+        // Discord already titles the card with the application's name.
+        assert!(payload.get("details").is_none());
         assert_eq!(payload["timestamps"]["start"], 1234);
         assert_eq!(payload["assets"]["large_image"], LARGE_IMAGE_URL);
         assert_eq!(payload["assets"]["large_text"], launcher::PRODUCT_NAME);
@@ -98,18 +99,15 @@ fn playing_text_names_servers_and_worlds_but_not_realm_or_friend_identities() {
 
 #[test]
 fn invites_carry_the_join_address_only_in_the_secret_and_only_while_playing() {
-    let friend = place(
-        Destination::FriendWorld,
-        Some("friend_xuid/2535400000000001"),
-    );
-    let payload = serde_json::to_value(State::Playing.activity(1, Some(&friend))).unwrap();
+    let experience = place(Destination::Experience, Some("gathering/secret-id"));
+    let payload = serde_json::to_value(State::Playing.activity(1, Some(&experience))).unwrap();
     let secret = payload["secrets"]["join"].as_str().unwrap();
-    assert_eq!(join_address(secret), Some("friend_xuid/2535400000000001"));
+    assert_eq!(join_address(secret), Some("gathering/secret-id"));
     let party = payload["party"]["id"].as_str().unwrap();
-    assert!(!party.contains("2535400000000001"));
-    assert!(!payload["state"].as_str().unwrap().contains("2535"));
+    assert!(!party.contains("secret-id"));
+    assert!(!payload["state"].as_str().unwrap().contains("secret-id"));
     for state in [State::Menus, State::Joining] {
-        let payload = serde_json::to_value(state.activity(1, Some(&friend))).unwrap();
+        let payload = serde_json::to_value(state.activity(1, Some(&experience))).unwrap();
         assert!(payload.get("secrets").is_none() && payload.get("party").is_none());
     }
     let local = place(Destination::LocalWorld("My World".into()), None);
@@ -146,11 +144,11 @@ fn received_secrets_must_be_ones_cinnabar_publishes() {
 }
 
 #[test]
-fn another_realm_republishes_its_invite() {
-    let realm = |id: &str| place(Destination::Realm, Some(id));
+fn another_experience_republishes_its_invite() {
+    let experience = |id: &str| place(Destination::Experience, Some(id));
     let mut publication = Publication::default();
-    assert!(publication.changed(State::Playing, 0, Some(&realm("realm_id/1")), 0));
-    assert!(publication.changed(State::Playing, 0, Some(&realm("realm_id/2")), 0));
+    assert!(publication.changed(State::Playing, 0, Some(&experience("gathering/1")), 0));
+    assert!(publication.changed(State::Playing, 0, Some(&experience("gathering/2")), 0));
 }
 
 #[test]

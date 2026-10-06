@@ -87,6 +87,7 @@ fn update(
     // A direct `--address` session has no launcher to join through.
     if let Some(address) = presence.take_join()
         && menu.is_launcher()
+        && crate::session::invite_joinable(&address)
         && !already_there(session.presence_target(), &address)
     {
         info!("joining {address} from a Discord invite");
@@ -130,11 +131,11 @@ mod tests {
     #[test]
     fn an_invite_to_the_current_destination_does_not_reconnect() {
         let target = rich_presence::Target {
-            destination: rich_presence::Destination::Realm,
-            join: Some("realm_id/1".into()),
+            destination: rich_presence::Destination::Experience,
+            join: Some("gathering/1".into()),
         };
-        assert!(already_there(Some(&target), "realm_id/1"));
-        assert!(!already_there(Some(&target), "realm_id/2"));
-        assert!(!already_there(None, "realm_id/1"));
+        assert!(already_there(Some(&target), "gathering/1"));
+        assert!(!already_there(Some(&target), "gathering/2"));
+        assert!(!already_there(None, "gathering/1"));
     }
 }
