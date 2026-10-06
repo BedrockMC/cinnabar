@@ -27,11 +27,7 @@ pub(super) fn resolve_chat_line<'a>(
                         .into_owned()
                 })
                 .collect::<Vec<_>>();
-            if arguments.is_empty() {
-                template
-            } else {
-                Cow::Owned(protocol::format_translation(&template, &arguments))
-            }
+            Cow::Owned(protocol::format_translation(&template, &arguments))
         }
         ChatMessageKind::Chat => match node.source.as_deref() {
             Some(source) if !source.is_empty() => {
@@ -152,6 +148,21 @@ mod tests {
             }),
             "menu.play | 100% literal %menu.play | %missing | Play"
         );
+    }
+
+    #[test]
+    fn zero_argument_translations_format_percent_escapes_while_literal_rows_stay_literal() {
+        let translated = message(ChatMessageKind::Translation, None, "progress", &[]);
+        assert_eq!(
+            resolve_chat_line(&translated, |key| {
+                (key == "progress").then(|| Arc::from("100%% complete"))
+            }),
+            "100% complete"
+        );
+        for kind in [ChatMessageKind::Chat, ChatMessageKind::System] {
+            let literal = message(kind, None, "100%% complete", &[]);
+            assert_eq!(resolve_chat_line(&literal, |_| None), "100%% complete");
+        }
     }
 
     #[test]

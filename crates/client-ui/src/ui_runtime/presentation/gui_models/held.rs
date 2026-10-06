@@ -167,7 +167,10 @@ fn authored(
     else {
         return Ok(None);
     };
-    let [_] = &*entities.geometries()[index].bones else {
+    let Ok(bones) = render_model::resolve_geometry_bones(entities, index) else {
+        return Ok(None);
+    };
+    let [root] = &*bones else {
         return Ok(None);
     };
     let Some(texture) = equipment.texture(&binding.texture.identifier) else {
@@ -190,8 +193,8 @@ fn authored(
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
     let (Some(main), Some(off)) = (
-        attach(identity, *pivot, main),
-        attach(identity, *pivot, off),
+        attach(identity, *pivot, main, root.binding.is_some()),
+        attach(identity, *pivot, off, root.binding.is_some()),
     ) else {
         return Ok(None);
     };

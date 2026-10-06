@@ -2231,7 +2231,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Text packet localization uses `Localization::_get` percent-token expansion, followed by parameter formatting; the pinned `texts/en_US.lang` entry `multiplayer.player.joined` is `%s joined the game`.
 
 ## crates/client-ui/src/ui_runtime/presentation/primitives.rs
-- Translation and command-output rows apply the same `Localization::_get` expansion to marked keys and their arguments before formatting.
+- Translation and command-output rows apply the same `Localization::_get` expansion to marked keys and their arguments before formatting. Parameter formatting still expands percent escapes when the argument list is empty.
 
 ## crates/client-ui/src/ui_runtime/raw_text_resolution.rs
 - Current 1.26.50.26 game-mode feedback builds `gameMode.changed` with a parameter vector through `TextObjectLocalizedTextWithParams` (artifact 6: `0xcaf2a70`, `0x51cdef0`, `0x5214cb0`, `0x34b0d00`, `0x34b1110`). Translation arguments pass through the I18n parameter formatter; ordinary rawtext text objects remain literal. The named `TextObjectLocalizedTextWithParams::asString` counterpart resolves its child strings before parameter formatting.
@@ -2241,6 +2241,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/render-model/src/equipment/attachable.rs
 - Bound attachable roots use the parent's model-part origin: model-space pivot Y minus 24 pixels before applying hand rotation and scale. The same origin is used by `ActorAnimationController` binding expressions and the pinned `geometry.shield`/`geometry.trident` models.
+- Owner-name bindings clear the model-part defaults; unbound roots keep their authored hand-relative origin. Only explicit binding expressions retain the shared humanoid origin.
 - GUI held geometry consumes that resolved pose without another origin subtraction; only its original bind pivot is removed when transforming vertices.
 
 ## crates/client-ui/src/ui_runtime/presentation/player_preview/equipment.rs

@@ -160,7 +160,7 @@ fn bound_attachable_preview_preserves_the_resolved_hand_origin() {
         translation_scale: [0.0, 0.0, 0.0, 1.0],
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
-    let bone = attach(identity, pivot, BoneChannels::default()).unwrap();
+    let bone = attach(identity, pivot, BoneChannels::default(), true).unwrap();
     let mut vertices = render_model::textured_cube_vertices([[0.0, 0.0, 1.0, 1.0]; 6]);
     for vertex in &mut vertices {
         vertex.position[1] += pivot[1];
