@@ -4,6 +4,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use assets::RuntimeFontCatalog;
 use json_ui::{
     BindState, DataSource, EmptyLibrary, FormRender, LayoutEnv, MeasureCache, ResolvedControl,
     Scalar, ViewState,
@@ -37,13 +38,28 @@ pub(super) struct OverlayCache {
     binding: BindState,
     measures: MeasureCache,
     laid: Option<LaidOverlay>,
+    font: Option<Arc<RuntimeFontCatalog>>, // the font `measures` were taken with
     /// Bind+layout passes run, for cache tests.
     #[cfg(test)]
     pub(super) passes: usize,
 }
 
-#[cfg(test)]
 impl OverlayCache {
+    /// Drops cached measures and layout when the font is swapped, since glyph widths may differ.
+    pub(super) fn retain_font(&mut self, font: &Arc<RuntimeFontCatalog>) {
+        if !self
+            .font
+            .as_ref()
+            .is_some_and(|kept| Arc::ptr_eq(kept, font))
+        {
+            *self = Self {
+                font: Some(Arc::clone(font)),
+                ..Self::default()
+            };
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn into_render(self) -> Option<FormRender> {
         self.laid.map(|laid| laid.render)
     }
@@ -114,13 +130,8 @@ pub(super) fn render<'a>(
     {
         cache.passes += 1;
     }
-    let render = json_ui::render_bound_cached(
-        bound,
-        root,
-        env,
-        &ViewState::default(),
-        &mut cache.measures,
-    );
+    let render =
+        json_ui::render_bound_cached(bound, root, env, &ViewState::default(), &mut cache.measures);
     &cache
         .laid
         .insert(LaidOverlay {

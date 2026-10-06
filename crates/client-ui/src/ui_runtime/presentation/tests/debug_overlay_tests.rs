@@ -209,7 +209,32 @@ fn cached_overlay_matches_a_fresh_render_as_lines_change() {
             .clone();
         assert_eq!(nodes, render(lines, [640.0, 360.0]).nodes);
         let rebound = cache.passes != passes;
-        assert_eq!(rebound, index != 2, "only changed lines rebind, frame {index}");
+        assert_eq!(
+            rebound,
+            index != 2,
+            "only changed lines rebind, frame {index}"
+        );
+    }
+}
+
+/// A font swap at the same size and lines re-measures instead of reusing the old glyph widths.
+#[test]
+fn swapping_the_font_relays_the_overlay() {
+    let lines = DebugLines {
+        left: vec!["FPS 360".to_owned()],
+        right: vec!["GPU".to_owned()],
+    };
+    let mut cache = debug_overlay::OverlayCache::default();
+    let font = crate::test_support::fixture_font();
+    for (font, relaid) in [
+        (&font, true),
+        (&font, false),
+        (&crate::test_support::fixture_font(), true),
+    ] {
+        cache.retain_font(font);
+        let passes = cache.passes;
+        debug_overlay::render(&mut cache, &lines, ([640.0, 360.0], 1.0), &ENV);
+        assert_eq!(cache.passes != passes, relaid);
     }
 }
 
