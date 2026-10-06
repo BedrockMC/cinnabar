@@ -133,6 +133,7 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
         name: name.into(),
+        tags: Default::default(),
         state_count,
         collides: true,
         collision_box: None,

@@ -10,6 +10,11 @@ pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
 pub use render_api::fancy_actor_shade;
 
+mod aim_assist;
+pub use aim_assist::{
+    AIM_ASSIST_TEXTURES, AimAssistHighlight, AimAssistHighlightPlugin, AimAssistHighlightScene,
+    AimAssistTexture,
+};
 mod actor;
 mod actor_render;
 #[cfg(test)]

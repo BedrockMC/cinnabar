@@ -7,6 +7,7 @@ use sim::{
 };
 use thiserror::Error;
 
+mod aim_pose;
 mod controller_frame;
 mod correction;
 mod dimension_wait;
@@ -575,8 +576,10 @@ impl LocalPhysicsController {
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
+                    self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
+                        eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
                         fly_toggle: self.fly_toggle_pending,
@@ -595,7 +598,6 @@ impl LocalPhysicsController {
                     });
                     effects.commit_successful_tick();
                     self.previous_position = before;
-                    self.eye_offset.tick(input.mode, input.sneaking);
                     self.visual_correction.tick();
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());

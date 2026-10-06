@@ -213,3 +213,38 @@ fn compile_part_reuses_unchanged_output_and_skips_cancelled_work() {
         limit: resource_pack::MAX_FILE_BYTES,
     }));
 }
+
+#[test]
+fn aim_highlight_overrides_track_only_their_texture_inputs() {
+    let mut png = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([7, 11, 13, 255]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let path = format!("{}.png", render::AIM_ASSIST_TEXTURES[0]);
+    let before = stack(&[(path.as_str(), png.get_ref())]);
+    let mut dependencies = Dependencies::default();
+    let textures = compile(
+        Subscriber::AimAssist,
+        &before,
+        &mut dependencies,
+        crate::camera::aim_highlight::prepare_pack_textures,
+    );
+    assert_eq!(
+        textures[0].as_ref().unwrap().rgba.as_ref(),
+        [7, 11, 13, 255]
+    );
+    assert!(textures[1].is_none());
+    let previous = PackApplication {
+        admission: PackAdmission::Validated(before),
+        dependencies,
+        aim_assist_textures: textures,
+        ..Default::default()
+    };
+    let unrelated = stack(&[
+        (path.as_str(), png.get_ref()),
+        ("textures/unrelated.png", b"new"),
+    ]);
+    assert!(!Changes::between(&unrelated, Some(&previous)).aim_assist);
+    let removed = stack(&[]);
+    assert!(Changes::between(&removed, Some(&previous)).aim_assist);
+}
