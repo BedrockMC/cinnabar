@@ -136,11 +136,16 @@ pub(super) fn install_graph(world: &mut World) {
         GpuCullLateLabel,
         Node3d::MainTransmissivePass,
     ));
-    // Whichever installs second orders entity shadows after the late draws.
-    let _ = graph.try_add_node_edge(
-        GpuCullLateLabel,
-        crate::entity_shadow_render::EntityShadowLabel,
-    );
+    // A missing destination would leave a dangling output edge in the graph.
+    if graph
+        .get_node_state(crate::entity_shadow_render::EntityShadowLabel)
+        .is_ok()
+    {
+        let _ = graph.try_add_node_edge(
+            GpuCullLateLabel,
+            crate::entity_shadow_render::EntityShadowLabel,
+        );
+    }
 }
 
 /// Culls with last frame's visibility before the main opaque pass draws the result.
