@@ -1,3 +1,10 @@
+## NetherNet server trust
+
+- Plain-http NetherNet joins ask vanilla's first-use trust question through the JSON-UI modal
+  popup, with the keys stored as vanilla stores them. Provisional deviation: an answer that takes
+  longer than 5 s redials the server with the trusted key, because a dedicated server drops an
+  idle negotiation within about ten seconds; vanilla's handling of a slow answer is unconfirmed.
+
 ## Servers tab experiences
 
 - The Servers tab lists the ServerTab layout's experiences, joined by experience ID. Incomplete
