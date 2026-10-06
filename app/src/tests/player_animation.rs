@@ -460,6 +460,7 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
         cape_rig,
         |runtime_id| world.authority().actor_rig(runtime_id),
         |runtime_id| world.authority().actor_player_profile(runtime_id),
+        |_| false,
     );
     let frame = actors::update_actor_rig_scene(&mut scene, 0.5, batch);
     assert_eq!(frame.rig.rejects, ActorRigRejects::default());

@@ -181,10 +181,12 @@ pub fn apply_capes<'a>(
     cape: &CapeRig,
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
+    elytra_of: impl Fn(u64) -> bool,
 ) {
     let mut capes: Vec<(SkinRgba8, usize)> = Vec::new();
     let mut extras = Vec::new();
-    for body in &batch.submissions {
+    for index in 0..batch.submissions.len() {
+        let body = &batch.submissions[index];
         let identity = body.input.identity;
         if identity.layer != ACTOR_LAYER_BODY
             || body.route == ActorRigRoute::NoDraw
@@ -193,9 +195,6 @@ pub fn apply_capes<'a>(
             continue;
         }
         let Some(cape_pixels) = profile_of(identity.runtime_id).and_then(cape_of) else {
-            continue;
-        };
-        let Some(rig) = rig_of(identity.runtime_id) else {
             continue;
         };
         let layer = match capes.iter().find(|(known, _)| *known == cape_pixels) {
@@ -207,6 +206,14 @@ pub fn apply_capes<'a>(
             }
             None => continue,
         };
+        if elytra_of(identity.runtime_id) {
+            replace_elytra_texture(batch, identity.runtime_id, layer as u32);
+            continue;
+        }
+        let Some(rig) = rig_of(identity.runtime_id) else {
+            continue;
+        };
+        let body = &batch.submissions[index];
         let mut submission: ActorRigSubmission = body.clone();
         submission.input.identity.layer = ACTOR_LAYER_CAPE;
         submission.input.rig = cape.id;
@@ -220,6 +227,21 @@ pub fn apply_capes<'a>(
     }
     batch.submissions.extend(extras);
 }
+
+/// The cape replaces the worn wings' base image while retaining their geometry and glint.
+fn replace_elytra_texture(batch: &mut ActorPresentationBatch, runtime_id: u64, layer: u32) {
+    for submission in &mut batch.submissions {
+        let identity = submission.input.identity;
+        if identity.runtime_id == runtime_id && identity.layer == super::equipment::ELYTRA_LAYER {
+            submission.texture_layer = layer;
+            batch.artwork.remove(&identity);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "cape_elytra_tests.rs"]
+mod elytra_tests;
 
 #[cfg(test)]
 mod tests {
@@ -245,7 +267,7 @@ mod tests {
         assert!(cape_layer(u32::MAX, u32::MAX, &[]).is_none());
     }
 
-    fn fixture_cape() -> super::CapeRig {
+    pub(super) fn fixture_cape() -> super::CapeRig {
         let source = serde_json::json!({
             "format_version":"1.12.0",
             "minecraft:geometry":[{
