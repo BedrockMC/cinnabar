@@ -24,6 +24,7 @@ pub(crate) struct LocalPlayerSkin {
     pub height: u32,
     pub arm_size: Arc<str>,
     pub local_uuid: [u8; 16],
+    cape: Option<protocol::CapeImage>,
 }
 
 impl LocalPlayerSkin {
@@ -77,6 +78,7 @@ impl LocalPlayerSkin {
             height: side as u32,
             arm_size: Arc::from(DEFAULT_ARM_SIZE),
             local_uuid: stable_local_uuid(display_name),
+            cape: None,
         }
     }
 
@@ -85,11 +87,23 @@ impl LocalPlayerSkin {
     pub fn player_skin(&self) -> protocol::PlayerSkin {
         protocol::PlayerSkin::Standard(protocol::StandardSkin {
             geometry: None,
-            cape: None,
+            cape: self.cape.clone(),
             width: self.width,
             height: self.height,
             rgba8: self.rgba8.clone(),
         })
+    }
+
+    /// Overrides only the rendered cape for developer recordings; login identity stays intact.
+    #[cfg(feature = "developer-control")]
+    pub(crate) fn set_test_cape(&mut self, cape: Option<protocol::CapeImage>) {
+        self.cape = cape;
+    }
+
+    /// Selects the developer appearance ahead of any echoed server profile while enabled.
+    #[cfg(feature = "developer-control")]
+    pub(crate) fn recording_cape_enabled(&self) -> bool {
+        self.cape.is_some()
     }
 
     /// The login upload payload; allocates the byte copy the JWT encoder needs.

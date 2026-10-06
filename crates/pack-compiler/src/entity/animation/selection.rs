@@ -79,6 +79,21 @@ impl<T> Selector<'_, T> {
             }
             return Some(());
         }
+        // Runtime string textures have no catalog leaf; static siblings keep their conditions.
+        if self.prefix == "texture."
+            && lower.strip_prefix("variable.").is_some_and(|name| {
+                !name.is_empty()
+                    && name.split('.').all(|part| {
+                        let mut chars = part.chars();
+                        chars
+                            .next()
+                            .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+                            && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                    })
+            })
+        {
+            return Some(());
+        }
         let (name, index) = split_index(expression)?;
         let members = self.arrays.get(&name.to_ascii_lowercase())?;
         for (element, member) in members.iter().enumerate() {
@@ -202,11 +217,28 @@ mod tests {
     #[test]
     fn unsupported_atoms_reject_and_plain_aliases_are_unconditional() {
         let selector = selector(&resolve);
-        assert!(selector.leaves("variable.foo").is_none());
+        assert!(selector.leaves("query.foo").is_none());
         let leaves = selector.leaves("Texture.a").unwrap();
         assert_eq!(leaves.len(), 1);
         assert!(condition_text(&leaves[0].0).is_none());
         assert!(selector.leaves("q ? Texture.a").is_none());
+    }
+
+    #[test]
+    fn unresolved_texture_variable_keeps_the_static_trim_branch_condition() {
+        let selector = selector(&resolve);
+        let leaves = selector
+            .leaves("variable.has_trim ? variable.trim_path : Texture.a")
+            .expect("unresolved runtime texture variables must not discard static siblings");
+        assert_eq!(leaves.len(), 1);
+        assert_eq!(
+            condition_text(&leaves[0].0).as_deref(),
+            Some("!(variable.has_trim)")
+        );
+        assert_eq!(leaves[0].1, 0);
+        assert!(selector.leaves("variable.trim_path + 1").is_none());
+        assert!(selector.leaves("variable.").is_none());
+        assert!(selector.leaves("variable.trim_path[0]").is_none());
     }
 
     #[test]

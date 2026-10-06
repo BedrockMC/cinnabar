@@ -59,6 +59,7 @@ fn actor_pipeline_prewarm_empty_frame_covers_all_authored_raster_states() {
         let mut descriptors = HashSet::new();
         for kind in [
             EntityRenderMaterial::Default,
+            EntityRenderMaterial::Glint,
             EntityRenderMaterial::Dragon,
             EntityRenderMaterial::DissolveDepth,
             EntityRenderMaterial::DissolveColor,

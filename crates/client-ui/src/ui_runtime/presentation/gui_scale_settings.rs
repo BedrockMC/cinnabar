@@ -4,9 +4,18 @@
 use super::UiPresentationRuntime;
 
 impl UiPresentationRuntime {
-    /// Actions of the enabled controls in the most recently drawn menu.
-    pub fn visible_menu_actions(&self) -> impl Iterator<Item = crate::menu::MenuAction> + '_ {
-        self.menu_hit_targets.iter().map(|(action, _)| *action)
+    /// Authored focus order, including controls keyboard navigation can scroll into view.
+    pub fn menu_focus_actions(&self) -> impl Iterator<Item = crate::menu::MenuAction> + '_ {
+        self.form_presentation
+            .menu_focus_actions
+            .iter()
+            .copied()
+            .chain(
+                self.menu_hit_targets
+                    .iter()
+                    .filter(|_| self.form_presentation.menu_focus_actions.is_empty())
+                    .map(|(action, _)| *action),
+            )
     }
 
     /// Returns the resolved GUI-scale track for app input integration tests.

@@ -359,10 +359,19 @@ impl WorldStream {
         now: Instant,
     ) -> bool {
         let mut due = false;
-        for neighbour in key
-            .mesh_neighbourhood_dependents()
-            .filter(|neighbour| *neighbour != key)
-        {
+        // A loaded column with no outstanding requests owes nothing, whatever the height.
+        let settled = |column: ChunkKey| {
+            self.loaded_columns.contains(&column) && !self.requests.requested.contains_key(&column)
+        };
+        let mut unsettled = [key; 26];
+        let mut count = 0;
+        for neighbour in key.mesh_neighbourhood_dependents() {
+            if neighbour != key && !settled(neighbour.chunk()) {
+                unsettled[count] = neighbour;
+                count += 1;
+            }
+        }
+        for &neighbour in &unsettled[..count] {
             if self.sub_chunk_is_due(neighbour, now) {
                 due = true;
                 if self.requests.is_expected(neighbour) {
