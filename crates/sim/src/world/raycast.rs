@@ -323,7 +323,10 @@ fn inspection_limit(direction: Vec3, max_distance: f64) -> Result<usize, WorldQu
         .ok_or(WorldQueryError::RayInspectionLimitExceeded)
 }
 
-fn checked_offset(cell: [i32; 3], offset: [i32; 3]) -> Result<[i32; 3], WorldQueryError> {
+pub(super) fn checked_offset(
+    cell: [i32; 3],
+    offset: [i32; 3],
+) -> Result<[i32; 3], WorldQueryError> {
     Ok([
         cell[0]
             .checked_add(offset[0])
@@ -346,7 +349,7 @@ fn candidate_precedes(candidate: &Candidate, previous: &Candidate) -> bool {
         .is_lt()
 }
 
-fn strictly_precedes(left: f64, right: f64) -> bool {
+pub(super) fn strictly_precedes(left: f64, right: f64) -> bool {
     crossing_order(left, right).is_lt()
 }
 
@@ -489,15 +492,15 @@ const fn max_face(axis: usize) -> u8 {
     }
 }
 
-struct TraversalState {
-    cell: [i32; 3],
+pub(super) struct TraversalState {
+    pub(super) cell: [i32; 3],
     step: [i32; 3],
     next: [f64; 3],
     delta: [f64; 3],
 }
 
 impl TraversalState {
-    fn new(origin: Vec3, direction: Vec3) -> Result<Self, WorldQueryError> {
+    pub(super) fn new(origin: Vec3, direction: Vec3) -> Result<Self, WorldQueryError> {
         let cell = [
             origin.x.floor() as i32,
             origin.y.floor() as i32,
@@ -525,12 +528,12 @@ impl TraversalState {
         })
     }
 
-    fn next_crossing(&self) -> f64 {
+    pub(super) fn next_crossing(&self) -> f64 {
         self.next[0].min(self.next[1]).min(self.next[2])
     }
 
     /// Returns the at most six partial cells of a simultaneous boundary crossing.
-    fn advance(
+    pub(super) fn advance(
         &mut self,
         crossing: f64,
     ) -> Result<impl Iterator<Item = [i32; 3]>, WorldQueryError> {

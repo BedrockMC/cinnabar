@@ -811,6 +811,14 @@ impl CollisionWorld for PaletteWorld<'_> {
         self.visit_camera_colliders(query, visitor)
     }
 
+    fn camera_segment_entry(
+        &self,
+        origin: Vec3,
+        delta: Vec3,
+    ) -> Result<(Option<f64>, LenientSkipCounts), WorldQueryError> {
+        self.camera_segment_entry_lenient(origin, delta)
+    }
+
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         let chunk = ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4);
         let identity = self.identity_for_chunks([chunk])?;

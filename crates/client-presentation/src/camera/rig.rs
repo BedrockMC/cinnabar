@@ -2,7 +2,7 @@
 
 use bevy::{log::debug, prelude::*};
 use semantic_input::PerspectiveMode;
-use sim::{Aabb, CollisionWorld, LenientSkipCounts, Vec3 as SimVec3};
+use sim::{CollisionWorld, LenientSkipCounts, Vec3 as SimVec3};
 
 use super::{
     CameraRig, THIRD_PERSON_COLLISION_EPSILON_BLOCKS, THIRD_PERSON_COLLISION_RADIUS_BLOCKS,
@@ -81,7 +81,7 @@ pub fn collision_safe_rig_pose(
     )
 }
 
-/// Clips eight corner rays along the boom using borrowed collision shapes.
+/// Clips eight corner rays along the boom, walking only the cells each ray crosses.
 pub(super) fn sweep_boom(
     subject_translation: Vec3,
     mut pose: Transform,
@@ -95,29 +95,31 @@ pub(super) fn sweep_boom(
     );
     let sweep = SimVec3::new(f64::from(delta.x), f64::from(delta.y), f64::from(delta.z));
     let radius = f64::from(THIRD_PERSON_COLLISION_RADIUS_BLOCKS);
-    let camera = Aabb::new(
-        origin - SimVec3::new(radius, radius, radius),
-        origin + SimVec3::new(radius, radius, radius),
-    );
     let distance = f64::from(delta.length());
     let near_clip = f64::from(THIRD_PERSON_COLLISION_EPSILON_BLOCKS);
     let mut safe_distance = distance;
-    let skipped = world
-        .visit_collision_boxes_camera_lenient(camera.swept(sweep), &mut |collision| {
-            for corner in 0..8 {
-                let offset = SimVec3::new(
-                    if corner & 1 == 0 { -radius } else { radius },
-                    if corner & 2 == 0 { -radius } else { radius },
-                    if corner & 4 == 0 { -radius } else { radius },
-                );
-                if let Some(entry) = segment_entry_fraction(origin + offset, sweep, collision) {
-                    let hit = offset + sweep * entry;
-                    safe_distance =
-                        safe_distance.min((hit.length_squared().sqrt() - near_clip).max(near_clip));
-                }
-            }
-        })
-        .unwrap_or_default();
+    let mut skipped = LenientSkipCounts::default();
+    for corner in 0..8 {
+        let offset = SimVec3::new(
+            if corner & 1 == 0 { -radius } else { radius },
+            if corner & 2 == 0 { -radius } else { radius },
+            if corner & 4 == 0 { -radius } else { radius },
+        );
+        let Ok((entry, corner_skipped)) = world.camera_segment_entry(origin + offset, sweep) else {
+            continue;
+        };
+        skipped.unknown_runtime_id = skipped
+            .unknown_runtime_id
+            .saturating_add(corner_skipped.unknown_runtime_id);
+        skipped.unloaded_chunk = skipped
+            .unloaded_chunk
+            .saturating_add(corner_skipped.unloaded_chunk);
+        if let Some(entry) = entry {
+            let hit = offset + sweep * entry;
+            safe_distance =
+                safe_distance.min((hit.length_squared().sqrt() - near_clip).max(near_clip));
+        }
+    }
     if safe_distance < distance {
         pose.translation =
             subject_translation + delta.normalize_or_zero() * safe_distance.max(0.25) as f32;
@@ -158,26 +160,4 @@ pub fn unavailable_world_perspective_pose(
         rotation: subject_rotation,
         ..default()
     }
-}
-
-/// Finds the first overlap of a closed segment and a collision box.
-fn segment_entry_fraction(origin: SimVec3, delta: SimVec3, bounds: Aabb) -> Option<f64> {
-    let mut entry = 0.0_f64;
-    let mut exit = 1.0_f64;
-    for axis in 0..3 {
-        if delta[axis].abs() <= f64::EPSILON {
-            if origin[axis] < bounds.min[axis] || origin[axis] > bounds.max[axis] {
-                return None;
-            }
-            continue;
-        }
-        let first = (bounds.min[axis] - origin[axis]) / delta[axis];
-        let second = (bounds.max[axis] - origin[axis]) / delta[axis];
-        entry = entry.max(first.min(second));
-        exit = exit.min(first.max(second));
-        if entry > exit {
-            return None;
-        }
-    }
-    (exit >= 0.0 && entry <= 1.0).then_some(entry.clamp(0.0, 1.0))
 }
