@@ -414,6 +414,16 @@ pub struct Events {
     /// Live while the core prepares a join; gone once it hands the session to the client.
     #[serde(default)]
     pub connect: Option<ConnectProgress>,
+    /// The join's pending question whether to trust a NetherNet server.
+    #[serde(default)]
+    pub server_trust: Option<ServerTrustPrompt>,
+}
+
+/// Asks whether to trust the NetherNet server at `url`, answered with [`answer_server_trust`].
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub struct ServerTrustPrompt {
+    pub id: u64,
+    pub url: String,
 }
 
 /// The core's stage of preparing a join, and its pack download counts.
@@ -608,6 +618,28 @@ pub async fn home(socket_dir: &Path) -> Result<Home, BridgeError> {
     Ok(body.home)
 }
 
+#[derive(Serialize)]
+struct ServerTrustAnswer {
+    id: u64,
+    trusted: bool,
+}
+
+#[derive(Deserialize)]
+struct ServerTrustBody {
+    answered: bool,
+}
+
+/// Answers trust prompt `id`; `false` when it was no longer pending.
+pub async fn answer_server_trust(
+    socket_dir: &Path,
+    id: u64,
+    trusted: bool,
+) -> Result<bool, BridgeError> {
+    let params = ServerTrustAnswer { id, trusted };
+    let body: ServerTrustBody = call(socket_dir, "server_trust_answer.v1", Some(params)).await?;
+    Ok(body.answered)
+}
+
 /// Reports one messaging event (impression, click, dismiss, ...).
 pub async fn report_message_event(
     socket_dir: &Path,
@@ -697,7 +729,27 @@ mod tests {
         let quiet: Events = parse_response(quiet).expect("quiet");
         assert_eq!(quiet.auth.state, AuthState::Offline);
         assert!(quiet.disconnect.is_none() && quiet.transfer.is_none());
-        assert!(quiet.connect.is_none());
+        assert!(quiet.connect.is_none() && quiet.server_trust.is_none());
+    }
+
+    #[test]
+    fn parses_a_pending_server_trust_prompt() {
+        let events = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,
+            "auth":{"state":"signed_in"},"server_trust":{"id":3,"url":"http://127.0.0.1:19132"}}}"#;
+        let events: Events = parse_response(events).expect("events");
+        assert_eq!(
+            events.server_trust,
+            Some(ServerTrustPrompt {
+                id: 3,
+                url: "http://127.0.0.1:19132".into()
+            })
+        );
+        let answer = serde_json::to_value(ServerTrustAnswer {
+            id: 3,
+            trusted: true,
+        })
+        .expect("answer");
+        assert_eq!(answer, serde_json::json!({"id": 3, "trusted": true}));
     }
 
     // Omitted counts read as zero and an unknown stage reads as connecting.
