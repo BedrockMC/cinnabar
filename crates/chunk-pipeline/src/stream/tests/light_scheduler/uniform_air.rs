@@ -165,7 +165,7 @@ fn scanned_uniform_known_air_light(
     let trusted_zero = BoundaryLightSample::trusted(0, false).ok()?;
     for offset in LIGHT_NEIGHBOUR_OFFSETS {
         let neighbour = offset_sub_chunk_key(job.key, offset)?;
-        if !job.prior.trusted_boundaries.contains(&neighbour) {
+        if !job.prior.trusted_boundaries.contains_key(&neighbour) {
             continue;
         }
         for a in 0_u8..16 {
@@ -208,7 +208,7 @@ fn scanned_uniform_known_air_light(
             } else {
                 for offset in LIGHT_NEIGHBOUR_OFFSETS {
                     let neighbour = offset_sub_chunk_key(job.key, offset)?;
-                    if !job.prior.trusted_boundaries.contains(&neighbour) {
+                    if !job.prior.trusted_boundaries.contains_key(&neighbour) {
                         continue;
                     }
                     for a in 0_u8..16 {
