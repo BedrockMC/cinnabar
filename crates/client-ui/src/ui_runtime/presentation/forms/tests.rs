@@ -1204,3 +1204,149 @@ fn each_hero_row_draws_its_own_offers() {
         assert!(art.contains(&id), "{id} missing from {art:?}");
     }
 }
+
+/// The vanilla store home for `rows`, rendered with fixed text metrics; `None` without the carrier.
+fn store_render(
+    rows: Vec<launcher::store::DisplayRow>,
+    root: [f64; 2],
+) -> Option<json_ui::ScreenRender> {
+    let carrier = super::pack_harness::carrier()?;
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = crate::menu::MenuScreen::Store;
+    let images = rows
+        .iter()
+        .flat_map(|row| &row.offers)
+        .filter_map(|offer| offer.thumbnail_url.clone())
+        .map(|url| {
+            let file = format!("/c/{}", url.rsplit('/').next().unwrap_or_default());
+            (url, file)
+        })
+        .collect();
+    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+        loading: false,
+        rows,
+        images,
+        ..crate::store::StoreSnapshot::empty()
+    }));
+    let files = carrier.ui_files();
+    let catalog =
+        json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
+    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    json_ui::render_screen(
+        screen.reference,
+        &catalog,
+        &screen.context,
+        &screen.data,
+        root,
+        &env,
+        &json_ui::ViewState::default(),
+    )
+}
+
+fn priced_offer(id: &str) -> protocol::store_control::StoreOffer {
+    protocol::store_control::StoreOffer {
+        id: id.into(),
+        title: "Castle".into(),
+        creator: Some("Studio".into()),
+        content_type: None,
+        thumbnail_url: Some(format!("https://x.test/{id}.jpg")),
+        store_id: None,
+        prices: vec![protocol::store_control::StorePrice {
+            currency: "mc".into(),
+            amount: 830,
+        }],
+        rating: Some(protocol::store_control::StoreRating {
+            average: 4.4,
+            count: 120,
+        }),
+        tags: vec![],
+        owned: false,
+    }
+}
+
+// Cards drew the content-card info row, which needs service card styles the store sends none of: the
+// rating ran into the price, with no star or coin icon.
+#[test]
+fn store_cards_lay_out_rating_and_price_apart_with_their_icons() {
+    let row = launcher::store::DisplayRow {
+        id: None,
+        title: "New".into(),
+        role: "StoreRow",
+        offers: vec![priced_offer("a"), priced_offer("b")],
+        continuation: None,
+    };
+    let Some(render) = store_render(vec![row], [640.0, 360.0]) else {
+        return;
+    };
+    let card = render
+        .hits
+        .iter()
+        .find(|region| region.pressed.as_deref() == Some("button.select_offer"))
+        .expect("an offer card")
+        .rect;
+    // Horizontally on the card; labels may overhang its bottom edge by their descent.
+    let inside = |rect: &json_ui::RectOut| {
+        rect.x >= card.x - 0.5
+            && rect.x + rect.w <= card.x + card.w + 0.5
+            && rect.y >= card.y
+            && rect.y < card.y + card.h
+    };
+    let text = |wanted: &str| {
+        render
+            .nodes
+            .iter()
+            .find(|n| {
+                matches!(&n.draw, json_ui::Draw::Text { text, .. } if text == wanted)
+                    && inside(&n.dest)
+            })
+            .map(|n| n.dest)
+            .unwrap_or_else(|| panic!("{wanted} not drawn on the card"))
+    };
+    let (price, rating) = (text("830"), text("4.4"));
+    let apart = price.x + price.w <= rating.x || rating.x + rating.w <= price.x;
+    assert!(apart, "price {price:?} overlaps rating {rating:?}");
+    for icon in ["textures/ui/ratings_fullstar", "/c/a.jpg"] {
+        assert!(
+            render.nodes.iter().any(
+                |n| matches!(&n.draw, json_ui::Draw::Sprite { texture, .. } if texture == icon)
+                    && inside(&n.dest)
+            ),
+            "{icon} not drawn on the card"
+        );
+    }
+}
+
+// Hero cards drew an empty footer: their title and price sat in content-card rows that never filled.
+#[test]
+fn hero_cards_draw_their_title_and_price() {
+    let row = launcher::store::DisplayRow {
+        id: None,
+        title: String::new(),
+        role: "HeroRow",
+        offers: vec![priced_offer("a"), priced_offer("b")],
+        continuation: None,
+    };
+    let Some(render) = store_render(vec![row], [640.0, 360.0]) else {
+        return;
+    };
+    let texts: Vec<&str> = render
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.draw {
+            json_ui::Draw::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        texts.iter().filter(|t| **t == "Castle").count() >= 2,
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().filter(|t| **t == "830").count() >= 2,
+        "{texts:?}"
+    );
+}
