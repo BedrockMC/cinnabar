@@ -303,13 +303,14 @@ impl HandCache {
 }
 
 /// Java's first-person hand: the item it still draws through an equip dip, or its empty arm.
-/// `Err` leaves vanilla's hand, holding the item to draw, for items Java never had (maps in
-/// either hand, crossbows, shields).
+/// `None` leaves vanilla's own hand while Java's retained item or the selected one is an item
+/// Java never had (maps in either hand, crossbows, shields), so a swap between the two hands
+/// happens at the bottom of the dip, where both are lowest.
 pub(super) fn hand_source(
     inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
     cache: &mut HandCache,
-) -> Result<HandSource, Option<WornItem>> {
+) -> Option<HandSource> {
     let HandInputs {
         stream,
         presentation,
@@ -321,9 +322,7 @@ pub(super) fn hand_source(
         motion,
     } = inputs;
     let runtime_id = presentation.submission.input.identity.runtime_id;
-    let Some(rig) = stream.authority().actor_rig(runtime_id) else {
-        return Err(equipment_input.main.clone());
-    };
+    let rig = stream.authority().actor_rig(runtime_id)?;
     let main = rig
         .java_equipped
         .and_then(|equipped| match &equipment_input.main {
@@ -334,13 +333,16 @@ pub(super) fn hand_source(
                 .filter(|old| old.identifier == *equipped)
                 .or_else(|| equipment_input.main.clone()),
         });
-    let vanilla_only = |item: &WornItem| &*item.identifier == FILLED_MAP;
-    if main
-        .as_ref()
-        .is_some_and(|item| vanilla_only(item) || equipment.is_vanilla_attachable(&item.identifier))
-        || equipment_input.off.as_ref().is_some_and(vanilla_only)
+    let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
+    let vanilla_only =
+        |item: &&WornItem| map(item) || equipment.is_vanilla_attachable(&item.identifier);
+    if [main.as_ref(), equipment_input.main.as_ref()]
+        .into_iter()
+        .flatten()
+        .any(|item| vanilla_only(&item))
+        || equipment_input.off.as_ref().is_some_and(map)
     {
-        return Err(main);
+        return None;
     }
     let hand = first_person_hand(
         &rig,
@@ -403,7 +405,7 @@ pub(super) fn hand_source(
         }
         None => (None, None),
     };
-    Ok(HandSource {
+    Some(HandSource {
         presentation,
         body,
         items: [main_layer, off_layer],

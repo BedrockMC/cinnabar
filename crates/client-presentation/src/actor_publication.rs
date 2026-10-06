@@ -539,8 +539,7 @@ pub fn prepare_actor_render_frame(
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
             let equipment = equipment.as_deref_mut()?;
-            let mut equipment_input =
-                local_equipment(stream, local_runtime_id, &input.local_equipment);
+            let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
             let motion = hand_motion
                 .as_deref()
@@ -556,10 +555,8 @@ pub fn prepare_actor_render_frame(
                     artwork,
                     motion,
                 };
-                match java::hand_source(inputs, equipment, &mut java_hand) {
-                    Ok(source) => return Some(source),
-                    // Vanilla draws the item Java still holds through the dip.
-                    Err(main) => equipment_input.main = main,
+                if let Some(source) = java::hand_source(inputs, equipment, &mut java_hand) {
+                    return Some(source);
                 }
             }
             let hand = stream.authority().actor_rig(local_runtime_id).map_or(
