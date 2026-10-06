@@ -27,6 +27,8 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// Durability damage retained separately from the stack's visual metadata.
+    pub damage: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -352,8 +354,10 @@ impl ItemStateStore {
                 &mut snapshot.body,
             ] {
                 let charged = piece.item.charged_projectile.take();
+                let damage = piece.item.damage;
                 piece.item = self.resolve_identity(piece.item.identity);
                 piece.item.charged_projectile = charged;
+                piece.item.damage = damage;
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -373,6 +377,10 @@ impl ItemStateStore {
                 .equipment
                 .get(&key)
                 .and_then(|equipment| equipment.item.charged_projectile.clone());
+            item.damage = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.damage);
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
             if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
@@ -425,6 +433,7 @@ impl ItemStateStore {
         };
         let mut item = self.resolve_identity(identity);
         item.charged_projectile = protocol::item_charged_projectile(&stack.extra_data);
+        item.damage = protocol::item_stack_damage(stack);
         Some(item)
     }
 
@@ -442,6 +451,7 @@ impl ItemStateStore {
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
                 charged_projectile: None,
+                damage: None,
             };
         }
         let identifier = self
@@ -461,6 +471,7 @@ impl ItemStateStore {
             identifier,
             visual,
             charged_projectile: None,
+            damage: None,
         }
     }
 

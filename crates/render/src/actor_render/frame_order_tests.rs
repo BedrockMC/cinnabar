@@ -141,6 +141,7 @@ fn render_app() -> App {
         .init_resource::<ViewUniforms>()
         .init_resource::<FrameCount>()
         .init_resource::<crate::WorldLighting>()
+        .init_resource::<crate::WorldFullbright>()
         .init_resource::<crate::NametagSceneResource>()
         .init_resource::<ExecutedFrames>()
         .add_systems(Render, reset_phases.in_set(RenderSystems::ManageViews))

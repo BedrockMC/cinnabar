@@ -42,6 +42,7 @@ pub(crate) fn advance_presentation_state(
     view: Res<LocalViewPose>,
     client_world: Option<Res<ClientWorld>>,
     physics: Option<Res<LocalPhysicsController>>,
+    ui: Option<Res<UiRuntime>>,
     bob: ResMut<WalkBobState>,
     sway: ResMut<HandSwayState>,
     hurt: ResMut<CameraHurtState>,
@@ -60,6 +61,7 @@ pub(crate) fn advance_presentation_state(
         physics
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
+        ui.as_deref(),
         bob,
         sway,
         hurt,

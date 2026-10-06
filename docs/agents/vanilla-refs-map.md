@@ -2209,6 +2209,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
+- Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
 
 ## crates/client-presentation/src/actor_publication/java/mounted.rs (Java Edition 1.7.10)
@@ -2219,3 +2220,4 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - EntityRenderer.setupViewBobbing and hurtCameraEffect; EntityPlayer.onLivingUpdate cameraYaw/cameraPitch (health gates and float/double cast order); EntityPlayer.updateRidden; Entity.moveEntity walked-distance cast order; EntityPlayerSP renderArmPitch/renderArmYaw.
 - `camera/java/reference_tests.rs` numeric fixtures execute the same primary jar's `blt.g(F)V` bob, `blt.f(F)V` live hurt stack with zero unavailable attack direction, and `bly.a(F)V` arm sway slice through `SliceHarness`. Only snapshot queries and renderer endpoints are substituted; actual OpenGL stacks are captured. Idle/walking/airborne bob, middle/end hurt and positive/negative hand sway states are covered.
 - Mounted yaw fixtures in `actor_publication/java/fixtures` execute the original `boh.a(Lsv;DDDFF)V` body/head interpolation and living-mount clamp block, including its unchanged private interpolation helper bytecode and `qh.g(F)F` wrap. Recorded cases exercise wrapped interpolation and both ±85° clamp extremes (resulting ±68° head/body offset).
+- Java camera sneak height: EntityPlayerSP.onLivingUpdate yOffset2 and Entity.moveEntity decay; death: EntityRenderer.hurtCameraEffect and RendererLivingEntity.rotateCorpse.

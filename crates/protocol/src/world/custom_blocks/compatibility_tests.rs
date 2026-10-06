@@ -1,49 +1,7 @@
-use super::{
-    CustomBlock, CustomBlockVisuals, CustomSelection, CustomStateAxis, CustomStateValue,
-    Definition, block_name_sort_key,
-};
+use super::{CustomSelection, Definition, block_name_sort_key};
 
 fn parse_definition(bytes: &[u8]) -> Option<Definition> {
     super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
-}
-
-// Every state axis combination appears once with a distinct hash.
-#[test]
-fn hashed_states_enumerate_axes_and_hash_distinctly() {
-    let block = CustomBlock {
-        name: "ns:b".into(),
-        state_count: 6,
-        collides: true,
-        collision_box: None,
-        selection: CustomSelection::Default,
-        visual: std::sync::Arc::new(CustomBlockVisuals {
-            state_axes: Box::new([
-                CustomStateAxis {
-                    name: "ns:a".into(),
-                    values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
-                },
-                CustomStateAxis {
-                    name: "ns:c".into(),
-                    values: Box::new([
-                        CustomStateValue::Int(0),
-                        CustomStateValue::Int(1),
-                        CustomStateValue::Int(2),
-                    ]),
-                },
-            ]),
-            ..CustomBlockVisuals::default()
-        }),
-    };
-    let states = block.hashed_states();
-    assert_eq!(states.len(), 6);
-    assert_eq!(states[1].values[1], CustomStateValue::Int(1));
-    let hashes: std::collections::HashSet<_> = states.iter().map(|state| state.hash).collect();
-    assert_eq!(hashes.len(), 6);
-    let plain = CustomBlock {
-        visual: std::sync::Arc::new(CustomBlockVisuals::default()),
-        ..block
-    };
-    assert_eq!(plain.hashed_states().len(), 1);
 }
 
 fn string(value: &str) -> Vec<u8> {

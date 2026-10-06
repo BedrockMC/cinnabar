@@ -85,30 +85,27 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
         .map(|bone| EntityAnimationChannel {
             bone,
             property: EntityAnimationProperty::Rotation,
-            first_keyframe: bone,
+            first_keyframe: bone * channel.keyframe_count,
             ..channel
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    let mut keyframe = compiled.animation_keyframes[0];
-    keyframe.expressions = [Some(0), Some(1), None];
-    compiled.animation_keyframes = vec![keyframe; 2].into_boxed_slice();
+    compiled.animation_keyframes[0].expressions = [Some(0), Some(1), None];
+    // Each channel owns a contiguous keyframe range of its own.
+    compiled.animation_keyframes = compiled.animation_keyframes[..channel.keyframe_count as usize]
+        .repeat(2)
+        .into_boxed_slice();
+    // Layers, slots and candidates each own contiguous ranges, as the carrier requires.
     let body = compiled.render.layers[0];
-    let title = assets::EntityRenderLayer {
-        first_slot: 1,
-        geometry_count: 1,
-        ..body
-    };
-    compiled.render.layers = vec![
-        body,
-        title,
-        assets::EntityRenderLayer {
-            first_slot: 2,
-            first_geometry: 1,
-            ..title
-        },
-    ]
-    .into_boxed_slice();
+    compiled.render.layers = (0..3)
+        .map(|layer| assets::EntityRenderLayer {
+            first_slot: layer,
+            first_geometry: layer.saturating_sub(1),
+            geometry_count: u16::from(layer > 0),
+            ..body
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
     let slot = compiled.render.slots[0];
     compiled.render.slots = (0..3)
         .map(|first_candidate| assets::EntityRenderSlot {
@@ -117,15 +114,12 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    compiled.render.candidates = vec![compiled.render.candidates[0]; 3].into_boxed_slice();
-    compiled.render.geometries = vec![
-        EntityRenderGeometry {
-            condition: None,
-            geometry: 1,
-        };
-        2
-    ]
-    .into_boxed_slice();
+    compiled.render.candidates = [compiled.render.candidates[0]; 3].into();
+    compiled.render.geometries = [EntityRenderGeometry {
+        condition: None,
+        geometry: 1,
+    }; 2]
+        .into();
     compiled
 }
 
@@ -292,6 +286,7 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
 }
 
+#[track_caller]
 fn assert_rotation(actual: [f32; 4], expected: [f32; 4]) {
     for (actual, expected) in actual.into_iter().zip(expected) {
         assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");
