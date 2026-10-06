@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/df-mc/go-xsapi/v2/social"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
+	"github.com/sandertv/gophertunnel/minecraft/service/layout"
 )
 
 // FeaturedServer is a featured server with the details the play screen's
@@ -80,37 +80,30 @@ type Profile struct {
 // Partial returns why lookups failed; their fields are left unset. Callers redact it before logging.
 func (p Profile) Partial() error { return p.partial }
 
-// FeaturedServers lists the featured servers from the gatherings service.
+// FeaturedServers lists the Servers tab's experiences from the layout service; each is joined by
+// its id only when the player connects.
 func FeaturedServers(ctx context.Context, account *authcache.Account) ([]FeaturedServer, error) {
-	var result []FeaturedServer
-	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
-		values, err := client.FeaturedServers(ctx)
-		if err != nil {
-			return err
-		}
-		result = featuredServers(values)
-		return nil
-	})
-	return result, err
+	if account == nil {
+		return nil, errNoAccount
+	}
+	discovery, err := service.Default(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("discover services: %w", err)
+	}
+	env := new(layout.Environment)
+	if err := discovery.Environment(env); err != nil {
+		return nil, fmt.Errorf("resolve layout service: %w", err)
+	}
+	tab, err := env.New(account).Layout(ctx, layout.ServerTab)
+	if err != nil {
+		return nil, err
+	}
+	return featuredServers(tab), nil
 }
 
-// Gatherings lists the community experiences; listing never joins one.
-func Gatherings(ctx context.Context, account *authcache.Account) ([]Gathering, error) {
-	var result []Gathering
-	err := withGatherings(ctx, account, func(client *gatherings.Client) error {
-		values, err := client.Experiences(ctx)
-		if err != nil {
-			return err
-		}
-		result = make([]Gathering, 0, len(values))
-		for _, experience := range values {
-			if experience != nil && experience.Valid() {
-				result = append(result, gathering(experience))
-			}
-		}
-		return nil
-	})
-	return result, err
+// Gatherings is empty: the Servers tab lists every experience among the featured servers.
+func Gatherings(context.Context, *authcache.Account) ([]Gathering, error) {
+	return []Gathering{}, nil
 }
 
 // JoinGathering joins the experience now and returns its typed server assignment.
@@ -222,74 +215,38 @@ func gatheringsClient(discovery *service.Discovery, tokens service.TokenSource) 
 	return env.New(tokens), nil
 }
 
-func featuredServers(values []*gatherings.FeaturedServer) []FeaturedServer {
-	result := make([]FeaturedServer, 0, len(values))
-	for _, server := range values {
-		if server == nil || !server.Valid() {
-			continue
+func featuredServers(tab *layout.Layout) []FeaturedServer {
+	experiences := tab.Experiences()
+	result := make([]FeaturedServer, 0, len(experiences))
+	for _, experience := range experiences {
+		server := FeaturedServer{
+			Name:        displayName(experience.Title.Value, experience.CreatorName, "Featured server"),
+			Address:     GatheringTargetPrefix + experience.ID.String(),
+			Caption:     displayName(experience.Listing.MOTD.Value, "Featured server"),
+			Description: strings.TrimSpace(experience.Description.Value),
+			Screenshots: []Image{},
+			Games:       []Game{},
 		}
-		result = append(result, FeaturedServer{
-			Name:         displayName(server.Item.Title.Neutral(), server.CreatorName, "Featured server"),
-			Address:      server.Address(),
-			Caption:      firstGameCaption(server.AvailableGames, "Featured server"),
-			Description:  strings.TrimSpace(server.Item.Description.Neutral()),
-			NewsTitle:    strings.TrimSpace(server.NewsTitle),
-			News:         strings.TrimSpace(server.News),
-			Logo:         Image{URL: artworkURL(server.Item, nil)},
-			Screenshots:  screenshots(server.Item),
-			Games:        games(server.Item, server.AvailableGames),
-			Tags:         server.Item.Tags,
-			thumbnailURL: artworkURL(server.Item, server.AvailableGames),
-		})
-	}
-	return result
-}
-
-func gathering(experience *gatherings.Experience) Gathering {
-	entry := Gathering{
-		ID:          experience.ID.String(),
-		Name:        displayName(experience.Item.Title.Neutral(), experience.CreatorName, "Gathering"),
-		Caption:     firstGameCaption(experience.AvailableGames, "Community gathering"),
-		Description: strings.TrimSpace(experience.Item.Description.Neutral()),
-		Creator:     strings.TrimSpace(experience.CreatorName),
-		Image:       Image{URL: artworkURL(experience.Item, experience.AvailableGames)},
-	}
-	if !experience.Item.StartDate.IsZero() {
-		entry.StartUnix = experience.Item.StartDate.Unix()
-	}
-	if !experience.Item.EndDate.IsZero() {
-		entry.EndUnix = experience.Item.EndDate.Unix()
-	}
-	return entry
-}
-
-func screenshots(item playfabcatalog.Item) []Image {
-	result := []Image{}
-	for _, image := range item.Images {
-		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeScreenshot) && validArtworkURL(image.URL) {
-			result = append(result, Image{URL: image.URL})
+		if logo := experience.LogoImage.URL(); validArtworkURL(logo) {
+			server.Logo.URL = logo
 		}
-	}
-	return result
-}
-
-func games(item playfabcatalog.Item, values []gatherings.AvailableGame) []Game {
-	result := make([]Game, 0, len(values))
-	for _, value := range values {
-		game := Game{
-			Title:       strings.TrimSpace(value.Title),
-			Subtitle:    strings.TrimSpace(value.Subtitle),
-			Description: strings.TrimSpace(value.Description),
+		if thumbnail := experience.Listing.DisplayImage.URL(); validArtworkURL(thumbnail) {
+			server.thumbnailURL = thumbnail
 		}
-		for _, image := range item.Images {
-			if value.ImageTag != "" && image.Tag == value.ImageTag && validArtworkURL(image.URL) {
-				game.Image.URL = image.URL
-				break
+		for _, activity := range experience.Activities {
+			game := Game{
+				Title:       strings.TrimSpace(activity.Title.Value),
+				Subtitle:    strings.TrimSpace(activity.Subtitle.Value),
+				Description: strings.TrimSpace(activity.Description.Value),
+			}
+			if image := activity.Image.URL(); validArtworkURL(image) {
+				game.Image.URL = image
+			}
+			if game.Title != "" || game.Subtitle != "" {
+				server.Games = append(server.Games, game)
 			}
 		}
-		if game.Title != "" || game.Subtitle != "" {
-			result = append(result, game)
-		}
+		result = append(result, server)
 	}
 	return result
 }
