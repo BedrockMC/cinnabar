@@ -79,7 +79,7 @@ pub struct InputCommand {
     /// Selects hotbar slot 1..=9 through its binding.
     pub hotbar: Option<u8>,
     pub look: Option<Look>,
-    /// Logical window coordinates; changes only the client's cached pointer.
+    /// Logical window coordinates; `pointer` takes precedence when both are supplied.
     pub cursor: Option<[f32; 2]>,
     /// Text delivered to the focused editor through keyboard messages.
     pub text: Option<String>,

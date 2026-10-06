@@ -173,9 +173,11 @@ mod tests {
             skipped: 0,
         };
         ledger.apply(&InventoryEvent::Creative(catalog.clone()));
-        let mut state = ScreenState::default();
-        state.creative_tab = crate::ui_runtime::presentation::screens::SEARCH_TAB;
-        state.search = "stone".into();
+        let mut state = ScreenState {
+            creative_tab: crate::ui_runtime::presentation::screens::SEARCH_TAB,
+            search: "stone".into(),
+            ..Default::default()
+        };
         let scans = Cell::new(0);
         let name = |_: &CreativeItem| {
             scans.set(scans.get() + 1);

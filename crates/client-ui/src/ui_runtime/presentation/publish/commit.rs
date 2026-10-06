@@ -76,6 +76,28 @@ fn publish_item_viewmodels(
     presentation.hud_frame.offhand_viewmodel_icon = offhand;
 }
 
+/// Runs both HUD phases together for offline witnesses.
+#[cfg(any(test, feature = "test-support"))]
+pub fn refresh_hud_frame(
+    player_runtime: &player_state::PlayerState,
+    runtime: &mut UiRuntime,
+    presentation: &mut UiPresentationRuntime,
+    stream: Option<&chunk_pipeline::WorldStream>,
+    perspective: semantic_input::PerspectiveMode,
+    now_millis: u64,
+) {
+    let icons = capture_hud_frame(
+        player_runtime,
+        runtime,
+        presentation,
+        stream,
+        perspective,
+        now_millis,
+        ItemIconFrames::default(),
+    );
+    publish_item_viewmodels(presentation, icons);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,26 +140,4 @@ mod tests {
         );
         assert!(presentation.held_viewmodel_source.is_some());
     }
-}
-
-/// Runs both HUD phases together for offline witnesses.
-#[cfg(any(test, feature = "test-support"))]
-pub fn refresh_hud_frame(
-    player_runtime: &player_state::PlayerState,
-    runtime: &mut UiRuntime,
-    presentation: &mut UiPresentationRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
-    perspective: semantic_input::PerspectiveMode,
-    now_millis: u64,
-) {
-    let icons = capture_hud_frame(
-        player_runtime,
-        runtime,
-        presentation,
-        stream,
-        perspective,
-        now_millis,
-        ItemIconFrames::default(),
-    );
-    publish_item_viewmodels(presentation, icons);
 }

@@ -59,7 +59,6 @@ pub struct InputPlan {
     pub tap: Vec<Control>,
     pub tap_frames: u32,
     pub look: Option<Look>,
-    pub cursor: Option<[f32; 2]>,
     pub text: Option<String>,
     pub pointer: Option<Pointer>,
     pub wheel: Option<Wheel>,
@@ -78,9 +77,10 @@ impl InputPlan {
             tap: parse(&command.press)?,
             tap_frames: command.press_frames.unwrap_or(DEFAULT_PRESS_FRAMES).max(1),
             look: command.look,
-            cursor: command.cursor,
             text: command.text.clone(),
-            pointer: command.pointer,
+            pointer: command
+                .pointer
+                .or_else(|| command.cursor.map(|[x, y]| Pointer { x, y })),
             wheel: command.wheel,
             release_control: command.release_control,
         };
@@ -251,6 +251,7 @@ mod tests {
     #[test]
     fn pointer_and_wheel_validate_before_input_is_applied() {
         let mut command = InputCommand {
+            cursor: Some([10.0, 20.0]),
             pointer: Some(Pointer { x: 32.5, y: 64.0 }),
             wheel: Some(Wheel {
                 y: -3.0,
@@ -266,6 +267,10 @@ mod tests {
         command.pointer.as_mut().unwrap().x = f32::NAN;
         assert!(InputPlan::from_command(&command).is_err());
         command.pointer = None;
+        assert_eq!(
+            InputPlan::from_command(&command).unwrap().pointer,
+            Some(Pointer { x: 10.0, y: 20.0 })
+        );
         command.wheel.as_mut().unwrap().y = f32::INFINITY;
         assert!(InputPlan::from_command(&command).is_err());
     }
