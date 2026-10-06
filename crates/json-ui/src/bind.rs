@@ -534,7 +534,8 @@ impl<'a> Binder<'a> {
         let key = (!entered).then(|| self.collection_key(&collection, scope));
         let cursor = Arc::make_mut(&mut scope.cursor);
         cursor.indices.insert(collection.clone(), index);
-        if let Some(key) = key.filter(|key| *key != collection) {
+        // Falling back to the shared list drops a key inherited from an outer item's own list.
+        if let Some(key) = key {
             cursor.keys.insert(collection.clone(), key);
         }
         cursor.items.push((collection, index));
