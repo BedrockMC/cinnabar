@@ -155,7 +155,11 @@ fn append(
                 model_light,
                 overlay_color: [0.0; 4],
                 style_flags: if icon.glint { UI_STYLE_GLINT } else { 0 }
-                    | if tint.is_some() { render_model::UI_STYLE_COLOR_MASK as u8 } else { 0 },
+                    | if tint.is_some() {
+                        render_model::UI_STYLE_COLOR_MASK as u8
+                    } else {
+                        0
+                    },
                 alpha_test: false,
             });
         }
