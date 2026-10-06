@@ -246,10 +246,13 @@ impl UiPresentationRuntime {
             self.solid_texture_page,
             originals.as_deref(),
         );
+        canvas.offsets = self.menu_scrolls.offsets().clone();
         let title = modal::server_trust_title(translate);
         let dialog = modal::server_trust_modal(&title, &prompt.url, translate);
         modal::draw(&mut canvas, view, size, &dialog)?;
-        Ok(Some(canvas.hits))
+        let (hits, scrolls) = (canvas.hits, canvas.scrolls);
+        self.menu_scrolls.set_areas(scrolls);
+        Ok(Some(hits))
     }
 }
 

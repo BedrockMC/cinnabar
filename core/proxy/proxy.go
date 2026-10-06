@@ -253,8 +253,8 @@ func shouldSurfacePreparationError(err error, serveCtx context.Context) bool {
 		return false
 	}
 	var admissionErr *PackAdmissionError
-	if errors.As(err, &admissionErr) {
-		return false
+	if errors.As(err, &admissionErr) || errors.Is(err, minecraft.ErrServerNotTrusted) {
+		return false // the player declined; the join ends but the core stays up
 	}
 	var cancellationErr *preparationCancellationError
 	return !errors.As(err, &cancellationErr)
