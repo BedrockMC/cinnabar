@@ -525,6 +525,28 @@ fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     ]
 }
 
+#[test]
+fn java_hand_preserves_a_pack_bow_binding_selected_ahead_of_vanilla() {
+    let files = crown_pack()
+        .into_iter()
+        .map(|(path, bytes)| {
+            let bytes = if path.ends_with(".json") {
+                String::from_utf8(bytes)
+                    .unwrap()
+                    .replace("test:crown", "minecraft:bow")
+                    .into_bytes()
+            } else {
+                bytes
+            };
+            (path, bytes)
+        })
+        .collect();
+    let (mut runtime, _) = pack_runtime(files);
+    assert!(runtime.is_vanilla_attachable("minecraft:bow"));
+    runtime.set_pack_layer(None);
+    assert!(!runtime.is_vanilla_attachable("minecraft:bow"));
+}
+
 // A custom attachable whose name and geometry say nothing is worn where `minecraft:wearable` puts it.
 #[test]
 fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {

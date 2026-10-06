@@ -23,21 +23,23 @@ pub struct JavaCameraState {
 pub struct JavaCameraTick {
     pub tick: u64,
     pub position: DVec3,
-    pub velocity: Vec3,
+    pub velocity: DVec3,
     pub on_ground: bool,
+    pub alive: bool,
+    pub riding: bool,
     /// Java stops the walk phase while flying, riding or sneaking on the ground.
     pub walks: bool,
     /// Look pitch and yaw in Minecraft degrees (down and right positive).
     pub look: [f32; 2],
 }
 
-const WALK_PER_BLOCK: f32 = 0.6;
+const WALK_PER_BLOCK: f64 = 0.6;
 const BOB_CAP: f32 = 0.1;
 const BOB_FOLLOW: f32 = 0.4;
 const TILT_FOLLOW: f32 = 0.8;
 const ARM_FOLLOW: f32 = 0.5;
 const SWAY: f32 = 0.1;
-const TELEPORT_BLOCKS: f32 = 8.0;
+const TELEPORT_BLOCKS: f64 = 8.0;
 const MAX_CATCH_UP_TICKS: u64 = 20;
 const HURT_TILT_DEGREES: f32 = 14.0;
 
@@ -54,7 +56,7 @@ impl JavaCameraState {
             return;
         }
         self.last = Some((tick.tick, tick.position));
-        let delta = (tick.position - last_position).as_vec3();
+        let delta = tick.position - last_position;
         if tick.tick < last_tick || delta.length() > TELEPORT_BLOCKS {
             *self = Self {
                 last: self.last,
@@ -65,13 +67,13 @@ impl JavaCameraState {
             return;
         }
         let steps = (tick.tick - last_tick).min(MAX_CATCH_UP_TICKS);
-        let step = delta / steps as f32;
+        let step = delta / steps as f64;
         for _ in 0..steps {
             self.step(&tick, step);
         }
     }
 
-    fn step(&mut self, tick: &JavaCameraTick, delta: Vec3) {
+    fn step(&mut self, tick: &JavaCameraTick, delta: DVec3) {
         for pair in [
             &mut self.walked,
             &mut self.bob,
@@ -82,19 +84,29 @@ impl JavaCameraState {
             pair[0] = pair[1];
         }
         if tick.walks {
-            self.walked[1] += delta.x.hypot(delta.z) * WALK_PER_BLOCK;
+            let distance = (delta.x * delta.x + delta.z * delta.z).sqrt() as f32;
+            if distance.is_finite() {
+                self.walked[1] =
+                    (f64::from(self.walked[1]) + f64::from(distance) * WALK_PER_BLOCK) as f32;
+            }
         }
-        let speed = if tick.on_ground {
-            tick.velocity.x.hypot(tick.velocity.z).min(BOB_CAP)
+        let speed =
+            (tick.velocity.x * tick.velocity.x + tick.velocity.z * tick.velocity.z).sqrt() as f32;
+        let speed = if tick.on_ground && tick.alive && !tick.riding && speed.is_finite() {
+            speed.min(BOB_CAP)
         } else {
             0.0
         };
-        let tilt = if tick.on_ground {
+        let tilt = if tick.on_ground || !tick.alive || tick.riding || !tick.velocity.y.is_finite() {
             0.0
         } else {
-            ((f64::from(-tick.velocity.y) * 0.2).atan() * 15.0) as f32
+            (-tick.velocity.y * f64::from(0.2_f32)).atan() as f32 * 15.0
         };
-        self.bob[1] += (speed - self.bob[1]) * BOB_FOLLOW;
+        self.bob[1] = if tick.riding {
+            0.0
+        } else {
+            self.bob[1] + (speed - self.bob[1]) * BOB_FOLLOW
+        };
         self.tilt[1] += (tilt - self.tilt[1]) * TILT_FOLLOW;
         self.arm_pitch[1] += (tick.look[0] - self.arm_pitch[1]) * ARM_FOLLOW;
         self.arm_yaw[1] += shortest_degrees(tick.look[1] - self.arm_yaw[1]) * ARM_FOLLOW;
@@ -151,8 +163,10 @@ mod tests {
         JavaCameraTick {
             tick,
             position: DVec3::new(f64::from(x), 64.0, 0.0),
-            velocity: Vec3::new(0.2, -0.0784, 0.0),
+            velocity: DVec3::new(0.2, -0.0784, 0.0),
             on_ground: true,
+            alive: true,
+            riding: false,
             walks: true,
             look: [0.0, 0.0],
         }
@@ -182,12 +196,90 @@ mod tests {
         state.advance(walking(1, 0.0));
         state.advance(JavaCameraTick {
             on_ground: false,
-            velocity: Vec3::new(0.0, -0.5, 0.0),
+            velocity: DVec3::new(0.0, -0.5, 0.0),
             ..walking(2, 0.0)
         });
         let expected = (0.1_f64.atan() * 15.0 * 0.8) as f32;
         assert!((state.tilt[1] - expected).abs() < 1e-5);
         assert_eq!(state.bob[1], 0.0);
+    }
+
+    #[test]
+    fn dead_camera_bob_and_fall_tilt_decay_to_zero() {
+        let mut state = JavaCameraState {
+            bob: [0.04; 2],
+            tilt: [6.0; 2],
+            ..Default::default()
+        };
+        state.step(
+            &JavaCameraTick {
+                alive: false,
+                ..walking(2, 0.0)
+            },
+            DVec3::ZERO,
+        );
+        assert!((state.bob[1] - 0.024).abs() < 1e-8);
+        assert!((state.tilt[1] - 1.2).abs() < 1e-6);
+        state.step(
+            &JavaCameraTick {
+                alive: false,
+                on_ground: false,
+                velocity: DVec3::new(0.2, -0.5, 0.0),
+                ..walking(3, 0.0)
+            },
+            DVec3::ZERO,
+        );
+        assert!((state.tilt[1] - 0.24).abs() < 1e-6);
+    }
+
+    #[test]
+    fn mounted_camera_clears_bob_and_does_not_add_vehicle_fall_tilt() {
+        let mut state = JavaCameraState {
+            bob: [0.04; 2],
+            tilt: [6.0; 2],
+            walked: [0.5; 2],
+            ..Default::default()
+        };
+        state.step(
+            &JavaCameraTick {
+                riding: true,
+                walks: false,
+                on_ground: false,
+                velocity: DVec3::new(0.2, -0.5, 0.0),
+                ..walking(2, 0.2)
+            },
+            DVec3::new(0.2, -0.5, 0.0),
+        );
+        assert_eq!(state.bob, [0.04, 0.0]);
+        assert!((state.tilt[1] - 1.2).abs() < 1e-6);
+        assert_eq!(state.walked, [0.5; 2]);
+    }
+
+    #[test]
+    fn camera_walk_distance_rounds_after_the_double_precision_increment() {
+        let mut state = JavaCameraState {
+            walked: [0.1002; 2],
+            ..Default::default()
+        };
+        state.step(
+            &walking(2, 0.0),
+            Vec3::new(-0.034_368_105, 0.0, 0.074_893_28).as_dvec3(),
+        );
+        assert_eq!(state.walked[1].to_bits(), 0x3e19_3b9e);
+    }
+
+    #[test]
+    fn camera_fall_tilt_keeps_native_velocity_and_float_cast_order() {
+        let mut state = JavaCameraState::default();
+        state.step(
+            &JavaCameraTick {
+                on_ground: false,
+                velocity: DVec3::new(0.0, -0.0007, 0.0),
+                ..walking(2, 0.0)
+            },
+            DVec3::ZERO,
+        );
+        assert_eq!(state.tilt[1].to_bits(), 0x3adc_3373);
     }
 
     /// The arm angles move halfway to the look each tick; sway is a tenth of the gap.
