@@ -1237,6 +1237,17 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - 0x18/0x20. It does not call other functions or write history, input flags, ground
 - state or rotation.
 
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/modal.rs
+- Index bundle modal `Ug` (`Ug.Overlay`, `Ug.Header` over title bar `gm`, `Ug.Content`, `Ug.Text`,
+  `Ug.Buttons`) and the modal menu `SV`/`CV`/`wV`.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/widgets.rs
+- `button_face`: pressable `sf`/`bf`/`hf`; menus theme `--pressableElevated*` nine-slices.
+- `menu_item`: dropdown item `bV` (classes `gV`) in `MV`; check icon `Fp`.
+
+## crates/client-ui/src/ui_runtime/presentation/forms/oreui/theme.rs
+- Role table: theme `pD` colour roles over the palette constants defined beside `Zc`.
+
 ## docs/evidence/desktop-video-settings.md
 - `GuiData::GUI_SCALE_VALUES` is `[1, 2, 3, 4, 5, 6, 7, 8]`. Desktop minimum
 
