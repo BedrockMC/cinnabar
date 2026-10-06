@@ -47,11 +47,12 @@ jobs:
         run: |
           full=false run=true
           if [ "$EVENT" != pull_request ]; then full=true; fi
-          # A scheduled run is skipped when the last finished one already covered this commit.
+          # A scheduled run is skipped only when a full run already passed on this commit, so failed
+          # or interrupted runs are retried.
           if [ "$EVENT" = schedule ]; then
-            last=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=schedule&status=completed&per_page=20" \
-              --jq "[.workflow_runs[] | select(.id != $RUN_ID and .conclusion != \"cancelled\")][0].head_sha // \"\"")
-            if [ "$last" = "$SHA" ]; then run=false; fi
+            passed=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&status=success&per_page=50" \
+              --jq "[.workflow_runs[] | select(.id != $RUN_ID and .event != \"pull_request\")] | length")
+            if [ "$passed" -gt 0 ]; then run=false; fi
           fi
           if [ "$full" = true ]; then
             os='["ubuntu-latest","windows-latest","macos-latest"]'
@@ -66,6 +67,7 @@ jobs:
           filters: |
             packaging:
               - .github/workflows/ci.yml
+              - .github/workflows/package.yml
               - packaging/**
             physics:
               - .github/workflows/ci.yml
@@ -148,7 +150,7 @@ jobs:
         with:
           # Full runs on dev save the Windows and macOS caches; ci-cache.yml saves Linux's.
           shared-key: ci
-          save-if: true
+          save-if: ${{ github.ref == 'refs/heads/dev' && runner.os != 'Linux' }}
           cache-on-failure: true
       - uses: taiki-e/install-action@v2
         with:
@@ -275,8 +277,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ci
-          save-if: true
-          cache-on-failure: true
+          save-if: false
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
