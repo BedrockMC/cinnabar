@@ -84,8 +84,9 @@ impl ActorStore {
                 .filter(|_| self.local_first_person);
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
+            let local_flying = self.local_flying;
             let local_hands = self.local_hands.clone();
-            let (local_main_metadata, local_flying) = (self.local_main_metadata, self.local_flying);
+            let local_main_metadata = self.local_main_metadata;
             let local_main_slot = self.local_main_slot;
             let local_main_stack_id = self.local_main_stack_id;
             let local_java_swing_ticks = self.local_java_swing_ticks;

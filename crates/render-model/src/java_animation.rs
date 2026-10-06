@@ -8,6 +8,9 @@ use std::f32::consts::PI;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod reference_tests;
+
 /// Java's table sine: the angle snapped down to a 65536th of a turn.
 #[must_use]
 pub fn java_sin(radians: f32) -> f32 {

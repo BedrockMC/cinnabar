@@ -18,10 +18,20 @@
 - Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
   exercise held-item swaps, use, both third-person views, cape motion and local emotes.
 - Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
-  none); held attachables Java never had, the third-person bow pull frames, cast-rod item and
-  first-person item lighting are vanilla. Living-mount body yaw lacks the needed actor
-  observation. Local swing effects are live; remote swings retain the six-tick default.
-  Headless captures exist; native side-by-side comparison with Java 1.7.10 is pending.
+  none); held attachables Java never had, the third-person bow pull frames, cast-rod item and first-person
+  item lighting are vanilla. Unclassified mounts retain ordinary player body yaw.
+- Living mount heading and active creative-flight cape phase now use their own observed
+  state, with regression witnesses for wraparound, live local look, dismounting, phase
+  freezing and walking resumption. Fixed Java 1.7.10 model/matrix fixtures and Windows
+  rendered motion checks validate the covered state product; full game-frame pixel
+  equality, lighting and the retained vanilla exceptions above are not asserted.
+  Local swing effects are live; remote swings retain the six-tick default.
+- Validation after integrating concurrent PR changes: 802 animation-suite tests pass,
+  touched-crate checks and the optimized Windows build pass with sccache. Native fixtures
+  cover 42 pose/transform states and 20 exact use clocks. Fresh hidden DX12 captures verify
+  flight-phase freezing/resumption, living/nonliving mounted views, yaw wraparound,
+  dismounting, item use/swaps, both third-person views and local emotes. Full-client pixel
+  and performance parity are not asserted.
 
 ## Compatibility landing
 

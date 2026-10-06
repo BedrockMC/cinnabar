@@ -107,7 +107,7 @@ pub(super) fn advance_motion(
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
     }
-    if super::horse::is_horse(actor) {
+    if actor.is_horse() {
         motion
             .horse
             .advance(query::actor_flag(actor, query::FLAG_STANDING));
@@ -605,7 +605,7 @@ pub(super) fn apply_engine_variables(
         variables.set(engine.tropical_fish_base, base);
         variables.set(engine.tropical_fish_pattern, pattern);
     }
-    if super::horse::is_horse(actor) {
+    if actor.is_horse() {
         variables.set(engine.horse_stand_anim, motion.horse.stand_amount);
         variables.set(engine.horse_shake_tail, truth(motion.horse.shake_tail()));
         variables.set(

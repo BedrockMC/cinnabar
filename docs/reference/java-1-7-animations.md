@@ -28,7 +28,7 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 | --- | --- |
 | Swing timing | 6 ticks, recalculated each tick; Haste `6 - (1 + amp)`, Mining Fatigue `6 + 2(1 + amp)`; restarts only past its first half; the frame value wraps forward from 5/6 to 1. |
 | Equip | Moves 0.4 a tick toward 1 (same item and data value; count and unrelated tags never re-equip; durability is a data value; a stable stack keeps its height when that value changes in place) or 0; the new item is adopted below 0.1, and the old item stays drawn until then, in vanilla's hand for an item only vanilla draws. The selected item's use clock never animates the retained outgoing item. An identical stack in another slot delays the dip by one tick; empty slots do not dip. A block placement drops it to 0 before that tick's rise; starting a use does not. |
-| Use counts | Java's in-use count is `duration - use_ticks + 1` for our consecutive using ticks. Eat/drink reads `count - frame + 1`; bow draw is `duration - that`, so `use_ticks - 2 + frame`. |
+| Use counts | Java's integer in-use count is `duration - (use_ticks - 1)` for our consecutive using ticks. Eat/drink converts that count to float, subtracts the frame fraction, then adds 1. Bow subtracts that result from its 72,000-tick duration. Keeping that order preserves the original rounding, including its quantized bow frame fractions. |
 | First-person prefix | Eat/drink raise, or (not in use) `T(-0.4·sin(√s·π), 0.2·sin(2√s·π), -0.2·sin(s·π))`; then `T(0.56, -0.52 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(-20·sin(s²π))`, `Rz(-20·sin(√s·π))`, `Rx(-80·sin(√s·π))`, `S(0.4)`. In use there is no swing translate, so block-hitting keeps only the swing turns. |
 | Eat/drink raise | `t` as above, `r = 1 - t/duration`, `k = 1 - (1 - r)^27`: `T(0, |0.1·cos(t/4·π)|` when `r > 0.2`, `0)`, `T(0.6k, -0.5k, 0)`, `Ry(90k)`, `Rx(10k)`, `Rz(30k)`. |
 | Sword block | After the scale: `T(-0.5, 0.2, 0)`, `Ry(30)`, `Rx(-80)`, `Ry(60)`. |
@@ -56,5 +56,22 @@ Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked).
 - Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
 - Elytra capes, first-person item lighting, the third-person bow pull frames, and the cast rod drawn as a stick are not Java's.
 - Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
-- Mounted players retain the ordinary player body-yaw rule; Java's living-mount body yaw with its ±85° head limit is not applied. The native riding limb pose is applied. Actor observations do not currently distinguish living from nonliving mounts.
+- Recognized living mounts supply the displayed player's body heading. Head lag clamps to ±85°; above 50° the body moves another fifth toward the head, reducing extreme relative head output to ±68°. Mount yaw takes the short interpolation path. The cape retains the player's ordinary body yaw. Nonliving vehicles and unclassified mount identities keep the ordinary player body basis.
+- Active local creative flight freezes the cape's walking phase while its trailing motion and limbs continue. The phase resumes after landing; permission to fly alone does not freeze it.
 - No hurt particles: Java 1.7 has none tied to the animation.
+
+## Reference validation
+
+Fixed Java 1.7.10 state fixtures cover biped pivots and angles, cape corners, first-person
+item and empty-arm matrices, camera bob/hurt/sway, and mounted yaw limits. There are 42
+pose/transform states and 20 exact use-clock states. Native model
+readbacks and Cinnabar Windows/DX12 captures check the visible pose and geometry. Numeric
+comparisons allow floating-point roundoff; these checks do not assert matching lighting,
+modern item behavior, custom mount classification, or full game-frame pixel equality.
+
+The combined PR revision passes 802 tests across client-world, client-presentation and
+render-model, with 12 existing ignored cases. Touched-crate checks and the optimized
+developer-control client build pass using sccache. Windows/DX12 hidden captures exercise
+flight, landing, horse/boat mounting, yaw wraparound, dismounting, first-person use and
+held-item swaps, both third-person views, and local emote coexistence. These are animation
+and geometry witnesses, not a performance benchmark or full-client pixel comparison.
