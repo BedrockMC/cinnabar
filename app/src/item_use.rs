@@ -332,6 +332,12 @@ pub(crate) fn produce_item_use(
         runtime.cancel_pending_input();
     }
     runtime.observe_press(admitted && use_phase.pressed);
+    runtime.send_held_release(&movement, |packets| {
+        context.network.send_inventory_packets(packets)
+    });
+    if runtime.has_held_release() {
+        return;
+    }
     let held = admitted && use_phase.held;
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
@@ -378,35 +384,59 @@ pub(crate) fn produce_item_use(
         crate::movement::note_click_drop("use", reason);
     }
     let duration = swing_duration(context.effects.mining_effects());
-    let mut rotate_action = false;
-    admit_on_tick(
+    admit_with_action_aim(
         &mut runtime,
         &mut swings,
         &mut movement,
+        &mut view,
         &frame,
         stream.local_player_runtime_id(),
         duration,
-        |packets| {
-            let rotates = packets.iter().any(protocol::is_aim_assist_rotation_action);
-            let sent = context.network.send_inventory_packets(packets);
-            rotate_action = rotates && sent.is_ok();
-            sent
-        },
+        crate::camera::aim_assist::action_rotation(&context.aim, &context.camera),
+        &context.network,
     );
-    if rotate_action {
-        crate::camera::aim_assist::rotate_for_action(
-            &context.aim,
-            &context.camera,
-            &mut view,
-            &mut movement,
-            sample.tick,
-        );
-    }
     if let Some((slot, revision)) = runtime.take_emptied_slot() {
         player_runtime
             .inventory
             .ledger_mut()
             .settle_use_emptied_slot(slot, revision);
+    }
+}
+
+/// Admits this tick's use. A release aim assist turns the player for waits until this tick's
+/// input carries the new facing, since the server launches with the facing it last received.
+#[allow(clippy::too_many_arguments)]
+fn admit_with_action_aim(
+    runtime: &mut gameplay::item_use::ItemUseRuntime,
+    swings: &mut gameplay::melee::SwingTracker,
+    movement: &mut MovementTicker,
+    view: &mut crate::local_player::LocalViewPose,
+    frame: &UseFrame,
+    local_runtime_id: u64,
+    swing_duration: i32,
+    aim_rotation: Option<bevy::prelude::Quat>,
+    network: &NetworkHandle,
+) {
+    let mut assisted = None;
+    admit_on_tick(
+        runtime,
+        swings,
+        movement,
+        frame,
+        local_runtime_id,
+        swing_duration,
+        |packets| {
+            if aim_rotation.is_some() && packets.iter().any(protocol::is_aim_assist_rotation_action)
+            {
+                assisted = Some(packets);
+                return Ok(());
+            }
+            network.send_inventory_packets(packets)
+        },
+    );
+    if let (Some(rotation), Some(packets)) = (aim_rotation, assisted) {
+        crate::camera::aim_assist::apply_action_rotation(rotation, view, movement, frame.tick);
+        runtime.hold_release_until_sent(frame.tick, packets);
     }
 }
 

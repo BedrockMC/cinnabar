@@ -172,22 +172,29 @@ pub(crate) fn rotate_for_action(
     movement: &mut crate::movement::MovementTicker,
     tick: u64,
 ) {
+    if let Some(rotation) = action_rotation(frame, camera) {
+        apply_action_rotation(rotation, view, movement, tick);
+    }
+}
+
+/// The facing an attack or release turns the player to, when the camera and scheme allow it.
+pub(crate) fn action_rotation(frame: &AimAssistFrame, camera: &ServerCameraView) -> Option<Quat> {
     use client_presentation::aim_assist::{AimAssistControlScheme, rotates_player_on_projectile};
-    let Some(direction) = frame.interaction_direction() else {
-        return;
-    };
-    let Some(scheme) =
-        AimAssistControlScheme::from_wire(camera.active_control_scheme().unwrap_or(0))
-    else {
-        return;
-    };
-    if !camera
+    let direction = frame.interaction_direction()?;
+    let scheme = AimAssistControlScheme::from_wire(camera.active_control_scheme().unwrap_or(0))?;
+    camera
         .active_base_preset_name()
         .is_some_and(|camera| rotates_player_on_projectile(camera, scheme))
-    {
-        return;
-    }
-    let rotation = crate::camera::look_at_target(Vec3::ZERO, direction);
+        .then(|| crate::camera::look_at_target(Vec3::ZERO, direction))
+}
+
+/// Writes an action facing to the view and to `tick`'s unsent movement input.
+pub(crate) fn apply_action_rotation(
+    rotation: Quat,
+    view: &mut LocalViewPose,
+    movement: &mut crate::movement::MovementTicker,
+    tick: u64,
+) {
     let (yaw, pitch, _) = rotation.to_euler(EulerRot::YXZ);
     if movement.override_action_rotation(
         tick,

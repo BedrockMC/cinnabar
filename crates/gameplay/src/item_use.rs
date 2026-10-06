@@ -84,6 +84,8 @@ pub struct ItemUseRuntime {
     /// Vanilla's process-wide legacy item-stack request id counter.
     last_legacy_request_id: i32,
     crossbows: crossbow::CrossbowPredictions,
+    /// An aim-assisted release and the tick whose input must carry its facing first.
+    held_release: Option<(u64, Vec<protocol::Packet>)>,
 }
 
 impl ItemUseRuntime {
@@ -145,6 +147,34 @@ impl ItemUseRuntime {
         self.emptied_slot = None;
         self.release_pending = false;
         self.crossbows.clear();
+        self.held_release = None;
+    }
+
+    /// Holds a release until `tick`'s input, which carries the facing it launches with, has gone out.
+    pub fn hold_release_until_sent(&mut self, tick: u64, packets: Vec<protocol::Packet>) {
+        self.held_release = Some((tick, packets));
+    }
+
+    /// Whether a held release still waits; later uses must not overtake it.
+    pub const fn has_held_release(&self) -> bool {
+        self.held_release.is_some()
+    }
+
+    /// Sends a held release once its tick left the movement outbox; a full queue retries later.
+    pub fn send_held_release(
+        &mut self,
+        movement: &crate::movement::MovementTicker,
+        send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
+    ) {
+        let Some((tick, packets)) = &self.held_release else {
+            return;
+        };
+        if movement.has_unsent_tick(*tick) {
+            return;
+        }
+        if send(packets.clone()) != Err(BatchSendError::Full) {
+            self.held_release = None;
+        }
     }
 
     /// The slot and authoritative revision an admitted throw of the last item emptied, once.

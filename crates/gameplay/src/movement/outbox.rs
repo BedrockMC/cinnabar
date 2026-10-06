@@ -225,6 +225,13 @@ impl MovementTicker {
         })
     }
 
+    /// Whether `tick`'s input is still queued rather than handed to transport.
+    pub fn has_unsent_tick(&self, tick: u64) -> bool {
+        self.outbox
+            .iter()
+            .any(|sample| sample.snapshot.tick == tick)
+    }
+
     /// Action aim overrides actor facing on its unsent tick without changing movement or camera input.
     pub fn override_action_rotation(&mut self, tick: u64, pitch: f32, yaw: f32) -> bool {
         if !pitch.is_finite() || !yaw.is_finite() {

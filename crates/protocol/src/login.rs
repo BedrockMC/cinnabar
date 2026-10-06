@@ -779,6 +779,7 @@ fn decode_world_raw_with(
             | McpePacketName::UpdateAttributesPacket
             | McpePacketName::ActorEventPacket
             | McpePacketName::AddItemActorPacket
+            | McpePacketName::AvailableActorIdentifiersPacket
             | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
             | McpePacketName::PlayerSkinPacket
@@ -937,3 +938,6 @@ mod credits_ingress_tests;
 
 #[cfg(test)]
 mod block_sync_tests;
+
+#[cfg(test)]
+mod actor_identifier_ingress_tests;
