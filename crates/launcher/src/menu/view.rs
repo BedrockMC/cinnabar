@@ -166,8 +166,8 @@ pub struct MenuFeeds {
     pub join: JoinProgress,
     /// The join's pending question whether to trust a NetherNet server.
     pub server_trust: Option<ServerTrustPrompt>,
-    /// The player's answer to that question, until it is sent to the core.
-    pub server_trust_answer: Option<(u64, bool)>,
+    /// The player's answer to that question, until it is sent to the core that asked.
+    pub server_trust_answer: Option<(ServerTrustPrompt, bool)>,
 }
 
 /// The core asks whether to trust the NetherNet server at `url` before the join goes on.
@@ -175,6 +175,8 @@ pub struct MenuFeeds {
 pub struct ServerTrustPrompt {
     pub id: u64,
     pub url: String,
+    /// Asked by a per-session core rather than the launcher core; ids are per core.
+    pub from_session_core: bool,
 }
 
 /// Which kind of join is under way; picks vanilla's connect title and progress screen.

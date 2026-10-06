@@ -15,6 +15,8 @@ import (
 
 	"github.com/df-mc/go-nethernet"
 	"github.com/df-mc/go-nethernet/endpoint"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/sandertv/gophertunnel/minecraft"
 )
 
@@ -183,5 +185,26 @@ func TestDeclinedServerTrustIsNotProcessFatal(t *testing.T) {
 	}
 	if !shouldSurfacePreparationError(errors.New("dial failed"), context.Background()) {
 		t.Fatal("ordinary preparation failures no longer surface")
+	}
+}
+
+// A signed-out join's identity is presented again by the redial after a slow trust answer, so it
+// must outlive the question.
+func TestSignedOutIdentityOutlivesTheTrustQuestion(t *testing.T) {
+	now := time.Now()
+	identity, err := selfSignedIdentity(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := jwt.ParseSigned(identity.Token, []jose.SignatureAlgorithm{jose.ES384})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claims jwt.Claims
+	if err := parsed.UnsafeClaimsWithoutVerification(&claims); err != nil {
+		t.Fatal(err)
+	}
+	if claims.Expiry.Time().Sub(now) < 10*time.Minute {
+		t.Fatalf("identity expires after %v, sooner than a join may wait on the trust question", claims.Expiry.Time().Sub(now))
 	}
 }

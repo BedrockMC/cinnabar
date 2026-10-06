@@ -81,10 +81,33 @@ impl MenuRuntime {
         let Some(prompt) = self.feeds.server_trust.take() else {
             return;
         };
-        self.feeds.server_trust_answer = Some((prompt.id, trusted));
+        self.feeds.server_trust_answer = Some((prompt, trusted));
         if !trusted {
             self.intents.disconnect = true;
         }
+    }
+
+    /// Shows a per-session core's trust question while joining and sends it the answer.
+    pub(crate) fn sync_session_trust(&mut self, source: &dyn super::server_trust::TrustSource) {
+        if let Some((prompt, trusted)) = self
+            .feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| prompt.from_session_core)
+        {
+            source.answer(prompt.id, trusted);
+        }
+        match source.prompt().filter(|_| self.is_connecting()) {
+            Some(prompt) => self.feeds.server_trust = Some(prompt),
+            None if self.server_trust_from_session_core() => self.feeds.server_trust = None,
+            None => {}
+        }
+    }
+
+    fn server_trust_from_session_core(&self) -> bool {
+        self.feeds
+            .server_trust
+            .as_ref()
+            .is_some_and(|prompt| prompt.from_session_core)
     }
 
     /// Pull the core's account state into the menu: lists replace the catalog's,
@@ -147,10 +170,17 @@ impl MenuRuntime {
         if self.is_connecting() {
             self.feeds.join.observe(control.join_stage());
         }
-        if let Some((id, trusted)) = self.feeds.server_trust_answer.take() {
-            control.answer_server_trust(id, trusted);
+        if let Some((prompt, trusted)) = self
+            .feeds
+            .server_trust_answer
+            .take_if(|(prompt, _)| !prompt.from_session_core)
+        {
+            control.answer_server_trust(prompt.id, trusted);
         }
-        self.feeds.server_trust = control.server_trust().filter(|_| self.is_connecting());
+        let asked = control.server_trust().filter(|_| self.is_connecting());
+        if asked.is_some() || !self.server_trust_from_session_core() {
+            self.feeds.server_trust = asked;
+        }
         if let Some(status) = control.account_status() {
             self.control_auth = Some(status);
         }
@@ -358,6 +388,7 @@ mod tests {
         let prompt = ServerTrustPrompt {
             id: 4,
             url: "http://127.0.0.1:19132".into(),
+            from_session_core: false,
         };
         for (answer, trusted, cancels) in [
             (MenuAction::ServerTrust(true), true, false),
@@ -398,6 +429,61 @@ mod tests {
             assert_eq!(menu.take_disconnect_request(), cancels);
             assert!(menu.view().feeds.server_trust.is_none());
         }
+    }
+
+    struct SessionSource {
+        prompt: std::cell::RefCell<Option<ServerTrustPrompt>>,
+        answers: std::cell::RefCell<Vec<(u64, bool)>>,
+    }
+
+    impl super::super::server_trust::TrustSource for SessionSource {
+        fn prompt(&self) -> Option<ServerTrustPrompt> {
+            self.prompt.borrow().clone()
+        }
+        fn answer(&self, id: u64, trusted: bool) {
+            self.prompt.borrow_mut().take();
+            self.answers.borrow_mut().push((id, trusted));
+        }
+    }
+
+    // A per-session core's question shows like the launcher core's, and its answer goes back to the
+    // core that asked even though the launcher core reports nothing.
+    #[test]
+    fn session_core_trust_answers_return_to_the_session_core() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.observe_session(crate::session::SessionStatus {
+            connecting: true,
+            owns_directory: true,
+        });
+        let asked = ServerTrustPrompt {
+            id: 1,
+            url: "http://127.0.0.1:19132".into(),
+            from_session_core: true,
+        };
+        let session = SessionSource {
+            prompt: std::cell::RefCell::new(Some(asked.clone())),
+            answers: Default::default(),
+        };
+        let mut launcher = Trusting {
+            prompt: None,
+            answers: Vec::new(),
+        };
+        let mut frame = |menu: &mut MenuRuntime| {
+            menu.sync_account_control(&mut launcher);
+            menu.sync_session_trust(&session);
+        };
+        frame(&mut menu);
+        assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&asked));
+        frame(&mut menu);
+        assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&asked));
+        menu.activate(MenuAction::ServerTrust(true));
+        frame(&mut menu);
+        assert!(menu.view().feeds.server_trust.is_none());
+        assert_eq!(*session.answers.borrow(), vec![(1, true)]);
+        assert!(
+            launcher.answers.is_empty(),
+            "the launcher core got the session core's answer"
+        );
     }
 
     #[test]
