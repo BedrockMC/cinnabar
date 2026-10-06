@@ -1,4 +1,75 @@
+## Camera packets and aim assist
+
+- Packet admission covers spline registries/instructions, aim presets, commands
+  and actor-priority updates. Semantic errors are skipped and counted; malformed
+  framing remains fatal. See the [Vanilla rules](docs/reference/camera.md).
+- Preset inheritance, starting values, offsets, target tracking, camera collision,
+  easing, fade, shake, FOV, listener and presentation capabilities have regressions.
+  Named and inline splines have independent progress/rotation tracks. Aim selection
+  uses retained physics-tick poses, item categories, priorities and visibility,
+  with separate interaction direction and action-triggered rotation.
+- Incomplete parity: animated attachment anchors, additional actor hitboxes,
+  complete native block tags, touch pick-range remapping, equal-score actor order,
+  historical remote geometry during catch-up, and fire-resistance lava fog remain
+  owner limitations. Legacy education photography output is unsupported. Packaged
+  boom/shake/collision defaults and highlight sampler need pinned-version witnesses.
+  Existing gameplay FOV magnitude approximations remain separate incomplete work.
+  Finite block sampling is bounded to 4,096 rays. None closes a full parity gate.
+- Touched-crate checks and directly affected regressions pass. A headless macOS
+  local-server run at 1280×720 captured named/inline splines, local-body visibility,
+  hand suppression, aim highlighting and clear/restoration. The 484-frame clip and
+  state snapshots are outside git; camera and aim semantic-skip counters stayed zero.
+  Matching-version native comparison, physical controller/touch testing and the
+  three-run hardware performance qualification remain untested.
+
+## Java 1.7 animations
+
+- Owner-mandated default, selected live from Video › Animations (persisted): Java 1.7 or
+  Bedrock. Saved toggle choices migrate without changing the selected mode. Rules and frame mapping:
+  [Java 1.7 animations](docs/reference/java-1-7-animations.md).
+- First person: Java's item stacks (swing; equip with the old item through the dip and the
+  re-equip after a placement; eat/drink; sword block with block-hitting; bow draw and pull
+  frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
+  biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
+  swing and the sneak drops; armour flashes red, held items do not.
+- Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
+  and uses the cape texture when present. Native controller blend composition stays intact.
+- Golden tests assert composed stacks and projected arm, item and cape points against Java's
+  calls.
+- Review corrections: local head sampling stays in the current render frame; cape and camera
+  motion use native velocity, health and riding state. Retained items keep their own use
+  clocks through swaps, authored first-person rigs retain ownership, and raster depth stays
+  one sixteenth at any texture size. Emote skin layers follow the sampled body pose.
+  Unchanged render layers sharing geometry retain their own completed pose allocations.
+- Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
+  exercise held-item swaps, use, both third-person views, cape motion and local emotes.
+- Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
+  none); held attachables Java never had, the third-person bow pull frames and cast-rod item
+  stay vanilla. Unclassified mounts retain ordinary player body yaw.
+- First-person items and the empty arm use Java's fixed directional lights and gamma-space
+  colour multiplication, including normal rescaling during bow stretch. World lightmap
+  colours still follow Bedrock; full-frame lighting parity remains open.
+- Living mount heading and active creative-flight cape phase now use their own observed
+  state, with regression witnesses for wraparound, live local look, dismounting, phase
+  freezing and walking resumption. Fixed Java 1.7.10 model/matrix fixtures and Windows
+  rendered motion checks validate the covered state product; full game-frame pixel
+  equality, lighting and the retained vanilla exceptions above are not asserted.
+  Local swing effects are live; remote swings retain the six-tick default.
+- Validation after integrating concurrent PR changes: 802 animation-suite tests pass,
+  touched-crate checks and the optimized Windows build pass with sccache. Native fixtures
+  cover 42 pose/transform states and 20 exact use clocks. Fresh hidden DX12 captures verify
+  flight-phase freezing/resumption, living/nonliving mounted views, yaw wraparound,
+  dismounting, item use/swaps, both third-person views and local emotes. Full-client pixel
+  and performance parity are not asserted.
+
 ## Compatibility landing
+
+- Education construction terrain restores allow, deny and all border wall states
+  from the pinned current palette, using the textures already in the fetched pack.
+  Collision and light read the pinned metadata sources; no guessed shapes or
+  sequential palette IDs are added. Linux captures at 1280×720 with GUI scale 2
+  show textured allow/deny cubes and connected border shapes. Broader Education
+  parity remains incomplete.
 
 - The owner accepted the final live macOS Metal build and authorized landing the
   accumulated server compatibility changes. Formatting and architecture checks
@@ -220,7 +291,7 @@
 - Criterion exercises production palette/column decode, light solves, cube/biome
   meshing, bounded ingress-to-CPU-publication bursts, idle polls and metadata scans.
 - Fixtures validate decoded cells, lighting, exposed faces and drained stream state.
-  Benchmark smoke passes all 21 cases on the pinned toolchain without local carriers.
+  Benchmark fixtures run on the pinned toolchain without local carriers.
 - The largest fixture stores 871 sections in 218 target columns, with preloaded
   implicit-air neighbours. It is synthetic, not a replay of the reported FPS drop.
 - Initial Windows/i9-14900HX baseline: pinned Rust, optimized bench profile, 100 samples
@@ -235,10 +306,12 @@
   streaming backlog cannot halve high refresh rates. Chunk uploads merge abutting arena
   writes into one staged write per run. The F3 overlay keeps its bindings and layout and
   rebinds only changed lines.
-- Incomplete: release streaming throughput at high refresh rates is unmeasured. Per-job
-  light/mesh dispatch snapshots and whole-frame UI rebuilds on any change remain. Cave camera
-  crossings now reuse reached exits after a bounded exact proof; streamed additions survive journal
-  rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
+- Light/mesh job inputs retain immutable section/column handles without allocation;
+  light workers reuse scratch and dispatches publish in batches. Snapshot benchmarks and
+  in-flight edit tests cover capture cost, unchanged payloads and stale-result rejection.
+- Incomplete: sustained high-refresh release streaming throughput is unverified; whole-frame
+  UI rebuilds on any change remain. Cave camera crossings reuse reached exits after a bounded
+  exact proof; streamed additions survive journal rollover. Destructive graph changes and inconclusive proofs still rebuild synchronously.
   No parity or performance gate is claimed; commands and boundaries are in the README.
 
 ## GPU terrain culling with Hi-Z occlusion
@@ -5972,3 +6045,33 @@ orbit acceptance pass remains incomplete.
   including bare web domains, and require an in-game Open/Cancel prompt before
   handing a selected URL to the default browser. Chat messages and server packets
   are unchanged. This Java-style interaction is not a closed Bedrock parity gate.
+
+## Worn elytra glint acceptance
+
+Actor glint uses the vanilla raster, two centered UV rotations and independently
+wrapping scrolls. Exact 1.26.50 glint pixel comparison and enhanced graphics glint
+remain incomplete and do not close the rendering parity gate.
+
+## Server primitive shapes
+
+The retained renderer and packet pipeline implement the six Script API debug shapes. See
+[the Vanilla rules](docs/reference/primitive-shapes.md) for packet patches, geometry, text,
+attachment and distance rules. Lifetime deliberately follows server removal packets: the
+version-matched client does not autonomously expire a shape from its time-left metadata.
+
+The parity gate remains incomplete. Shared-kind draws do not reproduce native equal-priority
+sorting for overlapping coplanar shapes, and batched text does not preserve every per-shape
+alpha overlap. Parsed debug text also lacks invalidation when only input mode or interaction
+model changes; the shared text resolver does not expose those signals. The finite text atlas
+remains an implementation resource bound. The debug material witness is a nearby patch version; a matched native visual comparison remains open.
+The 1920×1080 headless macOS/Metal local gallery verifies all six kinds, text background,
+color updates, actor following without instance rebuilds, and complete removal.
+Synthetic CPU/upload benchmarks and this gallery do not qualify the release hardware frame,
+streaming or hitch budgets, or establish native 100k-shape performance.
+
+## Entity-only held item geometry
+
+Block items without a cube sheet retain their compiled icon in both player-preview
+hands, matching the existing world equipment fallback. Inventory banners retain their
+colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
+the fallback availability regression is fixed, but it does not close that parity gate.

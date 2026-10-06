@@ -30,6 +30,7 @@ impl LocalPhysicsController {
             self.modes.reset();
             self.last_environment = sim::MovementEnvironment::default();
             self.eye_offset = eye::LocalEyeOffset::default();
+            self.visual_correction = visual_correction::VisualCorrection::default();
             self.dimension_waiting = true;
         }
         let state = self.state.as_mut().expect("active local state checked");

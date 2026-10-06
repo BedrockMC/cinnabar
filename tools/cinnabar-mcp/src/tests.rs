@@ -40,6 +40,7 @@ fn tools_list_names_every_tool() {
             "input",
             "chat",
             "camera_path",
+            "test_cape",
             "state",
             "wait_for",
             "screenshot",
@@ -133,6 +134,34 @@ fn tool_arguments_become_commands_with_resolved_paths() {
     assert_eq!(command, Command::CameraRelease);
     assert!(commands::command("camera_path", &json!({ "keyframes": [] }), repo, &control).is_err());
     assert!(commands::command("input", &json!({ "jumpp": true }), repo, &control).is_err());
+}
+
+#[test]
+fn pointer_wheel_and_cape_tools_preserve_arguments() {
+    let repo = Path::new("/repo");
+    let arguments = json!({ "pointer": { "x": 24.5, "y": 100 }, "press": ["MouseLeft"], "wheel": { "y": -2, "unit": "pixel" } });
+    let (command, _) = commands::command("input", &arguments, repo, repo).unwrap();
+    let Command::Input(input) = command else {
+        panic!("not input")
+    };
+    assert_eq!(input.pointer.unwrap().x, 24.5);
+    assert_eq!(input.press, ["MouseLeft"]);
+    assert_eq!(
+        input.wheel.unwrap().unit,
+        developer_control::protocol::WheelUnit::Pixel
+    );
+    let (command, _) =
+        commands::command("test_cape", &json!({"enabled": true}), repo, repo).unwrap();
+    assert_eq!(command, Command::TestCape { enabled: true });
+    assert!(
+        commands::command(
+            "test_cape",
+            &json!({"enabled": true, "typo": 1}),
+            repo,
+            repo
+        )
+        .is_err()
+    );
 }
 
 #[test]

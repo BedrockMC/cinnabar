@@ -225,7 +225,7 @@ impl PoseConversions {
     }
 }
 
-pub(super) fn convert_bones(
+pub(crate) fn convert_bones(
     bones: &[client_world::BoneTransform],
 ) -> Option<Arc<[RenderBoneTransform]>> {
     bones

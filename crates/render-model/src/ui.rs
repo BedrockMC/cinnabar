@@ -62,6 +62,8 @@ pub const UI_BLEND_INVERT: u32 = 1;
 pub const UI_STYLE_GLINT: u32 = 1 << 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+/// Texture alpha weights dye color; every surviving sampled texel is opaque.
+pub const UI_STYLE_COLOR_MASK: u32 = 1 << 5;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiRenderBatch {
@@ -196,6 +198,17 @@ impl UiRenderInput {
         validate_batches(self)?;
         Ok(())
     }
+
+    /// Same revision, viewport and safe area over the very same buffers.
+    fn shares_buffers(&self, other: &Self) -> bool {
+        self.revision == other.revision
+            && self.viewport_size == other.viewport_size
+            && self.safe_area == other.safe_area
+            && Arc::ptr_eq(&self.vertices, &other.vertices)
+            && Arc::ptr_eq(&self.indices, &other.indices)
+            && Arc::ptr_eq(&self.batches, &other.batches)
+            && Arc::ptr_eq(&self.textures, &other.textures)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -259,6 +272,15 @@ impl UiRenderScene {
         input: UiRenderInput,
         stats: &UiRenderStats,
     ) -> Result<(), UiRenderReject> {
+        // The UI republishes its last frame unchanged most of the time; the admitted copy
+        // was already validated, so identical buffers need no per-vertex work.
+        if self
+            .input
+            .as_deref()
+            .is_some_and(|current| current.shares_buffers(&input))
+        {
+            return Ok(());
+        }
         let revision = input.revision;
         let result = input.validate().and_then(|()| {
             if revision < self.revision

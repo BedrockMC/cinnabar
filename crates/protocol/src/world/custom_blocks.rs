@@ -20,6 +20,8 @@ const VANILLA_NAMESPACE: &str = "minecraft";
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
     pub name: Arc<str>,
+    /// Server-declared block tags used by target priorities and exclusions.
+    pub tags: Arc<[Arc<str>]>,
     /// Sequential palette states: the product of property and trait values.
     pub state_count: u32,
     /// False when the definition disables its collision box.
@@ -294,14 +296,18 @@ impl CustomBlocks {
                 continue;
             }
             match parse_definition(&root) {
-                Some(definition) => blocks.push(CustomBlock {
-                    name: Arc::from(name),
-                    state_count: definition.state_count,
-                    collides: definition.collides,
-                    collision_box: definition.collision_box,
-                    selection: definition.selection,
-                    visual: Arc::new(definition.visual),
-                }),
+                Some(definition) => {
+                    skipped += definition.tag_skips;
+                    blocks.push(CustomBlock {
+                        name: Arc::from(name),
+                        tags: definition.tags,
+                        state_count: definition.state_count,
+                        collides: definition.collides,
+                        collision_box: definition.collision_box,
+                        selection: definition.selection,
+                        visual: Arc::new(definition.visual),
+                    });
+                }
                 None => skipped += 1,
             }
         }
@@ -324,11 +330,37 @@ impl CustomBlocks {
 }
 
 struct Definition {
+    tags: Arc<[Arc<str>]>,
+    tag_skips: usize,
     state_count: u32,
     collides: bool,
     collision_box: Option<CustomBox>,
     selection: CustomSelection,
     visual: CustomBlockVisuals,
+}
+
+/// Reads the wire tag list, counting unsupported entries without discarding the block.
+fn block_tags(root: &Nbt) -> (Arc<[Arc<str>]>, usize) {
+    const MAX_TAGS: usize = 256;
+    const MAX_TAG_BYTES: usize = 256;
+    let entries = match root.field("blockTags") {
+        Some(Nbt::List(entries)) => entries.as_slice(),
+        Some(_) => return (Arc::default(), 1),
+        None => return (Arc::default(), 0),
+    };
+    let mut skipped = entries.len().saturating_sub(MAX_TAGS);
+    let mut tags: Vec<Arc<str>> = Vec::new();
+    for entry in entries.iter().take(MAX_TAGS) {
+        match entry
+            .as_str()
+            .filter(|tag| !tag.is_empty() && tag.len() <= MAX_TAG_BYTES)
+        {
+            Some(tag) if !tags.iter().any(|old| old.as_ref() == tag) => tags.push(tag.into()),
+            Some(_) => {}
+            None => skipped += 1,
+        }
+    }
+    (tags.into(), skipped)
 }
 
 fn parse_definition(root: &Nbt) -> Option<Definition> {
@@ -421,7 +453,10 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             })
         })
         .collect();
+    let (tags, tag_skips) = block_tags(root);
     Some(Definition {
+        tags,
+        tag_skips,
         state_count: u32::try_from(states).ok()?,
         collides,
         collision_box,

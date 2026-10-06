@@ -27,6 +27,7 @@ func registerChatCommands() {
 	cmd.Register(cmd.New("speed", "Scales flight and walking speed from the vanilla defaults", nil, speedReset{}, speedSet{}))
 	cmd.Register(cmd.New("fly", "Toggles being allowed to fly", nil, flyToggle{}))
 	cmd.Register(cmd.New("tp", "Teleports to a position", []string{"teleport"}, teleport{}))
+	cmd.Register(cmd.New("give", "Adds a vanilla item to your inventory", nil, giveItem{}))
 }
 
 // speedMultiplier clamps m to the accepted range.

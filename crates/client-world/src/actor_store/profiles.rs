@@ -44,6 +44,17 @@ fn fingerprint_bytes(digest: &mut Sha256, bytes: &[u8]) {
 }
 
 impl ActorStore {
+    /// Chooses an unused local identity without replacing a retained server profile.
+    pub(super) fn available_profile_uuid(&self, preferred: [u8; 16]) -> [u8; 16] {
+        let mut candidate = preferred;
+        while self.players.contains_key(&candidate)
+            || self.unlisted_players.contains_key(&candidate)
+        {
+            candidate = u128::from_le_bytes(candidate).wrapping_add(1).to_le_bytes();
+        }
+        candidate
+    }
+
     /// Inserts or replaces a profile while preserving roster and retained-skin limits.
     pub(super) fn upsert_profile(&mut self, uuid: [u8; 16], mut profile: PlayerProfile) -> bool {
         if self.players.len() >= self.max_players && !self.players.contains_key(&uuid) {

@@ -8,7 +8,9 @@ use crate::{
 
 use std::collections::HashSet;
 
-use bevy::prelude::{Local, Message, MessageReader, NonSendMut, Res, ResMut, Time, Vec3};
+use bevy::prelude::{
+    Local, Message, MessageReader, NonSendMut, Query, Res, ResMut, Time, Transform, With,
+};
 use render::{ParticleSimulation, PrecipitationMix};
 use sim::PaletteWorld;
 
@@ -18,7 +20,7 @@ use super::{
         music_key,
     },
     echo::{EchoOrigin, EchoSubject},
-    engine::{AudioEngine, Listener, LoopSpec, SoundRequest},
+    engine::{AudioEngine, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
     route,
     settings::{AudioCategory, AudioSettings},
@@ -623,17 +625,21 @@ fn enqueue_destroy_sound(engine: &mut AudioEngine, position: [f32; 3], request: 
 pub fn pump_audio(
     time: Res<Time>,
     view: Res<LocalViewPose>,
+    camera: Query<&Transform, With<crate::camera::FlyCamera>>,
+    server_camera: Option<Res<crate::camera::ServerCameraView>>,
     settings: Res<AudioSettings>,
     mut engine: ResMut<AudioEngine>,
     mut device: Option<NonSendMut<AudioDevice>>,
 ) {
     engine.poll_server();
-    let eye = view.eye_translation();
-    let right = view.rotation() * Vec3::X;
-    let listener = Listener {
-        position: [eye.x, eye.y, eye.z],
-        right: [right.x, right.y, right.z],
-    };
+    let listener = super::listener::camera_listener(
+        &view,
+        camera.single().ok(),
+        server_camera
+            .as_deref()
+            .and_then(|camera| camera.active_listener())
+            == Some(1),
+    );
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
     let Some(device) = device.as_mut() else {
         return;
@@ -648,6 +654,7 @@ pub fn pump_audio(
 
 #[cfg(test)]
 mod tests {
+    use super::super::engine::Listener;
     use super::*;
     use std::sync::Arc;
 

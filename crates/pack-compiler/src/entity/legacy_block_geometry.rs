@@ -18,6 +18,7 @@ pub(super) fn parse(
     parse_geometry(relative_path, path, &selected, symbols, geometries)
 }
 
+/// Keeps catalog-only block and equipment models in both compiled and reference payloads.
 pub(super) fn select(value: &Value) -> Value {
     let mut selected = serde_json::Map::new();
     if let Some(version) = value.get("format_version") {
@@ -26,6 +27,7 @@ pub(super) fn select(value: &Value) -> Value {
     for identifier in [
         assets::BED_GEOMETRY_IDENTIFIER,
         assets::CAPE_GEOMETRY_IDENTIFIER,
+        assets::ELYTRA_GEOMETRY_IDENTIFIER,
     ] {
         if let Some(geometry) = value.get(identifier) {
             selected.insert(identifier.into(), geometry.clone());
