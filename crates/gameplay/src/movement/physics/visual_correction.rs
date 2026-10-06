@@ -18,13 +18,9 @@ pub(super) struct VisualCorrection {
 impl VisualCorrection {
     /// Accumulates a bounded render offset without changing movement authority.
     pub(super) fn correct(&mut self, current: Vec3, previous: Vec3, motion: Vec3) {
-        self.current += current;
-        self.previous += previous;
-        let mut squared = self.current.length_squared() as f32;
-        if squared > MAX_OFFSET * MAX_OFFSET {
-            self.current = self.current * f64::from(MAX_OFFSET / squared.sqrt());
-            squared = self.current.length_squared() as f32;
-        }
+        self.current = bounded(self.current + current);
+        self.previous = bounded(self.previous + previous);
+        let squared = self.current.length_squared() as f32;
         let length = squared.sqrt();
         self.direction = if length >= MIN_DIRECTION_LENGTH {
             self.current * f64::from(1.0 / length)
@@ -62,6 +58,16 @@ impl VisualCorrection {
     }
 }
 
+/// Keeps each retained render sample inside the correction radius.
+fn bounded(offset: Vec3) -> Vec3 {
+    let squared = offset.length_squared() as f32;
+    if squared > MAX_OFFSET * MAX_OFFSET {
+        offset * f64::from(MAX_OFFSET / squared.sqrt())
+    } else {
+        offset
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +95,40 @@ mod tests {
         let mut offset = VisualCorrection::default();
         offset.correct(Vec3::new(3.0, 0.0, 0.0), Vec3::ZERO, Vec3::ZERO);
         offset.correct(Vec3::new(3.0, 0.0, 0.0), Vec3::ZERO, Vec3::ZERO);
-        assert_eq!(offset.offset(1.0), Vec3::new(4.0, 0.0, 0.0));
+        assert_eq!(
+            offset.offset(1.0),
+            Vec3::new(f64::from(MAX_OFFSET), 0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn oversized_corrections_bound_both_interpolation_samples() {
+        let mut offset = VisualCorrection::default();
+        for _ in 0..2 {
+            offset.correct(
+                Vec3::new(10.0, 0.0, 0.0),
+                Vec3::new(-10.0, 0.0, 0.0),
+                Vec3::ZERO,
+            );
+            assert_eq!(
+                offset.offset(0.0),
+                Vec3::new(-f64::from(MAX_OFFSET), 0.0, 0.0)
+            );
+            assert_eq!(
+                offset.offset(1.0),
+                Vec3::new(f64::from(MAX_OFFSET), 0.0, 0.0)
+            );
+            for alpha in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                assert!(
+                    offset.offset(alpha).length_squared() <= f64::from(MAX_OFFSET * MAX_OFFSET)
+                );
+            }
+        }
+        offset.tick();
+        assert_eq!(
+            offset.offset(0.0),
+            Vec3::new(f64::from(MAX_OFFSET), 0.0, 0.0)
+        );
+        assert!(offset.offset(1.0).length_squared() < offset.offset(0.0).length_squared());
     }
 }

@@ -430,6 +430,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## app/src/movement/runtime_system.rs
 ## app/src/movement/teleport_ack_wiring_tests/correction_presentation.rs
 - Current 1.26.50.26 correction interpolation creation: `0x036c1530`, identified through `MovementCorrectionInterpolationSystem` registration `0x0369ed60` and adapter `0x036c1aa0`. It accumulates the position correction in `DynamicRenderOffsetComponent`, limits length to 4, records direction, and sets speed squared to `0.2 * length_squared`, floored by StateVector speed when the offset Y is nonpositive.
+- Both retained render-offset samples remain inside the 4-block radius: creation clamps current and the tick copies that bounded sample into previous. Replayed history in Cinnabar replaces both position endpoints, so compensating offsets must retain that same bound.
 - Current interpolation tick: `0x06bb4780`, reached by `ClientRewind::tickCorrectionInterpolation` adapter `0x06bb4a60`. It retains the prior offset, accelerates retained falling Y by `-0.08` when offset Y is positive, reduces offset length by the selected speed, and removes the offset once its remaining squared length is no larger than the step squared. Rendering interpolates previous/current offsets independently of corrected collision and outbound positions.
 - The current render-position interpolation (`0x01c35c20`) consumes those retained offset samples at the frame partial tick. Pausing Cinnabar input admission must therefore keep publishing that already interpolated pose; it must not expose a raw authority assignment or advance correction ticks behind the transport fence.
 
@@ -2524,3 +2525,6 @@ was not used as version evidence.
 
 ## Translation parameter localization
 - `Localization::_get` localizes a parameter only when it begins with `%`, using the whole remaining parameter as a key; unresolved keys retain the original argument. Ordinary player names and embedded percent text are literal. R:Localization:1830-1940.
+
+## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
+- Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.

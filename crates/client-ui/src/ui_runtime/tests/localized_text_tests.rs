@@ -106,3 +106,58 @@ fn rawtext_translation_arguments_preserve_unmarked_and_unknown_keys() {
         assert_eq!(runtime.resolve_raw_text(&document).text, argument);
     }
 }
+
+#[test]
+fn flagged_rawtext_preserves_literal_and_resolved_percent_text() {
+    let entries = [
+        ("menu.play", "Play"),
+        ("progress", "100%% translated %%menu.play"),
+    ]
+    .map(|(key, value)| assets::LangEntry {
+        key: key.into(),
+        value: value.into(),
+    });
+    let bytes = assets::encode_lang_catalog([9; 32], [10; 32], &entries).unwrap();
+    for kind in [
+        TextKind::Raw,
+        TextKind::Json,
+        TextKind::JsonWhisper,
+        TextKind::Tip,
+    ] {
+        let mut runtime = UiRuntime::new(1);
+        let mut player_runtime = player_state::PlayerState::new(1);
+        runtime.set_lang_catalog(Arc::new(
+            assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+        ));
+        for (index, (json, expected)) in [
+            (
+                r#"{"rawtext":[{"text":"100% literal %menu.play"}]}"#,
+                "100% literal %menu.play",
+            ),
+            (
+                r#"{"rawtext":[{"translate":"progress"}]}"#,
+                "100% translated %menu.play",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let UiEvent::RawText(mut event) = literal_raw_text(kind, json) else {
+                unreachable!();
+            };
+            event.text.needs_translation = true;
+            runtime
+                .apply(
+                    &mut player_runtime,
+                    envelope(1, index as u64 + 1, UiEvent::RawText(event)),
+                )
+                .unwrap();
+            let message = if kind == TextKind::Tip {
+                runtime.hud().actionbar().unwrap().text.as_ref()
+            } else {
+                runtime.chat().messages().back().unwrap().message.as_ref()
+            };
+            assert_eq!(message, expected, "{kind:?}: {json}");
+        }
+    }
+}
