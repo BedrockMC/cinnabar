@@ -1,12 +1,11 @@
 use std::{
     cell::{Cell, RefCell},
-    io::Write,
     path::{Path, PathBuf},
 };
 
 use super::*;
 use crate::install_layout::{InstallEnvironment, Platform};
-use test_support::{Dir, write_vanilla_manifest};
+use test_support::Dir;
 
 struct Fake {
     accept: bool,
@@ -147,7 +146,8 @@ fn no_consent_surface_fails_visibly_instead_of_quitting() {
 #[cfg(unix)]
 #[test]
 fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
-    use std::os::unix::fs::PermissionsExt;
+    use std::{io::Write, os::unix::fs::PermissionsExt};
+    use test_support::write_vanilla_manifest;
 
     let data = Dir::new("failing-step");
     let mut layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/bedrock-client");
