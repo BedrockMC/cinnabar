@@ -23,6 +23,7 @@ pub enum EntityRenderMaterial {
     Dragon,
     DissolveDepth,
     DissolveColor,
+    Glint,
 }
 
 /// Independent raster states of an authored entity material.

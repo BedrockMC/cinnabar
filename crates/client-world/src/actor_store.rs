@@ -578,19 +578,22 @@ impl MovementFlagUpdate {
     }
 }
 
-/// Client-authored identity and pose for the local player's own third-person rig, which the
-/// server never spawns as an actor. When the player list carries no self entry, the skin backs
-/// a synthetic profile keyed by `uuid`; a real echo overrides it.
+/// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
+/// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
     pub skin: PlayerSkin,
+    /// Uses the client appearance locally while retaining any server profile for restoration.
+    pub prefer_client_skin: bool,
     pub position: [f32; 3],
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
+    /// Active flight from the client's completed movement mode, rather than server abilities.
+    pub flying: bool,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -598,6 +601,14 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// The main-hand stack's data value.
+    pub main_hand_metadata: u32,
+    /// Positive server identity for the selected stack, if one is available.
+    pub main_hand_stack_id: Option<i32>,
+    /// Selected hotbar slot; equal stacks in different slots still re-equip.
+    pub main_hand_slot: u8,
+    /// Current Java swing duration, recalculated from the active effects each tick.
+    pub java_swing_ticks: i32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -661,8 +672,13 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     local_view_dirty: bool,
     local_view_bobbing: bool,
+    local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_main_metadata: u32,
+    local_main_stack_id: Option<i32>,
+    local_main_slot: u8,
+    local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
@@ -695,6 +711,7 @@ mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod mount;
 mod movement_interpolation;
 mod placement;
 mod projectile;

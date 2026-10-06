@@ -1,5 +1,18 @@
 use crate::presentation::{equipment::EquipmentRuntime, skin_rig::SkinRigCache};
 
+/// Skin layers read the same render-only emote snapshot as the body and cape.
+pub(super) fn skin_layer_snapshot<'a>(
+    rig: client_world::ActorRigSnapshot<'a>,
+    emote: Option<&'a client_world::CustomEmotePose>,
+    java_layers: Option<&'a [client_world::SkinRenderLayer]>,
+) -> client_world::ActorRigSnapshot<'a> {
+    let rig = emote.map_or(rig, |pose| pose.snapshot(rig));
+    match java_layers {
+        Some(skin_layers) => client_world::ActorRigSnapshot { skin_layers, ..rig },
+        None => rig,
+    }
+}
+
 pub(super) fn apply(
     rig: &client_world::ActorRigSnapshot<'_>,
     cache: &mut SkinRigCache,

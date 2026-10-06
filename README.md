@@ -131,8 +131,8 @@ plan is in `docs/architecture/`.
 ## Headless chunk benchmarks
 
 Criterion covers palette/column decode, full light solves, cube meshing, biome records,
-bounded streaming bursts, settled polling and metadata-only cohort scans. Fixtures are
-synthetic and require no carriers, server, window or GPU.
+bounded streaming bursts, dispatch-input capture, settled polling and metadata-only cohort
+scans. Fixtures are synthetic and require no carriers, server, window or GPU.
 
 ```sh
 cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench chunk_costs -- --test
@@ -153,6 +153,11 @@ stream construction, boundary setup and teardown are excluded. Polling is unpace
 Preflight CPU-step percentiles are not game-frame percentiles. Metadata scans have
 no terrain. Resident-slot and stale-work counters include boundary setup; production
 logs remain enabled. Decode and meshing timings include output destruction.
+
+`pipeline/dispatch_inputs` captures 4/16/64/871 overlapping light or mesh inputs,
+including handle release but excluding worker scheduling and execution. Its
+`DISPATCH_INPUTS` records count allocations on the dispatch thread. The `_reused`
+light cases retain worker scratch between solves; completed output remains owned.
 
 `flight_costs` streams procedurally generated terrain (dirt over ore-flecked stone with
 sealed caves) into a settled radius-10 or radius-16 view while the camera flies along +X.
