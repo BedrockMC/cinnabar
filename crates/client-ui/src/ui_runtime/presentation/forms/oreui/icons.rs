@@ -12,6 +12,7 @@ pub(super) enum Icon {
     Search,
     Player,
     Pencil,
+    Check,
 }
 
 impl Icon {
@@ -23,6 +24,7 @@ impl Icon {
             Self::Search => "assets/search@0.5x.icon-57e5a707535fd5959a31271ce38e0b7f.png",
             Self::Player => "assets/player@0.5x.icon-5f2efe885c1189f09a5388b6e6b07c9f.png",
             Self::Pencil => "assets/edit@0.5x.icon-a786502003e9894de25c9a2b274fbcbb.png",
+            Self::Check => "assets/checkmark@0.5x.icon-3a1f3dd3866716c7bc33ad20204c68ca.png",
         }
     }
 
@@ -74,6 +76,9 @@ impl Icon {
                 ".####.......",
                 ".###........",
                 "............",
+            ],
+            Self::Check => &[
+                "......##", ".....##.", "#...##..", "##.##...", ".###....", "..#.....",
             ],
         }
     }
@@ -137,7 +142,13 @@ mod tests {
 
     #[test]
     fn art_rows_are_rectangular() {
-        for icon in [Icon::ArrowBack, Icon::Cross, Icon::Search, Icon::Player] {
+        for icon in [
+            Icon::ArrowBack,
+            Icon::Cross,
+            Icon::Search,
+            Icon::Player,
+            Icon::Check,
+        ] {
             let [width, _] = icon.texels();
             assert!(
                 icon.pixels().iter().all(|row| row.len() == width),

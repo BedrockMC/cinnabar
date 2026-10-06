@@ -1,16 +1,17 @@
 //! OreUI components drawn from the theme: the screen overlay and header bar,
 //! solid buttons (elevated, dropping 0.4rem when pressed), panels, dividers,
-//! list rows, solid tabs, text fields and segmented controls.
+//! list rows, modal menu items, solid tabs, text fields and segmented controls.
 
-use super::super::super::UiPresentationError;
+use super::super::super::{IconRef, UiPresentationError};
 use super::super::menu_caret::{TextSpot, caret_byte};
 use super::icons::{self, Icon};
 use super::paint::{Bounds, Canvas, text_factor};
 use super::theme::{
-    BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, CAPTION, DESTRUCTIVE, EDGE, FIELD_CARET,
-    FIELD_PLACEHOLDER, HEADER_HEIGHT, HEADER_STRIP, HEADER5, NEUTRAL, NEUTRAL20, NEUTRAL80,
-    NEUTRAL100, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON, PRIMARY_ROLE, Rgba, Role, SECONDARY,
-    SECONDARY_BUTTON, TEXT, TEXT_DIMMER, Type,
+    BEVEL_DARK, BEVEL_LIGHT, BODY, BORDER, Bundle, CAPTION, DESTRUCTIVE, DISABLED, EDGE,
+    FIELD_CARET, FIELD_PLACEHOLDER, HEADER_HEIGHT, HEADER_STRIP, HEADER5, MENU_DESTRUCTIVE,
+    MENU_ITEM, MENU_ITEM_DISABLED, MENU_NEUTRAL, MENU_SECONDARY, MENU_SPECULAR_ACTIVE, NEUTRAL,
+    NEUTRAL20, NEUTRAL80, NEUTRAL100, OUTLINE, OVERLAY_SCREEN, PRIMARY_BUTTON, PRIMARY_ROLE, Rgba,
+    Role, SECONDARY, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST, Type,
 };
 use crate::menu::{MenuAction, MenuView};
 
@@ -47,12 +48,15 @@ pub(super) enum Variant {
 }
 
 impl Variant {
-    fn role(self) -> Role {
-        match self {
-            Self::Hero | Self::Primary => PRIMARY_ROLE,
-            Self::Secondary => SECONDARY,
-            Self::Neutral => NEUTRAL,
-            Self::Destructive => DESTRUCTIVE,
+    fn role(self, bundle: Bundle) -> Role {
+        match (bundle, self) {
+            (_, Self::Hero | Self::Primary) => PRIMARY_ROLE,
+            (Bundle::Menus, Self::Secondary) => MENU_SECONDARY,
+            (Bundle::Menus, Self::Neutral) => MENU_NEUTRAL,
+            (Bundle::Menus, Self::Destructive) => MENU_DESTRUCTIVE,
+            (Bundle::Gameplay, Self::Secondary) => SECONDARY,
+            (Bundle::Gameplay, Self::Neutral) => NEUTRAL,
+            (Bundle::Gameplay, Self::Destructive) => DESTRUCTIVE,
         }
     }
 
@@ -85,8 +89,8 @@ pub(super) fn header(
     canvas.fill([0.0, 0.0, width, row], NEUTRAL20.fill)?;
     canvas.bevel(
         [0.0, 0.0, width, row],
-        NEUTRAL20.specular_top,
-        NEUTRAL20.specular_bottom,
+        NEUTRAL20.specular[0],
+        NEUTRAL20.specular[1],
     )?;
     canvas.fill([0.0, row, width, row + strip], HEADER_STRIP)?;
     canvas.fill(
@@ -151,7 +155,8 @@ pub(super) fn button(
     Ok(())
 }
 
-/// A solid button's art in `state`; the caller owns its hit area.
+/// A solid button's art in `state`; the caller owns its hit area. The one-texel outline
+/// wraps the face and its 0.4rem shadow strip; a focused button adds a ring just outside it.
 pub(super) fn button_face(
     canvas: &mut Canvas<'_>,
     b: Bounds,
@@ -160,56 +165,68 @@ pub(super) fn button_face(
     state: Interaction,
     enabled: bool,
 ) -> Result<(), UiPresentationError> {
-    let role = variant.role();
-    let disabled = !enabled;
-    let drop = if state.pressed { canvas.r(0.4) } else { 0.0 };
-    let shadow = canvas.r(0.4);
-    let face = [b[0], b[1] + drop, b[2], b[3] - shadow + drop];
-    if !state.pressed {
-        canvas.fill([b[0], b[3] - shadow, b[2], b[3]], role.shadow)?;
-    }
-    let fill = if disabled {
-        [0xb1, 0xb2, 0xb5, 255]
-    } else if state.pressed {
+    let role = if enabled {
+        variant.role(canvas.bundle)
+    } else {
+        DISABLED
+    };
+    let pressed = enabled && state.pressed;
+    let hovered = enabled && state.hovered && !pressed;
+    let focused = enabled && state.focused;
+    // Menus art draws pressed and (unhovered) focused faces from their own nine-slices.
+    let active = canvas.bundle == Bundle::Menus && (pressed || (focused && !hovered));
+    let edge = canvas.r(EDGE);
+    let shadow = if pressed { 0.0 } else { canvas.r(0.4) };
+    let outer = if pressed {
+        [b[0], b[1] + canvas.r(0.4), b[2], b[3]]
+    } else {
+        b
+    };
+    canvas.fill(outer, if active { BORDER } else { role.border })?;
+    let inner = [
+        outer[0] + edge,
+        outer[1] + edge,
+        outer[2] - edge,
+        outer[3] - edge,
+    ];
+    let face = [inner[0], inner[1], inner[2], inner[3] - shadow];
+    canvas.fill([face[0], face[3], face[2], inner[3]], role.shadow)?;
+    let fill = if pressed {
         role.pressed
-    } else if state.hovered {
+    } else if hovered {
         role.hovered
     } else {
         role.fill
     };
     canvas.fill(face, fill)?;
-    let (top, bottom) = if state.hovered {
-        (role.specular_top_hovered, role.specular_bottom_hovered)
+    let [top, bottom] = if active {
+        MENU_SPECULAR_ACTIVE
+    } else if hovered {
+        role.specular_hovered
     } else {
-        (role.specular_top, role.specular_bottom)
+        role.specular
     };
-    let inner = canvas.r(EDGE);
-    canvas.specular(
-        [
-            face[0] + inner,
-            face[1] + inner,
-            face[2] - inner,
-            face[3] - inner,
-        ],
-        top,
-        bottom,
-    )?;
-    canvas.frame([face[0], face[1], face[2], face[3]], EDGE, BORDER)?;
-    if state.focused {
-        let ring = canvas.r(0.4);
+    canvas.specular(face, top, bottom)?;
+    if focused {
         canvas.frame(
-            [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
+            [
+                outer[0] - edge,
+                outer[1] - edge,
+                outer[2] + edge,
+                outer[3] + edge,
+            ],
             EDGE,
             OUTLINE,
         )?;
     }
-    let text = if disabled {
-        [0x58, 0x58, 0x5a, 255]
-    } else {
-        role.text
-    };
-    let shadowed = matches!(variant, Variant::Hero);
-    canvas.text_centred(label, face, variant.label(), text, shadowed)
+    let shadowed = matches!(variant, Variant::Hero) && enabled;
+    canvas.text_centred(
+        label,
+        [outer[0], outer[1], outer[2], outer[3] - shadow],
+        variant.label(),
+        role.text,
+        shadowed,
+    )
 }
 
 /// A neutral80 panel with the dark one-texel border.
@@ -230,47 +247,37 @@ pub(super) fn divider(
     canvas.fill([left, y + w, right, y + w * 2.0], BEVEL_LIGHT)
 }
 
-/// Bevelled face colours: border, top-left edge, bottom-right edge, fill.
+/// A bevelled face: its fill and the translucent top-left and bottom-right edges over it.
 struct Bevel {
-    edge_light: Rgba,
-    edge_dark: Rgba,
     fill: Rgba,
+    edges: [Rgba; 2],
 }
 
+/// List rows take the neutral bevel; tabs the neutral speculars.
 const ROW_IDLE: Bevel = Bevel {
-    edge_light: rgb(0x5a5b5c),
-    edge_dark: rgb(0x323334),
-    fill: rgb(0x48494a),
+    fill: NEUTRAL.fill,
+    edges: [BEVEL_LIGHT, BEVEL_DARK],
 };
 const ROW_HOVER: Bevel = Bevel {
-    edge_light: rgb(0x69696b),
-    edge_dark: rgb(0x3e3e3f),
-    fill: rgb(0x58585a),
+    fill: NEUTRAL.hovered,
+    ..ROW_IDLE
 };
 const ROW_PRESSED: Bevel = Bevel {
-    edge_light: rgb(0x464747),
-    edge_dark: rgb(0x222324),
-    fill: rgb(0x313233),
+    fill: NEUTRAL.pressed,
+    ..ROW_IDLE
 };
 const TAB_IDLE: Bevel = Bevel {
-    edge_light: rgb(0x6d6d6e),
-    edge_dark: rgb(0x5a5b5c),
-    fill: rgb(0x48494a),
+    fill: NEUTRAL.fill,
+    edges: NEUTRAL.specular,
 };
 const TAB_HOVER: Bevel = Bevel {
-    edge_light: rgb(0x79797b),
-    edge_dark: rgb(0x69696b),
-    fill: rgb(0x58585a),
+    fill: NEUTRAL.hovered,
+    ..TAB_IDLE
 };
 const TAB_SELECTED: Bevel = Bevel {
-    edge_light: rgb(0x5a5b5c),
-    edge_dark: rgb(0x464747),
-    fill: rgb(0x313233),
+    fill: NEUTRAL.pressed,
+    ..TAB_IDLE
 };
-
-const fn rgb(value: u32) -> Rgba {
-    [(value >> 16) as u8, (value >> 8) as u8, value as u8, 255]
-}
 
 /// A bevelled face inside a dark border; `front` adds the lower front face strip.
 fn bevelled(
@@ -293,7 +300,7 @@ fn bevelled(
         inner
     };
     canvas.fill(face, bevel.fill)?;
-    canvas.specular(face, bevel.edge_light, bevel.edge_dark)
+    canvas.specular(face, bevel.edges[0], bevel.edges[1])
 }
 
 /// A world or server list row: a bevelled action face that lightens on hover.
@@ -319,6 +326,87 @@ pub(super) fn row(
             [b[0] - ring, b[1] - ring, b[2] + ring, b[3] + ring],
             EDGE,
             OUTLINE,
+        )?;
+    }
+    if let Some(action) = action {
+        canvas.hit(action, b)?;
+    }
+    Ok(())
+}
+
+/// One modal menu item.
+pub(super) struct MenuItem<'a> {
+    pub(super) label: &'a str,
+    /// Reserves the picture slot; a missing picture shows the player silhouette.
+    pub(super) picture_slot: bool,
+    pub(super) picture: Option<IconRef>,
+    pub(super) selected: bool,
+    pub(super) enabled: bool,
+    pub(super) action: Option<MenuAction>,
+}
+
+/// A 4.8rem modal menu item, bordered above and at the sides (the list closes the bottom):
+/// a 2.4rem picture, the label, and a check at the right while selected.
+pub(super) fn menu_item(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    b: Bounds,
+    item: &MenuItem<'_>,
+) -> Result<(), UiPresentationError> {
+    let action = item.action.filter(|_| item.enabled);
+    let state = Interaction::of(view, action);
+    let role = if item.enabled {
+        MENU_ITEM
+    } else {
+        MENU_ITEM_DISABLED
+    };
+    let edge = canvas.r(EDGE);
+    canvas.fill(b, role.border)?;
+    let face = [b[0] + edge, b[1] + edge, b[2] - edge, b[3]];
+    let fill = if state.pressed {
+        role.pressed
+    } else if state.hovered {
+        role.hovered
+    } else {
+        role.fill
+    };
+    canvas.fill(face, fill)?;
+    if state.focused {
+        canvas.frame(face, EDGE, OUTLINE)?;
+    }
+    let pad = canvas.r(1.6);
+    let middle = (face[1] + face[3]) * 0.5;
+    let mut left = face[0] + pad;
+    if item.picture_slot || item.picture.is_some() {
+        let side = canvas.r(2.4);
+        if let Some(picture) = item.picture {
+            canvas.icon_ref(
+                picture,
+                [left, middle - side * 0.5, left + side, middle + side * 0.5],
+            )?;
+        } else {
+            let [w, h] = Icon::Player.texels().map(|texels| texels as f32 * edge);
+            let at = [left + (side - w) * 0.5, middle - h * 0.5];
+            icons::draw(canvas, Icon::Player, at, TEXT_DIMMEST)?;
+        }
+        left += side + canvas.r(0.8);
+    }
+    let [check_w, check_h] = Icon::Check.texels().map(|texels| texels as f32 * edge);
+    let check_left = face[2] - pad - check_w;
+    let top = middle - canvas.r(BODY.line) * 0.5 + canvas.r((BODY.line - BODY.size) * 0.5);
+    canvas.text_line(
+        item.label,
+        [left, top],
+        check_left - canvas.r(0.8) - left,
+        BODY,
+        role.text,
+    )?;
+    if item.selected {
+        icons::draw(
+            canvas,
+            Icon::Check,
+            [check_left, middle - check_h * 0.5],
+            role.text,
         )?;
     }
     if let Some(action) = action {
@@ -553,4 +641,127 @@ pub(super) fn segmented(
         .position(|(_, _, on)| *on)
         .unwrap_or(usize::MAX);
     tabs(canvas, view, b, &labels, selected)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::super::review_tests::{paint, solids};
+    use super::super::theme::{MENU_SECONDARY, MENU_SPECULAR_ACTIVE};
+    use super::*;
+
+    /// One 40×4.4rem secondary face's fills and the logical px per rem.
+    fn face(bundle: Bundle, state: Interaction, enabled: bool) -> (Vec<(Bounds, Rgba)>, f32) {
+        let mut rem = 0.0;
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+            canvas.bundle = bundle;
+            rem = canvas.rem;
+            let b = [0.0, 0.0, canvas.r(40.0), canvas.r(4.4)];
+            button_face(canvas, b, Variant::Secondary, "", state, enabled).unwrap();
+        });
+        (solids(&nodes), rem)
+    }
+
+    fn has(fills: &[(Bounds, Rgba)], color: Rgba, b: Bounds) -> bool {
+        fills
+            .iter()
+            .any(|(at, c)| *c == color && at.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01))
+    }
+
+    #[test]
+    fn menus_secondary_outline_wraps_face_and_shadow_in_black() {
+        let (fills, rem) = face(Bundle::Menus, Interaction::default(), true);
+        let [w, h, e, s] = [40.0 * rem, 4.4 * rem, EDGE * rem, 0.4 * rem];
+        assert!(
+            has(&fills, MENU_SECONDARY.border, [0.0, 0.0, w, h]),
+            "{fills:?}"
+        );
+        assert!(has(
+            &fills,
+            MENU_SECONDARY.shadow,
+            [e, h - e - s, w - e, h - e]
+        ));
+        assert!(has(&fills, MENU_SECONDARY.fill, [e, e, w - e, h - e - s]));
+        assert!(has(
+            &fills,
+            MENU_SECONDARY.specular[0],
+            [e, e, w - e, e * 2.0]
+        ));
+    }
+
+    #[test]
+    fn pressed_menus_face_drops_into_its_shadow_with_the_active_art() {
+        let pressed = Interaction {
+            pressed: true,
+            ..Interaction::default()
+        };
+        let (fills, rem) = face(Bundle::Menus, pressed, true);
+        let [w, h, e, s] = [40.0 * rem, 4.4 * rem, EDGE * rem, 0.4 * rem];
+        assert!(has(&fills, BORDER, [0.0, s, w, h]), "{fills:?}");
+        assert!(has(
+            &fills,
+            MENU_SECONDARY.pressed,
+            [e, s + e, w - e, h - e]
+        ));
+        assert!(has(
+            &fills,
+            MENU_SPECULAR_ACTIVE[0],
+            [e, s + e, w - e, s + e * 2.0]
+        ));
+        assert!(!fills.iter().any(|(_, c)| *c == MENU_SECONDARY.shadow));
+    }
+
+    #[test]
+    fn disabled_face_has_its_own_outline_and_shadow_without_speculars() {
+        let (fills, rem) = face(Bundle::Menus, Interaction::default(), false);
+        let [w, h] = [40.0 * rem, 4.4 * rem];
+        assert!(has(&fills, DISABLED.border, [0.0, 0.0, w, h]));
+        assert!(fills.iter().any(|(_, c)| *c == DISABLED.shadow));
+        assert!(fills.iter().all(|(_, c)| c[3] == 255), "{fills:?}");
+    }
+
+    #[test]
+    fn gameplay_secondary_keeps_the_role_table_art() {
+        let (fills, rem) = face(Bundle::Gameplay, Interaction::default(), true);
+        let [w, h, e] = [40.0 * rem, 4.4 * rem, EDGE * rem];
+        assert!(has(&fills, BORDER, [0.0, 0.0, w, h]));
+        assert!(has(&fills, SECONDARY.specular[0], [e, e, w - e, e * 2.0]));
+    }
+
+    #[test]
+    fn focus_ring_hugs_the_outline() {
+        let focused = Interaction {
+            focused: true,
+            ..Interaction::default()
+        };
+        let (fills, rem) = face(Bundle::Menus, focused, true);
+        let [w, e] = [40.0 * rem, EDGE * rem];
+        assert!(has(&fills, OUTLINE, [-e, -e, w + e, 0.0]), "{fills:?}");
+    }
+
+    #[test]
+    fn specular_corners_blend_both_edges() {
+        let (top, bottom) = ([255, 0, 0, 51], [0, 0, 255, 26]);
+        let mut e = 0.0;
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+            e = canvas.r(EDGE);
+            canvas
+                .specular([0.0, 0.0, 100.0, 100.0], top, bottom)
+                .unwrap();
+        });
+        let fills = solids(&nodes);
+        let covers = |color: Rgba, [x, y]: [f32; 2]| {
+            fills
+                .iter()
+                .any(|(b, c)| *c == color && b[0] <= x && x < b[2] && b[1] <= y && y < b[3])
+        };
+        let half = e * 0.5;
+        for corner in [[100.0 - half, half], [half, 100.0 - half]] {
+            assert!(covers(top, corner) && covers(bottom, corner), "{corner:?}");
+        }
+        assert!(covers(top, [half, half]) && !covers(bottom, [half, half]));
+        let far = [100.0 - half, 100.0 - half];
+        assert!(covers(bottom, far) && !covers(top, far));
+    }
 }
