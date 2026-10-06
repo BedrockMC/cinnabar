@@ -1134,3 +1134,73 @@ fn a_hero_row_draws_and_opens_its_offers() {
         "{opens:?}"
     );
 }
+
+// Every hero row read one shared collection, so each drew the last hero row's offers.
+#[test]
+fn each_hero_row_draws_its_own_offers() {
+    use protocol::store_control::StoreOffer;
+    let offer = |id: &str| StoreOffer {
+        id: id.into(),
+        title: id.into(),
+        creator: None,
+        content_type: None,
+        thumbnail_url: Some(format!("https://x.test/{id}.jpg")),
+        store_id: None,
+        prices: vec![],
+        rating: None,
+        tags: vec![],
+        owned: false,
+    };
+    let hero = |ids: [&str; 2]| launcher::store::DisplayRow {
+        id: None,
+        title: String::new(),
+        role: "HeroRow",
+        offers: ids.map(offer).to_vec(),
+        continuation: None,
+    };
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = crate::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+        loading: false,
+        rows: vec![hero(["a", "b"]), hero(["c", "d"])],
+        images: ["a", "b", "c", "d"]
+            .map(|id| (format!("https://x.test/{id}.jpg"), format!("/c/{id}.jpg")))
+            .into_iter()
+            .collect(),
+        ..crate::store::StoreSnapshot::empty()
+    }));
+    let Some(carrier) = super::pack_harness::carrier() else {
+        return;
+    };
+    let files = carrier.ui_files();
+    let catalog =
+        json_ui::Catalog::from_files(files.iter().map(|f| (&*f.path, &*f.bytes))).unwrap();
+    let screen = super::menu_screens::screen_data(&view, &|_| None).unwrap();
+    let env = json_ui::LayoutEnv {
+        text: &FixedText,
+        textures: &NoTextures,
+    };
+    let render = json_ui::render_screen(
+        screen.reference,
+        &catalog,
+        &screen.context,
+        &screen.data,
+        [480.0, 1200.0],
+        &env,
+        &json_ui::ViewState::default(),
+    )
+    .unwrap();
+    let art: Vec<&str> = render
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.draw {
+            json_ui::Draw::Sprite { texture, .. } if texture.starts_with("/c/") => {
+                Some(texture.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    for id in ["/c/a.jpg", "/c/b.jpg", "/c/c.jpg", "/c/d.jpg"] {
+        assert!(art.contains(&id), "{id} missing from {art:?}");
+    }
+}

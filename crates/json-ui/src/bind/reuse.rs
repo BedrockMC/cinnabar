@@ -29,7 +29,7 @@ pub(super) struct Changes(Vec<u64>);
 
 /// The data a key names.
 #[derive(Clone, Copy)]
-enum Data {
+pub(super) enum Data {
     Global = 1,
     Item,
     Length,
@@ -54,7 +54,7 @@ fn bits(hash: u64) -> [(usize, u64); 2] {
 }
 
 impl Reads {
-    fn add(&mut self, kind: Data, name: &str, index: Option<usize>) {
+    pub(super) fn add(&mut self, kind: Data, name: &str, index: Option<usize>) {
         for (word, bit) in bits(data_hash(kind, name, index)) {
             self.0[word] |= bit;
         }

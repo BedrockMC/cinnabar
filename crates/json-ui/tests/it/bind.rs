@@ -508,6 +508,85 @@ fn a_scoped_collection_gives_each_enclosing_item_its_own_list() {
     assert_eq!(texts, [vec![&json!("A"), &json!("B")], vec![&json!("C")]]);
 }
 
+// A collection panel (children indexed by `collection_index`) inside a factory item read the shared
+// list, so every item showed the same entries; it reads the item's own list, as vanilla's hero row does.
+#[test]
+fn a_collection_panel_reads_its_enclosing_items_list() {
+    let cell = |index: i64| {
+        ctrl(
+            "cell",
+            Some("label"),
+            json!({
+                "text": "#title",
+                "collection_index": index,
+                "bindings": [
+                    { "binding_type": "collection", "binding_collection_name": "heroes", "binding_name": "#title" }
+                ],
+            }),
+        )
+    };
+    let stack = ctrl_children(
+        "stack",
+        Some("stack_panel"),
+        json!({ "collection_name": "heroes" }),
+        vec![cell(0), cell(1)],
+    );
+    let row = ctrl_children("row", Some("panel"), json!({}), vec![stack]);
+    let lib = StubLibrary([("ns.row".to_owned(), row)].into_iter().collect());
+    let panel = factory_panel("rows", "rows", &[("r", ControlRef::new("ns", "row"))]);
+    let title = |text: &str| CollectionItem::new("h").with("#title", Scalar::Text(text.into()));
+    let mut data = DataSource::new();
+    data.set_collection(
+        "rows",
+        vec![CollectionItem::new("r"), CollectionItem::new("r")],
+    );
+    data.set_scoped_collection("rows", 0, "heroes", vec![title("A"), title("B")]);
+    data.set_scoped_collection("rows", 1, "heroes", vec![title("C"), title("D")]);
+    let bound = bind(&panel, &data, &lib);
+    let texts: Vec<Vec<&Value>> = bound
+        .children
+        .iter()
+        .map(|row| {
+            row.children[0]
+                .children
+                .iter()
+                .map(|c| prop(c, "text"))
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            vec![&json!("A"), &json!("B")],
+            vec![&json!("C"), &json!("D")]
+        ]
+    );
+}
+
+// A factory item's own collection bindings keep the list its factory entered, even when the item
+// holds a nested list of the same name.
+#[test]
+fn a_factory_item_keeps_its_entered_list_beside_a_same_named_nested_list() {
+    let row = ctrl(
+        "row",
+        Some("label"),
+        json!({
+            "text": "#title",
+            "bindings": [
+                { "binding_type": "collection", "binding_collection_name": "rows", "binding_name": "#title" }
+            ],
+        }),
+    );
+    let lib = StubLibrary([("ns.row".to_owned(), row)].into_iter().collect());
+    let panel = factory_panel("rows", "rows", &[("r", ControlRef::new("ns", "row"))]);
+    let title = |text: &str| CollectionItem::new("r").with("#title", Scalar::Text(text.into()));
+    let mut data = DataSource::new();
+    data.set_collection("rows", vec![title("outer")]);
+    data.set_scoped_collection("rows", 0, "rows", vec![title("inner")]);
+    let bound = bind(&panel, &data, &lib);
+    assert_eq!(prop(&bound.children[0], "text"), &json!("outer"));
+}
+
 // A container cell outside any grid reads its collection's first item, as the
 // furnace's fuel and ingredient slots do.
 #[test]
