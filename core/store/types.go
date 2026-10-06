@@ -72,10 +72,9 @@ type Page struct {
 	Truncated        bool   `json:"truncated,omitempty"`
 }
 
-// SearchQuery is a store search, or the continuation of one; Count caps the offers returned.
+// SearchQuery is a store search, or the continuation of one.
 type SearchQuery struct {
 	Term         string
-	Count        int
 	Continuation string
 }
 
@@ -154,7 +153,7 @@ func (r PurchaseRequest) Validate() error {
 
 // Validate reports ErrInvalidRequest for an unusable search.
 func (q SearchQuery) Validate() error {
-	if len(q.Term) > 200 || q.Count < 0 || q.Count > maxSearchOffers || len(q.Continuation) > 2048 {
+	if len(q.Term) > 200 || len(q.Continuation) > 2048 {
 		return ErrInvalidRequest
 	}
 	return nil

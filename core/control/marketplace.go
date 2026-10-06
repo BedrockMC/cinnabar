@@ -155,14 +155,13 @@ func (server *Server) serveStore(conn net.Conn, id uint64, method string, raw js
 	case methodStoreSearch:
 		var params struct {
 			Term         string `json:"term"`
-			Count        int    `json:"count"`
 			Continuation string `json:"continuation"`
 		}
 		if !decodeParams(raw, &params) {
 			return reply.invalid()
 		}
 		result, err := market.Search(ctx, store.SearchQuery{
-			Term: params.Term, Count: params.Count, Continuation: params.Continuation,
+			Term: params.Term, Continuation: params.Continuation,
 		})
 		if err != nil {
 			return failStore(err)
