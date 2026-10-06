@@ -55,7 +55,6 @@ pub(super) struct Driver {
     events: VecDeque<InputEvent>,
     look: Option<Look>,
     tween: Option<LookTween>,
-    cursor: Option<Vec2>,
     text: VecDeque<String>,
     /// The OS focus last reported, restored when control is handed back.
     real_focus: Option<bool>,
@@ -113,9 +112,6 @@ pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, 
     if plan.look.is_some() {
         driver.look = plan.look;
     }
-    if let Some(point) = plan.cursor {
-        driver.cursor = Some(Vec2::from_array(point));
-    }
     if let Some(text) = plan.text {
         driver.text.push_back(text);
     }
@@ -126,7 +122,9 @@ pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, 
         .collect::<Vec<_>>();
     if plan.release_control {
         let mut driver = world.resource_mut::<Driver>();
-        driver.cursor = None;
+        driver
+            .events
+            .retain(|event| matches!(event, InputEvent::Button(_, ButtonState::Released)));
         driver.text.clear();
         world.remove_resource::<DrivenInput>();
         if let Some(mut menu) = world.get_resource_mut::<crate::menu::MenuRuntime>() {
@@ -231,9 +229,6 @@ fn inject(
         let window = window.bypass_change_detection();
         driver.real_focus.get_or_insert(window.focused);
         window.focused = true;
-        if let Some(point) = driver.cursor {
-            window.set_cursor_position(Some(point));
-        }
         let cursor = cursor.bypass_change_detection();
         cursor.grab_mode = CursorGrabMode::Locked;
         cursor.visible = false;
@@ -378,7 +373,16 @@ mod tests {
         world.init_resource::<Driver>();
         world.init_resource::<DrivenInput>();
         let mut driver = world.resource_mut::<Driver>();
-        driver.cursor = Some(Vec2::new(123.0, 234.0));
+        driver.press(Physical::Key(KeyCode::KeyW), None);
+        driver
+            .events
+            .push_back(super::InputEvent::Pointer(super::Pointer {
+                x: 123.0,
+                y: 234.0,
+            }));
+        driver
+            .events
+            .push_back(super::InputEvent::Wheel(super::Wheel::default()));
         driver.text.push_back("queued text".into());
         let command = serde_json::from_value(serde_json::json!({
             "release_control": true
@@ -386,7 +390,15 @@ mod tests {
         .unwrap();
         apply(&mut world, &command).unwrap();
         let driver = world.resource::<Driver>();
-        assert!(driver.cursor.is_none());
+        assert_eq!(driver.events.len(), 1);
+        assert!(matches!(
+            driver.events.front(),
+            Some(super::InputEvent::Button(
+                Physical::Key(KeyCode::KeyW),
+                bevy::input::ButtonState::Released
+            ))
+        ));
+        assert!(driver.held.is_empty());
         assert!(driver.text.is_empty());
         assert!(!world.contains_resource::<DrivenInput>());
     }
@@ -396,6 +408,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(InputPlugin)
             .add_message::<WindowFocused>()
+            .add_message::<CursorMoved>()
             .init_resource::<Driver>()
             .init_resource::<DrivenInput>()
             .add_systems(PreUpdate, inject.before(bevy::input::InputSystems));
@@ -403,9 +416,15 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), CursorOptions::default(), PrimaryWindow))
             .id();
-        let mut driver = app.world_mut().resource_mut::<Driver>();
-        driver.cursor = Some(Vec2::new(123.0, 234.0));
-        driver.text.push_back("azalea".into());
+        apply(
+            app.world_mut(),
+            &super::InputCommand {
+                cursor: Some([123.0, 234.0]),
+                text: Some("azalea".into()),
+                ..super::InputCommand::default()
+            },
+        )
+        .unwrap();
         app.update();
         assert_eq!(
             app.world().get::<Window>(entity).unwrap().cursor_position(),
@@ -470,6 +489,15 @@ mod tests {
         super::apply(
             app.world_mut(),
             &InputCommand {
+                cursor: Some([12.0, 34.0]),
+                ..InputCommand::default()
+            },
+        )
+        .unwrap();
+        super::apply(
+            app.world_mut(),
+            &InputCommand {
+                cursor: Some([90.0, 80.0]),
                 pointer: Some(Pointer { x: 123.0, y: 45.0 }),
                 wheel: Some(Wheel {
                     y: -2.0,
@@ -498,6 +526,10 @@ mod tests {
         assert_eq!(events[0].unit, MouseScrollUnit::Pixel);
         assert_eq!(events[0].y, -2.0);
         app.update();
+        assert_eq!(
+            app.world().get::<Window>(entity).unwrap().cursor_position(),
+            Some(Vec2::new(123.0, 45.0))
+        );
         assert!(
             app.world()
                 .resource::<ButtonInput<MouseButton>>()

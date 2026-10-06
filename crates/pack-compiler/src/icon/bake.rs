@@ -263,6 +263,15 @@ fn model_raster(
     }))
 }
 
+fn cube_blending(world: &RuntimeAssets, visual: BlockVisualId) -> [bool; 6] {
+    let block = world.resolve(NetworkIdMode::Sequential, visual.0);
+    assets::BlockFace::ALL.map(|face| {
+        world.materials()[block.face(face).material_id() as usize].flags
+            & assets::MATERIAL_FLAG_ALPHA_BLEND
+            != 0
+    })
+}
+
 #[cfg(test)]
 mod block_entity_tests {
     use super::*;
@@ -514,13 +523,4 @@ mod block_entity_tests {
         assert_ne!(rasters[0], rasters[1]);
         assert_eq!(rasters[1], rasters[2]);
     }
-}
-
-fn cube_blending(world: &RuntimeAssets, visual: BlockVisualId) -> [bool; 6] {
-    let block = world.resolve(NetworkIdMode::Sequential, visual.0);
-    assets::BlockFace::ALL.map(|face| {
-        world.materials()[block.face(face).material_id() as usize].flags
-            & assets::MATERIAL_FLAG_ALPHA_BLEND
-            != 0
-    })
 }

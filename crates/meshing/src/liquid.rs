@@ -154,16 +154,9 @@ impl OcclusionPart {
             .filter(|entry| entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE));
         Self {
             occludes: occluder.is_some(),
-            full_cube: contributors.primary_entry().is_some_and(|entry| {
-                entry.kind == VisualKind::Cube
-                    || (entry.kind == VisualKind::Model
-                        && assets
-                            .model_templates()
-                            .get(entry.model_template as usize)
-                            .is_some_and(|template| {
-                                template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
-                            }))
-            }),
+            full_cube: contributors
+                .primary_entry()
+                .is_some_and(|entry| is_full_cube(assets, entry.kind, entry.model_template)),
             opaque_faces: occluder.map_or(0, |entry| {
                 Face::ALL
                     .into_iter()
@@ -176,6 +169,16 @@ impl OcclusionPart {
     const fn opaque(self, face: Face) -> bool {
         self.opaque_faces & (1 << face as u8) != 0
     }
+}
+
+/// Transparent cube templates block liquid flow without hiding transparent contact faces.
+fn is_full_cube(assets: &RuntimeAssets, kind: VisualKind, model_template: u32) -> bool {
+    kind == VisualKind::Cube
+        || (kind == VisualKind::Model
+            && assets
+                .model_templates()
+                .get(model_template as usize)
+                .is_some_and(|template| template.flags == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE))
 }
 
 const HALO_SIDE: usize = SIDE + 2;
