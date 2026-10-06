@@ -21,8 +21,9 @@ fn source() -> String {
         "BLOCK_SELECTION_VERTICES_PER_EDGE",
         &format!("{BLOCK_SELECTION_VERTICES_PER_EDGE}u"),
     )
-    .replace("@group(1) @binding(0)", "@group(0) @binding(4)")
-    .replace("@group(1) @binding(1)", "@group(0) @binding(5)")
+    // Lighting moves past the shader's own portal binding.
+    .replace("@group(1) @binding(0)", "@group(0) @binding(5)")
+    .replace("@group(1) @binding(1)", "@group(0) @binding(6)")
 }
 
 #[test]
@@ -71,7 +72,6 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
     let texture_view = texture.create_view(&Default::default());
     let sampler = gpu.device.create_sampler(&Default::default());
     let lightmap = gpu.buffer(&[1.0; 256 * 4], wgpu::BufferUsages::UNIFORM);
-    let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
     let source = source();
     let blend = wgpu::BlendState {
         color: wgpu::BlendComponent {
@@ -117,12 +117,8 @@ fn selection_pixels_show_black_edges_or_a_brighter_surface() {
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },
             wgpu::BindGroupEntry {
-                binding: 4,
-                resource: lightmap.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
                 binding: 5,
-                resource: atmosphere.as_entire_binding(),
+                resource: lightmap.as_entire_binding(),
             },
         ];
         let mut draws = vec![Draw {

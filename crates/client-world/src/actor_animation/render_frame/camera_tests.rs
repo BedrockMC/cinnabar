@@ -85,22 +85,41 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
         .map(|bone| EntityAnimationChannel {
             bone,
             property: EntityAnimationProperty::Rotation,
+            first_keyframe: bone * channel.keyframe_count,
             ..channel
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
     compiled.animation_keyframes[0].expressions = [Some(0), Some(1), None];
-    let body = compiled.render.layers[0].clone();
-    let title = assets::EntityRenderLayer {
-        geometry_count: 1,
-        ..body.clone()
-    };
-    compiled.render.layers = vec![body, title.clone(), title].into_boxed_slice();
-    compiled.render.geometries = vec![EntityRenderGeometry {
+    // Each channel owns a contiguous keyframe range of its own.
+    compiled.animation_keyframes = compiled.animation_keyframes[..channel.keyframe_count as usize]
+        .repeat(2)
+        .into_boxed_slice();
+    // Layers, slots and candidates each own contiguous ranges, as the carrier requires.
+    let body = compiled.render.layers[0];
+    compiled.render.layers = (0..3)
+        .map(|layer| assets::EntityRenderLayer {
+            first_slot: layer,
+            first_geometry: layer.saturating_sub(1),
+            geometry_count: u16::from(layer > 0),
+            ..body
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let slot = compiled.render.slots[0];
+    compiled.render.slots = (0..3)
+        .map(|first_candidate| assets::EntityRenderSlot {
+            first_candidate,
+            ..slot
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled.render.candidates = [compiled.render.candidates[0]; 3].into();
+    compiled.render.geometries = [EntityRenderGeometry {
         condition: None,
         geometry: 1,
-    }]
-    .into_boxed_slice();
+    }; 2]
+        .into();
     compiled
 }
 
@@ -146,15 +165,23 @@ fn fixture_with_assets(assets: Arc<RuntimeEntityAssets>) -> crate::actor_store::
 fn light_multiplier_defaults_to_one_and_evaluates_unclamped_values_between_ticks() {
     let mut compiled = camera_compiled();
     let mut symbols = compiled.molang_symbols.into_vec();
-    symbols.push(MolangSymbol {
-        kind: MolangSymbolKind::Query,
-        identifier: "query.frame_alpha".into(),
-    });
+    symbols.insert(
+        1,
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.frame_alpha".into(),
+        },
+    );
     compiled.molang_symbols = symbols.into_boxed_slice();
     let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        if let MolangOp::CallQuery(call) = op {
+            call.symbol = 2;
+        }
+    }
     ops.extend([
         MolangOp::Push(EntityGeometryScalar::new(0.5).unwrap()),
-        MolangOp::LoadQuery(2),
+        MolangOp::LoadQuery(1),
         MolangOp::Add,
         MolangOp::Push(EntityGeometryScalar::new(-0.25).unwrap()),
     ]);
@@ -198,7 +225,7 @@ fn unchanged_camera_and_frame_input_retains_completed_geometry_poses_without_res
     for _ in 0..3 {
         let mut frame = store.render_frame(0.0);
         let layers = frame.layers(1).unwrap();
-        for (layer, completed) in layers.iter().zip(&completed) {
+        for (layer, completed) in layers.iter().zip(completed) {
             assert!(Arc::ptr_eq(&layer.pose, &completed.pose));
             assert!(Arc::ptr_eq(&layer.previous_pose, &completed.previous_pose));
         }
@@ -242,20 +269,23 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
         },
     ]
     .into_boxed_slice();
-    compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(1), None, None];
+    }
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let mut store = fixture_with_assets(assets);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
     store.set_camera_position([4.0, 3.0, 0.0]);
     for alpha in [0.0, 0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-        let expected = pose::quat_from_euler([0.75, 0.0, 0.0]);
+        let expected = pose::quat_from_euler([-0.75, 0.0, 0.0]);
         assert_rotation(layers[0].pose[0].rotation, expected);
         assert_rotation(layers[1].pose[1].rotation, expected);
     }
     assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
 }
 
+#[track_caller]
 fn assert_rotation(actual: [f32; 4], expected: [f32; 4]) {
     for (actual, expected) in actual.into_iter().zip(expected) {
         assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");

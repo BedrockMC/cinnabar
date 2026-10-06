@@ -1,4 +1,4 @@
-use crate::{self as render_api, shader_source};
+use crate::{self as render_api, gpu_snapshot, shader_source};
 use assets::{EntityRenderMaterial, EntityRenderMaterialState};
 use bevy::{prelude::Msaa, render::render_resource::Specializer, shader::ShaderDefVal};
 
@@ -8,8 +8,6 @@ use super::super::{
 
 #[path = "../../tests/it/support/actor_raster.rs"]
 mod actor_raster;
-#[path = "../../tests/it/support/gpu_snapshot.rs"]
-mod gpu_snapshot;
 
 fn center(frame: &[u8]) -> &[u8] {
     let pixel = (gpu_snapshot::SNAPSHOT_SIDE as usize / 2 * gpu_snapshot::SNAPSHOT_SIDE as usize

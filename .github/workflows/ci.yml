@@ -92,7 +92,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy
-      - run: cargo fmt --check
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -114,6 +113,9 @@ jobs:
       - name: Enforce architecture boundaries
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       # The checks below are independent, so each reports even when an earlier one fails.
+      - name: Check formatting
+        if: ${{ !cancelled() }}
+        run: cargo fmt --check
       - name: Lint Rust workspace
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
