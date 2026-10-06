@@ -717,7 +717,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(SessionController::new(core_process))
+    .insert_resource(
+        SessionController::new(core_process).with_server_address(args.address.as_deref()),
+    )
     .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
@@ -903,9 +905,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
+    crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
+    crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }
