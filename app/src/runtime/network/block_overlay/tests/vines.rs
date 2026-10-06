@@ -15,7 +15,7 @@ fn custom_block_property_alias_applies_each_facing_permutation() {
                     .map(|facing| CustomPermutation {
                         condition: format!("{spelling}('custom:facing_direction') == {facing}")
                             .into(),
-                        components: turn(facing as i32),
+                        components: turn(facing),
                     })
                     .collect(),
                 ..CustomBlockVisuals::default()
