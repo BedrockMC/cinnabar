@@ -32,9 +32,12 @@ use world::{
     LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
     LightProperties as SolverLightProperties, LightReadAccess, LightSolveError, LightSolveOutput,
     LightStore, LightStoreSnapshot, LightSubChunkKind, MeshDependencyMask, MeshNeighbourhood,
-    PreparedSubChunkMutation, SolverLimits, SubChunk, SubChunkKey, SubChunkLight, chunk_in_view,
-    solve_light,
+    PreparedSubChunkMutation, SectionSnapshot, SolverLimits, SubChunk, SubChunkKey, SubChunkLight,
+    chunk_in_view,
 };
+
+#[cfg(test)]
+use world::solve_light;
 
 use client_world::LocalPlayerFeed;
 use client_world::ResolvedServerPosition;

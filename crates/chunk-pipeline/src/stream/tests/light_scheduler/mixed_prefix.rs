@@ -66,9 +66,12 @@ fn full_column_oracle(jobs: &[PreparedLightJob]) -> LightSolveOutput {
         blocks.blocks.extend(job.blocks.blocks.clone());
         prior.light.extend(job.prior.light.clone());
         prior.direct_sky.extend(job.prior.direct_sky.clone());
-        prior
-            .trusted_boundaries
-            .extend(job.prior.trusted_boundaries.iter().copied());
+        prior.trusted_boundaries.extend(
+            job.prior
+                .trusted_boundaries
+                .iter()
+                .map(|(&key, &value)| (key, value)),
+        );
     }
     blocks.resolve_palette_light();
     let min = jobs.last().unwrap().bounds.min();
@@ -140,7 +143,7 @@ fn mixed_prefix_accounts_for_higher_side_emitters_and_nonuniform_retained_light(
         install_current_light(stream, side, 15, 0, false);
     });
     for job in &mut jobs {
-        job.prior.trusted_boundaries.insert(side);
+        job.prior.trusted_boundaries.insert(side, ());
     }
     let side_lit = full_column_oracle(&jobs);
     assert_eq!(
@@ -194,7 +197,7 @@ fn mixed_prefix_preserves_packed_and_stale_sky_provenance() {
             direct.light_revision += u64::from(stale);
         });
         for job in &mut jobs {
-            job.prior.trusted_boundaries.insert(side);
+            job.prior.trusted_boundaries.insert(side, ());
         }
         assert!(compare_full_column(jobs) > 0);
     }
@@ -227,13 +230,13 @@ fn resident_air_palettes_preserve_full_column_and_side_emission_output() {
         if side_emitter {
             let side = SubChunkKey::new(0, 1, 13, 0);
             for job in &mut jobs {
-                job.prior.trusted_boundaries.insert(side);
+                job.prior.trusted_boundaries.insert(side, ());
             }
         }
-        assert!(
-            jobs.iter()
-                .all(|job| matches!(job.blocks.blocks[&job.key], SnapshotBlock::Resident(_)))
-        );
+        assert!(jobs.iter().all(|job| matches!(
+            job.blocks.blocks.get(&job.key).unwrap(),
+            SnapshotBlock::Resident(_)
+        )));
         let expected = jobs.iter().filter(|job| job.key.y >= source_y + 2).count();
         assert_eq!(compare_full_column(jobs), expected);
     }
@@ -371,7 +374,7 @@ fn mixed_prefix_keeps_side_lit_air_below_dark_upper_air_dense() {
         install_current_light(stream, side, 0, 15, false);
     });
     for job in &mut jobs {
-        job.prior.trusted_boundaries.insert(side);
+        job.prior.trusted_boundaries.insert(side, ());
     }
     let full = full_column_oracle(&jobs);
     assert_eq!(
@@ -442,7 +445,9 @@ fn mixed_prefix_matches_the_full_solver_on_random_batches() {
             }
         });
         for job in &mut jobs {
-            job.prior.trusted_boundaries.extend(trusted.iter().copied());
+            job.prior
+                .trusted_boundaries
+                .extend(trusted.iter().map(|&key| (key, ())));
         }
         compare_full_column(jobs);
     }
