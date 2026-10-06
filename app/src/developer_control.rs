@@ -3,6 +3,7 @@
 
 mod actors;
 mod camera;
+mod cape;
 mod capture;
 mod input;
 mod scoreboards;
@@ -75,6 +76,7 @@ fn dispatch(world: &mut World) {
             Command::Disconnect => disconnect(world),
             Command::Input(command) => input::apply(world, &command),
             Command::Chat { text } => chat(world, &text),
+            Command::TestCape { enabled } => cape::apply(world, enabled),
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),

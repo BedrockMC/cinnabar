@@ -253,7 +253,7 @@ impl JavaMotionState {
             },
         ];
         let walks =
-            tick.local && !tick.riding && !tick.flying && !(tick.on_ground && tick.sneaking);
+            !(!tick.local || tick.riding || tick.flying || (tick.on_ground && tick.sneaking));
         let [dx, _, dz] = tick.delta;
         let walked = if walks {
             java_walked_distance(motion.walked[1], [f64::from(dx), f64::from(dz)])

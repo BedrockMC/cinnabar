@@ -182,6 +182,7 @@ enum Held {
 
 fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [5; 16],
         username: "local".into(),
         skin: PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),

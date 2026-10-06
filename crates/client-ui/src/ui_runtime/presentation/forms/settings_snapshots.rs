@@ -253,3 +253,47 @@ fn graphics_options_expander_uses_full_settings_button_height() {
         assert!(rendered.nodes.iter().any(|node| matches!(&node.draw, json_ui::Draw::Sprite { texture: found, .. } if found == texture)));
     }
 }
+
+/// Vanilla toggles remain reachable in document order, including scroll content.
+#[test]
+fn video_toggles_admit_pointer_and_keyboard_focus() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping video_toggles_admit_pointer_and_keyboard_focus: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = MenuScreen::Settings;
+    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    let player = player_state::PlayerState::new(1);
+    super::test_support::draw_menu_actions(&player, &mut presentation, &view);
+    let actions = presentation.menu_focus_actions().collect::<Vec<_>>();
+    let mut previous = None;
+    for name in ["hide_hand", "view_bobbing", "java_animations"] {
+        let index = crate::menu::settings_options::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == name)
+            .unwrap() as u16;
+        let action = actions.iter().find(|action| matches!(action, crate::menu::MenuAction::SettingsOption(at, _) if *at == index))
+            .copied().unwrap_or_else(|| panic!("missing focus action for {name}"));
+        let position = actions
+            .iter()
+            .position(|candidate| *candidate == action)
+            .unwrap();
+        assert!(
+            previous.is_none_or(|previous| previous < position),
+            "toggle focus does not follow the pack's control order"
+        );
+        previous = Some(position);
+        view.focused_action = Some(action);
+        let hits = super::test_support::draw_menu_actions(&player, &mut presentation, &view);
+        assert!(
+            hits.contains(&action),
+            "focused toggle {name} did not scroll into view"
+        );
+    }
+}

@@ -5,6 +5,7 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
     let (mut app, _) = fixture_app();
     let mut feed = client_world::LocalPlayerFeed {
         uuid: [7; 16],
+        prefer_client_skin: false,
         username: "CurrentLocalPlayer".into(),
         skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
             geometry: None,

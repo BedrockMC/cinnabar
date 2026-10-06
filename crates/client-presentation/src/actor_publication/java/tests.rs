@@ -38,6 +38,7 @@ fn head_stream() -> WorldStream {
 /// Starts the local player with a stationary, empty-handed pose.
 fn head_feed() -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
+        prefer_client_skin: false,
         uuid: [1; 16],
         username: Arc::from("Player"),
         skin: protocol::PlayerSkin::Unavailable(protocol::PlayerSkinUnavailable::InvalidDimensions),
