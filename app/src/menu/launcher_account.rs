@@ -22,7 +22,7 @@ use super::account_control::{AccountControl, AccountEvent};
 use super::{AuthState, MenuFriendCard, MenuRealmCard, MenuServerCard};
 use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
-    ServerDetails,
+    ServerDetails, ServerTrustPrompt,
 };
 
 #[cfg(test)]
@@ -32,6 +32,7 @@ mod feeds;
 use feeds::{CoreFeeds, catalog_round, feed_round};
 mod message_reports;
 pub(super) mod profile_worker;
+mod server_trust;
 
 #[cfg(all(test, unix))]
 mod profile_polling_tests;
@@ -70,6 +71,9 @@ struct Snapshot {
     events: Vec<AccountEvent>,
     last_disconnect: Option<u64>,
     connect: Option<ConnectProgress>,
+    server_trust: Option<launcher_control::ServerTrustPrompt>,
+    /// The prompt last answered, hidden until the core withdraws it.
+    answered_trust: Option<u64>,
     /// The menu is connecting, so the events worker polls faster.
     joining: bool,
 }
@@ -248,6 +252,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
                 }
                 snapshot.last_disconnect.get_or_insert(0);
                 snapshot.connect = events.connect;
+                snapshot.server_trust = events.server_trust;
             });
             publish_account(shared, generation, |snapshot| {
                 snapshot.set_account(events.auth);
@@ -524,6 +529,21 @@ impl AccountControl for LauncherAccount {
 
     fn set_joining(&mut self, joining: bool) {
         self.with(|snapshot| snapshot.joining = joining);
+    }
+
+    fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
+        self.with(|snapshot| {
+            let prompt = snapshot.server_trust.as_ref()?;
+            (snapshot.answered_trust != Some(prompt.id)).then(|| ServerTrustPrompt {
+                id: prompt.id,
+                url: prompt.url.clone(),
+            })
+        })
+    }
+
+    fn answer_server_trust(&mut self, id: u64, trusted: bool) {
+        self.with(|snapshot| snapshot.answered_trust = Some(id));
+        server_trust::send(self.socket_dir.clone(), id, trusted);
     }
 
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {

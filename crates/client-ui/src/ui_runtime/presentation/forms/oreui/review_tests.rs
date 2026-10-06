@@ -167,3 +167,52 @@ fn review_short_world_settings_are_scrollable() {
         "short world settings need scrolling"
     );
 }
+
+// The trust question shows vanilla's strings with the server's URL, and only its own answers take
+// presses; the header X declines like "Don't Trust".
+#[test]
+fn review_server_trust_modal_uses_vanilla_strings_and_owns_the_input() {
+    let mut view = crate::menu::MenuView::new(true, "Test".into());
+    view.connecting = true;
+    let translate = |_: &str| None;
+    let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+        canvas
+            .hit(MenuAction::AddBack, [0.0, 0.0, 1280.0, 720.0])
+            .unwrap();
+        let modal = modal::server_trust_modal("http://127.0.0.1:19132", &translate);
+        modal::draw(canvas, &view, [1280.0, 720.0], &modal).unwrap();
+    });
+    let texts = super::super::pack_harness::drawn_texts(&nodes).join(" ");
+    for expected in [
+        "Trust this server?",
+        "You are connecting to",
+        "http://127.0.0.1:19132",
+        "Only trust servers you recognize.",
+        "Trust and Join",
+        "Don't Trust",
+    ] {
+        assert!(
+            texts.contains(expected),
+            "missing {expected:?} in {texts:?}"
+        );
+    }
+    let actions: Vec<_> = hits.iter().map(|(action, _)| *action).collect();
+    assert_eq!(
+        actions,
+        vec![
+            MenuAction::ServerTrust(false),
+            MenuAction::ServerTrust(true),
+            MenuAction::ServerTrust(false),
+        ]
+    );
+}
+
+// A pack's translation of the keys wins over vanilla's English.
+#[test]
+fn review_server_trust_modal_reads_the_active_language() {
+    let translate = |key: &str| {
+        (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
+    };
+    let modal = modal::server_trust_modal("http://a:1", &translate);
+    assert_eq!(modal.body, "Vertrauen http://a:1?");
+}

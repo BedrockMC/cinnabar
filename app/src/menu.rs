@@ -719,6 +719,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
         }
     }
 

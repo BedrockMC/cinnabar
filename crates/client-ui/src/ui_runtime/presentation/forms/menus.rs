@@ -273,6 +273,12 @@ impl UiPresentationRuntime {
             self.player_preview_view = view;
         }
         let Some(frame) = drawn else {
+            if let Some(hits) =
+                self.append_server_trust(view, &translate, nodes, next, metrics, [width, height])?
+            {
+                self.form_presentation.menu_keys = Vec::new();
+                return Ok(Some(hits));
+            }
             if let Some((hits, keys)) =
                 self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
             {
@@ -323,6 +329,12 @@ impl UiPresentationRuntime {
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
         {
             (hits, keys) = popup;
+        }
+        // The join's server trust question draws over the join screen and takes over the input.
+        if let Some(trust) =
+            self.append_server_trust(view, &translate, nodes, next, metrics, [width, height])?
+        {
+            (hits, keys) = (trust, Vec::new());
         }
         self.form_presentation.menu_keys = keys;
         Ok(Some(hits))

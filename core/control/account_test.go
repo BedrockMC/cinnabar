@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -213,5 +215,40 @@ func TestEventsCarryAuthDisconnectAndTransfer(t *testing.T) {
 	store.Observe(snapshot(2, proxy.ResourcePackOfferNone))
 	if got := store.Events(); got.Disconnect != nil || got.Transfer != nil || got.Connect != nil {
 		t.Fatalf("new attempt kept stale events: %+v", got)
+	}
+}
+
+// A pending trust question rides on events until answered, and a late withdrawal of an older
+// question never hides a newer one.
+func TestServerTrustPromptReachesEventsAndTakesItsAnswer(t *testing.T) {
+	store := NewStore()
+	var answered []string
+	store.SetServerTrustAnswer(func(id uint64, trusted bool) bool {
+		answered = append(answered, fmt.Sprint(id, trusted))
+		return id == 2
+	})
+	dir := startServices(t, store, nil)
+	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 2, URL: "http://127.0.0.1:19132"}, true)
+	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 1}, false)
+	var events EventsV1
+	if reply := rpc(t, dir, methodEvents, ""); json.Unmarshal(reply.Result, &events) != nil ||
+		events.ServerTrust == nil || events.ServerTrust.ID != 2 || events.ServerTrust.URL != "http://127.0.0.1:19132" {
+		t.Fatalf("events = %+v, want the pending prompt", events)
+	}
+	var result serverTrustResultV1
+	if reply := rpc(t, dir, methodServerTrust, `{"id":2,"trusted":true}`); reply.Error != nil ||
+		json.Unmarshal(reply.Result, &result) != nil || !result.Answered {
+		t.Fatalf("answer = %+v / %+v", result, reply.Error)
+	}
+	if reply := rpc(t, dir, methodServerTrust, `{"id":2}`); reply.Error == nil {
+		t.Fatal("an answer without trusted was accepted")
+	}
+	if !slices.Equal(answered, []string{"2 true"}) {
+		t.Fatalf("answers = %q", answered)
+	}
+	store.ObserveServerTrust(proxy.ServerTrustPrompt{ID: 2}, false)
+	events = EventsV1{}
+	if reply := rpc(t, dir, methodEvents, ""); json.Unmarshal(reply.Result, &events) != nil || events.ServerTrust != nil {
+		t.Fatalf("events = %+v, want the prompt withdrawn", events)
 	}
 }

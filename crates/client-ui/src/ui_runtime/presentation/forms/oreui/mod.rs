@@ -152,6 +152,46 @@ impl UiPresentationRuntime {
     }
 }
 
+impl UiPresentationRuntime {
+    /// Draws the join's server trust question over the join screen; its buttons are then the only
+    /// hit targets. `Ok(None)` while no question is pending.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn append_server_trust(
+        &mut self,
+        view: &MenuView,
+        translate: &dyn Fn(&str) -> Option<Arc<str>>,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        size: [f32; 2],
+    ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
+        let Some(prompt) = view.feeds.server_trust.as_ref().filter(|_| view.connecting) else {
+            return Ok(None);
+        };
+        let originals = self
+            .form_presentation
+            .oreui_originals
+            .clone()
+            .filter(|_| self.form_presentation.oreui_look == Look::Originals);
+        let mut canvas = Canvas::new(
+            nodes,
+            next,
+            &mut self.layouts,
+            &self.font,
+            metrics,
+            self.solid_texture_page,
+            originals.as_deref(),
+        );
+        modal::draw(
+            &mut canvas,
+            view,
+            size,
+            &modal::server_trust_modal(&prompt.url, translate),
+        )?;
+        Ok(Some(canvas.hits))
+    }
+}
+
 /// The bed screen's last hit rects (window-logical) and the tracked pointer.
 #[derive(Default)]
 pub(super) struct BedScreen {

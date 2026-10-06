@@ -15,7 +15,7 @@ use crate::menu::{LocalWorldAction, MenuAction, MenuView};
 
 /// One modal: title, body and buttons, with the header X bound to `close`.
 pub(super) struct Modal<'a> {
-    pub(super) title: &'a str,
+    pub(super) title: Cow<'a, str>,
     pub(super) body: Cow<'a, str>,
     pub(super) buttons: Vec<(Cow<'a, str>, Variant, MenuAction)>,
     pub(super) close: Option<MenuAction>,
@@ -49,7 +49,7 @@ pub(super) fn draw(
     let top = ((size[1] - height) * 0.5).max(space(canvas, 2));
     panel(canvas, [left, top, left + width, top + height])?;
     canvas.text_line(
-        modal.title,
+        &modal.title,
         [left + pad, top + (header - canvas.r(BODY.line)) * 0.5],
         inner - canvas.r(4.0),
         BODY,
@@ -104,6 +104,39 @@ fn close_button(
     canvas.hit(action, b)
 }
 
+/// Vanilla's first-join question for a NetherNet server reached over plain http, with the strings
+/// from the active language and vanilla's English when a key is missing.
+pub(super) fn server_trust_modal<'a>(
+    url: &str,
+    translate: &dyn Fn(&str) -> Option<std::sync::Arc<str>>,
+) -> Modal<'a> {
+    let text = |key: &str, fallback: &str| -> String {
+        translate(key).map_or_else(|| fallback.to_owned(), |value| value.to_string())
+    };
+    Modal {
+        title: text("permissions.servertrust.title", "Trust this server?").into(),
+        body: text(
+            "permissions.servertrust.message",
+            "You are connecting to %1$s for the first time. Only trust servers you recognize.",
+        )
+        .replace("%1$s", url)
+        .into(),
+        buttons: vec![
+            (
+                text("permissions.servertrust.button.trust", "Trust and Join").into(),
+                Variant::Primary,
+                MenuAction::ServerTrust(true),
+            ),
+            (
+                text("permissions.servertrust.button.doNotTrust", "Don't Trust").into(),
+                Variant::Secondary,
+                MenuAction::ServerTrust(false),
+            ),
+        ],
+        close: Some(MenuAction::ServerTrust(false)),
+    }
+}
+
 fn local(action: LocalWorldAction) -> MenuAction {
     MenuAction::LocalWorld(action)
 }
@@ -113,7 +146,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
     let back = Some(local(LocalWorldAction::Back));
     Some(match view.screen {
         Screen::ConfirmDelete => Modal {
-            title: "Are you sure?",
+            title: "Are you sure?".into(),
             body: "If you delete this world it will be gone forever.".into(),
             buttons: vec![
                 (
@@ -130,7 +163,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
             close: back,
         },
         Screen::ConfirmLeaveEdit => Modal {
-            title: "Do you want to save your changes?",
+            title: "Do you want to save your changes?".into(),
             body: "You have unsaved changes. Make sure to save or discard your changes.".into(),
             buttons: vec![
                 (
@@ -149,7 +182,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
         Screen::BackendPrompt => {
             let prompt = view.prompt?;
             Modal {
-                title: prompt.title(),
+                title: prompt.title().into(),
                 body: prompt.text().into(),
                 buttons: prompt
                     .buttons()
@@ -170,7 +203,7 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
             }
         }
         Screen::Eula => Modal {
-            title: "Minecraft End User License Agreement",
+            title: "Minecraft End User License Agreement".into(),
             body: "Default worlds run on Mojang's official Bedrock Dedicated Server, downloaded \
                    from minecraft.net the first time you play. Accept the Minecraft EULA and \
                    Privacy Policy to continue."
@@ -195,13 +228,13 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
             close: back,
         },
         Screen::Error => Modal {
-            title: "Something went wrong",
+            title: "Something went wrong".into(),
             body: view.error.as_deref().unwrap_or_default().into(),
             buttons: vec![("OK".into(), Variant::Primary, local(LocalWorldAction::Back))],
             close: back,
         },
         Screen::Create if view.busy => Modal {
-            title: "Creating new world...",
+            title: "Creating new world...".into(),
             body: "".into(),
             buttons: Vec::new(),
             close: None,

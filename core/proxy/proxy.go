@@ -53,6 +53,8 @@ type Config struct {
 	// falls back to Upstream. Upstream may then be empty.
 	LocalTarget LocalTargetFunc
 	PacketDelay *PacketDelay
+	// ServerTrust, when set, decides whether to join NetherNet servers reached by address.
+	ServerTrust minecraft.ServerTrust
 }
 
 const maxInitialTransferHops = 8
@@ -94,7 +96,7 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		transfers = new(TransferState)
 	}
 	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
-		return resolveUpstreamTarget(ctx, address, cfg.Account, logger)
+		return resolveUpstreamTarget(ctx, address, cfg.Account, logger, cfg.ServerTrust)
 	}
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {
 		return dial(ctx, cfg.Upstream)
@@ -369,7 +371,7 @@ func networkForAddress(target *resolvedUpstreamTarget, address string) minecraft
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return remoteServerNetwork(slog.Default())
+	return remoteServerNetwork(slog.Default(), target.trust)
 }
 
 func dialFollowingTransfers(
