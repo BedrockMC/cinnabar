@@ -93,16 +93,38 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
     let mut keyframe = compiled.animation_keyframes[0];
     keyframe.expressions = [Some(0), Some(1), None];
     compiled.animation_keyframes = vec![keyframe; 2].into_boxed_slice();
-    let body = compiled.render.layers[0].clone();
+    let body = compiled.render.layers[0];
     let title = assets::EntityRenderLayer {
+        first_slot: 1,
         geometry_count: 1,
-        ..body.clone()
+        ..body
     };
-    compiled.render.layers = vec![body, title.clone(), title].into_boxed_slice();
-    compiled.render.geometries = vec![EntityRenderGeometry {
-        condition: None,
-        geometry: 1,
-    }]
+    compiled.render.layers = vec![
+        body,
+        title,
+        assets::EntityRenderLayer {
+            first_slot: 2,
+            first_geometry: 1,
+            ..title
+        },
+    ]
+    .into_boxed_slice();
+    let slot = compiled.render.slots[0];
+    compiled.render.slots = (0..3)
+        .map(|first_candidate| assets::EntityRenderSlot {
+            first_candidate,
+            ..slot
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    compiled.render.candidates = vec![compiled.render.candidates[0]; 3].into_boxed_slice();
+    compiled.render.geometries = vec![
+        EntityRenderGeometry {
+            condition: None,
+            geometry: 1,
+        };
+        2
+    ]
     .into_boxed_slice();
     compiled
 }
@@ -149,15 +171,23 @@ fn fixture_with_assets(assets: Arc<RuntimeEntityAssets>) -> crate::actor_store::
 fn light_multiplier_defaults_to_one_and_evaluates_unclamped_values_between_ticks() {
     let mut compiled = camera_compiled();
     let mut symbols = compiled.molang_symbols.into_vec();
-    symbols.push(MolangSymbol {
-        kind: MolangSymbolKind::Query,
-        identifier: "query.frame_alpha".into(),
-    });
+    symbols.insert(
+        1,
+        MolangSymbol {
+            kind: MolangSymbolKind::Query,
+            identifier: "query.frame_alpha".into(),
+        },
+    );
     compiled.molang_symbols = symbols.into_boxed_slice();
     let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        if let MolangOp::CallQuery(call) = op {
+            call.symbol = 2;
+        }
+    }
     ops.extend([
         MolangOp::Push(EntityGeometryScalar::new(0.5).unwrap()),
-        MolangOp::LoadQuery(2),
+        MolangOp::LoadQuery(1),
         MolangOp::Add,
         MolangOp::Push(EntityGeometryScalar::new(-0.25).unwrap()),
     ]);
@@ -254,7 +284,8 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
     store.set_camera_position([4.0, 3.0, 0.0]);
     for alpha in [0.0, 0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-        let expected = pose::quat_from_euler([0.75, 0.0, 0.0]);
+        // Positive authored X rotation turns toward negative X in the mirrored rig frame.
+        let expected = pose::quat_from_euler([-0.75, 0.0, 0.0]);
         assert_rotation(layers[0].pose[0].rotation, expected);
         assert_rotation(layers[1].pose[1].rotation, expected);
     }

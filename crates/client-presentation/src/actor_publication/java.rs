@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use bevy::math::{Mat4, Vec3};
+#[cfg(test)]
+use bevy::math::Mat4;
+use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
 use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform, SkinRenderLayer};
 use render_model::{
