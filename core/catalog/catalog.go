@@ -13,14 +13,12 @@ import (
 	"strings"
 	"time"
 
-	playfabcatalog "github.com/df-mc/go-playfab/v2/catalog"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/imagecache"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
-	"github.com/sandertv/gophertunnel/minecraft/service/gatherings"
 )
 
 // File is the small JSON contract consumed by the Rust launcher.
@@ -161,30 +159,6 @@ func Write(ctx context.Context, path string, account *authcache.Account) error {
 	return nil
 }
 
-func artworkURL(item playfabcatalog.Item, games []gatherings.AvailableGame) string {
-	for _, game := range games {
-		if game.ImageTag == "" {
-			continue
-		}
-		for _, image := range item.Images {
-			if image.Tag == game.ImageTag && validArtworkURL(image.URL) {
-				return image.URL
-			}
-		}
-	}
-	for _, image := range item.Images {
-		if strings.EqualFold(image.Type, playfabcatalog.ImageTypeThumbnail) && validArtworkURL(image.URL) {
-			return image.URL
-		}
-	}
-	for _, image := range item.Images {
-		if validArtworkURL(image.URL) {
-			return image.URL
-		}
-	}
-	return ""
-}
-
 // validArtworkURL accepts the shared HTTPS image URL policy.
 func validArtworkURL(raw string) bool { return imagecache.ValidURL(raw) }
 
@@ -316,16 +290,4 @@ func displayName(values ...string) string {
 		}
 	}
 	return "Minecraft"
-}
-
-func firstGameCaption(values []gatherings.AvailableGame, fallback string) string {
-	for _, value := range values {
-		if title := strings.TrimSpace(value.Title); title != "" {
-			return title
-		}
-		if subtitle := strings.TrimSpace(value.Subtitle); subtitle != "" {
-			return subtitle
-		}
-	}
-	return fallback
 }
