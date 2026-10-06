@@ -41,10 +41,9 @@ type Server struct {
 }
 
 type Realm struct {
-	Name    string `json:"name"`
-	State   string `json:"state"`
-	Target  string `json:"target"`
-	Address string `json:"address,omitempty"`
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	Target string `json:"target"`
 	// Details the realms grid binds; all optional.
 	Owner         string `json:"owner,omitempty"`
 	MOTD          string `json:"motd,omitempty"`
@@ -221,7 +220,12 @@ func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 	if account == nil {
 		return nil, errNoAccount
 	}
-	values, err := realms.NewClient(account, nil).Realms(ctx)
+	return listRealms(ctx, realms.NewClient(account, nil))
+}
+
+// listRealms maps the client's Realms to catalog entries.
+func listRealms(ctx context.Context, client *realms.Client) ([]Realm, error) {
+	values, err := client.Realms(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -243,12 +247,6 @@ func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 			if player.Online {
 				entry.OnlinePlayers++
 			}
-		}
-		joinContext, cancel := context.WithTimeout(ctx, 4*time.Second)
-		address, addressErr := realm.Address(joinContext)
-		cancel()
-		if addressErr == nil {
-			entry.Address = address.Address
 		}
 		result = append(result, entry)
 	}
