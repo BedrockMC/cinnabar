@@ -85,14 +85,20 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
     runtime.observe_press(true);
     let mut swings = SwingTracker::default();
     let mut view = crate::local_player::LocalViewPose::default();
+    // Writes one input and acknowledges it as the socket pump does.
     let flush = |ticker: &mut gameplay::movement::MovementTicker| {
+        let mut written = None;
         crate::movement::flush_player_auth_inputs_guarded(
             ticker,
             1,
             Some(evidence()),
-            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+            |identity, packet, guard| {
+                written = Some(identity);
+                network.send_physics_packet(identity, packet, guard)
+            },
         )
         .unwrap();
+        assert!(ticker.acknowledge_physics_send(written.unwrap()));
     };
     let rotation = bevy::prelude::Quat::from_euler(bevy::prelude::EulerRot::YXZ, 0.5, -0.3, 0.0);
     super::admit_with_action_aim(
@@ -125,13 +131,13 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
         Some(rotation),
         &network,
     );
-    runtime.send_held_release(&ticker, |packets| network.send_inventory_packets(packets));
+    ticker.send_held_release(|packets| network.send_inventory_packets(packets));
     assert!(
         captured.drain().is_empty(),
         "the release waits for its tick's input"
     );
     flush(&mut ticker);
-    runtime.send_held_release(&ticker, |packets| network.send_inventory_packets(packets));
+    ticker.send_held_release(|packets| network.send_inventory_packets(packets));
     let packets = captured.drain();
     assert_eq!(
         packets
@@ -145,6 +151,6 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
     assert_eq!(sample.tick, 102);
     assert!((sample.pitch - 0.3_f32.to_degrees()).abs() < 1e-3);
     assert!((sample.yaw - (180.0 - 0.5_f32.to_degrees())).abs() < 1e-3);
-    assert!(!runtime.has_held_release());
+    assert!(!ticker.has_held_release());
     assert_eq!(view.rotation(), rotation);
 }
