@@ -102,7 +102,7 @@ impl LocalPlayerSkin {
 
     /// Selects the developer appearance ahead of any echoed server profile while enabled.
     #[cfg(feature = "developer-control")]
-    pub(crate) fn test_cape_enabled(&self) -> bool {
+    pub(crate) fn recording_cape_enabled(&self) -> bool {
         self.cape.is_some()
     }
 
