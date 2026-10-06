@@ -415,7 +415,8 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         center: Arc::new(uniform_sub_chunk(1)),
         biomes: std::array::from_fn(|_| None),
         adjacent: std::array::from_fn(|_| None),
-        column_above: Vec::new(),
+        column: None,
+        center_y: key.y,
         light_halo,
     };
 

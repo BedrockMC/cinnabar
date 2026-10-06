@@ -35,3 +35,6 @@ pub fn work_is_idle(stream: &WorldStream) -> bool {
         && stream.staged_mesh_completions.is_empty()
         && stream.requests.requested.is_empty()
 }
+
+mod dispatch;
+pub use dispatch::DispatchFixture;
