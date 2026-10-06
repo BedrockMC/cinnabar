@@ -944,3 +944,82 @@ fn find<'a>(control: &'a ResolvedControl, name: &str) -> &'a ResolvedControl {
     }
     walk(control, name).unwrap_or_else(|| panic!("no control {name}"))
 }
+
+const SCOPED_PANEL: &str = r##"{
+  "namespace": "sp",
+  "cell": {
+    "type": "label", "text": "#title", "size": ["default", 10],
+    "bindings": [ { "binding_type": "collection", "binding_collection_name": "heroes", "binding_name": "#title" } ]
+  },
+  "sub": {
+    "type": "label", "text": "#title", "size": ["default", 10],
+    "bindings": [ { "binding_type": "collection", "binding_collection_name": "heroes", "binding_name": "#title" } ]
+  },
+  "row": {
+    "type": "stack_panel", "size": ["100%c", 10], "collection_name": "heroes",
+    "controls": [
+      { "a@sp.cell": { "collection_index": 0 } },
+      { "b@sp.cell": { "collection_index": 1 } },
+      { "nested": {
+          "type": "panel", "size": ["100%c", 10], "collection_index": 1,
+          "controls": [ { "subs": {
+            "type": "stack_panel", "size": ["100%c", "100%c"], "collection_name": "subs",
+            "property_bag": { "#collection_length": 1 },
+            "factory": { "name": "subs_factory", "control_name": "sp.sub" }
+          } } ]
+      } }
+    ]
+  },
+  "root": {
+    "type": "screen",
+    "controls": [ { "rows": {
+      "type": "stack_panel", "orientation": "vertical", "size": ["100%cm", "100%c"],
+      "collection_name": "rows",
+      "factory": { "name": "rows_factory", "control_name": "sp.row" },
+      "bindings": [ { "binding_name": "#row_count", "binding_name_override": "#collection_length" } ]
+    } } ]
+  }
+}"##;
+
+// A settled collection panel kept reading the shared list after its item's own list appeared, and
+// stale cells after that list shrank or went away, including cells reached through a nested factory.
+#[test]
+fn a_scoped_list_registered_later_reaches_settled_collection_panels() {
+    let catalog = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/sp.json"]}"#.as_slice(),
+        ),
+        ("ui/sp.json", SCOPED_PANEL.as_bytes()),
+    ])
+    .unwrap();
+    let title = |text: &str| CollectionItem::new("h").with("#title", Scalar::Text(text.into()));
+    let data = |scoped: usize| {
+        let mut data = DataSource::new();
+        data.set_global("#row_count", Scalar::Num(2.0));
+        data.set_collection(
+            "rows",
+            vec![CollectionItem::new("r"), CollectionItem::new("r")],
+        );
+        data.set_collection("heroes", vec![title("shared0"), title("shared1")]);
+        data.set_collection("subs", vec![CollectionItem::new("s")]);
+        let lists = [vec![title("A"), title("B")], vec![title("C"), title("D")]];
+        for (row, list) in lists.into_iter().enumerate() {
+            if scoped > 0 {
+                data.set_scoped_collection("rows", row, "heroes", list[..scoped].to_vec());
+            }
+        }
+        data
+    };
+    let mut pair = Pair::new(&catalog, "sp.root", Context::desktop());
+    // Shared, then each item's own list, a short one, and back to shared.
+    for (phase, scoped) in [0, 2, 1, 0].into_iter().enumerate() {
+        for step in 0..3 {
+            pair.refresh(
+                data(scoped),
+                &format!("phase {phase} ({scoped} scoped) step {step}"),
+            );
+        }
+    }
+}

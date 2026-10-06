@@ -296,13 +296,17 @@ fn offer_lists(
         items.push(show_more_item(tr));
     }
     if row.role == "HeroRow" {
-        // Vanilla's hero row reads the page-wide `hero_row_collection`, not its row's offer list.
+        // A hero row reads `hero_row_collection`, scoped to its own factory item.
         let hero = row
             .offers
             .iter()
             .map(|offer| offer_item("Generic", offer, &path, tr));
-        data.collections
-            .insert(HERO_COLLECTION.to_owned(), hero.collect());
+        data.scoped.push((
+            FACTORY.to_owned(),
+            factory_index,
+            HERO_COLLECTION.to_owned(),
+            hero.collect(),
+        ));
     }
     if is_grid {
         // A grid row is one `Generic` grid item that owns the offer list.
