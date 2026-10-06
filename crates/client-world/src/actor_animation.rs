@@ -261,6 +261,8 @@ struct ControllerState {
     active: bool,
     /// Animation tick the current state was entered, where its clips start.
     entered_tick: u64,
+    /// Outgoing state and its clip epoch while worn equipment blends into the next state.
+    blend_from: Option<(u16, u64)>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -579,7 +581,8 @@ impl ActorAnimationStore {
                 },
                 &state.variables,
                 state.completed_tick.saturating_sub(state.lifetime_epoch),
-            ),
+            )
+            .with_input(state.history.back().copied()),
         })
     }
 

@@ -5964,3 +5964,9 @@ orbit acceptance pass remains incomplete.
   including bare web domains, and require an in-game Open/Cancel prompt before
   handing a selected URL to the default browser. Chat messages and server packets
   are unchanged. This Java-style interaction is not a closed Bedrock parity gate.
+
+## Worn elytra glint acceptance
+
+Actor glint uses the vanilla raster, two centered UV rotations and independently
+wrapping scrolls. Exact 1.26.50 glint pixel comparison and enhanced graphics glint
+remain incomplete and do not close the rendering parity gate.

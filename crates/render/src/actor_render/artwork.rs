@@ -4,6 +4,7 @@ use crate::actor::{
     ActorArtworkPageId, ActorArtworkPages, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
     gpu::ActorDrawSpan,
 };
+use std::sync::Arc;
 
 pub(super) struct GpuArtworkPage {
     _texture: Texture,
@@ -17,6 +18,7 @@ pub(super) struct GpuArtworkPage {
 pub(super) struct GpuArtwork {
     identity: Option<([u8; 32], [u8; 32])>,
     pub pages: Vec<GpuArtworkPage>,
+    pub glint: Option<(Texture, TextureView)>,
     rejected: bool,
 }
 
@@ -36,19 +38,51 @@ impl GpuArtwork {
             // work already submitted with them completes, so a generation is only
             // briefly doubled.
             self.pages.clear();
+            self.glint = None;
             self.rejected = false;
-        }
-        if pages.identity == [0; 32] {
-            return true;
         }
         self.identity = Some(identity);
         let limits = device.limits();
-        let bytes = pages
-            .pages
-            .iter()
-            .try_fold(crate::actor::PLAYER_SKIN_BUDGET_BYTES, |total, page| {
-                total.checked_add(page.rgba8.len())
-            });
+        let fallback = crate::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([0u8; 4]),
+        };
+        let source = pages.actor_glint.as_ref().unwrap_or(&fallback);
+        let glint_page = crate::ActorTexturePage {
+            width: source.width,
+            height: source.height,
+            layers: 1,
+            rgba8: Arc::clone(&source.rgba8),
+            color_mask: false,
+            multitexture: false,
+        };
+        let glint = glint_page.fit_within(limits.max_texture_dimension_2d);
+        let texture = device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: Some("immutable actor glint"),
+                size: Extent3d {
+                    width: u32::from(glint.width),
+                    height: u32::from(glint.height),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8UnormSrgb,
+                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::LayerMajor,
+            &glint.rgba8,
+        );
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        self.glint = Some((texture, view));
+        let bytes = pages.pages.iter().try_fold(
+            crate::actor::PLAYER_SKIN_BUDGET_BYTES + glint.rgba8.len(),
+            |total, page| total.checked_add(page.rgba8.len()),
+        );
         if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES
             || bytes.is_none_or(|bytes| bytes > MAX_ACTOR_GPU_PIXEL_BYTES)
             || pages
@@ -346,7 +380,6 @@ mod tests {
     #[test]
     fn a_page_past_the_device_limit_uploads_downscaled() {
         use bevy::render::renderer::WgpuWrapper;
-        use std::sync::Arc;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let device = RenderDevice::from(device);
         let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));
@@ -371,7 +404,6 @@ mod tests {
     #[test]
     fn replacement_artwork_supersedes_the_previous_generation() {
         use bevy::render::renderer::WgpuWrapper;
-        use std::sync::Arc;
         let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
         let device = RenderDevice::from(device);
         let queue = RenderQueue(Arc::new(WgpuWrapper::new(queue)));

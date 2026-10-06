@@ -198,6 +198,7 @@ pub struct ActorFramePublication<'w, 's> {
     hand_revision: Local<'s, u64>,
     hand_motion: Option<Res<'w, crate::camera::FirstPersonHandMotion>>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
+    glint_settings: Option<Res<'w, render::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
@@ -240,6 +241,7 @@ pub fn prepare_actor_render_frame(
         mut hand_revision,
         hand_motion,
         mut equipment,
+        glint_settings,
         mut dropped_items,
         profiler,
         mut partial_tick,
@@ -671,6 +673,42 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::actors::light_bodies(&mut batch, stream);
     }
+    let selected_count = batch.submissions.len();
+    if let (Some(equipment), Some(stream)) =
+        (equipment.as_deref_mut(), client_world.stream.as_ref())
+    {
+        // Equipment rides each selected body's pose, so culled bodies never build layers.
+        crate::presentation::actors::attach_layers(&mut batch, |body| {
+            let runtime_id = body.input.identity.runtime_id;
+            let input = if runtime_id == local_runtime_id {
+                local_equipment(stream, runtime_id, &input.local_equipment)
+            } else {
+                remote_input(stream, runtime_id)
+            };
+            let animation = stream
+                .authority()
+                .actor(runtime_id)
+                .zip(stream.authority().actor_rig(runtime_id));
+            let mut layers = equipment.layers_for(
+                body,
+                &input,
+                animation.as_ref().map(|(owner, rig)| {
+                    crate::presentation::equipment::EquipmentAnimation {
+                        owner,
+                        rig,
+                        frame_alpha: step.partial_tick,
+                    }
+                }),
+            );
+            if let Some(settings) = glint_settings.as_deref() {
+                for layer in &mut layers {
+                    layer.submission.material.glint.strength = settings.strength;
+                    layer.submission.material.glint.speed = settings.speed;
+                }
+            }
+            layers
+        });
+    }
     if let (Some(stream), Some(cape)) = (
         client_world.stream.as_ref(),
         cape_state.rig(client_world.entity_assets),
@@ -693,22 +731,19 @@ pub fn prepare_actor_render_frame(
                 })
             },
             |runtime_id| stream.authority().actor_player_profile(runtime_id),
+            |runtime_id| {
+                let input = if runtime_id == local_runtime_id {
+                    local_equipment(stream, runtime_id, &input.local_equipment)
+                } else {
+                    remote_input(stream, runtime_id)
+                };
+                input.armor[1].as_ref().is_some_and(|item| {
+                    equipment
+                        .as_deref()
+                        .is_some_and(|equipment| equipment.is_elytra(&item.identifier))
+                })
+            },
         );
-    }
-    let selected_count = batch.submissions.len();
-    if let (Some(equipment), Some(stream)) =
-        (equipment.as_deref_mut(), client_world.stream.as_ref())
-    {
-        // Equipment rides each selected body's pose, so culled bodies never build layers.
-        crate::presentation::actors::attach_layers(&mut batch, |body| {
-            let runtime_id = body.input.identity.runtime_id;
-            let input = if runtime_id == local_runtime_id {
-                local_equipment(stream, runtime_id, &input.local_equipment)
-            } else {
-                remote_input(stream, runtime_id)
-            };
-            equipment.layers_for(body, &input)
-        });
     }
     // After equipment, which rides the rig's own model even when a controller draws another.
     if let Some(stream) = client_world.stream.as_ref() {

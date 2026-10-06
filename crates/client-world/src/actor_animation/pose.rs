@@ -1,6 +1,9 @@
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
-use super::{tick::WeightedClip, *};
+use super::{
+    tick::{ControllerBlend, WeightedClip},
+    *,
+};
 
 // Vanilla bone loading uses a 24-pixel Y origin, then negates Y for the
 // bone's default position.
@@ -46,6 +49,10 @@ pub(super) fn sample_clips(
 ) -> Result<Vec<LocalDelta>, EvalError> {
     let assets = evaluator.assets;
     let mut local = vec![LocalDelta::default(); bones.len()];
+    let mut rotations = clips
+        .iter()
+        .any(|clip| clip.blend.is_some())
+        .then(|| vec![None; bones.len()]);
     for weighted in clips {
         budget.charge_work()?;
         let weight = weighted.weight;
@@ -100,15 +107,37 @@ pub(super) fn sample_clips(
                 EntityAnimationProperty::Scale => defaults[axis] * current[axis],
                 _ => defaults[axis] + current[axis],
             });
-            let value = sample_channel(
+            let mut value = sample_channel(
                 assets,
                 channel.first_keyframe,
                 channel.keyframe_count,
                 time,
                 |keyframe| keyframe_value(evaluator, variables, keyframe, this, budget),
             )?;
+            if channel.property == EntityAnimationProperty::Rotation
+                && let Some(rotations) = rotations.as_mut()
+            {
+                let reference = &mut rotations[channel.bone as usize];
+                match weighted.blend {
+                    Some(ControllerBlend::From) => *reference = Some(value),
+                    Some(ControllerBlend::To {
+                        shortest_path: true,
+                    }) => {
+                        if let Some(previous) = reference {
+                            value = std::array::from_fn(|axis| {
+                                previous[axis]
+                                    + (value[axis] - previous[axis] + 180.0).rem_euclid(360.0)
+                                    - 180.0
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
             for (axis, value) in value.into_iter().enumerate() {
-                if channel.property == EntityAnimationProperty::Scale {
+                if channel.property == EntityAnimationProperty::Scale && weighted.blend.is_some() {
+                    current[axis] += (value - 1.0) * weight;
+                } else if channel.property == EntityAnimationProperty::Scale {
                     current[axis] *= 1.0 + (value - 1.0) * weight;
                 } else {
                     current[axis] += value * weight;

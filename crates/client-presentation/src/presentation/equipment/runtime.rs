@@ -19,6 +19,7 @@ use render_model::{
 
 mod alpha;
 mod diagnostics;
+mod elytra;
 mod modern;
 mod pack;
 mod push;
@@ -27,10 +28,10 @@ mod types;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
 pub use types::{
-    ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, FirstPersonItem, HeldKind,
-    WornItem,
+    ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, FirstPersonArms,
+    FirstPersonItem, HeldKind, WornItem,
 };
-use types::{ArmorGeometry, BodyBones, ElytraStance, MeshKey};
+use types::{ArmorGeometry, BodyBones, MeshKey};
 
 use super::{
     armor::{DEFAULT_LEATHER_RGB, bone_map, hidden_bone, pack_tint, remap_pose},
@@ -43,7 +44,6 @@ use super::{
         first_person_display, head_block_display, held_block_display, held_sprite_display,
         is_hand_equipped, is_mirrored_art, view_bone,
     },
-    elytra,
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -200,6 +200,18 @@ impl EquipmentRuntime {
             });
             rasters.len() - 1
         });
+        let artwork = if let Some(glint) = textures
+            .iter()
+            .find(|texture| texture.identifier.as_ref() == assets::ACTOR_GLINT_TEXTURE_IDENTIFIER)
+        {
+            artwork.with_actor_glint(EquipmentRaster {
+                width: glint.width,
+                height: glint.height,
+                rgba8: Arc::clone(&glint.rgba8),
+            })
+        } else {
+            artwork
+        };
         let (artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures
             .iter()
@@ -283,6 +295,7 @@ impl EquipmentRuntime {
         &mut self,
         body: &ActorRigSubmission,
         input: &ActorEquipmentInput,
+        animation: Option<EquipmentAnimation<'_>>,
     ) -> Vec<EquipmentPresentation> {
         let mut layers = Vec::new();
         if !matches!(
@@ -340,19 +353,14 @@ impl EquipmentRuntime {
                     );
                     continue;
                 }
-                let worn = ElytraStance {
-                    sneaking: input.sneaking,
-                    sleeping: input.sleeping,
-                };
+                if slot == ArmorSlot::Chestplate && self.is_elytra(&item.identifier) {
+                    if let Some(animation) = animation {
+                        self.push_elytra(body, item, input, animation, &mut layers);
+                    }
+                    continue;
+                }
                 let before = layers.len();
-                self.push_armor(
-                    body,
-                    &bones,
-                    geometry,
-                    (slot, layer, worn),
-                    item,
-                    &mut layers,
-                );
+                self.push_armor(body, &bones, geometry, (slot, layer), item, &mut layers);
                 if layers.len() == before {
                     self.note_missing_layer(item, Some(slot), bones.head);
                 }
@@ -504,6 +512,15 @@ impl EquipmentRuntime {
             )?)))
         });
         entry.clone().map(|bones| (geometry, bones))
+    }
+
+    /// Identifies wing equipment through its resolved attachable rather than its item name.
+    pub fn is_elytra(&self, identifier: &str) -> bool {
+        self.binding_source(identifier).is_some_and(|(catalog, _)| {
+            catalog
+                .binding(identifier)
+                .is_some_and(|binding| binding.category == EquipmentCategory::Elytra)
+        })
     }
 
     fn has_armor_binding(&self, identifier: &str) -> bool {

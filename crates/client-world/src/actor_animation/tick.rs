@@ -347,6 +347,7 @@ pub(super) fn evaluate_state(
                 .ok_or(EvalError::Invalid)?
                 .initial_state;
             runtime.entered_tick = 0;
+            runtime.blend_from = None;
         }
     }
     let mut weighted_clips = Vec::new();
@@ -394,6 +395,7 @@ pub(super) fn evaluate_state(
                     weight,
                     started_tick: 0,
                     time: 0.0,
+                    blend: None,
                 });
             }
         } else {
@@ -519,6 +521,10 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.is_holding_right, truth(context.main_hand.is_some()));
     variables.set(engine.is_holding_left, truth(context.off_hand.is_some()));
     variables.set(engine.is_sneaking, flag(query::FLAG_SNEAKING));
+    variables.set(
+        engine.chest_layer_visible,
+        truth(!query::wearing_elytra(context)),
+    );
     variables.set(engine.is_blocking, flag(query::FLAG_BLOCKING));
     variables.set(
         engine.damage_nearby_mobs,
@@ -585,6 +591,13 @@ pub(super) struct WeightedClip {
     pub(super) started_tick: u64,
     /// Assigned once before posing, shared by every geometry this clip animates.
     pub(super) time: f32,
+    pub(super) blend: Option<ControllerBlend>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ControllerBlend {
+    From,
+    To { shortest_path: bool },
 }
 
 fn blend_weight(
@@ -627,8 +640,56 @@ impl ControllerWalk<'_, '_, '_, '_> {
         self.budget.charge_work()?;
         let state = self.advance(slot)?;
         self.controllers[slot].active = true;
-        let started_tick = self.controllers[slot].entered_tick;
-        for animation in state_animations(assets, state)? {
+        let runtime = self.controllers[slot];
+        if let Some((previous, started)) = runtime.blend_from {
+            let definition = &assets.controllers()[controller];
+            let previous = definition.first_state as usize + previous as usize;
+            let source = &assets.controller_states()[previous];
+            let alpha = self
+                .evaluator
+                .context
+                .attachable
+                .map_or(0.0, |input| input.frame_alpha);
+            let elapsed = (self
+                .evaluator
+                .anim_tick
+                .saturating_sub(runtime.entered_tick) as f32
+                + alpha)
+                * ACTOR_TICK_DURATION.as_secs_f32();
+            let amount = (elapsed / source.blend_transition.get()).clamp(0.0, 1.0);
+            if amount < 1.0 {
+                self.animations(
+                    previous,
+                    weight * (1.0 - amount),
+                    depth,
+                    started,
+                    Some(ControllerBlend::From),
+                )?;
+                return self.animations(
+                    state,
+                    weight * amount,
+                    depth,
+                    runtime.entered_tick,
+                    Some(ControllerBlend::To {
+                        shortest_path: source.blend_via_shortest_path,
+                    }),
+                );
+            }
+            self.controllers[slot].blend_from = None;
+        }
+        self.animations(state, weight, depth, runtime.entered_tick, None)
+    }
+
+    /// Keeps outgoing and incoming clip channels together before composing the bone hierarchy.
+    fn animations(
+        &mut self,
+        state: usize,
+        weight: f32,
+        depth: usize,
+        started_tick: u64,
+        blend: Option<ControllerBlend>,
+    ) -> Result<(), EvalError> {
+        for animation in state_animations(self.evaluator.assets, state)? {
             self.budget.charge_work()?;
             let weight = blend_weight(
                 self.evaluator,
@@ -646,9 +707,10 @@ impl ControllerWalk<'_, '_, '_, '_> {
                     weight,
                     started_tick,
                     time: 0.0,
+                    blend,
                 }),
                 EntityControllerAnimationTarget::Controller(nested) => {
-                    self.evaluate(nested as usize, weight, depth + 1)?;
+                    self.evaluate(nested as usize, weight, depth + 1)?
                 }
             }
         }
@@ -765,6 +827,27 @@ impl ControllerWalk<'_, '_, '_, '_> {
             if let Some(script) = state.on_exit {
                 evaluator.run(script as usize, self.variables, 0.0, self.budget)?;
             }
+            let worn = self
+                .evaluator
+                .context
+                .attachable
+                .is_some_and(|input| input.worn);
+            let single_clip = |index| {
+                state_animations(assets, index).is_ok_and(|animations| {
+                    matches!(
+                        animations,
+                        [assets::EntityControllerAnimation {
+                            target: EntityControllerAnimationTarget::Clip(_),
+                            ..
+                        }]
+                    )
+                })
+            };
+            self.controllers[slot].blend_from = (worn
+                && state.blend_transition.get() > 0.0
+                && single_clip(state_index)
+                && single_clip(controller.first_state as usize + target as usize))
+            .then_some((current, entered_tick));
             current = target;
             entered_tick = self.evaluator.anim_tick;
             let entered = assets
@@ -773,6 +856,11 @@ impl ControllerWalk<'_, '_, '_, '_> {
                 .ok_or(EvalError::Invalid)?;
             if let Some(script) = entered.on_entry {
                 evaluator.run(script as usize, self.variables, 0.0, self.budget)?;
+            }
+            if worn {
+                self.controllers[slot].state = current;
+                self.controllers[slot].entered_tick = entered_tick;
+                return Ok(controller.first_state as usize + current as usize);
             }
         }
     }

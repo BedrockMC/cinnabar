@@ -8,6 +8,8 @@ const MAX_ATTACHABLE_STATES: usize = 256;
 pub struct AttachableAnimationInput<'a> {
     pub first_person: bool,
     pub off_hand: bool,
+    /// A chest-slot model has independent controller state from either held item.
+    pub worn: bool,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     pub animation_frame: u32,
@@ -42,6 +44,7 @@ impl AttachableAnimationInput<'_> {
 pub(crate) struct AttachableQueryContext {
     pub first_person: bool,
     pub off_hand: bool,
+    pub worn: bool,
     pub is_paperdoll: bool,
     pub frame_alpha: f32,
     pub animation_frame: u32,
@@ -73,7 +76,7 @@ struct AttachableState {
 pub struct AttachablesRuntime {
     assets: Arc<RuntimeEntityAssets>,
     layout: VariableLayout,
-    states: BTreeMap<(ActorLifetimeId, bool, bool), AttachableState>,
+    states: BTreeMap<(ActorLifetimeId, bool, bool, bool), AttachableState>,
     evaluations: u64,
 }
 
@@ -101,9 +104,14 @@ impl AttachablesRuntime {
         owner_rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
     ) -> Option<AttachableRigSnapshot<'_>> {
-        let key = (owner_rig.actor, input.off_hand, input.first_person);
+        let key = (
+            owner_rig.actor,
+            input.off_hand,
+            input.first_person,
+            input.worn,
+        );
         // Ended sessions and a reused runtime ID's previous owner carry no script state.
-        self.states.retain(|(actor, _, _), _| {
+        self.states.retain(|(actor, _, _, _), _| {
             actor.session_id == owner_rig.actor.session_id
                 && (actor.runtime_id != owner_rig.actor.runtime_id || *actor == owner_rig.actor)
         });
@@ -152,6 +160,7 @@ impl AttachablesRuntime {
         let query_context = AttachableQueryContext {
             first_person: input.first_person,
             off_hand: input.off_hand,
+            worn: input.worn,
             is_paperdoll: input.is_paperdoll,
             frame_alpha,
             animation_frame: input.animation_frame,
@@ -168,11 +177,11 @@ impl AttachablesRuntime {
             off_hand: input.owner_off_hand.map(Arc::from),
             ..ActorTickContext::default()
         };
-        if input.off_hand {
+        if !input.worn && input.off_hand {
             context
                 .off_hand
                 .get_or_insert_with(|| Arc::from(identifier));
-        } else {
+        } else if !input.worn {
             context
                 .main_hand
                 .get_or_insert_with(|| Arc::from(identifier));
@@ -193,7 +202,7 @@ impl AttachablesRuntime {
             attack_time: item.attack_time,
             arm_height: item.arm_height,
             off_hand_arm_height: offhand.arm_height,
-            ..ActorTickInput::default()
+            ..owner_rig.animation_variables.input().unwrap_or_default()
         });
         let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
         let mut budget = EvalBudget {
