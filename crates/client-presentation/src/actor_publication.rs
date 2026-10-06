@@ -470,7 +470,7 @@ pub fn prepare_actor_render_frame(
                         .map(|mut presentation| {
                             if let Some(java_pose) = java_pose {
                                 java::apply_pose(&mut presentation, &java_pose.bones, local, actor);
-                                java_posed.push((rig.actor.runtime_id, java_pose.skin_layers));
+                                java_posed.push(java_pose.posed);
                             }
                             if let Some(geometry) = rig.skin_geometry {
                                 // The pose drives the skin's own bones, so only its model fits.
@@ -733,6 +733,7 @@ pub fn prepare_actor_render_frame(
                 })
             },
             |runtime_id| stream.authority().actor_player_profile(runtime_id),
+            |runtime_id| java::posed(&java_posed, runtime_id).map(|posed| posed.cape),
         );
     }
     let selected_count = batch.submissions.len();
@@ -782,7 +783,10 @@ pub fn prepare_actor_render_frame(
             |runtime_id| {
                 let rig = stream.authority().actor_rig(runtime_id)?;
                 Some(match java::posed(&java_posed, runtime_id) {
-                    Some(skin_layers) => client_world::ActorRigSnapshot { skin_layers, ..rig },
+                    Some(posed) => client_world::ActorRigSnapshot {
+                        skin_layers: &posed.skin_layers,
+                        ..rig
+                    },
                     None => rig,
                 })
             },

@@ -149,6 +149,7 @@ impl ActorStore {
                     attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     view_bobbing: is_local.then_some(local_view_bobbing),
+                    is_local,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

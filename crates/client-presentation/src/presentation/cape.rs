@@ -3,13 +3,14 @@
 use std::sync::{Arc, Mutex};
 
 use assets::{CAPE_GEOMETRY_IDENTIFIER, RuntimeEntityAssets};
-use bevy::math::{EulerRot, Quat};
+use bevy::math::{EulerRot, Quat, Vec3};
 use client_world::{ActorRigSnapshot, PlayerProfile};
 use protocol::{PlayerSkin, SkinRgba8};
 use render::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
 use render_model::{
     ActorRigGeometry, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES,
     STANDARD_SKIN_SIDE, entity_geometry, equipment_rig_id, find_geometry_index,
+    java_animation::{JavaCapeInput, java_cape_bone},
     resolve_geometry_bones,
 };
 
@@ -144,6 +145,27 @@ fn cape_pose(
         .collect()
 }
 
+/// The cape pose with its cape bone placed by Java's cape stack instead of the body's pose.
+fn java_cape_pose(
+    cape: &CapeRig,
+    body_names: &[Box<str>],
+    body: &[RenderBoneTransform],
+    input: &JavaCapeInput,
+) -> Arc<[RenderBoneTransform]> {
+    let mut pose = cape_pose(cape, body_names, body).to_vec();
+    for ((name, bone), pivot) in cape.bone_names.iter().zip(&mut pose).zip(cape.geometry.bone_pivots.iter()) {
+        if name.eq_ignore_ascii_case("cape") {
+            let (rotation, translation) = java_cape_bone(input, Vec3::from_array(*pivot));
+            *bone = RenderBoneTransform {
+                rotation: rotation.to_array(),
+                translation_scale: [translation.x, translation.y, translation.z, 1.0],
+                axis_scale: render_model::UNIT_AXIS_SCALE,
+            };
+        }
+    }
+    pose.into()
+}
+
 /// The cape layer, resampled and hashed once per source raster; entries hold their source, so a
 /// matched pointer is never a reused allocation.
 fn cape_of(profile: &PlayerProfile) -> Option<SkinRgba8> {
@@ -176,11 +198,13 @@ fn cape_of(profile: &PlayerProfile) -> Option<SkinRgba8> {
 
 /// Appends a cape instance for every drawn player body whose skin carries one; capes past the
 /// skin layer budget are dropped rather than invalidating the frame.
+/// `java_cape` supplies Java's cape inputs for players Java poses.
 pub fn apply_capes<'a>(
     batch: &mut ActorPresentationBatch,
     cape: &CapeRig,
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
+    java_cape: impl Fn(u64) -> Option<JavaCapeInput>,
 ) {
     let mut capes: Vec<(SkinRgba8, usize)> = Vec::new();
     let mut extras = Vec::new();
@@ -210,9 +234,19 @@ pub fn apply_capes<'a>(
         let mut submission: ActorRigSubmission = body.clone();
         submission.input.identity.layer = ACTOR_LAYER_CAPE;
         submission.input.rig = cape.id;
-        submission.input.previous_bones =
-            cape_pose(cape, rig.bone_names, &body.input.previous_bones);
-        submission.input.current_bones = cape_pose(cape, rig.bone_names, &body.input.current_bones);
+        match java_cape(identity.runtime_id) {
+            Some(input) => {
+                let pose = java_cape_pose(cape, rig.bone_names, &body.input.current_bones, &input);
+                submission.input.previous_bones = Arc::clone(&pose);
+                submission.input.current_bones = pose;
+            }
+            None => {
+                submission.input.previous_bones =
+                    cape_pose(cape, rig.bone_names, &body.input.previous_bones);
+                submission.input.current_bones =
+                    cape_pose(cape, rig.bone_names, &body.input.current_bones);
+            }
+        }
         submission.texture_layer = layer as u32;
         submission.tint = 0;
         submission.overlay_rgba8 = 0;

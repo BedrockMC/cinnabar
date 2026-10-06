@@ -518,3 +518,77 @@ fn raster_texels_land_on_their_java_slab_texels() {
         assert!(ours.distance(expected) < 2e-5, "{ours} vs {expected}");
     }
 }
+
+/// Cape formula at sampled chase offsets: standing, walking away, strafing, falling, sneaking.
+#[test]
+fn cape_angles_follow_java_formulas() {
+    let angles = |chase: [f32; 3], body_yaw: f32, bob: f32, walked: f32, sneaking: bool| {
+        java_cape_angles(&JavaCapeInput {
+            chase: Vec3::from_array(chase),
+            body_yaw,
+            bob,
+            walked,
+            sneaking,
+        })
+    };
+    let java = |chase: [f64; 3], yaw: f64, bob: f64, walked: f64, sneaking: bool| {
+        let (s, c) = (table_sin(yaw * PI64 / 180.0), -table_cos(yaw * PI64 / 180.0));
+        let mut lift = (chase[1] * 10.0).clamp(-6.0, 32.0);
+        let back = ((chase[0] * s + chase[2] * c) * 100.0).max(0.0);
+        let side = (chase[0] * c - chase[2] * s) * 100.0;
+        lift += table_sin(walked * 6.0) * 32.0 * bob + if sneaking { 25.0 } else { 0.0 };
+        (6.0 + back / 2.0 + lift, side / 2.0)
+    };
+    let cases = [
+        ([0.0, 0.0, 0.0], 0.0, 0.0, 0.0, false),
+        ([0.0, 0.0, -0.4], 0.0, 0.1, 3.7, false),
+        ([0.3, 0.0, 0.0], 0.0, 0.08, 1.2, false),
+        ([0.0, 1.2, 0.0], 45.0, 0.0, 0.0, false),
+        ([0.0, -2.0, 0.1], 90.0, 0.0, 0.0, true),
+        ([0.1, 0.0, 0.5], 200.0, 0.02, 9.0, false),
+    ];
+    for (chase, yaw, bob, walked, sneaking) in cases {
+        let (tilt, side) = angles(chase, yaw, bob, walked, sneaking);
+        let (java_tilt, java_side) = java(
+            chase.map(f64::from),
+            f64::from(yaw),
+            f64::from(bob),
+            f64::from(walked),
+            sneaking,
+        );
+        assert!((f64::from(tilt) - java_tilt).abs() < 1e-3, "{chase:?}: {tilt} vs {java_tilt}");
+        assert!((f64::from(side) - java_side).abs() < 1e-3, "{chase:?}: {side} vs {java_side}");
+    }
+    assert_eq!(angles([0.0; 3], 0.0, 0.0, 0.0, false), (6.0, 0.0));
+}
+
+/// The cape corners land where Java's cape stack draws its cloak box, through our bind pivot.
+#[test]
+fn cape_corners_land_where_java_draws_them() {
+    let input = JavaCapeInput {
+        chase: Vec3::new(0.2, 0.3, -0.5),
+        body_yaw: 30.0,
+        bob: 0.06,
+        walked: 2.5,
+        sneaking: true,
+    };
+    let (tilt, side) = java_cape_angles(&input);
+    let pivot = Vec3::new(0.0, 24.0, 3.0) / 16.0;
+    let (rotation, translation) = java_cape_bone(&input, pivot);
+    let mut posed = Gl::new();
+    posed
+        .translatef(0.0, 0.0, 0.125)
+        .rotatef(f64::from(tilt), 1.0, 0.0, 0.0)
+        .rotatef(f64::from(side), 0.0, 0.0, 1.0)
+        .rotatef(-f64::from(side), 0.0, 1.0, 0.0)
+        .rotatef(180.0, 0.0, 1.0, 0.0);
+    let mut rest = Gl::new();
+    rest.translatef(0.0, 0.0, 0.125).rotatef(180.0, 0.0, 1.0, 0.0);
+    let rig = rig_from_java_model().as_dmat4();
+    for corner in [DVec3::new(-5.0, 0.0, -1.0), DVec3::new(5.0, 16.0, 0.0)] {
+        let java = rig.transform_point3(posed.0.transform_point3(corner / 16.0));
+        let bind = rig.transform_point3(rest.0.transform_point3(corner / 16.0)).as_vec3();
+        let ours = (rotation * (bind - pivot) + translation).as_dvec3();
+        assert!(ours.distance(java) < 1e-5, "{corner}: {ours} vs {java}");
+    }
+}

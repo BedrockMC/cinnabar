@@ -10,6 +10,14 @@ use super::*;
 
 const BOW: &str = "minecraft:bow";
 
+fn mesh_kind(block: bool) -> JavaItemMesh {
+    if block {
+        JavaItemMesh::Block
+    } else {
+        JavaItemMesh::Sprite
+    }
+}
+
 /// A bone at rest about `pivot` (rig blocks), leaving placement to the instance.
 pub(super) fn rest_bone(pivot: [f32; 3]) -> RenderBoneTransform {
     RenderBoneTransform {
@@ -54,13 +62,8 @@ impl EquipmentRuntime {
         } else {
             JavaHeldItem::Flat
         };
-        let mesh_kind = if block {
-            JavaItemMesh::Block
-        } else {
-            JavaItemMesh::Sprite
-        };
         // The arm frame, not the hand bone, which vanilla animations still turn.
-        let display = ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind));
+        let display = ItemDisplay::from_matrix(java::third_person_item(grip_kind, mesh_kind(block)));
         let (Some(previous), Some(current)) = (
             attach_to_bone(*previous, display),
             attach_to_bone(*current, display),
@@ -99,12 +102,8 @@ impl EquipmentRuntime {
         hand: JavaHand,
     ) -> Option<FirstPersonItem> {
         let (mesh, location, block) = self.held_mesh(item, true)?;
-        let mesh_kind = if block {
-            JavaItemMesh::Block
-        } else {
-            JavaItemMesh::Sprite
-        };
-        let camera = java::first_person_item(hand, mesh_kind, is_java_rod(&item.identifier));
+        let camera =
+            java::first_person_item(hand, mesh_kind(block), is_java_rod(&item.identifier));
         let rest = [rest_bone([0.0; 3])];
         let poses = self
             .poses
