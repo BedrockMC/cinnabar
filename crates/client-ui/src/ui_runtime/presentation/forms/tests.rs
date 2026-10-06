@@ -967,3 +967,90 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
         }
     }
 }
+
+// Cards drew only their price: the title and creator cells and the row header hid behind unset visibility flags.
+#[test]
+fn store_cards_draw_their_offer_titles() {
+    use protocol::store_control::{StoreOffer, StorePrice};
+    let offer = |id: &str, title: &str| StoreOffer {
+        id: id.into(),
+        title: title.into(),
+        creator: Some("Studio".into()),
+        content_type: None,
+        thumbnail_url: None,
+        store_id: None,
+        prices: vec![StorePrice {
+            currency: "mc".into(),
+            amount: 830,
+        }],
+        rating: None,
+        tags: vec![],
+        owned: false,
+    };
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = crate::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+        loading: false,
+        rows: vec![launcher::store::DisplayRow {
+            id: None,
+            title: "New".into(),
+            role: "StoreRow",
+            offers: vec![offer("a", "Castle Pack"), offer("b", "Pale Garden")],
+            continuation: None,
+        }],
+        ..crate::store::StoreSnapshot::empty()
+    }));
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    assert!(
+        texts.iter().any(|t| t.contains("830")),
+        "price drawn: {texts:?}"
+    );
+    for wanted in ["Castle Pack", "Studio", "New"] {
+        assert!(
+            texts.iter().any(|t| t == wanted),
+            "{wanted} drawn: {texts:?}"
+        );
+    }
+}
+
+// The offer page reads title, creator and description as globals; on its row item they never drew.
+#[test]
+fn store_offer_page_draws_its_title() {
+    use protocol::store_control::{StoreOffer, StoreOfferDetail, StorePrice};
+    let offer = StoreOffer {
+        id: "a".into(),
+        title: "Castle Pack".into(),
+        creator: Some("Studio".into()),
+        content_type: None,
+        thumbnail_url: None,
+        store_id: None,
+        prices: vec![StorePrice {
+            currency: "mc".into(),
+            amount: 830,
+        }],
+        rating: None,
+        tags: vec![],
+        owned: false,
+    };
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = crate::menu::MenuScreen::Store;
+    view.store = Some(std::sync::Arc::new(crate::store::StoreSnapshot {
+        loading: false,
+        view: launcher::store::StoreView::Detail,
+        detail: Some(StoreOfferDetail {
+            offer,
+            description: Some("A castle.".into()),
+            screenshot_urls: vec![],
+            display_version: None,
+            platforms: vec![],
+        }),
+        ..crate::store::StoreSnapshot::empty()
+    }));
+    let Some(texts) = screen_texts(&view) else {
+        return;
+    };
+    assert!(texts.iter().any(|t| t == "Castle Pack"), "{texts:?}");
+    assert!(texts.iter().any(|t| t.contains("A castle.")), "{texts:?}");
+}
