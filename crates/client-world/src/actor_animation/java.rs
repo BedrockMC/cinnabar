@@ -34,7 +34,7 @@ pub(super) struct JavaMotionState {
     pub(super) motion: JavaMotion,
     equipped: Option<Arc<str>>,
     hurt_time: u8,
-    using: bool,
+    reset_equip: bool,
     chase: Option<[f64; 3]>,
 }
 
@@ -45,7 +45,6 @@ pub(super) struct JavaTick<'a> {
     pub(super) swinging: bool,
     pub(super) hurt_time: u8,
     pub(super) held: &'a Option<Arc<str>>,
-    pub(super) using: bool,
     pub(super) riding: bool,
     pub(super) vanilla_posture: bool,
     pub(super) position: [f32; 3],
@@ -89,7 +88,7 @@ impl JavaMotionState {
             },
             equipped: None,
             hurt_time: 0,
-            using: false,
+            reset_equip: false,
             chase: None,
         }
     }
@@ -126,11 +125,10 @@ impl JavaMotionState {
         }
         motion.body_yaw[1] = body;
 
-        // Starting a use lowers the item before this tick's rise.
-        if tick.using && !self.using {
+        // A placement lowers the item before this tick's rise.
+        if std::mem::take(&mut self.reset_equip) {
             motion.equip[1] = 0.0;
         }
-        self.using = tick.using;
         motion.equip[0] = motion.equip[1];
         let target = if self.equipped == *tick.held { 1.0 } else { 0.0 };
         motion.equip[1] += (target - motion.equip[1]).clamp(-EQUIP_STEP, EQUIP_STEP);
@@ -173,6 +171,10 @@ impl JavaMotionState {
         let [dx, _, dz] = tick.delta;
         let step = if walks { dx.hypot(dz) * WALK_PER_BLOCK } else { 0.0 };
         motion.walked = [motion.walked[1], motion.walked[1] + step];
+    }
+
+    pub(super) fn reset_equip(&mut self) {
+        self.reset_equip = true;
     }
 
     /// The item Java's first-person hand still draws while the equip dips.
@@ -307,7 +309,6 @@ mod tests {
             swinging: false,
             hurt_time: 0,
             held: &None,
-            using: false,
             riding: false,
             vanilla_posture: false,
             position: [0.0; 3],
@@ -368,7 +369,7 @@ mod tests {
         assert!((state.motion.body_yaw[1] - 12.0).abs() < 1e-4);
     }
 
-    /// The equip dips 0.4 a tick, adopts the new item below 0.1, and a use start drops to 0.
+    /// The equip dips 0.4 a tick, adopts the new item below 0.1, and a placement drops to 0.
     #[test]
     fn equip_dips_swaps_and_restarts_on_use() {
         let sword: Option<Arc<str>> = Some(Arc::from("minecraft:iron_sword"));
@@ -386,9 +387,9 @@ mod tests {
         for (height, expected) in heights.iter().zip(expected) {
             assert!((height - expected).abs() < 1e-6, "{heights:?}");
         }
+        state.reset_equip();
         state.advance(&JavaTick {
             held: &sword,
-            using: true,
             ..tick([0.0; 3], 0.0)
         });
         assert_eq!(state.motion.equip, [0.0, 0.4]);

@@ -153,7 +153,6 @@ pub(super) fn advance_motion(
         swinging: motion.attack_time() > 0.0,
         hurt_time: actor.status.hurt_time,
         held: &context.main_hand,
-        using: item_use_ticks > 0,
         riding: context.is_riding,
         vanilla_posture: swim_amount > 0.0
             || query::actor_flag(actor, query::FLAG_GLIDING)

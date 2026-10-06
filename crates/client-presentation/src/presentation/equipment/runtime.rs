@@ -127,6 +127,8 @@ pub struct EquipmentRuntime {
     poses: PoseMemo,
     attachables: client_world::AttachablesRuntime,
     attachable_meshes: BTreeMap<(bool, u32, Box<str>), EntityRigId>,
+    /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
+    java_rasters: BTreeMap<(bool, u32, Box<str>), Option<(bevy::math::Mat4, Arc<[RenderBoneTransform]>)>>,
 }
 
 impl EquipmentRuntime {
@@ -243,6 +245,7 @@ impl EquipmentRuntime {
         let runtime = Self {
             attachables: client_world::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
+            java_rasters: BTreeMap::new(),
             assets,
             icons,
             placements: atlas.placements,

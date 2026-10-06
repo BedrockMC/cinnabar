@@ -65,23 +65,28 @@ impl EquipmentRuntime {
         for (axis, scale) in model_scale.into_iter().enumerate() {
             parent.axis_scale[axis] *= scale;
         }
+        let key = (from_pack, geometry_index, texture.identifier.clone());
         // Java draws a raster attachable (the bow's pull frames) as its own flat item.
         let java = java_hand
             .filter(|_| super::java::java_draws_attachable(&item.identifier))
             .and_then(|hand| {
-                let (image_to_rig, pivots) = render_model::attachable_raster_frame(
-                    &assets,
-                    geometry_index as usize,
-                    texture,
-                )?;
+                let (image_to_rig, rest) = self
+                    .java_rasters
+                    .entry(key.clone())
+                    .or_insert_with(|| {
+                        let (image_to_rig, pivots) = render_model::attachable_raster_frame(
+                            &assets,
+                            geometry_index as usize,
+                            texture,
+                        )?;
+                        Some((image_to_rig, pivots.into_iter().map(super::java::rest_bone).collect()))
+                    })
+                    .clone()?;
                 let camera =
                     super::java::java_raster_camera(hand, image_to_rig, texture.width, texture.height);
-                camera.is_finite().then(|| {
-                    let rest = pivots.into_iter().map(super::java::rest_bone).collect();
-                    (camera, rest)
-                })
+                camera.is_finite().then_some((camera, rest))
             });
-        let (java_camera, placed) = match java {
+        let (java_camera, placed): (_, Arc<[RenderBoneTransform]>) = match java {
             Some((camera, rest)) => (Some(camera), rest),
             None => (
                 None,
@@ -93,10 +98,10 @@ impl EquipmentRuntime {
                         }
                         compose_parent(parent, *bone)
                     })
-                    .collect::<Option<Vec<_>>>()?,
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
             ),
         };
-        let key = (from_pack, geometry_index, texture.identifier.clone());
         let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
             *rig
         } else {
@@ -116,7 +121,7 @@ impl EquipmentRuntime {
                     LAYER_MAIN_HAND
                 },
                 rig,
-                [Arc::from(placed.clone()), Arc::from(placed)],
+                [Arc::clone(&placed), placed],
                 location,
                 0,
             ),
