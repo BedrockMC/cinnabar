@@ -1,3 +1,43 @@
+## Java 1.7 animations
+
+- Owner-mandated default, selected live from Video › Animations (persisted): Java 1.7 or
+  Bedrock. Saved toggle choices migrate without changing the selected mode. Rules and frame mapping:
+  [Java 1.7 animations](docs/reference/java-1-7-animations.md).
+- First person: Java's item stacks (swing; equip with the old item through the dip and the
+  re-equip after a placement; eat/drink; sword block with block-hitting; bow draw and pull
+  frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
+  biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
+  swing and the sneak drops; armour flashes red, held items do not.
+- Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
+  and uses the cape texture when present. Native controller blend composition stays intact.
+- Golden tests assert composed stacks and projected arm, item and cape points against Java's
+  calls.
+- Review corrections: local head sampling stays in the current render frame; cape and camera
+  motion use native velocity, health and riding state. Retained items keep their own use
+  clocks through swaps, authored first-person rigs retain ownership, and raster depth stays
+  one sixteenth at any texture size. Emote skin layers follow the sampled body pose.
+  Unchanged render layers sharing geometry retain their own completed pose allocations.
+- Focused regression suites and touched-crate checks pass. Windows/DX12 headless captures
+  exercise held-item swaps, use, both third-person views, cape motion and local emotes.
+- Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
+  none); held attachables Java never had, the third-person bow pull frames and cast-rod item
+  stay vanilla. Unclassified mounts retain ordinary player body yaw.
+- First-person items and the empty arm use Java's fixed directional lights and gamma-space
+  colour multiplication, including normal rescaling during bow stretch. World lightmap
+  colours still follow Bedrock; full-frame lighting parity remains open.
+- Living mount heading and active creative-flight cape phase now use their own observed
+  state, with regression witnesses for wraparound, live local look, dismounting, phase
+  freezing and walking resumption. Fixed Java 1.7.10 model/matrix fixtures and Windows
+  rendered motion checks validate the covered state product; full game-frame pixel
+  equality, lighting and the retained vanilla exceptions above are not asserted.
+  Local swing effects are live; remote swings retain the six-tick default.
+- Validation after integrating concurrent PR changes: 802 animation-suite tests pass,
+  touched-crate checks and the optimized Windows build pass with sccache. Native fixtures
+  cover 42 pose/transform states and 20 exact use clocks. Fresh hidden DX12 captures verify
+  flight-phase freezing/resumption, living/nonliving mounted views, yaw wraparound,
+  dismounting, item use/swaps, both third-person views and local emotes. Full-client pixel
+  and performance parity are not asserted.
+
 ## Compatibility landing
 
 - Education construction terrain restores allow, deny and all border wall states
@@ -5971,6 +6011,12 @@ orbit acceptance pass remains incomplete.
   including bare web domains, and require an in-game Open/Cancel prompt before
   handing a selected URL to the default browser. Chat messages and server packets
   are unchanged. This Java-style interaction is not a closed Bedrock parity gate.
+
+## Worn elytra glint acceptance
+
+Actor glint uses the vanilla raster, two centered UV rotations and independently
+wrapping scrolls. Exact 1.26.50 glint pixel comparison and enhanced graphics glint
+remain incomplete and do not close the rendering parity gate.
 
 ## Server primitive shapes
 

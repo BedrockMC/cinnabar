@@ -29,6 +29,35 @@ pub struct Move {
     pub strafe: f32,
 }
 
+/// Absolute pointer position in logical window pixels, measured from its top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Pointer {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Scroll distance follows Bevy's wheel sign: positive Y scrolls up.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Wheel {
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default)]
+    pub unit: WheelUnit,
+}
+
+/// Wheel distances are lines by default, or logical pixels for precise scrolling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WheelUnit {
+    #[default]
+    Line,
+    Pixel,
+}
+
 /// Synthetic input. Controls are vanilla binding names (`key.jump`, `key.hotbar.1`), Bevy
 /// key names as mods bind them (`Digit1`, `KeyF`, `F8`), or `MouseLeft`/`MouseRight`/...
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -50,10 +79,12 @@ pub struct InputCommand {
     /// Selects hotbar slot 1..=9 through its binding.
     pub hotbar: Option<u8>,
     pub look: Option<Look>,
-    /// Logical window coordinates; changes only the client's cached pointer.
+    /// Logical window coordinates; `pointer` takes precedence when both are supplied.
     pub cursor: Option<[f32; 2]>,
     /// Text delivered to the focused editor through keyboard messages.
     pub text: Option<String>,
+    pub pointer: Option<Pointer>,
+    pub wheel: Option<Wheel>,
     #[serde(default)]
     pub release_all: bool,
     /// Releases everything and hands the window back to the real keyboard and mouse.
@@ -120,6 +151,10 @@ pub enum Command {
     },
     CameraPath(CameraPath),
     CameraRelease,
+    /// Installs or removes an original local cape for animation captures.
+    TestCape {
+        enabled: bool,
+    },
     State,
     WaitFor {
         condition: Condition,

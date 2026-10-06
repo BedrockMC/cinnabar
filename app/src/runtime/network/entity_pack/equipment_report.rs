@@ -171,11 +171,13 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             input.armor[slot as usize] = Some(WornItem {
                 identifier: Arc::from(item.as_ref()),
                 metadata: 0,
+                damage: None,
                 kind: HeldKind::Other,
                 dye_rgb: None,
+                enchanted: false,
             });
             checked += 1;
-            let ok = runtime.layers_for(&body, &input).len() == 1;
+            let ok = runtime.layers_for(&body, &input, None).len() == 1;
             if !ok {
                 eprintln!("undrawn: {} {item} {slot:?}", path.display());
             }

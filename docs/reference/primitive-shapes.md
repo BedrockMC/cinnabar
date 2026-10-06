@@ -44,6 +44,11 @@ Text shares the existing nametag font rasterizer and its finite atlas capacity. 
 fit are omitted until a later atlas rebuild; this is an implementation resource bound, not a
 vanilla shape-count rule. Text over the protocol UI text bound is skipped and counted.
 
+Geometry instance arenas split into chunks within the device buffer and storage-binding limits,
+drawn one chunk at a time. Actor positions, text records and text shapes are indexed across
+draws, so each stays in one binding; slots past it are skipped and counted and their shapes stay
+hidden. This is an implementation resource bound, not a vanilla cap.
+
 The installed material asset corroborates the debug depth and blend states but is a nearby
 patch version; a version-matched material witness and visual comparison remain open.
 

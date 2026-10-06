@@ -84,7 +84,12 @@ impl ActorStore {
                 .filter(|_| self.local_first_person);
             let local_runtime = self.remote_state_excluded_runtime_id;
             let local_view_bobbing = self.local_view_bobbing;
+            let local_flying = self.local_flying;
             let local_hands = self.local_hands.clone();
+            let local_main_metadata = self.local_main_metadata;
+            let local_main_slot = self.local_main_slot;
+            let local_main_stack_id = self.local_main_stack_id;
+            let local_java_swing_ticks = self.local_java_swing_ticks;
             let view = self.animation_view.as_ref();
             let context = |actor: &ActorSnapshot| {
                 let lifetime = ActorLifetimeId {
@@ -115,6 +120,18 @@ impl ActorStore {
                         .is_some_and(|equipment| equipment.item.charged_projectile.is_some())
                 });
                 let main_hand = held(protocol::ActorHandedness::Right);
+                let main_hand_metadata = if is_local {
+                    local_main_metadata
+                } else {
+                    items
+                        .get_in_hand(lifetime, protocol::ActorHandedness::Right)
+                        .map_or(0, |equipment| {
+                            equipment
+                                .item
+                                .damage
+                                .unwrap_or(equipment.item.identity.metadata)
+                        })
+                };
                 let main_hand_max_use_ticks = main_hand
                     .as_deref()
                     .and_then(|identifier| items.max_use_ticks(identifier))
@@ -135,6 +152,27 @@ impl ActorStore {
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
                     main_hand,
+                    main_hand_metadata,
+                    main_hand_stack_id: if is_local {
+                        local_main_stack_id
+                    } else {
+                        items
+                            .get_in_hand(lifetime, protocol::ActorHandedness::Right)
+                            .map(|equipment| equipment.item.identity.stack_network_id)
+                            .filter(|id| *id > 0)
+                    },
+                    java_swing_ticks: if is_local {
+                        local_java_swing_ticks
+                    } else {
+                        crate::ACTOR_SWING_TICKS
+                    },
+                    main_hand_slot: if is_local {
+                        local_main_slot
+                    } else {
+                        items
+                            .get_in_hand(lifetime, protocol::ActorHandedness::Right)
+                            .map_or(0, |equipment| equipment.selected_slot)
+                    },
                     main_hand_max_use_ticks,
                     off_hand: held(protocol::ActorHandedness::Left),
                     ridden: rider_to_ridden
@@ -149,6 +187,8 @@ impl ActorStore {
                     attachable: None,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     view_bobbing: is_local.then_some(local_view_bobbing),
+                    is_local,
+                    is_flying: is_local && local_flying,
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,

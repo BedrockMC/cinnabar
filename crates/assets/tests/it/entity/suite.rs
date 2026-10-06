@@ -618,6 +618,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             transition_count: 1,
             on_entry: Some(0),
             on_exit: None,
+            ..Default::default()
         }]
         .into_boxed_slice(),
         controller_animations: vec![EntityControllerAnimation {

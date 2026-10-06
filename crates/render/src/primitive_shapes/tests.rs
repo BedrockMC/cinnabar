@@ -44,7 +44,7 @@ fn vanilla_mesh_counts_and_unit_geometry() {
 }
 
 /// Resolves production imports and feature branches before standalone shader validation.
-fn source(definitions: &[&str]) -> String {
+pub(super) fn source(definitions: &[&str]) -> String {
     let raw = shader(include_str!("shapes.wgsl"), "primitive test");
     let raw = raw.source.as_str().replace(
         "#import bevy_render::globals::Globals",
@@ -290,161 +290,147 @@ fn retained_renderer_has_zero_steady_work_and_changed_slot_bounded_churn() {
     assert!(world.resource::<gpu::ShapeGpu>().batches.is_empty());
 }
 
+/// Runs real GPU preparation with arena chunks limited to `chunk_bytes`.
+fn limited_prepare(chunk_bytes: u64) -> Option<(World, impl System<In = (), Out = ()>)> {
+    use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+    let native = crate::gpu_snapshot::Gpu::for_fixture("primitive arena binding limits")?;
+    let mut world = World::new();
+    let device = RenderDevice::from(native.device);
+    let limits = bevy::render::settings::WgpuLimits {
+        max_storage_buffer_binding_size: chunk_bytes as u32,
+        ..device.limits()
+    };
+    world.insert_resource(gpu::ShapeGpu::new(&device, &limits));
+    world.insert_resource(device);
+    world.insert_resource(RenderQueue(Arc::new(WgpuWrapper::new(native.queue))));
+    world.insert_resource(PrimitiveShapesScene::default());
+    let mut prepare = IntoSystem::into_system(gpu::prepare);
+    prepare.initialize(&mut world);
+    Some((world, prepare))
+}
+
+fn apply(world: &World, changes: Vec<render_api::primitive_shapes::PrimitiveShapeChange>) {
+    world
+        .resource::<PrimitiveShapesScene>()
+        .store
+        .lock()
+        .unwrap()
+        .apply(render_api::primitive_shapes::PrimitiveShapesEvent {
+            changes,
+            skipped_entries: 0,
+        });
+}
+
 #[test]
-fn primitive_text_material_modes_keep_depth_background_and_facing() {
-    use crate::gpu_snapshot::{Draw, Gpu, RasterState, SNAPSHOT_SIDE};
-    use render_model::primitive_shapes::PrimitiveTextRecord;
-    let Some(gpu) = Gpu::for_fixture("primitive text facing") else {
+fn arena_growth_partitions_at_the_storage_binding_limit() {
+    let Some((mut world, mut prepare)) = limited_prepare(4 * gpu::INSTANCE_BYTES) else {
         return;
     };
-    let mut shape = PrimitiveState::new(PrimitiveShapeKind::Text).instance(u32::MAX);
-    shape.color = [1.0, 0.0, 0.0, 1.0];
-    shape.transform[3][2] = 0.5;
-    let view = gpu.buffer(
-        &crate::gpu_snapshot::view(Mat4::IDENTITY, Vec3::new(0.0, 0.0, 5.0)),
-        wgpu::BufferUsages::UNIFORM,
+    apply(
+        &world,
+        (0..10).map(|id| line_update(id, id as f32)).collect(),
     );
-    let shapes = gpu.words(bytemuck::cast_slice(&[shape]), wgpu::BufferUsages::STORAGE);
-    let frame = gpu.words(&[0, 0, 100.0_f32.to_bits(), 0], wgpu::BufferUsages::UNIFORM);
-    let globals = gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM);
-    let actors = gpu.words(&[0; 4], wgpu::BufferUsages::STORAGE);
-    let atlas = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    gpu.queue.write_texture(
-        atlas.as_image_copy(),
-        &[255; 4],
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4),
-            rows_per_image: Some(1),
-        },
-        atlas.size(),
-    );
-    let atlas_view = atlas.create_view(&default());
-    let sampler = gpu.device.create_sampler(&default());
-    for (mode, flags, glyph, shown) in [
-        (1, 0, false, true),
-        (1, 1, false, false),
-        (1, 0, true, false),
-        (2, 0, true, true),
-        (2, 1, true, false),
-        (2, 0, false, false),
-        (3, 1, false, true),
-        (3, 0, false, false),
-        (3, 1, true, false),
-        (4, 1, true, true),
-        (4, 0, true, false),
-        (4, 1, false, false),
-        (2, 8, true, false),
-        (2, 8 | 2, true, false),
-        (2, 8 | 4, true, true),
-        (1, 8, false, false),
-        (1, 8 | 4, false, false),
-        (1, 8 | 2, false, true),
-    ] {
-        let material = pipeline::test_material(mode);
-        let fragment = material.fragment.as_ref().unwrap();
-        // `#ifdef` checks registered names, including definitions whose boolean value is false.
-        let definitions: Vec<&str> = material
-            .vertex
-            .shader_defs
+    prepare.run((), &mut world).unwrap();
+    let sizes = |world: &World| -> Vec<u64> {
+        world.resource::<gpu::ShapeGpu>().batches[0]
+            .slots
+            .chunks
             .iter()
-            .chain(&fragment.shader_defs)
-            .map(|value| match value {
-                bevy::shader::ShaderDefVal::Bool(name, _)
-                | bevy::shader::ShaderDefVal::Int(name, _)
-                | bevy::shader::ShaderDefVal::UInt(name, _) => name.as_str(),
-            })
-            .collect();
-        let depth = material.depth_stencil.as_ref().unwrap();
-        let record = PrimitiveTextRecord {
-            rect: [-20.0, -20.0, 20.0, 20.0],
-            uv: if glyph {
-                [0.0, 0.0, 1.0, 1.0]
-            } else {
-                [0.0, 0.0, -1.0, -1.0]
-            },
-            color: if glyph {
-                [1.0; 4]
-            } else {
-                [0.0, 0.0, 1.0, 1.0]
-            },
-            meta: [0, 1, flags, 0],
-        };
-        let text = gpu.words(bytemuck::cast_slice(&[record]), wgpu::BufferUsages::STORAGE);
-        let bindings = [
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: view.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: shapes.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: frame.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: globals.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: actors.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: text.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(&atlas_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(&sampler),
-            },
-        ];
-        let pixels = gpu.render_with_state(
-            &source(&definitions),
-            "text_vertex",
-            &[Draw {
-                fragment: "shape_fragment",
-                vertices: 0..6,
-                bindings: &bindings,
-                blend: fragment.targets[0].as_ref().unwrap().blend,
-                write_depth: depth.depth_write_enabled,
-            }],
-            RasterState {
-                primitive: material.primitive,
-                depth_compare: depth.depth_compare,
-                ..default()
-            },
-        );
-        let center = ((SNAPSHOT_SIDE / 2) * SNAPSHOT_SIDE + SNAPSHOT_SIDE / 2) as usize * 4;
-        let color = if glyph {
-            [255, 0, 0, 255]
-        } else {
-            [0, 0, 255, 255]
-        };
-        assert_eq!(
-            pixels[center..center + 4] == color,
-            shown,
-            "mode {mode}, flags {flags}, glyph {glyph}, pixel {:?}",
-            &pixels[center..center + 4]
-        );
-    }
+            .map(|chunk| chunk.size() / gpu::INSTANCE_BYTES)
+            .collect()
+    };
+    assert_eq!(sizes(&world), [4, 4, 2]);
+    let first = world.resource::<gpu::ShapeGpu>().work;
+    assert_eq!(first.bytes, 10 * gpu::INSTANCE_BYTES);
+    prepare.run((), &mut world).unwrap();
+    assert_eq!(world.resource::<gpu::ShapeGpu>().work, first);
+
+    apply(&world, (3..5).map(|id| line_update(id, 0.5)).collect());
+    prepare.run((), &mut world).unwrap();
+    let crossed = world.resource::<gpu::ShapeGpu>().work;
+    assert_eq!(crossed.bytes - first.bytes, 2 * gpu::INSTANCE_BYTES);
+    assert_eq!(crossed.uploads - first.uploads, 2);
+
+    apply(
+        &world,
+        (10..13).map(|id| line_update(id, id as f32)).collect(),
+    );
+    prepare.run((), &mut world).unwrap();
+    assert_eq!(sizes(&world), [4, 4, 4, 1]);
+    let grown = world.resource::<gpu::ShapeGpu>().work;
+    assert_eq!(grown.bytes - crossed.bytes, 3 * gpu::INSTANCE_BYTES);
+    let batch = &world.resource::<gpu::ShapeGpu>().batches[0];
+    assert_eq!(batch.slots.chunk_len(3, batch.instances as usize), 1);
+    assert_eq!(grown.skipped_slots, 0);
+}
+
+#[test]
+fn cross_referenced_arena_stays_in_one_binding_and_counts_excess() {
+    let actor_slots = 4;
+    let Some((mut world, mut prepare)) = limited_prepare(actor_slots * gpu::ACTOR_BYTES) else {
+        return;
+    };
+    let attached = (0..6)
+        .map(|id| match line_update(id, 0.0) {
+            render_api::primitive_shapes::PrimitiveShapeChange::Upsert(mut update) => {
+                update.attached_actor = Some(id as i64);
+                render_api::primitive_shapes::PrimitiveShapeChange::Upsert(update)
+            }
+            other => other,
+        })
+        .collect();
+    apply(&world, attached);
+    world
+        .resource::<PrimitiveShapesScene>()
+        .store
+        .lock()
+        .unwrap()
+        .update_actors(|id| Some([id as f32, 0.0, 0.0]));
+    prepare.run((), &mut world).unwrap();
+    let gpu = world.resource::<gpu::ShapeGpu>();
+    assert_eq!(gpu.actors.chunks.len(), 1);
+    assert!(gpu.actors.chunks[0].size() <= actor_slots * gpu::ACTOR_BYTES);
+    assert_eq!(gpu.work.skipped_slots, 2);
+}
+
+/// Unchanged frames with retained bind groups must not allocate.
+#[test]
+fn retained_bind_groups_allocate_nothing() {
+    use bevy::{
+        diagnostic::FrameCount,
+        ecs::system::RunSystemOnce,
+        render::{
+            globals::GlobalsBuffer,
+            renderer::{RenderDevice, RenderQueue},
+            view::{ViewUniforms, prepare_view_uniforms},
+        },
+    };
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ViewUniforms>();
+    world.init_resource::<FrameCount>();
+    world.run_system_once(prepare_view_uniforms).unwrap();
+    let device = world.resource::<RenderDevice>().clone();
+    let mut globals = GlobalsBuffer::default();
+    globals
+        .buffer
+        .write_buffer(&device, world.resource::<RenderQueue>());
+    world.insert_resource(globals);
+    world.insert_resource(gpu::ShapeGpu::new(&device, &device.limits()));
+    world.insert_resource(PrimitiveShapesScene::default());
+    world.init_resource::<pipeline::ShapePipeline>();
+    apply(world, vec![line_update(0, 0.0)]);
+    world.run_system_once(gpu::prepare).unwrap();
+    let mut bind = IntoSystem::into_system(pipeline::prepare_bind_groups);
+    bind.initialize(world);
+    bind.run((), world).unwrap();
+    assert_eq!(
+        world.resource::<gpu::ShapeGpu>().batches[0]
+            .bind_groups
+            .len(),
+        1
+    );
+    let before = crate::alloc_count::thread_allocations();
+    bind.run((), world).unwrap();
+    assert_eq!(crate::alloc_count::thread_allocations() - before, 0);
 }

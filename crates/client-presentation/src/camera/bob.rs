@@ -178,7 +178,7 @@ impl HandSwayState {
     }
 }
 
-fn shortest_degrees(delta: f32) -> f32 {
+pub(super) fn shortest_degrees(delta: f32) -> f32 {
     (delta + 180.0).rem_euclid(360.0) - 180.0
 }
 

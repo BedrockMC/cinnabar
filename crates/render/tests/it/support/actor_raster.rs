@@ -253,6 +253,16 @@ pub(super) fn raster_material_lighting(
             resource: atmosphere.as_entire_binding(),
         },
     ];
+    let glint_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut bindings = bindings.to_vec();
+    bindings.push(wgpu::BindGroupEntry {
+        binding: 12,
+        resource: wgpu::BindingResource::TextureView(&glint_view),
+    });
+    bindings.push(wgpu::BindGroupEntry {
+        binding: 13,
+        resource: wgpu::BindingResource::Sampler(&sampler),
+    });
     let draws = [Draw {
         fragment: "actor_fragment",
         vertices: 0..vertices.len() as u32,
