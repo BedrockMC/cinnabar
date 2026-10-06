@@ -1,6 +1,6 @@
-use super::tests::{compiled_fixture, owner_rig, scalar};
+//! Attachables worn on the body rather than held.
+
 use super::*;
-use assets::*;
 
 #[test]
 fn worn_attachables_read_owner_movement_delta_for_glide_wings() {

@@ -901,8 +901,6 @@ fn demote_ui_semantic_rejection(error: ProtocolError) -> ProtocolError {
 }
 
 #[cfg(test)]
-mod blob_cache_ingress_tests;
-#[cfg(test)]
 mod block_event_tests;
 #[cfg(test)]
 mod dimension_ingress_tests;
@@ -936,3 +934,6 @@ mod credits_ingress_tests;
 
 #[cfg(test)]
 mod block_sync_tests;
+
+#[cfg(test)]
+mod primitive_shapes_ingress_tests;
