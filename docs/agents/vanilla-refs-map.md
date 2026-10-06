@@ -801,6 +801,10 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/meshing/tests/it/support/liquid_contacts.rs
 - // BlockType with Air, not its opacity. Deferred model 1 instead compares material;
 
+## crates/pack-compiler/src/animation.rs
+- /// Overlay-mask sources (grass sides) use the TextureAtlas::updateTextureAtUVs /
+- /// _buildAtlasMips byte-space box mips, as every vanilla atlas tile does.
+
 ## crates/pack-compiler/src/compiler/lily_pad_textures.rs
 - // TextureAtlas::updateTextureAtUVs multiplies RGB only.
 
