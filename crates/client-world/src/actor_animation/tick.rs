@@ -1,6 +1,10 @@
 use super::{query::FLAG_BABY, *};
 use assets::EntityControllerAnimationTarget;
 
+#[cfg(test)]
+#[path = "tick_cape_tests.rs"]
+mod cape_tests;
+
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ActorTickContext {
@@ -183,11 +187,15 @@ pub(super) fn advance_motion(
             || query::actor_flag(actor, query::FLAG_EMOTING)
             || actor.is_sleeping(),
         position: actor.position,
-        velocity: actor.velocity,
+        velocity: actor.native_velocity(),
         on_ground: actor.on_ground.unwrap_or(false),
+        alive: !actor.status.dead
+            && actor
+                .attributes
+                .get("minecraft:health")
+                .is_none_or(|health| health.current > 0.0),
         sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
         flying: context.is_flying,
-        dead: actor.status.dead,
         local: context.is_local,
     });
     if state.history.len() == MAX_ACTOR_ACTION_HISTORY {

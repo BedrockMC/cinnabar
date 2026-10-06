@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use bevy::math::{Mat4, Vec3};
+use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
 use client_world::{ActorRigSnapshot, ActorSnapshot, BoneTransform, JavaHeldItem, SkinRenderLayer};
 use render_model::{
@@ -13,12 +13,12 @@ use render_model::{
     },
 };
 
-use super::hand::{HandSource, item_atlas};
+use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_hand_source};
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, lerp_degrees, wrap_degrees},
     equipment::{
-        ActorEquipmentInput, EquipmentRuntime, FirstPersonArms, WornItem, java_draws_attachable,
-        remote_input,
+        ActorEquipmentInput, EquipmentRuntime, FirstPersonArms, FirstPersonHand, WornItem,
+        java_draws_attachable, remote_input,
     },
 };
 
@@ -35,11 +35,12 @@ const MODEL_LIFT_PIXELS: f32 = 0.125;
 /// Java's use of the main-hand `item` at the frame, from the use flag's tick count.
 pub(super) fn java_use(
     item: &str,
+    selected: Option<&str>,
     use_ticks: u32,
     consume_ticks: Option<u32>,
     alpha: f32,
 ) -> Option<JavaUse> {
-    if use_ticks == 0 {
+    if selected != Some(item) || use_ticks == 0 {
         return None;
     }
     let ticks = use_ticks as f32;
@@ -71,6 +72,7 @@ pub(super) fn java_bow_frame(use_ticks: u32) -> u32 {
 pub(super) fn first_person_hand(
     rig: &ActorRigSnapshot<'_>,
     main: Option<&str>,
+    selected: Option<&str>,
     consume_ticks: Option<u32>,
     alpha: f32,
 ) -> JavaHand {
@@ -78,7 +80,8 @@ pub(super) fn first_person_hand(
     JavaHand {
         swing: rig.java.swing_progress(alpha),
         equip: previous + (current - previous) * alpha,
-        using: main.and_then(|item| java_use(item, rig.hand[1].use_ticks, consume_ticks, alpha)),
+        using: main
+            .and_then(|item| java_use(item, selected, rig.hand[1].use_ticks, consume_ticks, alpha)),
     }
 }
 
@@ -151,7 +154,9 @@ pub(super) fn third_person<'a>(
     local: Option<&ActorEquipmentInput>,
     alpha: f32,
 ) -> Option<ThirdPerson<'a>> {
-    if rig.java.vanilla_posture {
+    if rig.java.vanilla_posture
+        || render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0))
+    {
         return None;
     }
     let java_rig = ActorRigSnapshot {
@@ -169,6 +174,7 @@ pub(super) fn third_person<'a>(
         actor,
         main.as_deref(),
         alpha,
+        local.is_some(),
     ));
     let parts = [0, 1, 2, 3, 4, 5];
     let bones = retargeted(stream, &java_rig, &pose, &parts, alpha)?;
@@ -246,24 +252,46 @@ fn death_tilt(mut rows: [[f32; 4]; 3], native_progress: f32, death_ticks: f32) -
     rows
 }
 
+/// Reapplies death rotation after local visibility rebuilds the world transform.
+pub(super) fn local_death_tilt(
+    rows: [[f32; 4]; 3],
+    native_progress: Option<f32>,
+    java_ticks: Option<f32>,
+) -> [[f32; 4]; 3] {
+    let tilted = crate::presentation::actors::death_tilted(rows, native_progress);
+    match (native_progress, java_ticks) {
+        (Some(progress), Some(ticks)) => death_tilt(tilted, progress, ticks),
+        _ => tilted,
+    }
+}
+
 /// Java's pose inputs at the frame for a player holding `main_hand`.
 fn third_person_input(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     main_hand: Option<&str>,
     alpha: f32,
+    local: bool,
 ) -> JavaBipedInput {
     let motion = rig.java;
     let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;
     let body_yaw = lerp_degrees(motion.body_yaw[0], motion.body_yaw[1], alpha);
-    let head_yaw = lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha);
+    // Local look arrives every frame; current actor angles advance only at fixed ticks.
+    let (head_yaw, head_pitch) = if local {
+        (actor.received_pose.head_yaw, actor.received_pose.pitch)
+    } else {
+        (
+            lerp_degrees(actor.previous_pose.head_yaw, actor.head_yaw, alpha),
+            lerp([actor.previous_pose.pitch, actor.pitch]),
+        )
+    };
     let using = actor.is_using_item();
     JavaBipedInput {
         limb_swing: motion.limb_swing[1] - motion.limb_amount[1] * (1.0 - alpha),
         limb_amount: lerp(motion.limb_amount).min(1.0),
         age: actor.status.age_ticks as f32 + alpha,
         head_yaw: wrap_degrees(head_yaw - body_yaw),
-        head_pitch: lerp([actor.previous_pose.pitch, actor.pitch]),
+        head_pitch,
         swing: rig.java.swing_progress(alpha),
         sneaking: actor.is_sneaking(),
         riding: motion.riding,
@@ -289,18 +317,6 @@ pub(super) fn lift(world_from_actor: &mut [[f32; 4]; 3], sneaking: bool, local: 
             REMOTE_SNEAK_DROP
         };
     }
-}
-
-/// What Java's first-person hand reads this frame.
-pub(super) struct HandInputs<'a> {
-    pub(super) stream: &'a WorldStream,
-    pub(super) presentation: ActorRigPresentation,
-    pub(super) equipment_input: &'a ActorEquipmentInput,
-    pub(super) consume_ticks: Option<u32>,
-    pub(super) item_animation: Option<client_world::AttachableAnimationInput<'static>>,
-    pub(super) alpha: f32,
-    pub(super) artwork: &'a render::ActorArtworkPages,
-    pub(super) motion: Mat4,
 }
 
 type ArmKey = (client_world::ActorLifetimeId, u32, u64);
@@ -360,8 +376,8 @@ fn vanilla_draws(
         || off.is_some_and(map)
 }
 
-/// Java's first-person hand for `equipment_input`, whose main hand is the displayed stack:
-/// the item it still draws through an equip dip, or its empty arm. `None` leaves vanilla's hand.
+/// Retains the drawn stack through Java's dip while authored player rigs keep their whole hand.
+/// Attachables read the selected owner's use timing only after their retained stack is adopted.
 pub(super) fn hand_source(
     inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
@@ -371,36 +387,71 @@ pub(super) fn hand_source(
         stream,
         presentation,
         equipment_input,
+        owner_equipment,
         consume_ticks,
         item_animation,
         alpha,
         artwork,
         motion,
+        ..
     } = inputs;
     let runtime_id = presentation.submission.input.identity.runtime_id;
     let rig = stream.authority().actor_rig(runtime_id)?;
-    let main = equipment_input.main.clone();
+    if render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0)) {
+        return None;
+    }
+    let main = cache.displayed_main(rig.java_equipped, equipment_input.main.as_ref());
+    let selected = owner_equipment
+        .main
+        .as_ref()
+        .filter(|item| rig.java_equipped.is_some_and(|held| is_held(item, held)))
+        .map(|item| item.identifier.as_ref());
+    let retained = main.as_ref().map(|item| item.identifier.as_ref());
+    let hand = first_person_hand(&rig, retained, selected, consume_ticks, alpha);
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |identifier| {
         equipment.is_vanilla_attachable(identifier)
     }) {
-        return None;
+        let retained_equipment = ActorEquipmentInput {
+            main: main.clone(),
+            ..equipment_input.clone()
+        };
+        let progress = FirstPersonHand {
+            swing: hand.swing,
+            equip: hand.equip,
+            consume: hand_progress(
+                rig.hand,
+                consume_ticks.filter(|_| retained == selected),
+                alpha,
+            )
+            .consume,
+        };
+        return vanilla_hand_source(
+            HandInputs {
+                stream,
+                presentation,
+                equipment_input: &retained_equipment,
+                owner_equipment,
+                consume_ticks,
+                item_animation,
+                alpha,
+                artwork,
+                motion,
+            },
+            equipment,
+            progress,
+        );
     }
-    let hand = first_person_hand(
-        &rig,
-        main.as_ref().map(|item| item.identifier.as_ref()),
-        consume_ticks,
-        alpha,
-    );
     let body_pose = &presentation.submission;
     let main_layer = main.as_ref().and_then(|item| {
-        let attachable = java_draws_attachable(&item.identifier).then(|| {
-            let mut input = item_animation?;
-            input.frame_alpha = alpha;
-            input.animation_frame = java_bow_frame(rig.hand[1].use_ticks);
-            let input = equipment_input.attachable_input(input.for_hand(false));
-            let actor = stream.authority().actor(runtime_id)?;
-            equipment.first_person_attachable(body_pose, item, actor, &rig, input, Some(hand))
-        });
+        let attachable =
+            (retained == selected && java_draws_attachable(&item.identifier)).then(|| {
+                let mut input = item_animation?;
+                input.frame_alpha = alpha;
+                input.animation_frame = java_bow_frame(rig.hand[1].use_ticks);
+                let input = equipment_input.attachable_input(input.for_hand(false));
+                let actor = stream.authority().actor(runtime_id)?;
+                equipment.first_person_attachable(body_pose, item, actor, &rig, input, Some(hand))
+            });
         let layer = attachable
             .flatten()
             .or_else(|| equipment.first_person_java_item(body_pose, item, hand))?;
@@ -410,7 +461,8 @@ pub(super) fn hand_source(
     let off_layer = equipment_input.off.as_ref().and_then(|item| {
         let attachable = item_animation.and_then(|mut input| {
             input.frame_alpha = alpha;
-            let input = equipment_input.attachable_input(input.for_hand(true));
+            let input =
+                super::hand::attachable_hand_input(equipment_input, owner_equipment, input, true);
             let actor = stream.authority().actor(runtime_id)?;
             equipment.first_person_attachable(body_pose, item, actor, &rig, input, None)
         });
@@ -456,150 +508,4 @@ pub(super) fn hand_source(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Draw and eat timing count from the first using tick, a tick behind the frame.
-    #[test]
-    fn use_timing_maps_java_counts() {
-        assert_eq!(java_use("minecraft:apple", 0, Some(32), 0.5), None);
-        assert_eq!(
-            java_use("minecraft:bow", 1, None, 0.25),
-            Some(JavaUse::Bow { pull: -0.75 })
-        );
-        assert_eq!(
-            java_use("minecraft:apple", 3, Some(32), 0.5),
-            Some(JavaUse::Consume {
-                remaining: 30.5,
-                duration: 32.0
-            })
-        );
-        assert_eq!(
-            java_use("minecraft:iron_sword", 1, None, 0.0),
-            Some(JavaUse::Block)
-        );
-        assert_eq!(java_use("minecraft:stick", 4, None, 0.0), None);
-    }
-
-    #[test]
-    fn bow_frames_follow_java_draw_thresholds() {
-        let frames = [0, 1, 2, 14, 15, 18, 19, 40].map(java_bow_frame);
-        assert_eq!(frames, [0, 0, 1, 1, 2, 2, 3, 3]);
-    }
-
-    /// A head-only skin layer takes the head target and skips the parts it lacks.
-    #[test]
-    fn partial_layers_skip_missing_parts() {
-        let names = [Box::from("head")];
-        let rest = [BoneTransform {
-            rotation: [0.0, 0.0, 0.0, 1.0],
-            translation_scale: [0.0, 24.0, 0.0, 1.0],
-            axis_scale: [1.0; 3],
-        }];
-        let pose = java::java_biped(&JavaBipedInput::default());
-        let parts = [0, 1, 2, 3, 4, 5];
-        assert!(targets(&names, &rest, &pose, &parts, true).unwrap()[0].is_some());
-        assert!(targets(&names, &rest, &pose, &parts, false).is_none());
-    }
-
-    /// Builds a sprite stack for the hand transition tests.
-    fn worn(identifier: &str) -> WornItem {
-        WornItem {
-            identifier: Arc::from(identifier),
-            metadata: 0,
-            damage: None,
-            kind: crate::presentation::equipment::HeldKind::Sprite,
-            dye_rgb: None,
-        }
-    }
-
-    /// Extracts the identity that the equip animation retains.
-    fn held(item: &WornItem) -> JavaHeldItem {
-        JavaHeldItem {
-            identifier: Arc::clone(&item.identifier),
-            metadata: item.damage.unwrap_or(item.metadata),
-            stack_id: None,
-        }
-    }
-
-    /// Between a Java item and one only vanilla draws, the old item stays in its own hand
-    /// until the dip's bottom, in both directions.
-    #[test]
-    fn mixed_swaps_change_hands_at_the_bottom_of_the_dip() {
-        const CROSSBOW: &str = "minecraft:crossbow";
-        const SHIELD: &str = "minecraft:shield";
-        let vanilla = |identifier: &str| matches!(identifier, CROSSBOW | SHIELD);
-        let id = |item: Option<WornItem>| item.map(|item| item.identifier);
-        for (old, new) in [
-            ("minecraft:iron_sword", CROSSBOW),
-            (CROSSBOW, "minecraft:iron_sword"),
-            ("minecraft:iron_sword", SHIELD),
-            (SHIELD, "minecraft:iron_sword"),
-        ] {
-            let (old, new) = (worn(old), worn(new));
-            let cache = HandCache {
-                shown: Some(old.clone()),
-                ..HandCache::default()
-            };
-            let dipping = cache.displayed_main(Some(&held(&old)), Some(&new));
-            assert_eq!(
-                vanilla_draws(dipping.as_ref(), None, vanilla),
-                vanilla(&old.identifier)
-            );
-            assert_eq!(id(dipping), Some(Arc::clone(&old.identifier)));
-            let adopted = cache.displayed_main(Some(&held(&new)), Some(&new));
-            assert_eq!(
-                vanilla_draws(adopted.as_ref(), None, vanilla),
-                vanilla(&new.identifier)
-            );
-            assert_eq!(id(adopted), Some(Arc::clone(&new.identifier)));
-        }
-    }
-
-    /// Two data values of one item are different stacks to the dip.
-    #[test]
-    fn displayed_stack_keeps_its_data_value_through_the_dip() {
-        let water = worn("minecraft:potion");
-        let healing = WornItem {
-            metadata: 21,
-            ..worn("minecraft:potion")
-        };
-        let cache = HandCache {
-            shown: Some(water.clone()),
-            ..HandCache::default()
-        };
-        let shown = cache.displayed_main(Some(&held(&water)), Some(&healing));
-        assert_eq!(shown.map(|item| item.metadata), Some(0));
-    }
-
-    /// Java's body reaches its side during the fourteenth tick, while the native curve is still falling.
-    #[test]
-    fn death_body_reaches_java_angle_without_moving_its_feet() {
-        use crate::presentation::actors::death_tilted;
-        let base = [
-            [1.0, 0.0, 0.0, 3.0],
-            [0.0, 1.0, 0.0, 64.0],
-            [0.0, 0.0, 1.0, 5.0],
-        ];
-        for ticks in [1.0_f32, 5.5, 13.5, 20.0] {
-            let native = ticks / f32::from(client_world::DEATH_DURATION_TICKS);
-            let rows = death_tilt(death_tilted(base, Some(native)), native, ticks);
-            let angle = (((ticks - 1.0) / 20.0 * 1.6).sqrt().min(1.0) * 90.0).to_radians();
-            assert!((rows[0][0] - angle.cos()).abs() < 1e-6);
-            assert!((rows[1][0] - angle.sin()).abs() < 1e-6);
-            assert_eq!([rows[0][3], rows[1][3], rows[2][3]], [3.0, 64.0, 5.0]);
-        }
-    }
-
-    #[test]
-    fn third_person_lift_and_sneak_drop() {
-        let mut rows = [
-            [-1.0, 0.0, 0.0, 5.0],
-            [0.0, 0.9375, 0.0, 64.0],
-            [0.0, 0.0, -1.0, 2.0],
-        ];
-        lift(&mut rows, true, false);
-        assert!((rows[1][3] - (64.0 + 0.9375 / 128.0 - 0.125)).abs() < 1e-6);
-        assert_eq!(rows[0][3], 5.0);
-    }
-}
+mod tests;

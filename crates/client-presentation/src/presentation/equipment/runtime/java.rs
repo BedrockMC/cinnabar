@@ -85,21 +85,15 @@ impl EquipmentRuntime {
         true
     }
 
-    /// Whether vanilla draws this item through a held attachable Java never had (crossbow,
-    /// trident, shield, spyglass); Java's hand leaves those to vanilla.
+    /// Authored pack attachables and held items Java never had keep their own hand animation.
     pub fn is_vanilla_attachable(&self, identifier: &str) -> bool {
-        !java_draws_attachable(identifier)
-            && self
-                .binding_source(identifier)
-                .and_then(|(catalog, _)| {
-                    catalog.binding(identifier).map(|binding| {
-                        matches!(
-                            binding.category,
-                            EquipmentCategory::Held | EquipmentCategory::Shield
-                        )
-                    })
-                })
-                .unwrap_or(false)
+        self.binding_source(identifier)
+            .and_then(|(catalog, from_pack)| {
+                catalog
+                    .binding(identifier)
+                    .map(|binding| keep_authored_hand(identifier, binding.category, from_pack))
+            })
+            .unwrap_or(false)
     }
 
     /// The main-hand item placed by Java's first-person stack in camera space.
@@ -144,10 +138,32 @@ pub fn java_draws_attachable(identifier: &str) -> bool {
     identifier == BOW
 }
 
+/// Server-pack attachables own their hand poses, including replacements for Java's bow.
+fn keep_authored_hand(identifier: &str, category: EquipmentCategory, from_pack: bool) -> bool {
+    matches!(
+        category,
+        EquipmentCategory::Held | EquipmentCategory::Shield
+    ) && (from_pack || !java_draws_attachable(identifier))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use bevy::math::{Vec3, Vec4};
+
+    #[test]
+    fn pack_bow_keeps_its_authored_hand_while_vanilla_bow_uses_java() {
+        assert!(keep_authored_hand(BOW, EquipmentCategory::Held, true));
+        assert!(!keep_authored_hand(BOW, EquipmentCategory::Held, false));
+        for item in ["minecraft:crossbow", "minecraft:trident"] {
+            assert!(keep_authored_hand(item, EquipmentCategory::Held, false));
+        }
+        assert!(keep_authored_hand(
+            "minecraft:shield",
+            EquipmentCategory::Shield,
+            false
+        ));
+    }
 
     /// The raster camera undoes the image placement before Java's slab mapping.
     #[test]
