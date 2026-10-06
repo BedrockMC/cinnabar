@@ -72,7 +72,18 @@ pub use blob_cache::{
 };
 pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use boss::boss_registration_response;
-pub use camera::*;
+pub use camera::{
+    CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
+    CameraAimAssistExclusions, CameraAimAssistItemSetting, CameraAimAssistPreset,
+    CameraAimAssistPresetSettings, CameraAimAssistPriorities, CameraAimAssistPriority,
+    CameraAimAssistRegistry, CameraAimAssistSettings, CameraAimAssistTargetMode, CameraEase,
+    CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes, CameraFovInstruction,
+    CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
+    CameraShakeEvent, CameraShakeType, CameraSpline, CameraSplineInstruction, CameraSplineKind,
+    CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame, CameraSwitchEvent,
+    CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
+    MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
+};
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
