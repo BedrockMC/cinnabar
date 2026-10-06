@@ -97,6 +97,14 @@ func (m *Manager) setState(state State) {
 	m.changed = make(chan struct{})
 }
 
+// Running reports the open world while its server runs, and a channel closed on the next
+// lifecycle change.
+func (m *Manager) Running() (world World, running bool, changed <-chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.world, m.state == StateRunning, m.changed
+}
+
 func (m *Manager) idleLocked() {
 	m.world, m.inst, m.paused, m.failure, m.cancelStart = World{}, nil, false, "", nil
 	m.setState(StateIdle)

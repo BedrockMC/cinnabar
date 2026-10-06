@@ -67,6 +67,9 @@ pub struct MenuRealmCard {
 /// Marks a featured address as an experience's ID, joined when selected.
 pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
 
+/// Marks an address as the friend world hosted by this XUID.
+pub const FRIEND_ADDRESS_PREFIX: &str = "friend_xuid/";
+
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
     !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)

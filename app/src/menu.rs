@@ -626,7 +626,11 @@ impl MenuRuntime {
                         self.message =
                             Some("That friend world has no stable Xbox identity.".to_owned());
                     } else {
-                        self.request_connect(format!("friend_xuid/{}", friend.xuid));
+                        self.request_connect(format!(
+                            "{}{}",
+                            launcher::menu::FRIEND_ADDRESS_PREFIX,
+                            friend.xuid
+                        ));
                     }
                 }
             }
