@@ -2,6 +2,8 @@
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
 pub mod book_screen;
 pub mod chat_coordinates;
+mod chat_link_dialog;
+mod chat_links;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
