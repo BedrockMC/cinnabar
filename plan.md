@@ -1,3 +1,17 @@
+## Java 1.7 animations
+
+- Owner-mandated default, toggled live from Video › Java 1.7 Animations (persisted); off is the
+  vanilla path. Rules and the Java-to-rig frame mapping: [Java 1.7 animations](docs/reference/java-1-7-animations.md).
+- First person: Java's item stacks (swing, equip with the old item through the dip, eat/drink,
+  sword block with block-hitting, bow draw and pull frames, rods), the empty-hand arm, view bob,
+  hurt roll and arm sway. Third person: Java's biped pose, body yaw, limb swing with the hurt
+  flail, held-item grips and the remote sneak drop; armour flashes red, held items do not.
+- Golden tests assert composed stacks and projected arm and item points against Java's calls.
+- Incomplete: swimming, crawling, gliding, sleeping and emoting stay vanilla (Java 1.7 has
+  none); held attachables Java never had, the third-person bow pull frames, cape physics and
+  first-person item lighting are vanilla; headless frame captures are in the PR, native
+  side-by-side comparison with Java 1.7.10 is pending.
+
 ## Entity shadows
 
 - Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it

@@ -27,6 +27,7 @@ pub(crate) struct ActorObservations<'w> {
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
     item_use: Option<Res<'w, crate::item_use::ItemUseRuntime>>,
+    input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
     cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
@@ -51,6 +52,7 @@ pub(crate) fn prepare_actor_render_frame(
         ui_presentation,
         collisions,
         item_use,
+        input,
         movement,
         cave,
         time,
@@ -60,10 +62,30 @@ pub(crate) fn prepare_actor_render_frame(
         .as_deref()
         .map(|profiler| profiler.time(render::RuntimeStage::ActorPublication));
     let stream = world.stream.as_ref();
-    let local_use = stream.zip(ui.as_deref()).zip(item_use.as_deref()).map_or(
-        client_world::LocalItemUse::Unpredicted,
-        |((stream, ui), item_use)| item_use.local_item_use(&player, stream, ui),
-    );
+    let local_equipment = stream.map_or_else(Default::default, |stream| {
+        client_presentation::presentation::equipment::local_input(
+            &player,
+            stream,
+            ui.as_deref(),
+            stream.local_player_runtime_id(),
+        )
+    });
+    // Java blocks with a sword while use is held; Bedrock never flags that use.
+    let java_block = settings.feel().java_animations
+        && input
+            .as_deref()
+            .is_some_and(|input| input.phase(semantic_input::Action::Use).held)
+        && local_equipment.main.as_ref().is_some_and(|item| {
+            render_model::java_animation::is_java_sword(&item.identifier)
+        });
+    let local_use = if java_block {
+        client_world::LocalItemUse::Using
+    } else {
+        stream.zip(ui.as_deref()).zip(item_use.as_deref()).map_or(
+            client_world::LocalItemUse::Unpredicted,
+            |((stream, ui), item_use)| item_use.local_item_use(&player, stream, ui),
+        )
+    };
     let input = ActorFrameInput {
         local_feed: client_presentation::actor_feed::build_local_player_feed(
             &*physics,
@@ -76,14 +98,7 @@ pub(crate) fn prepare_actor_render_frame(
         ),
         predicted_eye: physics.render_eye_position(),
         predicted_feet: physics.render_feet_position(),
-        local_equipment: stream.map_or_else(Default::default, |stream| {
-            client_presentation::presentation::equipment::local_input(
-                &player,
-                stream,
-                ui.as_deref(),
-                stream.local_player_runtime_id(),
-            )
-        }),
+        local_equipment,
         // Consume only while a stream exists, as the prior publisher did.
         swing_started: stream.and_then(|_| {
             swings

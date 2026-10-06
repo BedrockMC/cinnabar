@@ -13,6 +13,7 @@ impl EquipmentRuntime {
         owner: &ActorSnapshot,
         owner_rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
+        java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
         let (catalog, from_pack) = self.binding_source(&item.identifier)?;
         let assets = if from_pack {
@@ -64,16 +65,37 @@ impl EquipmentRuntime {
         for (axis, scale) in model_scale.into_iter().enumerate() {
             parent.axis_scale[axis] *= scale;
         }
-        let placed = pose
-            .iter()
-            .enumerate()
-            .map(|(index, bone)| {
-                if hidden.contains(&(index as u32)) {
-                    return Some(hidden_bone());
-                }
-                compose_parent(parent, *bone)
-            })
-            .collect::<Option<Vec<_>>>()?;
+        // Java draws a raster attachable (the bow's pull frames) as its own flat item.
+        let java = java_hand
+            .filter(|_| super::java::java_draws_attachable(&item.identifier))
+            .and_then(|hand| {
+                let (image_to_rig, pivots) = render_model::attachable_raster_frame(
+                    &assets,
+                    geometry_index as usize,
+                    texture,
+                )?;
+                let camera =
+                    super::java::java_raster_camera(hand, image_to_rig, texture.width, texture.height);
+                camera.is_finite().then(|| {
+                    let rest = pivots.into_iter().map(super::java::rest_bone).collect();
+                    (camera, rest)
+                })
+            });
+        let (java_camera, placed) = match java {
+            Some((camera, rest)) => (Some(camera), rest),
+            None => (
+                None,
+                pose.iter()
+                    .enumerate()
+                    .map(|(index, bone)| {
+                        if hidden.contains(&(index as u32)) {
+                            return Some(hidden_bone());
+                        }
+                        compose_parent(parent, *bone)
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+        };
         let key = (from_pack, geometry_index, texture.identifier.clone());
         let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
             *rig
@@ -98,8 +120,9 @@ impl EquipmentRuntime {
                 location,
                 0,
             ),
-            camera_space: false,
+            camera_space: java_camera.is_some(),
             alpha_mode: render::HandItemAlphaMode::Cutout,
+            java_camera,
         })
     }
 }

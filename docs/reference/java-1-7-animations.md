@@ -1,0 +1,55 @@
+# Java 1.7 animations
+
+Owner-mandated default, switchable to vanilla Bedrock with Video › Java 1.7 Animations (live, persisted). With the toggle off every path is the vanilla one. Code: `render-model::java_animation` (pose and matrix stacks), `client-world` `actor_animation/java.rs` (tick motion, retargeting), `client-presentation` `actor_publication/java.rs`, `camera/java.rs` and `equipment/runtime/java.rs`.
+
+## Frame mapping
+
+Every Java stack is evaluated in Java's own frame and carried into ours by one fixed conversion per frame pair; no pose has its own correction.
+
+| Java frame | Our frame | Conversion |
+| --- | --- | --- |
+| Hand pass eye space: blocks, +X right, +Y up, -Z ahead, 70° vertical FOV (never the FOV setting) | Hand pass camera space, 70° vertical | Identity |
+| Model space: pixels, Y down, origin at the neck 24 px above the feet, drawn under `scale(-1,-1,1)` | Rig frame: blocks, Y up from the feet, X mirrored | `rig = T(0, 24/16, 0) · S(-1,-1,1) · java / 16` |
+| Part angles, applied Z·Y·X about the rotation point | Bone rotation in the rig frame | `S·Rz(z)Ry(y)Rx(x)·S = Rz(z)·Ry(-y)·Rx(-x)` with `S = S(-1,-1,1)` |
+| Rotation point | Bone translation (pixels) | rig rest pivot `+ S·(point - rest point)`, so slim or custom pivots keep their offsets |
+| World: `T(pos)·Ry(180-yaw)·S(-1,-1,1)·S(0.9375)·T(0,-1.5078125)` | `rig_world_from_actor(pos, yaw, 0.9375)` | Ours `· T(0, 1/128, 0)` (Java's 1/128 lift) |
+| Arm `postRender` frame for held items | Right-arm bone frame | `S(-1,-1,1)`, then less the hand bone's rest offset from the arm |
+| Flat item slab: x = 1 - u, y = 1 - v, z in [-1/16, 0] | Held sprite slab, x = -u | `T(1, 0, 0)` |
+| Item cube: quarter turn, then `T(-0.5)` on the unit cube | Centred unit cube | `Ry(90°)` |
+| Flat item slab | Raster attachable (bow pull frames): image column, depth, row | `(c, d, r) → (1 - c/w, 1 - r/h, -d/16)` |
+
+The empty hand's camera matrix is Java's stack times `rig⁻¹`, with the arm bone at Java's rest pose (rotation point (-5, 2, 0), angles (0, 0, 0.1 rad)). Golden tests project Java's arm-box corners and item texels through Java's own GL calls (an f64 stack emulator) and through our rig, bone and mesh, and assert the same screen pixels at 854×480.
+
+## Java 1.7 animation rules
+
+Trig uses Java's 65536-entry sine table (angle × 10430.378, truncated, masked). Matrix calls read in call order, each post-multiplying. `s` is swing progress, `e` equip progress, both interpolated to the frame.
+
+| Rule | Behaviour |
+| --- | --- |
+| Swing timing | 6 ticks; Haste `6 - (1 + amp)`, Mining Fatigue `6 + 2(1 + amp)`; restarts only past its first half; the frame value wraps forward from 5/6 to 1. |
+| Equip | Moves 0.4 a tick toward 1 (same item) or 0; the new item is adopted below 0.1, and the old item stays drawn until then. Starting a use drops it to 0 before that tick's rise. |
+| Use counts | Java's in-use count is `duration - use_ticks + 1` for our consecutive using ticks. Eat/drink reads `count - frame + 1`; bow draw is `duration - that`, so `use_ticks - 2 + frame`. |
+| First-person prefix | Eat/drink raise, or (not in use) `T(-0.4·sin(√s·π), 0.2·sin(2√s·π), -0.2·sin(s·π))`; then `T(0.56, -0.52 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(-20·sin(s²π))`, `Rz(-20·sin(√s·π))`, `Rx(-80·sin(√s·π))`, `S(0.4)`. In use there is no swing translate, so block-hitting keeps only the swing turns. |
+| Eat/drink raise | `t` as above, `r = 1 - t/duration`, `k = 1 - (1 - r)^27`: `T(0, |0.1·cos(t/4·π)|` when `r > 0.2`, `0)`, `T(0.6k, -0.5k, 0)`, `Ry(90k)`, `Rx(10k)`, `Rz(30k)`. |
+| Sword block | After the scale: `T(-0.5, 0.2, 0)`, `Ry(30)`, `Rx(-80)`, `Ry(60)`. |
+| Bow | `Rz(-18)`, `Ry(-12)`, `Rx(-8)`, `T(-0.9, 0.2, 0)`; `d = min((p²/400 + p/10)/3, 1)`; shake `T(0, 0.01·sin(1.3(p - 0.1))·(d - 0.1), 0)` past `d = 0.1`; `T(0, 0, 0.1d)`, `Rz(-335)`, `Ry(-50)`, `T(0, 0.5, 0)`, `S(1, 1, 1 + 0.2d)`, `T(0, -0.5, 0)`, `Ry(50)`, `Rz(335)`. Pull frames: standby, then frames 0/1/2 after more than 0, 13 and from 18 whole draw ticks. |
+| Rods | Fishing rods and on-a-stick items turn `Ry(180)` before drawing. |
+| Flat item draw | `T(0, -0.3, 0)`, `S(1.5)`, `Ry(50)`, `Rz(335)`, `T(-0.9375, -0.0625, 0)` onto the unit slab. Cubes take only the quarter turn. |
+| Empty hand | `T(-0.3·sin(√s·π), 0.4·sin(2√s·π), -0.4·sin(s·π))`, `T(0.64, -0.6 - 0.6(1 - e), -0.72)`, `Ry(45)`, `Ry(70·sin(√s·π))`, `Rz(-20·sin(s²π))`, `T(-1, 3.6, 3.5)`, `Rz(120)`, `Rx(200)`, `Ry(-135)`, `T(5.6, 0, 0)`. Java draws the arm only with an empty hand. |
+| Hand motion | Hurt roll, then view bob, then sway `Rx(0.1·(pitch - armPitch))`, `Ry(0.1·(yaw - armYaw))`; the arm angles move halfway to the look each tick and sway is always on. |
+| View bob | Walk phase `w = -(d + (d - d_prev)·frame)` (one tick ahead); `T(0.5·sin(wπ)·b, -|cos(wπ)·b|, 0)`, `Rz(3·sin(wπ)·b)`, `Rx(5·|cos(wπ - 0.2)·b|)`, `Rx(fall)`. `d += 0.6` per block walked (not flying, riding or sneaking on the ground); `b` eases 40% a tick to the capped 0.1 horizontal speed on the ground; `fall` eases 80% to `15·atan(-0.2·vy)` in the air. |
+| Hurt roll | `Rz(-14·sin(h⁴π))`, `h` the hurt time left over 10 ticks; never a direction. |
+| Limbs | Amount eases 40% a tick to `min(4·step, 1)` and the swing accumulates it; a hurt sets the amount to 1.5. The frame reads `swing - amount·(1 - frame)` and the clamped interpolated amount. |
+| Body yaw | Turns 30% toward the walk direction (moving more than 0.05 blocks a tick) or the look while swinging; head lag clamps to ±75, and past 50 degrees the body is pulled a fifth of the lag back. |
+| Pose | Arms `X = cos(0.6662·limb (+π right))·amount`, legs `1.4·` the opposite; riding `-36°` arms, `-72°`/`±18°` legs; holding `X·0.5 - 18°·n` (n = 1, 3 blocking); attack `body Y = 0.2·sin(2π√s)` with the arm points circling the body and the right arm lifted by `1.2·sin(π(1 - (1 - s)⁴)) - 0.75·sin(sπ)·(head X - 0.7)`, `Z = -0.4·sin(sπ)`; sneak body 0.5 rad, arms +0.4, legs at (y 9, z 4), head y 1 (otherwise legs z 0.1); idle `Z ±= 0.05·cos(0.09·age) + 0.05`, `X ±= 0.05·sin(0.067·age)`; bow aim arms `X = -90° + head X`, `Y = -0.1/+0.5 + head Y`. Parts are separate: the head and arms do not follow the body. |
+| Third-person grips | After `T(-1/16, 7/16, 1/16)`: cube `T(0, 0.1875, -0.3125)`, `Rx(20)`, `Ry(45)`, `S(-0.375, -0.375, 0.375)`; bow `T(0, 0.125, 0.3125)`, `Ry(-20)`, `S(0.625, -0.625, 0.625)`, `Rx(-100)`, `Ry(45)`; tools (swords, pickaxes, axes, shovels, hoes, sticks, bones, rods) rods first `Rz(180)`, `T(0, -0.125, 0)`, blocking `T(0.05, 0, -0.1)`, `Ry(-50)`, `Rx(-10)`, `Rz(-60)`, then `T(0, 0.1875, 0)`, `S(0.625, -0.625, 0.625)`, `Rx(-100)`, `Ry(45)`; other items `T(0.25, 0.1875, -0.1875)`, `S(0.375)`, `Rz(60)`, `Rx(-90)`, `Rz(20)`. |
+| Placement | Other players draw 0.125 lower while sneaking. The red hurt flash covers body and armour but not held items. |
+| Blocking trigger | A sword with the using flag; locally, holding use with a sword, since Bedrock never flags that use. |
+
+## Kept vanilla or left out
+
+- Swimming, crawling, gliding, sleeping and emoting keep vanilla poses: Java 1.7 has none.
+- Maps, crossbows, tridents, shields, spyglasses and other held attachables keep vanilla's first-person hand; off-hand items keep vanilla placement on Java's arm.
+- Cape physics, first-person item lighting, the third-person bow pull frames, the cast rod drawn as a stick, the local sneak model drop and the death camera roll are not Java's.
+- Java's first-person arm can inherit another player's riding pose through a shared model; that bug is not reproduced. Skins keep their outer layers and slim arms (Java 1.7 had neither).
+- No hurt particles: Java 1.7 has none tied to the animation.

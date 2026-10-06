@@ -33,7 +33,7 @@ const FLAG_QUERIES: [(&str, u32); 57] = [
     ("is_eating_mob", 102),
     ("is_elder", 33),
     ("is_emerging", 104),
-    ("is_emoting", 92),
+    ("is_emoting", FLAG_EMOTING),
     ("is_gliding", FLAG_GLIDING),
     // Reads the eating flag; needs independent measurement against grazing animals.
     ("is_grazing", 63),
@@ -76,6 +76,7 @@ pub(super) use crate::actor_store::FLAG_BABY;
 pub(super) const FLAG_BLOCKING: u32 = 72;
 pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
 pub(super) const FLAG_GLIDING: u32 = 32;
+pub(super) const FLAG_EMOTING: u32 = 92;
 const FLAG_ANGRY: u32 = 25;
 const FLAG_TAMED: u32 = 28;
 

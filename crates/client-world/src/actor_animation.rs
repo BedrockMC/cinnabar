@@ -81,6 +81,10 @@ pub struct ActorRigSnapshot<'a> {
     pub off_hand_animation: [ItemAnimationState; 2],
     /// The owner's retained Molang values and lifetime for animated equipment.
     pub animation_variables: ActorAnimationVariables<'a>,
+    /// Java 1.7 limb swing, body yaw and equip progress over the last two ticks.
+    pub java: JavaMotion,
+    /// The main-hand item Java's first-person hand still draws while the equip dips.
+    pub java_equipped: Option<&'a Arc<str>>,
 }
 
 /// The arm's swing and equip progress over one tick, as the first-person item reads them.
@@ -235,6 +239,7 @@ struct ActorRigState {
     /// Outside the animation view at its last tick, holding its pose.
     culled: bool,
     motion: MotionState,
+    java: java::JavaMotionState,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -579,7 +584,26 @@ impl ActorAnimationStore {
                 &state.variables,
                 state.completed_tick.saturating_sub(state.lifetime_epoch),
             ),
+            java: state.java.motion,
+            java_equipped: state.java.equipped(),
         })
+    }
+
+    /// The rig's pose at `alpha` with `targets` replacing their joints in model space.
+    pub(crate) fn retargeted_pose(
+        &self,
+        runtime_id: u64,
+        alpha: f32,
+        targets: &[Option<BoneTransform>],
+    ) -> Option<Vec<BoneTransform>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        java::retarget(
+            state.posed_bones(),
+            &state.previous,
+            &state.current,
+            alpha.clamp(0.0, 1.0),
+            targets,
+        )
     }
 
     fn bump_generation(&mut self) {
@@ -645,6 +669,8 @@ mod evaluation;
 mod geometry;
 mod horse;
 mod hud;
+mod java;
+pub use java::JavaMotion;
 mod motion;
 mod pose;
 mod query;

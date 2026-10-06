@@ -24,6 +24,9 @@ pub struct SettingDefinition {
     pub default: i32,
 }
 
+/// Caption of the Video toggle between Java 1.7 and vanilla player animations.
+pub const JAVA_ANIMATIONS_LABEL: &str = "Java 1.7 Animations";
+
 /// Defines one boolean binding with an integral persisted value.
 const fn toggle(name: &'static str, label: &'static str, default: bool) -> SettingDefinition {
     SettingDefinition {
@@ -234,6 +237,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     ),
     toggle("ingame_player_names", "options.ingamePlayerNames", true),
     toggle("view_bobbing", "options.viewBobbing", true),
+    toggle("java_animations", JAVA_ANIMATIONS_LABEL, true),
     toggle("camera_shake", "options.screenShake", true),
     toggle("transparent_leaves", "options.transparentleaves", true),
     toggle("bubble_particles", "options.bubbleparticles", true),

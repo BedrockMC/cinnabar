@@ -2174,3 +2174,15 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
+
+## crates/render-model/src/java_animation.rs (Java Edition 1.7.10, MCP names)
+- `java_biped`: ModelBiped.setRotationAngles; `rig_bone`/`rig_from_java_model`: ModelRenderer.render under RendererLivingEntity.doRender's scale(-1,-1,1) and 0.9375 scale.
+- `first_person_item`/`first_person_arm`: ItemRenderer.renderItemInFirstPerson and RenderPlayer.renderFirstPersonArm; `draw_item`: ItemRenderer.renderItem, renderItemIn2D, RenderBlocks.renderBlockAsItem.
+- `third_person_item`: RenderPlayer.renderEquippedItems; item classes from ItemSword, ItemTool, ItemHoe, ItemFishingRod, ItemCarrotOnAStick, Item.setFull3D.
+
+## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
+- Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
+
+## crates/client-presentation/src/camera/java.rs (Java Edition 1.7.10)
+- EntityRenderer.setupViewBobbing and hurtCameraEffect; EntityPlayer.onLivingUpdate cameraYaw/cameraPitch; EntityPlayerSP renderArmPitch/renderArmYaw.

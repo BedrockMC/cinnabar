@@ -160,6 +160,7 @@ pub(super) fn resolve_binding(
         clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
+        java: super::java::JavaMotionState::spawn(actor.body_yaw),
         motion,
     })
 }

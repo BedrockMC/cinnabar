@@ -19,6 +19,7 @@ use render_model::{
 
 mod alpha;
 mod diagnostics;
+mod java;
 mod modern;
 mod pack;
 mod push;
@@ -26,9 +27,10 @@ mod session;
 mod types;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
+pub use java::java_draws_attachable;
 pub use types::{
     ActorEquipmentInput, EquipmentPresentation, FirstPersonArms, FirstPersonItem, HeldKind,
-    WornItem,
+    JavaGrip, WornItem,
 };
 use types::{ArmorGeometry, BodyBones, ElytraStance, MeshKey};
 
@@ -53,6 +55,7 @@ fn body_bones(names: Vec<Box<str>>) -> BodyBones {
             .position(|name| name.eq_ignore_ascii_case(wanted))
     };
     BodyBones {
+        right_arm: find("rightArm"),
         right_item: find("rightItem"),
         left_item: find("leftItem"),
         head: find("head"),
@@ -306,9 +309,21 @@ impl EquipmentRuntime {
         ] {
             let Some(item) = item else { continue };
             let before = layers.len();
-            self.push_held(body, item, layer, bone, &mut layers);
+            match input.java.filter(|_| layer == LAYER_MAIN_HAND) {
+                Some(grip) => {
+                    if !self.push_attachable(body, item, layer, bone, false, &mut layers) {
+                        self.push_java_held(body, item, &bones, grip, &mut layers);
+                    }
+                }
+                None => self.push_held(body, item, layer, bone, &mut layers),
+            }
             if layers.len() == before {
                 self.note_missing_layer(item, None, bone);
+            } else if input.java.is_some() {
+                // Java draws held items after its red hurt flash.
+                for held in &mut layers[before..] {
+                    held.submission.overlay_rgba8 = 0;
+                }
             }
         }
         let slots = [
@@ -447,6 +462,7 @@ impl EquipmentRuntime {
             presentation: layer_presentation(body, LAYER_MAIN_HAND, mesh, poses, location, 0),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
         })
     }
 
@@ -478,6 +494,7 @@ impl EquipmentRuntime {
             presentation: layer_presentation(body, LAYER_OFF_HAND, mesh, poses, location, 0),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            java_camera: None,
         })
     }
 

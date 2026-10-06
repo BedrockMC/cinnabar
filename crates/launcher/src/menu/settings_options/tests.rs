@@ -294,3 +294,14 @@ fn vsync_defaults_on_and_persists_into_runtime_settings() {
     let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
     assert!(legacy.user_settings().video.vsync);
 }
+
+#[test]
+fn java_animations_default_on_and_persist_into_runtime_settings() {
+    let mut settings = SettingsOptions::default();
+    assert!(settings.user_settings().video.java_animations);
+    settings.set(index("java_animations"), 0);
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(!loaded.user_settings().video.java_animations);
+    let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(legacy.user_settings().video.java_animations);
+}
