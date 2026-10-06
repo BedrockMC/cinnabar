@@ -15,14 +15,10 @@ const (
 )
 
 // Search renders the store's search page for q.Term, or continues an earlier search from
-// q.Continuation; offers are marked owned from the inventory.
+// q.Continuation; offers are marked owned from the inventory. The service sets the page size.
 func (c *Client) Search(ctx context.Context, q SearchQuery) (SearchResults, error) {
 	if err := q.Validate(); err != nil {
 		return SearchResults{}, err
-	}
-	limit := q.Count
-	if limit == 0 {
-		limit = maxSearchOffers
 	}
 	var items []marketplace.Item
 	var next string
@@ -50,7 +46,7 @@ func (c *Client) Search(ctx context.Context, q SearchQuery) (SearchResults, erro
 		}
 	}
 	out := SearchResults{}
-	out.Offers, out.Truncated = c.offers(items, limit)
+	out.Offers, out.Truncated = c.offers(items, maxSearchOffers)
 	if ValidContinuation(next) {
 		out.Continuation = next
 	}
@@ -81,6 +77,9 @@ func (c *Client) Offer(ctx context.Context, id string) (OfferDetail, error) {
 	}
 	if purchase := page.Component(marketplace.ComponentPurchaseInfo); purchase != nil && purchase.Price != nil {
 		offer.Prices = []Price{priceOf(purchase.Price)}
+	}
+	if rating := page.Component(marketplace.ComponentRating); rating != nil && rating.Rating != nil && rating.Rating.TotalCount > 0 {
+		offer.Rating = &Rating{Average: rating.Rating.Average, Count: rating.Rating.TotalCount}
 	}
 	offer.Owned = c.owned(offer.ID)
 	detail := OfferDetail{Offer: offer}

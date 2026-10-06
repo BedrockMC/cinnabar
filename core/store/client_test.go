@@ -173,7 +173,8 @@ const (
  "creatorName":"Studio","packIdentity":[{"type":"worldtemplate","uuid":"u","version":"1.0.2"}],"tags":[{"name":"Castle"}]}},
  {"type":"purchaseInfoComp","price":{"listPrice":660,"currencyId":"mc"}}]},
 {"controlId":"ItemDescription","components":[{"type":"itemDescriptionComp","description":"A castle."}]},
-{"controlId":"ImageGallery","components":[{"type":"imageGalleryComp","images":[{"type":"Unknown","url":"https://cdn.example.test/s0.jpg"},{"url":"http://insecure.test/s.jpg"}]}]}]}]}}`
+{"controlId":"ImageGallery","components":[{"type":"imageGalleryComp","images":[{"type":"Unknown","url":"https://cdn.example.test/s0.jpg"},{"url":"http://insecure.test/s.jpg"}]}]},
+{"controlId":"RatingRow","components":[{"type":"ratingComp","rating":{"average":4.0,"totalCount":102}}]}]}]}}`
 )
 
 // Search renders the store's search page and continues it through row continuation; offers are
@@ -210,7 +211,8 @@ func TestSearchAndOfferUseTheStoreLayoutPages(t *testing.T) {
 	}
 	detail, err := client.Offer(context.Background(), "aaaaaaaa-0000-0000-0000-000000000001")
 	if err != nil || !detail.Owned || detail.Description != "A castle." || detail.Prices[0] != (Price{"mc", 660}) ||
-		len(detail.ScreenshotURLs) != 1 || detail.DisplayVersion != "1.0.2" || detail.Tags[0] != "Castle" {
+		len(detail.ScreenshotURLs) != 1 || detail.DisplayVersion != "1.0.2" || detail.Tags[0] != "Castle" ||
+		detail.Rating == nil || detail.Rating.Count != 102 {
 		t.Fatalf("detail = %+v err = %v", detail, err)
 	}
 }
