@@ -12,6 +12,9 @@ pub struct RenderTextureLayer {
     pub material_state: Option<assets::EntityRenderMaterialState>,
     /// Entity-catalog source index of the raster.
     pub source: u32,
+    /// Position among its controller layer's textures; a material samples later slots in the
+    /// first slot's draw.
+    pub texture_slot: u16,
     /// Additional samplers of the witnessed native three-texture material, not extra draws.
     pub multitexture: Option<[u32; 2]>,
     /// Multiplies the texture; white when the controller sets no colour.
@@ -333,11 +336,12 @@ pub(super) fn evaluate_render(
         } else {
             selected_sources.len()
         };
-        for &source in selected_sources.iter().take(count) {
+        for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
             output.push(RenderTextureLayer {
                 material: layer.material,
                 material_state: layer.material_state,
                 source,
+                texture_slot: texture_slot as u16,
                 multitexture: grouped,
                 color: tint,
                 overlay,

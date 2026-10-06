@@ -309,6 +309,12 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
     atmosphere[16..19].copy_from_slice(&fog.map(linear));
     atmosphere[20] = 100.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
+    // The fragment reads instance words and the glint image only for glint materials.
+    let instance = gpu.buffer(
+        &[0.0; render::ACTOR_GPU_INSTANCE_WORDS],
+        wgpu::BufferUsages::STORAGE,
+    );
+    let glint = gpu.blank_texture_view();
     let mut failures = Vec::new();
     for case in cases() {
         let table = table(case);
@@ -338,6 +344,10 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
                 resource: view.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
+                binding: 1,
+                resource: instance.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
                 binding: 6,
                 resource: wgpu::BindingResource::TextureView(&skin),
             },
@@ -360,6 +370,14 @@ fn actual_actor_fragment_matches_native_colour_lightmap_and_material_order() {
             wgpu::BindGroupEntry {
                 binding: 11,
                 resource: wgpu::BindingResource::TextureView(&skin),
+            },
+            wgpu::BindGroupEntry {
+                binding: 12,
+                resource: wgpu::BindingResource::TextureView(&glint),
+            },
+            wgpu::BindGroupEntry {
+                binding: 13,
+                resource: wgpu::BindingResource::Sampler(&sampler),
             },
             wgpu::BindGroupEntry {
                 binding: 20,

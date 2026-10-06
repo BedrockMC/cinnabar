@@ -218,6 +218,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 transition_count: 1,
                 on_entry: None,
                 on_exit: None,
+                ..Default::default()
             },
             EntityControllerState {
                 name: 1,
@@ -227,6 +228,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                 transition_count: 0,
                 on_entry: None,
                 on_exit: None,
+                ..Default::default()
             },
         ]
         .into_boxed_slice(),

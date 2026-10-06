@@ -5,6 +5,7 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
     let (mut app, _) = fixture_app();
     let mut feed = client_world::LocalPlayerFeed {
         uuid: [7; 16],
+        prefer_client_skin: false,
         username: "CurrentLocalPlayer".into(),
         skin: protocol::PlayerSkin::Standard(protocol::StandardSkin {
             geometry: None,
@@ -21,6 +22,11 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        main_hand_metadata: 0,
+        main_hand_slot: 0,
+        main_hand_stack_id: None,
+        java_swing_ticks: client_world::ACTOR_SWING_TICKS,
+        flying: false,
         teleported: false,
         first_person: true,
         view_bobbing: true,

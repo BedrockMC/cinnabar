@@ -2283,6 +2283,74 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Decorated-pot GUI (`0x06c81c90`) uses translation `(8,9,-10)`, scale `10`, pitch `-150°`, yaw `-45°`. The base constructor (`0x01e87a10`) supplies the 8×3×8 neck with inflation `-0.1`, 6×1×6 lip with inflation `0.2`, and two 14px body planes at heights 16 and 0; the side constructor (`0x01e88410`) supplies 14×16 side panels. The shared centered authoring bounds retain neck heights 14–17 and lip heights 16–17 before inflation.
 - Lectern shape `0x73` is registered by current `BlockGraphics::initBlocks` (`0x069f19a0`); inventory tessellation (`0x06aab610`, case `0x73`) uses the default north-facing state and invokes the same lectern tessellator (`0x06a72cc0`) as the placed model. Its native dimensions, four-direction board transform table (`0x150285160`), and texture rotations/crops (`0x150286280`–`0x1502862b0`) define the shared 18 faces: 16×2×16 base, 8×12×8 post, and 15.8×4×13 sloped board. Board pitch is `-22.5°` for north, centered pixel pivot `(0,7,-1)` and offset `(0,1.05,1)`.
 - Lectern post front/back uses an 8×13 crop rotated by a quarter turn; the board top uses rows 1–14. Face orientation was checked against the current generic up/north/south tessellators (`0x06a0f830`, `0x06a11a00`, `0x06a13c30`), pivot rotation helper (`0x062fa300`), and transformed vertex emission (`0x062f7760`). The pinned `textures/blocks/lectern_{base,front,sides,top}` files supply those pixels.
+## crates/render-model/src/java_animation.rs (Java Edition 1.7.10, MCP names)
+- `java_biped`: ModelBiped.setRotationAngles; `rig_bone`/`rig_from_java_model`: ModelRenderer.render under RendererLivingEntity.doRender's scale(-1,-1,1) and 0.9375 scale.
+- `first_person_item`/`first_person_arm`: ItemRenderer.renderItemInFirstPerson and RenderPlayer.renderFirstPersonArm; `draw_item`: ItemRenderer.renderItem, renderItemIn2D, RenderBlocks.renderBlockAsItem.
+- `third_person_item`: RenderPlayer.renderEquippedItems; `java_cape_angles`/`java_cape_bone`: its cape block (field_71091_bM chase, cameraYaw, distanceWalkedModified) and ModelBiped.bipedCloak; item classes from ItemSword, ItemTool, ItemHoe, ItemFishingRod, ItemCarrotOnAStick, Item.setFull3D.
+- Executed primary witness for `java_animation/reference_tests.rs` and its numeric fixtures: official 1.7.10 client jar at `https://launcher.mojang.com/v1/objects/e80d9b3bf5085002218d4be59e668bac718abbc6/client.jar`, SHA-1 `e80d9b3bf5085002218d4be59e668bac718abbc6`, version metadata `https://piston-meta.mojang.com/v1/packages/ed5d8789ed29872ea2ef1c348302b0c55e3f3468/1.7.10.json`. Scratch harness is outside git in `../java-native-reference/validation/src/{NativeHarness,SliceHarness}.java`.
+- `NativeHarness` invokes unchanged `bhm.a(FFFFFFLsa;)V` (ModelBiped.setRotationAngles) reflectively, recording original `bix` pivots/angles for standing, walking, sneaking, riding, blocking, bow use, .37 attack, wrapped look and combined sneak/riding/use states. It then invokes unchanged ModelRenderer render routines in a hidden LWJGL 2.9.1 Pbuffer. Readback/contact sheet stays outside git. Runtime: JRE 8u504, AMD Radeon RX 9060 XT, OpenGL 4.6 compatibility profile `25.10.30.02.250923`.
+- `SliceHarness` retains original arithmetic, constants, branches and MathHelper calls from `bop.a(Lblg;F)V`'s cape stack, `bly.a(F)V`'s ordinary and empty-arm stacks and `bly.a(Lsv;Ladd;I)V`'s sprite draw suffix. Snapshot holder fields/query methods replace live player/item lookups; texture binds and draw endpoints become actual GL modelview capture. No arithmetic is rewritten. Numeric `cape.json`, `hand.json` and `arm.json` are column-major GL outputs before Cinnabar frame conversion. This validates fixed-state native transforms, not full-client gameplay, textures or lighting.
+- `actor_publication/java/clock_tests.rs` records the actual FSTORE values in the same original `bly.a(F)V` slice for 16 bow and four consumption clock states. Bow uses the unchanged 72000-duration subtraction; consumption uses integer itemInUseCount, then float subtraction of partialTicks and addition of 1. Instrumentation observes the result without rewriting those arithmetic instructions. Private `validation/out/bow-clock.json` records the float bits; no primary artifact or harness is committed.
+
+## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
+- Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
+- Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
+- Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
+
+## crates/client-presentation/src/actor_publication/java/mounted.rs (Java Edition 1.7.10)
+- RendererLivingEntity.doRender's EntityLivingBase ridingEntity branch interpolates the mount's renderYawOffset, wraps and clamps head lag to ±85°, and pulls the displayed body by a fifth beyond 50°. RenderPlayer.renderEquippedItems cape code independently reads the player's original renderYawOffset.
+- Fixed body/head/pitch/relative-angle outputs in java/fixtures/mounted.json were executed from the official RendererLivingEntity bytecode with field owners rebound to fixed snapshots; arithmetic and branches remained unchanged. ActorSnapshot's mount species predicate intentionally recognizes only players and known built-in rideable living species, rather than inferring EntityLivingBase from optional health attributes.
+
+## crates/client-presentation/src/camera/java.rs (Java Edition 1.7.10)
+- EntityRenderer.setupViewBobbing and hurtCameraEffect; EntityPlayer.onLivingUpdate cameraYaw/cameraPitch (health gates and float/double cast order); EntityPlayer.updateRidden; Entity.moveEntity walked-distance cast order; EntityPlayerSP renderArmPitch/renderArmYaw.
+- `camera/java/reference_tests.rs` numeric fixtures execute the same primary jar's `blt.g(F)V` bob, `blt.f(F)V` live hurt stack with zero unavailable attack direction, and `bly.a(F)V` arm sway slice through `SliceHarness`. Only snapshot queries and renderer endpoints are substituted; actual OpenGL stacks are captured. Idle/walking/airborne bob, middle/end hurt and positive/negative hand sway states are covered.
+- Mounted yaw fixtures in `actor_publication/java/fixtures` execute the original `boh.a(Lsv;DDDFF)V` body/head interpolation and living-mount clamp block, including its unchanged private interpolation helper bytecode and `qh.g(F)F` wrap. Recorded cases exercise wrapped interpolation and both ±85° clamp extremes (resulting ±68° head/body offset).
+- Java camera sneak height: EntityPlayerSP.onLivingUpdate yOffset2 and Entity.moveEntity decay; death: EntityRenderer.hurtCameraEffect and RendererLivingEntity.rotateCorpse.
+
+## crates/render/src/hand_rig.wgsl and hand_rig_render.rs (Java Edition 1.7.10)
+- ItemRenderer.renderItemInFirstPerson calls RenderHelper.enableStandardItemLighting after pitch/yaw rotation, before arm sway. RenderHelper uses normalized (0.2F,1,-0.7F) and (-0.2F,1,0.7F), diffuse 0.6, global ambient 0.4, zero specular, and GL_FLAT. ItemRenderer enables GL_RESCALE_NORMAL before held-item and empty-arm drawing. The first-person pass retains the world lightmap multiplied into gamma RGB.
+- Primary source jar witness is the official 1.7.10 client indexed above; local inspection paths are scratchpad/je1710/src/net/minecraft/client/renderer/{ItemRenderer,RenderHelper}.java. No source files or assets are committed.
+- OpenGL 2.1 specification §2.11.3 specifies inverse-transpose normal transformation and RESCALE_NORMAL factor 1/sqrt(m31²+m32²+m33²), where mij are the modelview inverse: https://registry.khronos.org/OpenGL/specs/gl/glspec21.pdf . The raster-depth normal maps that native Z row into the attachable rig frame before shader rescaling.
+## Worn elytra rendering
+
+- `crates/pack-compiler/src/entity/legacy_block_geometry.rs`: the pinned pack's
+  `models/mobs.json` owns `geometry.elytra`; `attachables/elytra.json` selects it.
+- `crates/client-presentation/src/presentation/equipment/runtime/elytra.rs`:
+  `animations/elytra.animation.json` and
+  `animation_controllers/elytra.animation_controllers.json` own wing poses,
+  descending-movement spread and shortest-path transition blending.
+- `crates/client-presentation/src/presentation/cape.rs`: humanoid additional
+  rendering's chest-gear path uses the player's cape raster for worn elytra.
+- `crates/render/src/actor/glint.rs`: ActorShaderManager foil parameters define
+  the 1375/3750-ms scroll periods, -20/80-degree rotations and RGB multiplier.
+- `crates/render/src/actor.wgsl`: independent fragment/vertex evidence from
+  `~/coding/go/lunar/minecraft-apk/split_install_pack.apk`,
+  `assets/assets/renderer/materials/ActorGlint.material.bin`; its base APK manifest
+  identifies 1.26.31.1. UV rotation uses the texture center; summed glint samples
+  are multiplied by glint color and tile light before RGB is squared and added
+  to the shaded base before fog. This is an older shader cross-check, not a
+  version-matched 1.26.50 pixel acceptance witness.
+- Current foil uniform evidence: `ActorShaderManager::setupFoilShaderParameters`
+  (`R:ActorShaderManager:1250`, `R:ActorShaderManager:1436`) and constants
+  `0x10dd0cff0`, `0x10dd0d5a0`, `0x10dd0d000`; cape-image selection:
+  `R:DataDrivenRenderer_tempComponent_HumanoidAdditionalRendering:3687`.
+- `crates/client-world/src/actor_animation/tick.rs`: controller transitions reset
+  the blend timer and replace the outgoing state with the immediately preceding
+  current state (`R:ActorAnimationControllerPlayer:912`). During a blend, both
+  state players are resampled with the current render queries; shortest-path
+  blending combines their sampled bone maps (`R:ActorAnimationControllerPlayer:1093`,
+  `R:ActorAnimationControllerPlayer:1327`). Interrupted blends therefore restart
+  from that outgoing state's clip rather than a snapshot of the previously
+  blended pose.
+- `crates/client-world/src/actor_animation/pose.rs`: shortest-path blends sample
+  each state into a fresh bone map, lerp them, then add translation/rotation and
+  multiply scale into the accumulated map (`ActorAnimationControllerPlayer::blendViaShortestPath`,
+  `R:ActorAnimationControllerPlayer:2395`); other blends apply both state players
+  onto the shared map with weights `w` and `1 - w` (`R:ActorAnimationControllerPlayer:1158`).
+  The blend timer resets on transition and accumulates each frame's delta
+  (`R:ActorAnimationControllerPlayer:1098`), so it starts at the transition's frame fraction.
+
 ## Primitive shapes: protocol, state and reference rules
 
 Files: `crates/protocol/src/primitive_shapes.rs`,

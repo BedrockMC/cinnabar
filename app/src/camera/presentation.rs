@@ -40,22 +40,32 @@ pub(crate) fn advance_presentation_state(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     view: Res<LocalViewPose>,
+    client_world: Option<Res<ClientWorld>>,
     physics: Option<Res<LocalPhysicsController>>,
+    ui: Option<Res<UiRuntime>>,
     bob: ResMut<WalkBobState>,
     sway: ResMut<HandSwayState>,
     hurt: ResMut<CameraHurtState>,
+    java: ResMut<client_presentation::camera::java::JavaCameraState>,
     hand: ResMut<FirstPersonHandMotion>,
 ) {
     client_presentation::camera::presentation::advance_presentation_state(
         time,
         settings,
         view,
+        client_world.as_deref().map(
+            |world| client_presentation::observations::WorldObservation {
+                stream: world.stream.as_ref(),
+            },
+        ),
         physics
             .as_deref()
             .map(|value| value as &dyn client_presentation::observations::PhysicsObservation),
+        ui.as_deref(),
         bob,
         sway,
         hurt,
+        java,
         hand,
     );
 }

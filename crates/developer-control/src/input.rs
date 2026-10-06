@@ -1,6 +1,6 @@
 //! Input commands reduced to held, released and tapped controls.
 
-use crate::protocol::{InputCommand, Look};
+use crate::protocol::{InputCommand, Look, Pointer, Wheel};
 
 /// Hotbar slots reachable through `key.hotbar.N`.
 pub const HOTBAR_SLOTS: u8 = 9;
@@ -61,6 +61,8 @@ pub struct InputPlan {
     pub look: Option<Look>,
     pub cursor: Option<[f32; 2]>,
     pub text: Option<String>,
+    pub pointer: Option<Pointer>,
+    pub wheel: Option<Wheel>,
     pub release_control: bool,
 }
 
@@ -78,6 +80,8 @@ impl InputPlan {
             look: command.look,
             cursor: command.cursor,
             text: command.text.clone(),
+            pointer: command.pointer,
+            wheel: command.wheel,
             release_control: command.release_control,
         };
         if let Some(look) = &command.look
@@ -90,6 +94,16 @@ impl InputPlan {
             .is_some_and(|point| !point.into_iter().all(f32::is_finite))
         {
             return Err("cursor coordinates must be finite".into());
+        }
+        if let Some(pointer) = command.pointer
+            && !(pointer.x.is_finite() && pointer.y.is_finite())
+        {
+            return Err("pointer coordinates must be finite".into());
+        }
+        if let Some(wheel) = command.wheel
+            && !(wheel.x.is_finite() && wheel.y.is_finite())
+        {
+            return Err("wheel distances must be finite".into());
         }
         if let Some(movement) = command.movement {
             plan.axis(movement.forward, "key.forward", "key.back")?;
@@ -232,6 +246,28 @@ mod tests {
         })
         .unwrap();
         assert!(plan.release_all && plan.release_control);
+    }
+
+    #[test]
+    fn pointer_and_wheel_validate_before_input_is_applied() {
+        let mut command = InputCommand {
+            pointer: Some(Pointer { x: 32.5, y: 64.0 }),
+            wheel: Some(Wheel {
+                y: -3.0,
+                ..Wheel::default()
+            }),
+            press: vec!["MouseLeft".into()],
+            ..InputCommand::default()
+        };
+        let plan = InputPlan::from_command(&command).unwrap();
+        assert_eq!(plan.pointer, command.pointer);
+        assert_eq!(plan.wheel, command.wheel);
+        assert_eq!(plan.tap, [Control::Mouse(MouseButton::Left)]);
+        command.pointer.as_mut().unwrap().x = f32::NAN;
+        assert!(InputPlan::from_command(&command).is_err());
+        command.pointer = None;
+        command.wheel.as_mut().unwrap().y = f32::INFINITY;
+        assert!(InputPlan::from_command(&command).is_err());
     }
 
     #[test]

@@ -130,6 +130,14 @@ pub fn held_block_display_for_hand(off_hand: bool) -> ItemDisplay {
     )
 }
 
+/// Rods on a stick, whose art both editions turn half a revolution in first person.
+pub fn is_rod(identifier: &str) -> bool {
+    matches!(
+        identifier.strip_prefix("minecraft:").unwrap_or(identifier),
+        "fishing_rod" | "carrot_on_a_stick" | "warped_fungus_on_a_stick"
+    )
+}
+
 /// Items vanilla holds upright: tools, weapons and rod-like items. The
 /// reference keeps this per item in code; the list mirrors vanilla's hand-equipped items.
 pub fn is_hand_equipped(identifier: &str) -> bool {
