@@ -116,6 +116,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         damage: None,
         kind: HeldKind::Block(visual),
         dye_rgb: None,
+        enchanted: false,
     };
     (runtime, body, item)
 }
@@ -131,6 +132,7 @@ fn third_person(
             main: Some(item.clone()),
             ..Default::default()
         },
+        None,
     );
     assert_eq!(layers.len(), 1);
     layers.pop().unwrap()

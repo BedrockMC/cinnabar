@@ -180,6 +180,7 @@ fn resolve(
                 };
                 Some(ResolvedLayer {
                     material: render::ActorMaterial {
+                        glint: Default::default(),
                         kind: layer.material,
                         state: layer.material_state,
                         dissolve_multiplier: layer.overlay[3],

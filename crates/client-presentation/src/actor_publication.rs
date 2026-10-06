@@ -1,5 +1,7 @@
 mod commit;
 mod emote_geometry;
+mod equipment_layers;
+use equipment_layers::local_equipment;
 mod hand;
 mod java;
 pub use commit::{PreparedActorPublication, publish_actor_render_frame};
@@ -116,7 +118,11 @@ fn apply_session_pack(
     {
         let (extended, locations) =
             pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
-        pages = extended;
+        // Startup pages carry the vanilla glint, so disconnect restores it.
+        pages = match EquipmentRuntime::actor_glint(catalog) {
+            Some(glint) => extended.with_actor_glint(glint),
+            None => extended,
+        };
         if !geometry_ready.equipment {
             geometries = EquipmentRuntime::pack_geometries(&pack.assets, catalog);
         }
@@ -201,6 +207,7 @@ pub struct ActorFramePublication<'w, 's> {
     /// Java's first-person hand state across frames.
     java_hand: Local<'s, java::HandCache>,
     equipment: Option<ResMut<'w, EquipmentRuntime>>,
+    glint_settings: Option<Res<'w, render::UiGlintSettings>>,
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
@@ -244,6 +251,7 @@ pub fn prepare_actor_render_frame(
         hand_motion,
         mut java_hand,
         mut equipment,
+        glint_settings,
         mut dropped_items,
         profiler,
         mut partial_tick,
@@ -706,6 +714,20 @@ pub fn prepare_actor_render_frame(
     if let Some(stream) = client_world.stream.as_ref() {
         crate::presentation::actors::light_bodies(&mut batch, stream);
     }
+    let selected_count = batch.submissions.len();
+    if let (Some(equipment), Some(stream)) =
+        (equipment.as_deref_mut(), client_world.stream.as_ref())
+    {
+        equipment_layers::attach(
+            &mut batch,
+            equipment,
+            stream,
+            local_runtime_id,
+            &input.local_equipment,
+            &java_posed,
+            (step.partial_tick, glint_settings.as_deref()),
+        );
+    }
     if let (Some(stream), Some(cape)) = (
         client_world.stream.as_ref(),
         cape_state.rig(client_world.entity_assets),
@@ -729,30 +751,21 @@ pub fn prepare_actor_render_frame(
             },
             |runtime_id| stream.authority().actor_player_profile(runtime_id),
             |runtime_id| java::posed(&java_posed, runtime_id).map(|posed| posed.cape),
+            |runtime_id| {
+                let input = if runtime_id == local_runtime_id {
+                    local_equipment(stream, runtime_id, &input.local_equipment)
+                } else {
+                    remote_input(stream, runtime_id)
+                };
+                input.armor[1].as_ref().is_some_and(|item| {
+                    equipment
+                        .as_deref()
+                        .is_some_and(|equipment| equipment.is_elytra(&item.identifier))
+                })
+            },
         );
     }
-    let selected_count = batch.submissions.len();
-    if let (Some(equipment), Some(stream)) =
-        (equipment.as_deref_mut(), client_world.stream.as_ref())
-    {
-        // Equipment rides each selected body's pose, so culled bodies never build layers.
-        crate::presentation::actors::attach_layers(&mut batch, |body| {
-            let runtime_id = body.input.identity.runtime_id;
-            let mut input = if runtime_id == local_runtime_id {
-                local_equipment(stream, runtime_id, &input.local_equipment)
-            } else {
-                remote_input(stream, runtime_id)
-            };
-            if java::posed(&java_posed, runtime_id).is_some() {
-                let using = stream
-                    .authority()
-                    .actor(runtime_id)
-                    .is_some_and(|actor| actor.is_using_item());
-                input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
-            }
-            equipment.layers_for(body, &input)
-        });
-    }
+
     // After equipment, which rides the rig's own model even when a controller draws another.
     if let Some(stream) = client_world.stream.as_ref() {
         let mut render_frame = stream.authority().actor_render_frame(step.partial_tick);
@@ -881,20 +894,6 @@ pub fn prepare_actor_render_frame(
         hand_light,
         step.partial_tick,
     );
-}
-
-/// Reuses inventory facts while reading pose flags after this frame's local pose synchronization.
-fn local_equipment(
-    stream: &WorldStream,
-    runtime_id: u64,
-    inventory: &crate::presentation::equipment::ActorEquipmentInput,
-) -> crate::presentation::equipment::ActorEquipmentInput {
-    let actor = stream.authority().actor(runtime_id);
-    crate::presentation::equipment::ActorEquipmentInput {
-        sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
-        sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
-        ..inventory.clone()
-    }
 }
 
 /// Rigs this far outside the view on every side still animate, so only a turn faster than this

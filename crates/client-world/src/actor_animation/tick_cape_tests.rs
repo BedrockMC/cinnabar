@@ -151,3 +151,44 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     assert_eq!(resumed.walked[0], walking.walked[1]);
     assert!((resumed.walked[1] - walking.walked[1] - 0.12).abs() < 1e-6);
 }
+
+#[test]
+fn rig_snapshot_retains_java_equip_and_native_wing_inputs() {
+    let (mut actor, mut store) = fixture();
+    actor.on_ground = Some(false);
+    actor
+        .metadata
+        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_GLIDING));
+    let context = ActorTickContext {
+        main_hand: Some(Arc::from("minecraft:potion")),
+        main_hand_metadata: 21,
+        has_cape: true,
+        armor: [
+            None,
+            Some(WornArmor {
+                item: "minecraft:elytra".into(),
+                dye_rgb: None,
+            }),
+            None,
+            None,
+            None,
+        ],
+        ..Default::default()
+    };
+    for tick in 0..3 {
+        actor.position = [tick as f32 * 0.2, tick as f32 * -0.4, 0.0];
+        advance(&actor, &mut store, context.clone());
+    }
+    let rig = store.get(actor.runtime_id).unwrap();
+    let input = rig
+        .animation_variables
+        .input()
+        .expect("worn item owner inputs");
+    assert_eq!(input.position_delta, [0.2, -0.4, 0.0]);
+    assert_eq!(rig.java_equipped.unwrap().metadata, 21);
+    assert!(
+        rig.java.vanilla_posture,
+        "gliding retains its authored body pose"
+    );
+    assert_ne!(rig.java.cape[0], rig.java.cape[1]);
+}

@@ -191,6 +191,7 @@ pub(super) fn collect_controllers(
         state: compiled.initial_state,
         active: false,
         entered_tick: 0,
+        blend_from: None,
     });
     let states = assets.controller_states().get(
         compiled.first_state as usize

@@ -52,6 +52,8 @@ mod panorama;
 mod panorama_render;
 mod particle_render;
 mod present_mode;
+mod primitive_shapes;
+pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
@@ -93,12 +95,12 @@ use meshing::{
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_CANDIDATE_RADIUS_BLOCKS, ACTOR_GPU_INSTANCE_WORDS,
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorCullView,
-    ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
-    ActorPipelineReadiness, ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame,
-    ActorRenderIdentity, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
-    ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRuntimeWitness,
-    ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
+    ActorDrawFrame, ActorDrawManifestEntry, ActorGlint, ActorGpuInstance, ActorMainWitness,
+    ActorMaterial, ActorPipelineReadiness, ActorPresentationGate, ActorPresentedFrameAck,
+    ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
+    ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    ActorRuntimeWitness, ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
