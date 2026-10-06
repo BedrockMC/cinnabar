@@ -90,7 +90,6 @@ type resolvedUpstreamTarget struct {
 	local      interface{ Close() error }
 	offline    bool // explicit own-world offline LAN selection, never an authentication fallback
 	realm      bool // vanilla words a failed Realm join as its own
-	trust      minecraft.ServerTrust
 }
 
 // realmJoinError marks a failure while joining a Realm.
@@ -117,17 +116,8 @@ func (target *resolvedUpstreamTarget) close() error {
 	return joined
 }
 
-// resolveUpstreamTarget resolves address to its transport; trust decides addressed NetherNet joins,
-// including transfer hops from any target.
+// resolveUpstreamTarget resolves address to its transport; trust decides addressed NetherNet joins.
 func resolveUpstreamTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger, trust minecraft.ServerTrust) (*resolvedUpstreamTarget, error) {
-	target, err := resolveTarget(ctx, address, account, logger, trust)
-	if target != nil {
-		target.trust = trust
-	}
-	return target, err
-}
-
-func resolveTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger, trust minecraft.ServerTrust) (*resolvedUpstreamTarget, error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
 		return nil, errors.New("upstream target is empty")

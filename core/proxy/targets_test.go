@@ -271,7 +271,7 @@ func TestAddressedRakNetProbesFitTheCappedPath(t *testing.T) {
 	}
 	networks := map[string]minecraft.Network{
 		"addressed":    addressed.network,
-		"transfer hop": networkForAddress(&resolvedUpstreamTarget{address: "entry.example:19132"}, address),
+		"transfer hop": networkForAddress(&resolvedUpstreamTarget{address: "entry.example:19132"}, address, nil),
 	}
 	for name, network := range networks {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
