@@ -6,6 +6,7 @@ Vanilla rules for the pinned Bedrock resource pack:
 | --- | --- |
 | Equipment | Worn in the chest slot; draw `geometry.elytra` from `models/mobs.json`. Hide the chest skin layer. |
 | Texture | Use `textures/models/armor/elytra`; a player cape image replaces the base image. |
+| Material | Vanilla `elytra` and `elytra_glint` derive `entity_alphatest` (`materials/entity.material`): alpha-tested and double-sided. Each pack material group keeps its own resolved settings. |
 | Enchanted | Use the actor glint image and animated foil shading over the base texture. |
 | Perspective | Draw on visible player bodies in third person and on other players. First person omits the worn body. |
 | Standing and walking | Follow the body bone with folded wings from `animation.elytra.default`. |
