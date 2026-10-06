@@ -158,6 +158,7 @@ impl ActorTexturePage {
 pub struct ActorArtworkPages {
     pub(crate) identity: [u8; 32],
     pub(crate) entity_identity: [u8; 32],
+    pub(crate) actor_glint: Option<EquipmentRaster>,
     pub(crate) pages: Arc<[ActorTexturePage]>,
     routes: Arc<BTreeMap<EntityRigId, ActorArtworkLocation>>,
     /// Location of every catalog texture by entity-catalog source index.
@@ -172,6 +173,25 @@ pub struct ActorArtworkPages {
     rejected_bindings: usize,
 }
 impl ActorArtworkPages {
+    /// Installs the shared actor glint image once, independently of skin and armor pages.
+    #[must_use]
+    pub fn with_actor_glint(mut self, raster: EquipmentRaster) -> Self {
+        if raster.width == 0
+            || raster.height == 0
+            || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
+        {
+            return self;
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(self.identity);
+        hasher.update(raster.width.to_le_bytes());
+        hasher.update(raster.height.to_le_bytes());
+        hasher.update(&raster.rgba8);
+        self.identity = hasher.finalize().into();
+        self.actor_glint = Some(raster);
+        self
+    }
+
     pub fn new(catalog: &RuntimeActorCatalog) -> Self {
         let dimensions = multitexture::page_dimensions(catalog);
         let mut groups = BTreeMap::<(u16, u16, bool, bool), Vec<usize>>::new();
@@ -254,6 +274,7 @@ impl ActorArtworkPages {
             entity_locations: Arc::new(entity_locations),
             identity: catalog.identity(),
             entity_identity: catalog.entity_identity(),
+            actor_glint: None,
             pages: pages.into(),
             routes: Arc::new(routes),
             equipment: Arc::new(BTreeSet::new()),
@@ -493,6 +514,9 @@ impl ActorArtworkPages {
     }
     pub fn identity(&self) -> [u8; 32] {
         self.identity
+    }
+    pub fn actor_glint(&self) -> Option<&EquipmentRaster> {
+        self.actor_glint.as_ref()
     }
 
     /// Recognizes clones of the exact artwork snapshot without scanning pixels or routes.

@@ -104,7 +104,7 @@ impl EquipmentRuntime {
     }
 }
 
-fn interpolate_parent(
+pub(super) fn interpolate_parent(
     previous: RenderBoneTransform,
     current: RenderBoneTransform,
     alpha: f32,
@@ -130,7 +130,7 @@ fn interpolate_parent(
 
 /// Vanilla attachable setup copies the parent's complete matrix before the held
 /// model's own channels. Poses and translations here already use the mirrored rig frame.
-fn compose_parent(
+pub(super) fn compose_parent(
     parent: RenderBoneTransform,
     local: BoneTransform,
 ) -> Option<RenderBoneTransform> {
