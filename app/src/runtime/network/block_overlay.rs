@@ -97,9 +97,15 @@ pub(super) fn compile_block_overlay(
         ..assets::Material::unvaried()
     });
     for block in blocks.blocks.iter() {
+        let expressions = condition::BlockExpressions::new(block);
         if hashed {
             for state in block.hashed_states() {
-                let visual = condition::state_visual(block, Some(&state.values), &mut builder.gaps);
+                let visual = condition::state_visual(
+                    block,
+                    &expressions,
+                    Some(&state.values),
+                    &mut builder.gaps,
+                );
                 builder.push_state(&visual);
                 builder.overlay.hashes.push(state.hash);
             }
@@ -107,7 +113,8 @@ pub(super) fn compile_block_overlay(
         }
         for state in 0..block.state_count {
             let values = block.state_values(state);
-            let visual = condition::state_visual(block, values.as_deref(), &mut builder.gaps);
+            let visual =
+                condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
             builder.push_state(&visual);
         }
     }

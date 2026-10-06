@@ -32,7 +32,7 @@ mod sanitize;
 mod source;
 mod vanilla_refs;
 mod versions;
-pub use molang::{BlockStateValue, evaluate_block_molang};
+pub use molang::{BlockMolang, BlockStateValue};
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub use pack::{
