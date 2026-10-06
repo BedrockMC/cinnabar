@@ -249,6 +249,7 @@ fn has_prefix(candidate: &str, prefix: &str) -> bool {
         .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
+/// Matches command-name substrings using the command parser’s ASCII case rules.
 fn contains_command(candidate: &str, partial: &str) -> bool {
     partial.is_empty()
         || candidate

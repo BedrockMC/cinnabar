@@ -94,6 +94,7 @@ impl BookCache {
     }
 }
 
+/// Compares registry identity without scanning its item definitions.
 fn same_registry(
     previous: Option<&Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,
     current: Option<&Arc<BTreeMap<i32, protocol::ItemRegistryEntry>>>,

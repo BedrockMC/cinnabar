@@ -183,7 +183,10 @@ fn liquid_faces_are_clipped_and_culled_by_compatible_liquid_or_solid() {
         (WATER_SOURCE, [8, 8, 8]),
         (OTHER_LIQUID, [9, 8, 8]),
     ]));
-    assert_eq!(different.liquid_quads().len(), 10);
+    assert_eq!(different.liquid_quads().len(), 12);
+    for (origin, face) in [([8, 8, 8], Face::PositiveX), ([9, 8, 8], Face::NegativeX)] {
+        assert!(!quad_at(&different, origin, face).is_two_sided());
+    }
     let different_above = mesh(&blocks(&[
         (WATER_SOURCE, [8, 8, 8]),
         (OTHER_LIQUID, [8, 9, 8]),
@@ -1117,9 +1120,8 @@ fn transparent_cube_over_water_is_not_an_open_flow_neighbour() {
     assert_eq!(top.material_id(), STILL);
 }
 
-/// Mesh output for dense mixed cube/model/liquid scenes must stay byte-identical.
-/// Includes native transparent-cube flow barriers, selective reverse-face
-/// admission beside thin primaries, liquid inset flags and no-AO lighting.
+/// Dense mixed scenes retain extra-air contacts, primary-air winding, flow barriers,
+/// liquid inset flags and no-AO lighting.
 #[test]
 fn mixed_neighbourhood_mesh_output_is_golden() {
     let digests = [(1_u64, 8_u64), (2, 30), (3, 70), (4, 95)].map(|(seed, density)| {
@@ -1136,10 +1138,10 @@ fn mixed_neighbourhood_mesh_output_is_golden() {
     assert_eq!(
         digests,
         [
-            17_252_311_297_832_231_068,
-            7_891_516_663_899_362_489,
-            10_894_881_661_923_922_213,
-            9_748_041_963_694_095_461
+            13_081_610_191_978_589_870,
+            7_276_265_386_106_865_686,
+            18_330_598_413_732_250_100,
+            11_629_133_763_896_578_950
         ]
     );
 }
@@ -1189,5 +1191,5 @@ fn conflicting_layer_mesh_output_is_golden() {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
     assert!(!mesh.cube_quads().is_empty());
-    assert_eq!(digest, 18_208_010_805_674_280_684);
+    assert_eq!(digest, 857_614_043_643_775_143);
 }
