@@ -40,6 +40,17 @@ make client
 `make help` lists every target. On Debian/Ubuntu, install `libwayland-dev` first; Linux picks
 Wayland or X11 automatically.
 
+## Discord presence
+
+Discord presence is enabled by default using the built-in application. To use another application,
+set `CINNABAR_DISCORD_APPLICATION_ID` to its numeric Application ID before launching.
+No bot token or client secret is needed. Set the override to `0` to disable presence.
+
+With the Discord desktop app running and activity sharing enabled, presence shows menus, joining,
+or `Playing on host:port`, plus elapsed time and the original app icon served from GitHub.
+Updates run over local IPC, reconnect automatically and follow Discord's rate limit. The current
+server address is shown while playing; account details and join secrets are never included.
+
 ## Beyond vanilla
 
 Vanilla parity is the default. On top of it, Cinnabar is growing into a platform. Everything
