@@ -30,6 +30,10 @@ const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 #[cfg(feature = "local-mods")]
 const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
 #[cfg(feature = "local-mods")]
+const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
+#[cfg(feature = "local-mods")]
+const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
+#[cfg(feature = "local-mods")]
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
 #[cfg(feature = "local-mods")]
 const ENTITIES_ENV: &str = "CINNABAR_MOD_ENTITIES";
@@ -116,6 +120,8 @@ fn configure(app: &mut App, path: Option<&Path>) {
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
         render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
+        block_highlights: std::env::var(BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1"),
+        fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
         render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),
         entities: std::env::var(ENTITIES_ENV).is_ok_and(|value| value == "1"),
         commands: std::env::var(COMMANDS_ENV)
@@ -192,6 +198,8 @@ fn configure_set(app: &mut App, mods: Vec<(std::path::PathBuf, ModGrants)>) {
 #[cfg(feature = "local-mods")]
 fn configure_systems(app: &mut App, watching: bool) {
     ghost::configure(app);
+    block_highlights::configure(app);
+    fullbright::configure(app);
     app.init_resource::<ModCueFeed>()
         .add_plugins(::render::ModRenderPlugin)
         .add_systems(Update, render::grant_depth_sampling);
@@ -460,6 +468,10 @@ mod tests {
 #[cfg(all(test, feature = "local-mods"))]
 mod time_changer_tests;
 
+#[cfg(feature = "local-mods")]
+pub(crate) mod block_highlights;
+#[cfg(feature = "local-mods")]
+pub(super) mod fullbright;
 #[cfg(feature = "local-mods")]
 mod gameplay;
 #[cfg(feature = "local-mods")]

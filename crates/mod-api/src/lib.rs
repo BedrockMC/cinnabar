@@ -64,6 +64,20 @@ pub const MAX_PRIMITIVE_EXTENT_BLOCKS: f32 = 64.0;
 /// Primitives farther than this from the origin of either axis are rejected.
 pub const MAX_PRIMITIVE_COORDINATE: f32 = 30_000_000.0;
 
+/// Bounds for retained loaded-block highlighting.
+pub const MAX_BLOCK_HIGHLIGHTS: usize = 1024;
+pub const MAX_BLOCK_HIGHLIGHT_IDENTIFIERS: usize = 8;
+pub const MAX_BLOCK_HIGHLIGHT_IDENTIFIER_BYTES: usize = 128;
+pub const MAX_BLOCK_HIGHLIGHT_RANGE: f32 = 128.0;
+
+/// Host-owned selection; block coordinates never cross the guest boundary.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlockHighlightSpec {
+    pub identifiers: Vec<String>,
+    pub range: f32,
+    pub color: [f32; 4],
+}
+
 pub mod bindings {
     wit_bindgen::generate!({
         path: "wit",

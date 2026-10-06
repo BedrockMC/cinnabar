@@ -44,6 +44,8 @@ interface input {
 interface environment {
     /// Fixes visual time to 0–23999 ticks; none restores the tracked server clock.
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
+    /// Retained local lighting override; requires the separate fullbright grant.
+    set-fullbright: func(enabled: bool) -> result<_, string>;
 }
 
 /// Explicit local gameplay capabilities; no raw packet access.
@@ -129,6 +131,10 @@ interface render {
         pattern: billboard-pattern,
         upright: bool,
     }
+    /// Retained full-block highlights for matching blocks already loaded by the host.
+    record block-highlight-spec { identifiers: list<string>, range: f32, color: rgba }
+    /// Requires block-highlights authority; none clears this instance's selection.
+    set-block-highlights: func(spec: option<block-highlight-spec>) -> result<_, string>;
     record primitives {
         decals: list<decal>,
         ribbons: list<ribbon>,
