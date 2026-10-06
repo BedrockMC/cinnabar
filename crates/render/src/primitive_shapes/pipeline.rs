@@ -235,15 +235,17 @@ pub(super) fn prepare_bind_groups(
         gpu.global_id = global_id;
     }
     let gpu = &mut *gpu;
-    let layout = cache.get_bind_group_layout(&pipeline.layout);
+    // The cached layout lookup clones its descriptor, so retained frames must not reach it.
+    let mut layout = None;
     for batch in &mut gpu.batches {
         if !batch.bind_groups.is_empty() {
             continue;
         }
+        let layout = layout.get_or_insert_with(|| cache.get_bind_group_layout(&pipeline.layout));
         for chunk in &batch.slots.chunks {
             batch.bind_groups.push(device.create_bind_group(
                 "primitive shape bind group",
-                &layout,
+                layout,
                 &[
                     BindGroupEntry {
                         binding: 0,
