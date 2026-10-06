@@ -171,11 +171,15 @@ pub(super) fn screen_data(view: &MenuView, translate: Translate<'_>) -> Option<M
                 data.set_global("#playername", text(view.display_name.clone()));
                 flags(&mut data, &["#playername_visible"]);
                 if view.hosting {
+                    // Vanilla's pause invite entry sits in a panel 1.26.50 no longer draws; the
+                    // friends drawer is the pause screen's visible social entry.
                     flags(
                         &mut data,
                         &[
                             "#legacy_invite_button_visible",
                             "#legacy_invite_button_enabled",
+                            "#friends_drawer_button_visible",
+                            "#friends_drawer_button_enabled",
                         ],
                     );
                 }
@@ -750,6 +754,9 @@ pub(super) fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuActi
         }
         "button.menu_settings" if view.screen == MenuScreen::Pause => MenuAction::PauseSettings,
         "button.menu_invite_players" if view.hosting => {
+            MenuAction::Invite(launcher::menu::invite::Action::Open)
+        }
+        "button.friends_drawer" if view.hosting && view.screen == MenuScreen::Pause => {
             MenuAction::Invite(launcher::menu::invite::Action::Open)
         }
         "button.menu_settings" => MenuAction::Navigate(MenuScreen::Settings),
