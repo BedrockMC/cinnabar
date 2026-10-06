@@ -127,6 +127,8 @@ fn rig<'a>(
         item_animation: [client_world::ItemAnimationState::default(); 2],
         off_hand_animation: [client_world::ItemAnimationState::default(); 2],
         animation_variables: Default::default(),
+        java: Default::default(),
+        java_equipped: None,
     }
 }
 

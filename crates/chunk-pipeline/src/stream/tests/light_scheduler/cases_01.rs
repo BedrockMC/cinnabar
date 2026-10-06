@@ -1024,7 +1024,7 @@ fn light_snapshots_and_invalidation_exclude_diagonals() {
     stream.lighting.revisions.entries.clear();
 
     let snapshot = stream.light_block_snapshot(center);
-    assert_eq!(snapshot.blocks.len(), 2);
+    assert_eq!(snapshot.blocks.iter().count(), 2);
     assert!(snapshot.blocks.contains_key(&center));
     assert!(snapshot.blocks.contains_key(&face));
     assert!(!snapshot.blocks.contains_key(&diagonal));

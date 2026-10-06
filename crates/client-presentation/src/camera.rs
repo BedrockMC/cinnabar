@@ -25,6 +25,7 @@ pub mod fov;
 #[cfg(test)]
 mod freelook_tests;
 mod hurt;
+pub mod java;
 pub mod look;
 mod overlay;
 pub mod overlay_publish;
@@ -160,6 +161,7 @@ impl Plugin for CameraPresentationPlugin {
             .init_resource::<facts::ItemUseClock>()
             .init_resource::<WalkBobState>()
             .init_resource::<HandSwayState>()
+            .init_resource::<java::JavaCameraState>()
             .init_resource::<CameraHurtState>()
             .init_resource::<ServerCameraView>()
             .init_resource::<PortalProgress>()

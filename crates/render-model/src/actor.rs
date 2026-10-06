@@ -35,4 +35,4 @@ pub use skin::{
     normalize_actor_skin, normalize_actor_skin_cached,
 };
 pub use surface::ActorRigSurface;
-pub use texture_mesh::attachable_geometry;
+pub use texture_mesh::{attachable_geometry, attachable_raster_frame};

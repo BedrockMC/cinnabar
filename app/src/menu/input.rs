@@ -351,7 +351,7 @@ pub(crate) fn drive_menu_input(
         }
         return;
     }
-    menu.refresh_settings_focus(presentation.visible_menu_actions());
+    menu.refresh_settings_focus(presentation.menu_focus_actions());
     let (window_entity, window, mut cursor) = window.into_inner();
     if let Some(messages) = mouse_messages.as_deref() {
         let GuiScaleDrag {

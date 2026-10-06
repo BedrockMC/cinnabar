@@ -18,9 +18,12 @@ pub use artwork::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+#[path = "actor/glint.rs"]
+mod glint;
 #[path = "actor/gpu.rs"]
 pub(crate) mod gpu;
 pub(crate) mod material;
+pub use glint::ActorGlint;
 mod pipeline_readiness;
 pub use pipeline_readiness::ActorPipelineReadiness;
 #[path = "actor/rig.rs"]

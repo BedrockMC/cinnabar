@@ -841,6 +841,7 @@ fn decode_world_raw_with(
             | McpePacketName::CameraAimAssistPresetsPacket
             | McpePacketName::CameraAimAssistActorPriorityPacket
             | McpePacketName::ScriptMessagePacket
+            | McpePacketName::PrimitiveShapesPacket
     ) {
         return Ok(None);
     }
@@ -941,3 +942,6 @@ mod block_sync_tests;
 
 #[cfg(test)]
 mod actor_identifier_ingress_tests;
+
+#[cfg(test)]
+mod primitive_shapes_ingress_tests;

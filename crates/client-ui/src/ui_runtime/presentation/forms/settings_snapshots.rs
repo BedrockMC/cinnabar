@@ -253,3 +253,95 @@ fn graphics_options_expander_uses_full_settings_button_height() {
         assert!(rendered.nodes.iter().any(|node| matches!(&node.draw, json_ui::Draw::Sprite { texture: found, .. } if found == texture)));
     }
 }
+
+/// Vanilla toggles remain reachable in document order, including scroll content.
+#[test]
+fn video_toggles_admit_pointer_and_keyboard_focus() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping video_toggles_admit_pointer_and_keyboard_focus: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = MenuScreen::Settings;
+    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    let player = player_state::PlayerState::new(1);
+    super::test_support::draw_menu_actions(&player, &mut presentation, &view);
+    let actions = presentation.menu_focus_actions().collect::<Vec<_>>();
+    let mut previous = None;
+    for name in ["hide_hand", "view_bobbing"] {
+        let index = crate::menu::settings_options::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == name)
+            .unwrap() as u16;
+        let action = actions.iter().find(|action| matches!(action, crate::menu::MenuAction::SettingsOption(at, _) if *at == index))
+            .copied().unwrap_or_else(|| panic!("missing focus action for {name}"));
+        let position = actions
+            .iter()
+            .position(|candidate| *candidate == action)
+            .unwrap();
+        assert!(
+            previous.is_none_or(|previous| previous < position),
+            "toggle focus does not follow the pack's control order"
+        );
+        previous = Some(position);
+        view.focused_action = Some(action);
+        let hits = super::test_support::draw_menu_actions(&player, &mut presentation, &view);
+        assert!(
+            hits.contains(&action),
+            "focused toggle {name} did not scroll into view"
+        );
+    }
+}
+
+/// The JSON-UI selector and both radio rows accept pointer and keyboard/controller focus.
+#[test]
+fn animations_selector_and_choices_admit_pointer_and_navigation_focus() {
+    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping animations_selector_and_choices_admit_pointer_and_navigation_focus: missing installed UI carrier; make assets"
+        );
+        return;
+    };
+    let index = crate::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "animations")
+        .expect("animations selector") as u16;
+    let mut view = crate::menu::MenuView::new(true, "Player".to_owned());
+    view.screen = MenuScreen::Settings;
+    view.settings_section = super::menu_screens::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == "video_forced_index").then_some(*index))
+        .unwrap();
+    let player = player_state::PlayerState::new(1);
+    let dropdown = crate::menu::MenuAction::SettingsDropdown(index);
+    for action in [
+        dropdown,
+        crate::menu::MenuAction::SettingsOption(index, 0),
+        crate::menu::MenuAction::SettingsOption(index, 1),
+    ] {
+        view.settings_dropdown = (action != dropdown).then_some(index);
+        super::test_support::draw_menu_actions(&player, &mut presentation, &view);
+        assert!(
+            presentation
+                .menu_focus_actions()
+                .any(|candidate| candidate == action),
+            "selector action {action:?} must be reachable by keyboard/controller navigation"
+        );
+        view.focused_action = Some(action);
+        super::test_support::draw_menu_actions(&player, &mut presentation, &view);
+        let bounds = presentation
+            .menu_hit_targets
+            .iter()
+            .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
+            .expect("focused selector scrolls into view");
+        let (min, max) = (bounds.min(), bounds.max());
+        let center =
+            ui::UiPoint::new((min.x() + max.x()) / 2.0, (min.y() + max.y()) / 2.0).unwrap();
+        assert_eq!(presentation.hit_test_menu(center), Some(action));
+    }
+}

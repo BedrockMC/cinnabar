@@ -39,8 +39,8 @@ pub fn render_prepared_ui(
     let icon = presentation.player_preview_icon();
     let (left, right) = presentation.player_hand_icons();
     presentation.hud_frame.player_preview = icon;
-    presentation.hud_frame.left_hand = left;
-    presentation.hud_frame.right_hand = right;
+    presentation.hud_frame.left_hand = left.filter(|_| preview.hands);
+    presentation.hud_frame.right_hand = right.filter(|_| preview.hands);
     if let Some(menu) = presentation.menu_view.as_mut() {
         menu.profile_icon = icon;
     }

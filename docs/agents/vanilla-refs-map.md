@@ -2317,3 +2317,120 @@ Only add provenance to docs/agents/vanilla-refs-map.md.
 - Audio listener: reference CameraTraits::isPlayerAudioListener0x020582b0 and CameraRegistry listener presence/value1 gate; current FUN_140a93e80 tests preset offsets0xcd/0xcc and creates PlayerAudioListenerComponent0xe66c48f7. Current predicate FUN_140a9c160 and LevelRendererPlayer::updateListenerState counterpart FUN_144e95380 copy rendered pose when false, player eye/look when true. Shipped camera definitions have no player-listener component, so omitted defaults to camera.
 - Target defaults: current FUN_147da1f40 builds CameraTargetSettingsDefinition0x24 bytes, zeros all, writes50f at+8; free camera JSON supplies horizontal[0,360],vertical[0,180]. Current CameraRegistry counterpart FUN_140a93e80 copies the optional horizontal and vertical float pairs directly into target settings.
 - Local body visibility: current `ClientInstance::getRenderPlayerModel` FUN_146798550 (current06.cpp1385865 diagnostic) reads CameraRenderPlayerModelComponent from RenderCamera. Callback FUN_1471f5560 (07.cpp322604) copies/removes that marker using CameraBlendState +0x28. The adjacent free-camera pack definition includes camera_render_player_model and extend_player_rendering; first_person lacks the marker. Actor body publication and HUD fallback now follow camera capabilities instead of the saved perspective.
+
+## crates/render-model/src/java_animation.rs (Java Edition 1.7.10, MCP names)
+- `java_biped`: ModelBiped.setRotationAngles; `rig_bone`/`rig_from_java_model`: ModelRenderer.render under RendererLivingEntity.doRender's scale(-1,-1,1) and 0.9375 scale.
+- `first_person_item`/`first_person_arm`: ItemRenderer.renderItemInFirstPerson and RenderPlayer.renderFirstPersonArm; `draw_item`: ItemRenderer.renderItem, renderItemIn2D, RenderBlocks.renderBlockAsItem.
+- `third_person_item`: RenderPlayer.renderEquippedItems; `java_cape_angles`/`java_cape_bone`: its cape block (field_71091_bM chase, cameraYaw, distanceWalkedModified) and ModelBiped.bipedCloak; item classes from ItemSword, ItemTool, ItemHoe, ItemFishingRod, ItemCarrotOnAStick, Item.setFull3D.
+- Executed primary witness for `java_animation/reference_tests.rs` and its numeric fixtures: official 1.7.10 client jar at `https://launcher.mojang.com/v1/objects/e80d9b3bf5085002218d4be59e668bac718abbc6/client.jar`, SHA-1 `e80d9b3bf5085002218d4be59e668bac718abbc6`, version metadata `https://piston-meta.mojang.com/v1/packages/ed5d8789ed29872ea2ef1c348302b0c55e3f3468/1.7.10.json`. Scratch harness is outside git in `../java-native-reference/validation/src/{NativeHarness,SliceHarness}.java`.
+- `NativeHarness` invokes unchanged `bhm.a(FFFFFFLsa;)V` (ModelBiped.setRotationAngles) reflectively, recording original `bix` pivots/angles for standing, walking, sneaking, riding, blocking, bow use, .37 attack, wrapped look and combined sneak/riding/use states. It then invokes unchanged ModelRenderer render routines in a hidden LWJGL 2.9.1 Pbuffer. Readback/contact sheet stays outside git. Runtime: JRE 8u504, AMD Radeon RX 9060 XT, OpenGL 4.6 compatibility profile `25.10.30.02.250923`.
+- `SliceHarness` retains original arithmetic, constants, branches and MathHelper calls from `bop.a(Lblg;F)V`'s cape stack, `bly.a(F)V`'s ordinary and empty-arm stacks and `bly.a(Lsv;Ladd;I)V`'s sprite draw suffix. Snapshot holder fields/query methods replace live player/item lookups; texture binds and draw endpoints become actual GL modelview capture. No arithmetic is rewritten. Numeric `cape.json`, `hand.json` and `arm.json` are column-major GL outputs before Cinnabar frame conversion. This validates fixed-state native transforms, not full-client gameplay, textures or lighting.
+- `actor_publication/java/clock_tests.rs` records the actual FSTORE values in the same original `bly.a(F)V` slice for 16 bow and four consumption clock states. Bow uses the unchanged 72000-duration subtraction; consumption uses integer itemInUseCount, then float subtraction of partialTicks and addition of 1. Instrumentation observes the result without rewriting those arithmetic instructions. Private `validation/out/bow-clock.json` records the float bits; no primary artifact or harness is committed.
+
+## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
+- Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
+- Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
+- Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
+
+## crates/client-presentation/src/actor_publication/java/mounted.rs (Java Edition 1.7.10)
+- RendererLivingEntity.doRender's EntityLivingBase ridingEntity branch interpolates the mount's renderYawOffset, wraps and clamps head lag to ±85°, and pulls the displayed body by a fifth beyond 50°. RenderPlayer.renderEquippedItems cape code independently reads the player's original renderYawOffset.
+- Fixed body/head/pitch/relative-angle outputs in java/fixtures/mounted.json were executed from the official RendererLivingEntity bytecode with field owners rebound to fixed snapshots; arithmetic and branches remained unchanged. ActorSnapshot's mount species predicate intentionally recognizes only players and known built-in rideable living species, rather than inferring EntityLivingBase from optional health attributes.
+
+## crates/client-presentation/src/camera/java.rs (Java Edition 1.7.10)
+- EntityRenderer.setupViewBobbing and hurtCameraEffect; EntityPlayer.onLivingUpdate cameraYaw/cameraPitch (health gates and float/double cast order); EntityPlayer.updateRidden; Entity.moveEntity walked-distance cast order; EntityPlayerSP renderArmPitch/renderArmYaw.
+- `camera/java/reference_tests.rs` numeric fixtures execute the same primary jar's `blt.g(F)V` bob, `blt.f(F)V` live hurt stack with zero unavailable attack direction, and `bly.a(F)V` arm sway slice through `SliceHarness`. Only snapshot queries and renderer endpoints are substituted; actual OpenGL stacks are captured. Idle/walking/airborne bob, middle/end hurt and positive/negative hand sway states are covered.
+- Mounted yaw fixtures in `actor_publication/java/fixtures` execute the original `boh.a(Lsv;DDDFF)V` body/head interpolation and living-mount clamp block, including its unchanged private interpolation helper bytecode and `qh.g(F)F` wrap. Recorded cases exercise wrapped interpolation and both ±85° clamp extremes (resulting ±68° head/body offset).
+- Java camera sneak height: EntityPlayerSP.onLivingUpdate yOffset2 and Entity.moveEntity decay; death: EntityRenderer.hurtCameraEffect and RendererLivingEntity.rotateCorpse.
+
+## crates/render/src/hand_rig.wgsl and hand_rig_render.rs (Java Edition 1.7.10)
+- ItemRenderer.renderItemInFirstPerson calls RenderHelper.enableStandardItemLighting after pitch/yaw rotation, before arm sway. RenderHelper uses normalized (0.2F,1,-0.7F) and (-0.2F,1,0.7F), diffuse 0.6, global ambient 0.4, zero specular, and GL_FLAT. ItemRenderer enables GL_RESCALE_NORMAL before held-item and empty-arm drawing. The first-person pass retains the world lightmap multiplied into gamma RGB.
+- Primary source jar witness is the official 1.7.10 client indexed above; local inspection paths are scratchpad/je1710/src/net/minecraft/client/renderer/{ItemRenderer,RenderHelper}.java. No source files or assets are committed.
+- OpenGL 2.1 specification §2.11.3 specifies inverse-transpose normal transformation and RESCALE_NORMAL factor 1/sqrt(m31²+m32²+m33²), where mij are the modelview inverse: https://registry.khronos.org/OpenGL/specs/gl/glspec21.pdf . The raster-depth normal maps that native Z row into the attachable rig frame before shader rescaling.
+## Worn elytra rendering
+
+- `crates/pack-compiler/src/entity/legacy_block_geometry.rs`: the pinned pack's
+  `models/mobs.json` owns `geometry.elytra`; `attachables/elytra.json` selects it.
+- `crates/client-presentation/src/presentation/equipment/runtime/elytra.rs`:
+  `animations/elytra.animation.json` and
+  `animation_controllers/elytra.animation_controllers.json` own wing poses,
+  descending-movement spread and shortest-path transition blending.
+- `crates/client-presentation/src/presentation/cape.rs`: humanoid additional
+  rendering's chest-gear path uses the player's cape raster for worn elytra.
+- `crates/render/src/actor/glint.rs`: ActorShaderManager foil parameters define
+  the 1375/3750-ms scroll periods, -20/80-degree rotations and RGB multiplier.
+- `crates/render/src/actor.wgsl`: independent fragment/vertex evidence from
+  `~/coding/go/lunar/minecraft-apk/split_install_pack.apk`,
+  `assets/assets/renderer/materials/ActorGlint.material.bin`; its base APK manifest
+  identifies 1.26.31.1. UV rotation uses the texture center; summed glint samples
+  are multiplied by glint color and tile light before RGB is squared and added
+  to the shaded base before fog. This is an older shader cross-check, not a
+  version-matched 1.26.50 pixel acceptance witness.
+- Current foil uniform evidence: `ActorShaderManager::setupFoilShaderParameters`
+  (`R:ActorShaderManager:1250`, `R:ActorShaderManager:1436`) and constants
+  `0x10dd0cff0`, `0x10dd0d5a0`, `0x10dd0d000`; cape-image selection:
+  `R:DataDrivenRenderer_tempComponent_HumanoidAdditionalRendering:3687`.
+- `crates/client-world/src/actor_animation/tick.rs`: controller transitions reset
+  the blend timer and replace the outgoing state with the immediately preceding
+  current state (`R:ActorAnimationControllerPlayer:912`). During a blend, both
+  state players are resampled with the current render queries; shortest-path
+  blending combines their sampled bone maps (`R:ActorAnimationControllerPlayer:1093`,
+  `R:ActorAnimationControllerPlayer:1327`). Interrupted blends therefore restart
+  from that outgoing state's clip rather than a snapshot of the previously
+  blended pose.
+- `crates/client-world/src/actor_animation/pose.rs`: shortest-path blends sample
+  each state into a fresh bone map, lerp them, then add translation/rotation and
+  multiply scale into the accumulated map (`ActorAnimationControllerPlayer::blendViaShortestPath`,
+  `R:ActorAnimationControllerPlayer:2395`); other blends apply both state players
+  onto the shared map with weights `w` and `1 - w` (`R:ActorAnimationControllerPlayer:1158`).
+  The blend timer resets on transition and accumulates each frame's delta
+  (`R:ActorAnimationControllerPlayer:1098`), so it starts at the transition's frame fraction.
+
+## Primitive shapes: protocol, state and reference rules
+
+Files: `crates/protocol/src/primitive_shapes.rs`,
+`crates/render-api/src/primitive_shapes.rs`,
+`crates/render-model/src/primitive_shapes/`, `docs/reference/primitive-shapes.md`.
+
+Current Lens function reads corroborated the older owner-organized lookup files under
+`~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner/`; the directory label alone
+was not used as version evidence.
+
+- `ClientNetworkHandler::handle(PrimitiveShapesPacket)` `0x103541c60`: client dispatch.
+- `ClientScriptPrimitiveShapesDataComponent::handlePacket` `0x1022bab10`: ordered id lookup,
+  absent-type removal, present-type creation/update, no explicit count cap.
+- `PrimitiveShapeDataPayload::constructShape` `0x1065c93e0`: kinds and creation defaults.
+- `ScriptPrimitiveShape::applyUpdatedData` `0x10918c750`: optional patches, zero lifetime,
+  negative-distance reset, dimension and actor unique id.
+- `ScriptSpherePrimitive::applyUpdatedData` `0x109191530` and
+  `ScriptCirclePrimitive::applyUpdatedData` `0x109192b50`: byte segment count.
+- `ScriptArrowPrimitive` constructor `0x109195740` and updater `0x109195af0`:
+  independent optional head and endpoint fields; `0x10d986350` f32 pair `[0.5, 1.0]` gives
+  default radius and length.
+- `ScriptTextPrimitive` constructor `0x109192c20` and updater `0x109193240`: default options,
+  text-object parsing, complete text option replacement and background clearing.
+- `ClientScriptPrimitiveShapesSystem::tick` `0x1022bc960`: dimension filtering, missing-actor
+  suppression and render-helper construction; no local lifetime decrement.
+- Server primitive system tick adapter `0x10538dc30`: monotonic elapsed-time subtraction and
+  removal at remaining lifetime `<= 0`.
+- `serialize<mce::Color>::read` `0x1066bf090`, `cerealizer<mce::Color>::bind` `0x106e63a70`:
+  ARGB channel order in the four-byte wire integer.
+- `Scripting::RenderHelper::Renderer::convertStringsToNameTags` `0x104449a80`: literal
+  backslash-n replacement, discard-empty line splitting and integer half widths.
+
+## Primitive shape rendering
+
+- `crates/render/src/primitive_shapes/mesh.rs`: current Lens `Scripting::RenderHelper::LinePrimitive::_rebuild` at `0x10443dab0`, `BoxPrimitive::_rebuild` at `0x10443d540`, `DiscPrimitive::_rebuild` at `0x10443dce0`, `AxialSpherePrimitive::_rebuild` at `0x10443df80`, `ArrowPrimitive::_rebuild` at `0x10443e290`, and `generateDiscVerts` at `0x10443ed90`.
+- `crates/render/src/primitive_shapes/pipeline.rs`: current Lens `Scripting::RenderHelper::Renderer::onEndRender` at `0x104447e40` submits line-list vertices through the `debug` material. Installed PlayCover `data/resource_packs/vanilla/materials/ui3D.material` lines 454–466 corroborate LessEqual, default depth write and no blending; the installed asset version is 1.26.51.01, not a matched 1.26.50 witness.
+- `crates/render/src/primitive_shapes/shapes.wgsl`: `BasePrimitive::getAttachedToPosition` uses interpolated riding position; `Renderer::convertStringsToNameTags` at `0x104449a80` forwards text to `BaseActorRenderer::extractRenderTextObjects` at `0x103dc03c0` and `_extractRenderTextObject` at `0x103dc0840`. `LevelNameTagRenderer::renderText` at `0x103eb9050` applies incoming scale times 1.6 times 1/60 and fixed 0.125-per-extra-line lift; data reads at `0x10d9a15a0`, `0x10db88db4`, `0x10d91dae0` confirmed these constants.
+- Local files consulted are the matching owner files under `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src/by-owner`; their catalog is labeled 26.30. Current function reads corroborate `Renderer::onEndRender` and `convertStringsToNameTags`; full material/geometry capture parity remains open.
+
+- `crates/render-model/src/primitive_shapes/state.rs`: current `ClientScriptPrimitiveShapesSystem::tick` `0x1022bc960` text quaternion is `Rz * Ry * Rx`; data at `0x10d972210` and `0x10d8ec9d8` are degree-to-radian and half-angle constants.
+- `crates/render/src/primitive_shapes/shapes.wgsl`: current `Renderer::onBeginRender` `0x104446fa0` performs strict squared-distance comparison against the optional shape range or context range. `LevelRenderer::renderLevel` `0x10436ad94` passes the range computed by `LevelRendererPlayer::recalculateRenderDistance` `0x10439a330`, already mirrored by the cloud distance helper. Vtable reads at `0x110c96290` and `0x110c96360` select `BasePrimitivePosition::getPosition` `0x10443d500`; box tick construction supplies its lower corner.
+- `crates/client-presentation/src/primitive_shapes.rs`: `BasePrimitive::getAttachedToPosition` `0x10443d390` gets interpolated riding position and subtracts `OffsetsComponent` vertical offset; existing actor-store snapshots already normalize feet positions and seat riders before interpolation.
+
+- Primitive draw ordering: `Renderer::onBeginRender` comparator in `__sort3` `0x104479810` compares signed `BasePrimitive + 0xc`; packet helper construction in `ClientScriptPrimitiveShapesSystem::tick` `0x1022bc960` initializes that priority to zero for all supported geometry. The unstable introsort does not order by kind or distance.
+
+- `crates/client-ui/src/ui_runtime/presentation/primitive_shapes.rs`: current `ScriptTextPrimitive::applyUpdatedData` `0x109193240` retains parsed `TextObjectRoot` or literal; `Renderer::onBeginRender` `0x104446fa0` resolves only when the helper dirty flag or player input/interaction mode changes. Domain dynamic-text markers preserve common-patch refresh without rebuilding literal text geometry.
+
+- Equal packet updates: current `ClientScriptPrimitiveShapesDataComponent::handlePacket` `0x1022bab10` unconditionally marks an existing present-type entry dirty after its updater, with no equality check. `generateDiscVerts` `0x10443ed90` zero-segment branch initializes both closing vertices and packed colors to zero, then appends the closing pair unconditionally.

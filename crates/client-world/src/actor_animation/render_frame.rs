@@ -142,11 +142,17 @@ impl ActorAnimationStore {
             return Some(completed());
         };
         let mut sampled_geometries = BTreeMap::new();
-        for layer in &mut layers {
+        for (index, layer) in layers.iter_mut().enumerate() {
             let previous = state
                 .render
-                .iter()
-                .find(|previous| previous.geometry == layer.geometry);
+                .get(index)
+                .filter(|previous| previous.geometry == layer.geometry)
+                .or_else(|| {
+                    state
+                        .render
+                        .iter()
+                        .find(|previous| previous.geometry == layer.geometry)
+                });
             let sampled = match (&pose, layer.geometry) {
                 (Some(pose), None) => Some(Arc::clone(pose)),
                 (Some(_), Some(geometry)) => {
