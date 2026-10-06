@@ -263,18 +263,6 @@ pub(super) fn lift(world_from_actor: &mut [[f32; 4]; 3], sneaking: bool, local: 
     }
 }
 
-/// The empty hand's arm bones in Java's rest pose, and camera space from the rig frame.
-pub(super) fn first_person_arm(
-    stream: &WorldStream,
-    rig: &ActorRigSnapshot<'_>,
-    hand: JavaHand,
-    alpha: f32,
-) -> Option<(Arc<[RenderBoneTransform]>, Mat4)> {
-    let pose = java::java_biped(&JavaBipedInput::default());
-    let bones = retargeted(stream, rig, &pose, &[RIGHT_ARM], alpha)?;
-    Some((bones, java::first_person_arm(hand.swing, hand.equip)))
-}
-
 /// What Java's first-person hand reads this frame.
 pub(super) struct HandInputs<'a> {
     pub(super) stream: &'a WorldStream,
@@ -287,14 +275,23 @@ pub(super) struct HandInputs<'a> {
     pub(super) motion: Mat4,
 }
 
+/// Frame-to-frame state of Java's first-person hand.
+#[derive(Default)]
+pub(super) struct HandCache {
+    /// The main-hand item still drawn through an equip dip.
+    shown: Option<WornItem>,
+    /// The empty hand's rest pose, by rig and rest pose.
+    arm: Option<((u32, usize), Arc<[RenderBoneTransform]>)>,
+}
+
 /// Java's first-person hand: the item it still draws through an equip dip, or its empty arm.
-/// `None` leaves vanilla's hand for items Java never had (maps in either hand, crossbows,
-/// shields).
+/// `Err` leaves vanilla's hand, holding the item to draw, for items Java never had (maps in
+/// either hand, crossbows, shields).
 pub(super) fn hand_source(
     inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
-    shown: &mut Option<WornItem>,
-) -> Option<HandSource> {
+    cache: &mut HandCache,
+) -> Result<HandSource, Option<WornItem>> {
     let HandInputs {
         stream,
         presentation,
@@ -306,13 +303,16 @@ pub(super) fn hand_source(
         motion,
     } = inputs;
     let runtime_id = presentation.submission.input.identity.runtime_id;
-    let rig = stream.authority().actor_rig(runtime_id)?;
+    let Some(rig) = stream.authority().actor_rig(runtime_id) else {
+        return Err(equipment_input.main.clone());
+    };
     let main = rig.java_equipped.and_then(|equipped| match &equipment_input.main {
         Some(item) if item.identifier == *equipped => {
-            *shown = Some(item.clone());
+            cache.shown = Some(item.clone());
             Some(item.clone())
         }
-        _ => shown
+        _ => cache
+            .shown
             .clone()
             .filter(|old| old.identifier == *equipped)
             .or_else(|| equipment_input.main.clone()),
@@ -322,7 +322,7 @@ pub(super) fn hand_source(
         vanilla_only(item) || equipment.is_vanilla_attachable(&item.identifier)
     }) || equipment_input.off.as_ref().is_some_and(vanilla_only)
     {
-        return None;
+        return Err(main);
     }
     let hand = first_person_hand(
         &rig,
@@ -357,8 +357,21 @@ pub(super) fn hand_source(
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
-    // Java draws the arm only with an empty hand; an undrawable item shows it too.
-    let arm = main_layer.is_none().then(|| first_person_arm(stream, &rig, hand, alpha));
+    // Java draws the arm only with an empty hand; an undrawable item shows it too. The pose is
+    // fixed, so it is retargeted once per rig.
+    let key = (rig.rig.0, rig.rest.as_ptr() as usize);
+    let arm = main_layer.is_none().then(|| {
+        let bones = match &cache.arm {
+            Some((cached, bones)) if *cached == key => Arc::clone(bones),
+            _ => {
+                let pose = java::java_biped(&JavaBipedInput::default());
+                let bones = retargeted(stream, &rig, &pose, &[RIGHT_ARM], alpha)?;
+                cache.arm = Some((key, Arc::clone(&bones)));
+                bones
+            }
+        };
+        Some((bones, java::first_person_arm(hand.swing, hand.equip)))
+    });
     let (body, java_body_camera) = match arm.flatten() {
         Some((bones, camera)) => {
             let mut posed = presentation.submission.clone();
@@ -372,7 +385,7 @@ pub(super) fn hand_source(
         }
         None => (None, None),
     };
-    Some(HandSource {
+    Ok(HandSource {
         presentation,
         body,
         items: [main_layer, off_layer],
