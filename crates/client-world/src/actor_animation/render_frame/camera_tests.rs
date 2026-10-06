@@ -85,11 +85,14 @@ fn camera_compiled() -> assets::CompiledEntityAssets {
         .map(|bone| EntityAnimationChannel {
             bone,
             property: EntityAnimationProperty::Rotation,
+            first_keyframe: bone,
             ..channel
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    compiled.animation_keyframes[0].expressions = [Some(0), Some(1), None];
+    let mut keyframe = compiled.animation_keyframes[0];
+    keyframe.expressions = [Some(0), Some(1), None];
+    compiled.animation_keyframes = vec![keyframe; 2].into_boxed_slice();
     let body = compiled.render.layers[0].clone();
     let title = assets::EntityRenderLayer {
         geometry_count: 1,
@@ -242,7 +245,9 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
         },
     ]
     .into_boxed_slice();
-    compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+    for keyframe in &mut compiled.animation_keyframes {
+        keyframe.expressions = [Some(1), None, None];
+    }
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let mut store = fixture_with_assets(assets);
     let completed_tick = store.actor_rig(1).unwrap().completed_tick;
