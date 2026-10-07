@@ -121,6 +121,13 @@ fn check_option_slider_drag(presentation: UiPresentationRuntime) {
         initial,
         "pressing outside the slider cannot capture it by moving over it"
     );
+    pointer(&mut app, window, music_point, None);
+    let options = &app.world().resource::<MenuRuntime>().settings_options;
+    assert_eq!(
+        (options.value("main_volume"), options.value("music_volume")),
+        (initial, music),
+        "a held outside press stays uncaptured over values that differ from the current ones"
+    );
     pointer(&mut app, window, middle, Some(ButtonState::Released));
     pointer(&mut app, window, middle, Some(ButtonState::Pressed));
     assert_eq!(
