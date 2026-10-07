@@ -334,3 +334,58 @@ fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
     let legacy = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
     assert!(!legacy.oreui_dark_mode());
 }
+
+#[test]
+fn animations_default_to_java_and_persist_both_choices() {
+    let mut settings = SettingsOptions::default();
+    let index = index("animations");
+    assert_eq!(settings.get(index), 0);
+    assert!(settings.user_settings().video.java_animations);
+    for choice in [1, 0] {
+        settings.set(index, choice);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.get(index), choice);
+        assert_eq!(loaded.user_settings().video.java_animations, choice == 0);
+    }
+    let untouched = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    assert!(untouched.user_settings().video.java_animations);
+    settings.set(index, 1);
+    settings.reset_group(super::SettingsGroup::Video);
+    assert!(settings.user_settings().video.java_animations);
+}
+
+#[test]
+fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
+    for (toggle, choice) in [(0, 1), (1, 0)] {
+        let legacy = serde_json::json!({ "values": { "java_animations": toggle } });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert_eq!(loaded.value("animations"), choice);
+        assert_eq!(loaded.user_settings().video.java_animations, toggle != 0);
+        let saved = serde_json::to_value(&loaded).unwrap();
+        assert!(saved["values"].get("java_animations").is_none());
+        assert_eq!(saved["values"]["animations"], choice);
+        let selected = serde_json::json!({
+            "values": { "java_animations": toggle, "animations": toggle }
+        });
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&selected).unwrap()).unwrap();
+        assert_eq!(loaded.value("animations"), toggle);
+    }
+}
+
+#[test]
+fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
+    use super::{INVERT_CROSSHAIR_OPTION, SettingsGroup, THIRD_PERSON_CROSSHAIR_OPTION};
+    let mut options = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(options.value(option.name), option.default);
+        options.set(index(option.name), 1 - option.default);
+    }
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(loaded.value(option.name), 1 - option.default);
+    }
+    loaded.reset_group(SettingsGroup::Video);
+    for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        assert_eq!(loaded.value(option.name), option.default);
+    }
+}

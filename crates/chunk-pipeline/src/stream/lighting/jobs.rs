@@ -43,6 +43,13 @@ impl WorldStream {
         camera_position: [f32; 3],
         budget: usize,
     ) -> usize {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!(
+            "light.dispatch",
+            budget,
+            pending = self.lighting.jobs.pending.len()
+        )
+        .entered();
         let light_job_cap = if self.lighting.jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
             || self.mesh_jobs.pending.len() > INITIAL_LIGHT_BACKLOG_THRESHOLD
         {
@@ -269,26 +276,36 @@ impl WorldStream {
             .phase2_stages
             .light_jobs_dispatched
             .saturating_add(dispatched as u64);
+        let mut dispatch = workers::WORKERS.batch(workers::Lane::Light);
         for batch in prepared_batches {
             let tx = self.lighting.tx.clone();
             let running = RunningLightJob::start(&self.lighting.running_jobs);
-            workers::WORKERS.spawn(workers::Lane::Light, move || {
+            dispatch.spawn_with_scratch(move |scratch| {
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("light.solve", sections = batch.len()).entered();
                 let started = Instant::now();
-                let solved = solve_prepared_light_batch(batch);
+                let solved = solve_prepared_light_batch_with_scratch(batch, scratch);
                 let duration = started.elapsed();
+                #[cfg(feature = "tracy")]
+                drop(_zone);
                 // Release the worker slot before publishing: a drained completion means a free slot.
                 drop(running);
                 for entry in solved {
-                    let _ = tx.send(LightCompletion {
+                    let completion = LightCompletion {
                         key: entry.key,
                         identity: entry.identity,
                         result: entry.result,
                         queue_wait: queue_wait(entry.queued_at, started),
                         duration,
-                    });
+                    };
+                    #[cfg(feature = "tracy")]
+                    let _zone = tracing::info_span!("light.completion_send", key = ?completion.key)
+                        .entered();
+                    let _ = tx.send(completion);
                 }
             });
         }
+        drop(dispatch);
         dispatched
     }
     fn take_prepared_light_job(
@@ -331,6 +348,8 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn accept_light_completion(&mut self, completion: LightCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("light.completion", key = ?completion.key).entered();
         self.stats.phase2_stages.light_jobs_completed = self
             .stats
             .phase2_stages

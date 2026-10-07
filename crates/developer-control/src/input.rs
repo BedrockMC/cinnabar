@@ -1,6 +1,6 @@
 //! Input commands reduced to held, released and tapped controls.
 
-use crate::protocol::{InputCommand, Look, Scroll};
+use crate::protocol::{InputCommand, Look, Pointer, Wheel, WheelUnit};
 
 /// Hotbar slots reachable through `key.hotbar.N`.
 pub const HOTBAR_SLOTS: u8 = 9;
@@ -59,8 +59,9 @@ pub struct InputPlan {
     pub tap: Vec<Control>,
     pub tap_frames: u32,
     pub look: Option<Look>,
-    pub pointer: Option<[f32; 2]>,
-    pub scroll: Option<Scroll>,
+    pub text: Option<String>,
+    pub pointer: Option<Pointer>,
+    pub wheel: Option<Wheel>,
     pub release_control: bool,
 }
 
@@ -76,8 +77,21 @@ impl InputPlan {
             tap: parse(&command.press)?,
             tap_frames: command.press_frames.unwrap_or(DEFAULT_PRESS_FRAMES).max(1),
             look: command.look,
-            pointer: command.pointer,
-            scroll: command.scroll.clone(),
+            text: command.text.clone(),
+            pointer: command
+                .pointer
+                .or_else(|| command.cursor.map(|[x, y]| Pointer { x, y })),
+            wheel: command.wheel.or_else(|| {
+                command.scroll.as_ref().map(|scroll| Wheel {
+                    x: scroll.x,
+                    y: scroll.y,
+                    unit: if scroll.pixels {
+                        WheelUnit::Pixel
+                    } else {
+                        WheelUnit::Line
+                    },
+                })
+            }),
             release_control: command.release_control,
         };
         if let Some(look) = &command.look
@@ -85,10 +99,21 @@ impl InputPlan {
         {
             return Err("look angles must be finite".into());
         }
-        if let Some(point) = command.pointer
-            && !point.iter().all(|coordinate| coordinate.is_finite())
+        if command
+            .cursor
+            .is_some_and(|point| !point.into_iter().all(f32::is_finite))
+        {
+            return Err("cursor coordinates must be finite".into());
+        }
+        if let Some(pointer) = command.pointer
+            && !(pointer.x.is_finite() && pointer.y.is_finite())
         {
             return Err("pointer coordinates must be finite".into());
+        }
+        if let Some(wheel) = command.wheel
+            && !(wheel.x.is_finite() && wheel.y.is_finite())
+        {
+            return Err("wheel distances must be finite".into());
         }
         if let Some(movement) = command.movement {
             plan.axis(movement.forward, "key.forward", "key.back")?;
@@ -152,15 +177,16 @@ pub fn yaw_difference(from: f32, to: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::Move;
+    use crate::protocol::{Move, Scroll};
 
     #[test]
     fn wheel_commands_keep_units_and_reject_invalid_deltas() {
         let command: InputCommand =
             serde_json::from_str(r#"{"pointer":[50,60],"scroll":{"y":-2,"pixels":true}}"#).unwrap();
         let plan = InputPlan::from_command(&command).unwrap();
-        assert_eq!(plan.scroll.as_ref().unwrap().y, -2.0);
-        assert!(plan.scroll.as_ref().unwrap().pixels);
+        assert_eq!(plan.wheel.unwrap().y, -2.0);
+        assert_eq!(plan.wheel.unwrap().unit, WheelUnit::Pixel);
+        assert_eq!(plan.pointer, Some(Pointer { x: 50.0, y: 60.0 }));
         for invalid in [f32::NAN, f32::INFINITY, 4097.0] {
             assert!(
                 InputPlan::from_command(&InputCommand {
@@ -172,6 +198,37 @@ mod tests {
                 })
                 .is_err()
             );
+        }
+    }
+
+    #[test]
+    fn pointer_and_wheel_wire_formats_share_a_single_input_plan() {
+        let legacy: InputCommand = serde_json::from_str(
+            r#"{"pointer":[125.5,240],"scroll":{"x":1,"y":-2,"pixels":true}}"#,
+        )
+        .unwrap();
+        let canonical: InputCommand = serde_json::from_str(
+            r#"{"pointer":{"x":125.5,"y":240},"wheel":{"x":1,"y":-2,"unit":"pixel"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            InputPlan::from_command(&legacy),
+            InputPlan::from_command(&canonical)
+        );
+        let both = InputCommand {
+            scroll: legacy.scroll,
+            wheel: Some(Wheel {
+                y: 3.0,
+                ..Wheel::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(InputPlan::from_command(&both).unwrap().wheel, both.wheel);
+        for wire in [
+            r#"{"pointer":[1,2,3]}"#,
+            r#"{"pointer":{"x":1,"y":2,"z":3}}"#,
+        ] {
+            assert!(serde_json::from_str::<InputCommand>(wire).is_err());
         }
     }
 
@@ -244,6 +301,11 @@ mod tests {
             ..InputCommand::default()
         };
         assert!(InputPlan::from_command(&control).is_err());
+        let cursor = InputCommand {
+            cursor: Some([f32::NAN, 10.0]),
+            ..InputCommand::default()
+        };
+        assert!(InputPlan::from_command(&cursor).is_err());
     }
 
     #[test]
@@ -257,20 +319,30 @@ mod tests {
     }
 
     #[test]
-    fn pointer_input_preserves_logical_coordinates_and_rejects_invalid_values() {
-        let plan = InputPlan::from_command(&InputCommand {
-            pointer: Some([125.5, 240.0]),
-            ..Default::default()
-        })
-        .unwrap();
-        assert_eq!(plan.pointer, Some([125.5, 240.0]));
-        assert!(
-            InputPlan::from_command(&InputCommand {
-                pointer: Some([f32::NAN, 0.0]),
-                ..Default::default()
-            })
-            .is_err()
+    fn pointer_and_wheel_validate_before_input_is_applied() {
+        let mut command = InputCommand {
+            cursor: Some([10.0, 20.0]),
+            pointer: Some(Pointer { x: 32.5, y: 64.0 }),
+            wheel: Some(Wheel {
+                y: -3.0,
+                ..Wheel::default()
+            }),
+            press: vec!["MouseLeft".into()],
+            ..InputCommand::default()
+        };
+        let plan = InputPlan::from_command(&command).unwrap();
+        assert_eq!(plan.pointer, command.pointer);
+        assert_eq!(plan.wheel, command.wheel);
+        assert_eq!(plan.tap, [Control::Mouse(MouseButton::Left)]);
+        command.pointer.as_mut().unwrap().x = f32::NAN;
+        assert!(InputPlan::from_command(&command).is_err());
+        command.pointer = None;
+        assert_eq!(
+            InputPlan::from_command(&command).unwrap().pointer,
+            Some(Pointer { x: 10.0, y: 20.0 })
         );
+        command.wheel.as_mut().unwrap().y = f32::INFINITY;
+        assert!(InputPlan::from_command(&command).is_err());
     }
 
     #[test]

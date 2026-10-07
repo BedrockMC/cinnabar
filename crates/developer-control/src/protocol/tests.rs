@@ -64,6 +64,30 @@ fn commands_parse_from_their_wire_form() {
 }
 
 #[test]
+fn pointer_wheel_and_test_cape_parse_from_wire() {
+    let Command::Input(input) = parse(json!({
+        "cmd": "input", "pointer": {"x": 10, "y": 20}, "wheel": {"y": -1}, "press": ["MouseLeft"]
+    }))
+    .unwrap() else {
+        panic!("not input")
+    };
+    assert_eq!(input.pointer, Some(Pointer { x: 10.0, y: 20.0 }));
+    assert_eq!(
+        input.wheel,
+        Some(Wheel {
+            y: -1.0,
+            ..Wheel::default()
+        })
+    );
+    assert!(parse(json!({"cmd": "input", "pointer": {"x": 1, "y": 2, "z": 3}})).is_err());
+    assert!(parse(json!({"cmd": "input", "wheel": {"unit": "invalid"}})).is_err());
+    assert_eq!(
+        parse(json!({"cmd": "test_cape", "enabled": false})).unwrap(),
+        Command::TestCape { enabled: false }
+    );
+}
+
+#[test]
 fn unknown_commands_and_fields_are_rejected() {
     assert!(parse(json!({ "cmd": "fly_to_moon" })).is_err());
     assert!(parse(json!({ "cmd": "input", "jumpp": true })).is_err());

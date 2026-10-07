@@ -137,6 +137,49 @@ impl MenuScrolls {
         offset
     }
 
+    /// Reveals newly focused JSON-UI content without undoing later pointer scrolling.
+    pub fn reveal_engine_focus(
+        &mut self,
+        action: Option<crate::menu::MenuAction>,
+        key: Option<&str>,
+        frame: &crate::ui_runtime::forms::EngineFrame,
+    ) {
+        if self.focused == action {
+            return;
+        }
+        self.focused = action;
+        let Some(region) = frame
+            .hits
+            .iter()
+            .find(|region| Some(region.key.as_str()) == key)
+        else {
+            return;
+        };
+        let Some((key, metrics)) = frame
+            .report
+            .scrolls
+            .iter()
+            .filter(|(key, _)| {
+                region
+                    .key
+                    .strip_prefix(key.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+            .max_by_key(|(key, _)| key.len())
+        else {
+            return;
+        };
+        let (start, length) = if metrics.horizontal {
+            (region.rect.x, region.rect.w)
+        } else {
+            (region.rect.y, region.rect.h)
+        };
+        self.offsets.insert(
+            key.clone(),
+            metrics.offset_revealing(start, start + length) as f32,
+        );
+    }
+
     pub fn offsets(&self) -> &HashMap<String, f32> {
         &self.offsets
     }

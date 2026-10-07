@@ -1,6 +1,7 @@
 //! Fixture-only access for headless benchmarks; absent from normal client builds.
 
 use super::*;
+use client_world::ingestion::vanilla_dimension_range;
 
 /// Recreates the resident-key population of the former radius-16 cohort timing test.
 /// No terrain is decoded here: this measures the diagnostic's key scans, not streaming.
@@ -34,3 +35,6 @@ pub fn work_is_idle(stream: &WorldStream) -> bool {
         && stream.staged_mesh_completions.is_empty()
         && stream.requests.requested.is_empty()
 }
+
+mod dispatch;
+pub use dispatch::DispatchFixture;

@@ -156,7 +156,10 @@ impl ViewNode for GammaTransparentPass {
                 label: Some("sorted ordinary transparent colour-space range"),
                 color_attachments: &[Some(colour)],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuTransparent,
+                ),
                 occlusion_query_set: None,
             });
             if let Some(viewport) =
@@ -171,9 +174,10 @@ impl ViewNode for GammaTransparentPass {
     }
 }
 
-fn native_draws(world: &World) -> [Option<DrawFunctionId>; 6] {
+fn native_draws(world: &World) -> [Option<DrawFunctionId>; 7] {
     use crate::chunk::transparent::mixed::DrawMixedTerrainCommands;
     let nametags = crate::nametag_render::draw_function(world);
+    let primitives = crate::primitive_shapes::draw_function(world);
     let draws = world.resource::<DrawFunctions<Transparent3d>>().read();
     [
         Some(draws.id::<DrawTransparentLiquidCommands>()),
@@ -182,6 +186,7 @@ fn native_draws(world: &World) -> [Option<DrawFunctionId>; 6] {
         Some(draws.id::<DrawMixedTerrainCommands>()),
         draws.get_id::<crate::actor_render::phase::DrawTransparentActorCommands>(),
         nametags,
+        primitives,
     ]
 }
 

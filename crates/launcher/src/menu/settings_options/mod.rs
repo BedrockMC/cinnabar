@@ -20,7 +20,10 @@ use serde::{Deserialize, Serialize};
 pub use control_bindings::{
     EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
 };
-pub use definitions::{SETTINGS_OPTIONS, SettingDefinition, SettingKind};
+pub use definitions::{
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, INVERT_CROSSHAIR_OPTION, SETTINGS_OPTIONS,
+    SettingDefinition, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
+};
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{KEY_BINDINGS, key_name};
 pub use persistence::SETTINGS_FILE;

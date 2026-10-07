@@ -154,6 +154,7 @@ pub(crate) struct ActorGpu {
     maximum_vertex_count: u32,
     skins: GpuSkinArrays,
     sampler: Sampler,
+    glint_sampler: Sampler,
     bind_group: Option<BindGroup>,
     frame_generation: u64,
     geometry_revision: u64,
@@ -238,6 +239,14 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         instance_count: 0,
         maximum_vertex_count: 0,
         skins: GpuSkinArrays::new(&render_device),
+        glint_sampler: render_device.create_sampler(&SamplerDescriptor {
+            label: Some("repeat actor glint sampler"),
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            ..Default::default()
+        }),
         sampler,
         bind_group: None,
         frame_generation: u64::MAX,
@@ -326,6 +335,17 @@ fn prepare_actor_resources(
             tracker.clear();
         }
         if structurally_valid {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "actor.frame_upload",
+                generation = rig.frame_generation,
+                instances = rig.instances.len(),
+                bones = rig.current_bones.len(),
+                bytes = std::mem::size_of_val(&*rig.instances)
+                    + std::mem::size_of_val(&*rig.previous_bones)
+                    + std::mem::size_of_val(&*rig.current_bones),
+            )
+            .entered();
             render_queue.write_buffer(
                 &gpu.instance_buffer,
                 0,
@@ -341,6 +361,8 @@ fn prepare_actor_resources(
                 0,
                 bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.current_bones),
             );
+            #[cfg(feature = "tracy")]
+            drop(_span);
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
@@ -407,6 +429,10 @@ fn prepare_actor_bind_group(
         return;
     };
     let Some(geometry_span_buffer) = gpu.geometry_span_buffer.as_ref() else {
+        gpu.bind_group = None;
+        return;
+    };
+    let Some((_, glint_view)) = gpu.artwork.glint.as_ref() else {
         gpu.bind_group = None;
         return;
     };
@@ -484,6 +510,14 @@ fn prepare_actor_bind_group(
                         resource: BindingResource::TextureView(&gpu.skins.placeholder),
                     },
                     BindGroupEntry {
+                        binding: 12,
+                        resource: BindingResource::TextureView(glint_view),
+                    },
+                    BindGroupEntry {
+                        binding: 13,
+                        resource: BindingResource::Sampler(&gpu.glint_sampler),
+                    },
+                    BindGroupEntry {
                         binding: 11,
                         resource: BindingResource::TextureView(&gpu.skins.placeholder),
                     },
@@ -540,6 +574,14 @@ fn prepare_actor_bind_group(
                 resource: BindingResource::TextureView(gpu.skins.view(2)),
             },
             BindGroupEntry {
+                binding: 12,
+                resource: BindingResource::TextureView(glint_view),
+            },
+            BindGroupEntry {
+                binding: 13,
+                resource: BindingResource::Sampler(&gpu.glint_sampler),
+            },
+            BindGroupEntry {
                 binding: 11,
                 resource: BindingResource::TextureView(gpu.skins.view(3)),
             },
@@ -565,6 +607,8 @@ fn submit_actor_presented_frame(
             reserved: false,
             acknowledged: false,
         });
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("actor.completion_poll").entered();
         if let Err(error) = render_device.poll(PollType::Poll) {
             bevy::log::warn!(
                 ?error,
@@ -597,6 +641,8 @@ fn submit_actor_presented_frame(
     let callback_gate = gate.clone();
     let callback_witness = witness.clone();
     command_buffer.on_submitted_work_done(move || {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!("actor.completion_callback").entered();
         let acknowledged =
             callback_gate.publish_reserved(token, present_returned_at, std::time::Instant::now());
         callback_witness.observe_submit(ActorSubmitWitness {
@@ -606,6 +652,8 @@ fn submit_actor_presented_frame(
             acknowledged,
         });
     });
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("actor.completion_submit").entered();
     render_queue.submit([command_buffer]);
 }
 

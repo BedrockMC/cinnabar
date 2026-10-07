@@ -173,7 +173,10 @@ pub(crate) fn update_atmosphere_frame(
     atmosphere_assets: Res<render::AtmosphereTextureAssets>,
     time: Res<Time<Real>>,
     flash: Res<LightningFlashState>,
-    vision: Res<crate::camera::VisionEffects>,
+    vision: (
+        Res<crate::camera::VisionEffects>,
+        Option<Res<crate::camera::ServerCameraView>>,
+    ),
     outputs: AtmosphereOutputs,
     settings: Res<crate::settings_runtime::RuntimeSettings>,
     mut display: Local<WeatherDisplay>,
@@ -184,6 +187,10 @@ pub(crate) fn update_atmosphere_frame(
     ),
     cameras: Query<&Transform, With<crate::camera::FlyCamera>>,
 ) {
+    let vision = vision
+        .1
+        .as_deref()
+        .map_or(*vision.0, |camera| vision.0.for_camera(camera));
     let renderer_ticks = renderer_clock.advance(
         clock.server_time().map(|_| clock.session_generation),
         time.elapsed_secs_f64(),

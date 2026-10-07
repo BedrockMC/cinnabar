@@ -779,6 +779,7 @@ fn decode_world_raw_with(
             | McpePacketName::UpdateAttributesPacket
             | McpePacketName::ActorEventPacket
             | McpePacketName::AddItemActorPacket
+            | McpePacketName::AvailableActorIdentifiersPacket
             | McpePacketName::TakeItemActorPacket
             | McpePacketName::PlayerListPacket
             | McpePacketName::PlayerSkinPacket
@@ -835,7 +836,12 @@ fn decode_world_raw_with(
             | McpePacketName::CameraShakePacket
             | McpePacketName::CameraInstructionPacket
             | McpePacketName::CameraPresetsPacket
+            | McpePacketName::CameraSplinePacket
+            | McpePacketName::CameraAimAssistPacket
+            | McpePacketName::CameraAimAssistPresetsPacket
+            | McpePacketName::CameraAimAssistActorPriorityPacket
             | McpePacketName::ScriptMessagePacket
+            | McpePacketName::PrimitiveShapesPacket
     ) {
         return Ok(None);
     }
@@ -933,3 +939,9 @@ mod credits_ingress_tests;
 
 #[cfg(test)]
 mod block_sync_tests;
+
+#[cfg(test)]
+mod actor_identifier_ingress_tests;
+
+#[cfg(test)]
+mod primitive_shapes_ingress_tests;

@@ -98,7 +98,7 @@ pub(super) fn install(
             .chain(0x2600..=0x26ff)
             .filter_map(char::from_u32),
     );
-    let mut characters: Vec<_> = warm.into_iter().collect();
+    let mut characters: Vec<_> = warm.into_iter().take(MAX_CACHED_GLYPHS / 2).collect();
     let pinned = characters.len();
     let initial = compile(&sources, &characters, "")?;
     let requests = Arc::new(FontGlyphRequests::default());

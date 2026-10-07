@@ -1,6 +1,9 @@
 mod preview;
 mod remapping;
 mod server_list;
+mod settings_pointer;
+
+use settings_pointer::{native_release_action, update_slider};
 
 use bevy::{
     ecs::message::{MessageCursor, Messages},
@@ -619,7 +622,7 @@ pub(crate) fn drive_menu_input(
         ));
     }
     menu.pointer_down = pointer_pressed;
-    if !pointer_pressed || menu.screen() != super::MenuScreen::Settings {
+    if !pointer_pressed || menu.screen() != crate::menu::MenuScreen::Settings {
         gui_scale_drag.captured = false;
     }
     if let Some(point) = pointer {
@@ -647,44 +650,14 @@ pub(crate) fn drive_menu_input(
         }
         menu.activate_from_input(action);
     };
-    if !pointer_pressed {
-        menu.settings_slider_drag = None;
-        menu.settings_slider_pointer = None;
-    }
-    if pointer_just_pressed {
-        menu.settings_slider_drag = match menu.hovered {
-            Some(super::MenuAction::SettingsOption(index, _))
-                if matches!(
-                    super::settings_options::SETTINGS_OPTIONS[usize::from(index)].kind,
-                    super::settings_options::SettingKind::Slider
-                ) && (!native_settings
-                    || pointer.is_some_and(|point| {
-                        presentation.settings_slider_thumb_contains(index, point)
-                    })) =>
-            {
-                Some(index)
-            }
-            _ => None,
-        };
-    }
-    if pointer_pressed
-        && let Some(index) = menu.settings_slider_drag
-        && let Some(action @ super::MenuAction::SettingsOption(_, value)) =
-            pointer.and_then(|point| presentation.settings_slider_drag_action(index, point))
-    {
-        menu.hovered = Some(action);
-        menu.pressed = Some(action);
-        menu.set_option(index, value);
-        menu.settings_slider_pointer = pointer.and_then(|point| {
-            presentation
-                .settings_slider_drag_fraction(index, point)
-                .map(|fraction| launcher::menu::view::SettingsSliderPointer {
-                    option: index,
-                    fraction,
-                    mouse_input: menu.input_mode.mouse(),
-                })
-        });
-    }
+    update_slider(
+        &mut menu,
+        &presentation,
+        pointer,
+        pointer_pressed,
+        pointer_just_pressed,
+        native_settings,
+    );
     if pointer_just_pressed
         && !on_scrollbar
         && matches!(menu.hovered, Some(super::MenuAction::SettingsScale(_)))
@@ -937,36 +910,6 @@ pub(crate) fn drive_menu_input(
     }
     keys.reset_all();
     mouse_buttons.reset_all();
-}
-
-fn native_release_action(
-    pressed: super::MenuAction,
-    hovered: Option<super::MenuAction>,
-) -> Option<super::MenuAction> {
-    let hovered = hovered?;
-    if hovered == pressed {
-        return Some(hovered);
-    }
-    match (pressed, hovered) {
-        (super::MenuAction::SettingsOption(index, _), super::MenuAction::SettingsOption(at, _))
-            if index == at
-                && super::settings_options::SETTINGS_OPTIONS
-                    .get(usize::from(index))
-                    .is_some_and(|option| {
-                        matches!(
-                            option.kind,
-                            super::settings_options::SettingKind::Slider
-                                | super::settings_options::SettingKind::Toggle
-                        )
-                    }) =>
-        {
-            Some(hovered)
-        }
-        (super::MenuAction::SettingsFullscreen(_), super::MenuAction::SettingsFullscreen(_)) => {
-            Some(hovered)
-        }
-        _ => None,
-    }
 }
 
 impl MenuRuntime {

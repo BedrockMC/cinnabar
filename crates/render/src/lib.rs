@@ -1,4 +1,7 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+#[cfg(test)]
+#[path = "../tests/it/support/gpu_snapshot.rs"]
+mod gpu_snapshot;
 mod lighting;
 mod lightmap;
 #[cfg(test)]
@@ -7,6 +10,11 @@ pub use lighting::{WorldFullbright, WorldLighting};
 pub use lightmap::{LightmapInputs, darkness_pulse};
 pub use render_api::fancy_actor_shade;
 
+mod aim_assist;
+pub use aim_assist::{
+    AIM_ASSIST_TEXTURES, AimAssistHighlight, AimAssistHighlightPlugin, AimAssistHighlightScene,
+    AimAssistTexture,
+};
 mod actor;
 mod actor_render;
 #[cfg(test)]
@@ -49,6 +57,8 @@ mod panorama;
 mod panorama_render;
 mod particle_render;
 mod present_mode;
+mod primitive_shapes;
+pub use primitive_shapes::{PrimitiveShapesRenderPlugin, PrimitiveShapesScene};
 mod runtime_profile;
 mod runtime_profile_slow;
 mod runtime_profile_trace;
@@ -90,12 +100,12 @@ use meshing::{
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_CANDIDATE_RADIUS_BLOCKS, ACTOR_GPU_INSTANCE_WORDS,
     ACTOR_LAYER_BODY, ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorCullView,
-    ActorDrawFrame, ActorDrawManifestEntry, ActorGpuInstance, ActorMainWitness, ActorMaterial,
-    ActorPipelineReadiness, ActorPresentationGate, ActorPresentedFrameAck, ActorRenderFrame,
-    ActorRenderIdentity, ActorRenderInstance, ActorRenderScene, ActorRenderSource,
-    ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame,
-    ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, ActorRuntimeWitness,
-    ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
+    ActorDrawFrame, ActorDrawManifestEntry, ActorGlint, ActorGpuInstance, ActorMainWitness,
+    ActorMaterial, ActorPipelineReadiness, ActorPresentationGate, ActorPresentedFrameAck,
+    ActorRenderFrame, ActorRenderIdentity, ActorRenderInstance, ActorRenderScene,
+    ActorRenderSource, ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission,
+    ActorRuntimeWitness, ActorSkinResidency, ActorTexturePage, EquipmentRaster, IDENTITY_UV_ANIM,
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
@@ -121,9 +131,9 @@ pub use block_entity::{
     MAX_BLOCK_ENTITY_VERTICES, Oxidation, SPAWNER_MOBS, SceneClock, ShulkerModel, SignFace,
     SignModel, SignMount, SkullKind, SkullModel, SkullMount, SpawnerModel, StaticItemPlacement,
     StaticItemPlacements, StatueModel, StatuePose, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
-    banner_color, bed_color, block_matrix, crack_shape_from_template, crack_texture_name,
-    floor_yaw_degrees, item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture,
-    sherd_pattern, shulker_color_from_block_name, skull_geometry, swing_degrees,
+    bed_color, block_matrix, crack_shape_from_template, crack_texture_name, floor_yaw_degrees,
+    item_frame_item_transform, lid_angle_radians, matrix_rows, pattern_texture, sherd_pattern,
+    skull_geometry, swing_degrees,
 };
 pub use celestial::{
     NIGHT_SKY_TRANSFER, celestial_angle, day_plateau, daylight, lightmap_sky_darken,

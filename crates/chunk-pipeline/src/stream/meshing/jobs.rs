@@ -8,6 +8,13 @@ impl WorldStream {
         budget: usize,
         removal_budget: usize,
     ) -> usize {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!(
+            "mesh.dispatch",
+            budget,
+            pending = self.mesh_jobs.pending.len()
+        )
+        .entered();
         if (budget == 0 && removal_budget == 0) || self.mesh_jobs.pending.is_empty() {
             return 0;
         }
@@ -149,6 +156,7 @@ impl WorldStream {
             }
         }
 
+        let mut dispatch = workers::WORKERS.batch(workers::Lane::Mesh);
         let mut dispatched = 0;
         let mut examined = false;
         let now = Instant::now();
@@ -230,7 +238,11 @@ impl WorldStream {
             let resolved_biome_tints = Arc::clone(self.authority.resolved_biome_tints());
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
-            workers::WORKERS.spawn(workers::Lane::Mesh, move || {
+            dispatch.spawn(move || {
+                #[cfg(feature = "tracy")]
+                let _zone =
+                    tracing::info_span!("mesh.build", key = ?key, revision = pending.revision)
+                        .entered();
                 let started = Instant::now();
                 let queue_wait = queue_wait(pending.queued_at, started);
                 let dispatch_wait = started.saturating_duration_since(dispatched_at);
@@ -249,7 +261,7 @@ impl WorldStream {
                     snapshot.dependency_mask(classifier, &runtime_assets, network_id_mode)
                 };
                 output_permit.reconcile(&mesh, &biome);
-                let _ = tx.send(MeshCompletion {
+                let completion = MeshCompletion {
                     output_permit: Some(output_permit),
                     _job_permit: Some(job_permit),
                     key,
@@ -265,7 +277,12 @@ impl WorldStream {
                     dispatch_wait,
                     duration: started.elapsed(),
                     urgent: pending.urgent,
-                });
+                };
+                #[cfg(feature = "tracy")]
+                drop(_zone);
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("mesh.completion_send", key = ?completion.key, revision = completion.revision).entered();
+                let _ = tx.send(completion);
             });
             self.stats.last_mesh_dispatch_at = Some(Instant::now());
             self.stats.phase2_stages.mesh_jobs_dispatched = self
@@ -276,6 +293,7 @@ impl WorldStream {
             dispatched += 1;
         }
 
+        drop(dispatch);
         let mut removal_candidates = removal_candidates.into_iter();
         let mut removed = false;
         while let Some((candidate, pending)) = removal_candidates.next() {
@@ -359,10 +377,19 @@ impl WorldStream {
         now: Instant,
     ) -> bool {
         let mut due = false;
-        for neighbour in key
-            .mesh_neighbourhood_dependents()
-            .filter(|neighbour| *neighbour != key)
-        {
+        // A loaded column with no outstanding requests owes nothing, whatever the height.
+        let settled = |column: ChunkKey| {
+            self.loaded_columns.contains(&column) && !self.requests.requested.contains_key(&column)
+        };
+        let mut unsettled = [key; 26];
+        let mut count = 0;
+        for neighbour in key.mesh_neighbourhood_dependents() {
+            if neighbour != key && !settled(neighbour.chunk()) {
+                unsettled[count] = neighbour;
+                count += 1;
+            }
+        }
+        for &neighbour in &unsettled[..count] {
             if self.sub_chunk_is_due(neighbour, now) {
                 due = true;
                 if self.requests.is_expected(neighbour) {
@@ -398,18 +425,12 @@ impl WorldStream {
             center,
             biomes: self.biome_neighbourhood(key),
             adjacent,
-            column_above: self
+            column: self
                 .authority
                 .terrain()
                 .chunk(key.chunk())
-                .into_iter()
-                .flat_map(|chunk| chunk.sub_chunks())
-                .filter_map(|(y, chunk)| {
-                    y.checked_sub(key.y)
-                        .filter(|&offset| offset >= 2)
-                        .map(|offset| (offset, chunk))
-                })
-                .collect(),
+                .map(world::Chunk::shared_sub_chunks),
+            center_y: key.y,
             light_halo,
         }
     }
@@ -508,6 +529,8 @@ impl WorldStream {
         }
     }
     pub(in crate::stream) fn accept_mesh_completion(&mut self, mut completion: MeshCompletion) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("mesh.completion", key = ?completion.key, revision = completion.revision).entered();
         completion._job_permit.take();
         self.stats.phase2_stages.mesh_jobs_completed = self
             .stats

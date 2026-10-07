@@ -159,7 +159,7 @@ pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 1,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
@@ -231,6 +231,22 @@ pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
                     has_dynamic_offset: false,
                     min_binding_size: BufferSize::new(16),
                 },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 12,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 13,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
                 count: None,
             },
             // Player skin arrays of the 64, 128 and 256 texel classes.

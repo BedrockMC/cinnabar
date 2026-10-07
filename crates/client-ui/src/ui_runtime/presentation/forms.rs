@@ -2,6 +2,8 @@
 //! when the UI carrier is loaded, else the programmatic fallback dialog.
 pub mod book_screen;
 pub mod chat_coordinates;
+mod chat_link_dialog;
+mod chat_links;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
@@ -10,6 +12,7 @@ pub(super) use container_kinds::supported_storage_slots;
 pub mod containers;
 pub(super) mod credits_content;
 pub mod credits_screen;
+pub mod crosshair_settings;
 pub mod emote_screen;
 pub mod engine;
 pub mod experience;
@@ -20,6 +23,7 @@ pub mod global_resources;
 pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
+pub mod java_animations_setting;
 pub mod join_progress;
 pub mod loading_screen;
 #[cfg(test)]

@@ -136,6 +136,18 @@ impl LocalPlayerSkin {
         self.arm_size = Arc::from(model.arm_size());
     }
 
+    /// Overrides only the rendered cape for developer recordings; login identity stays intact.
+    #[cfg(feature = "developer-control")]
+    pub(crate) fn set_test_cape(&mut self, cape: Option<protocol::CapeImage>) {
+        self.cape = cape;
+    }
+
+    /// Selects the developer appearance ahead of any echoed server profile while enabled.
+    #[cfg(feature = "developer-control")]
+    pub(crate) fn recording_cape_enabled(&self) -> bool {
+        self.cape.is_some()
+    }
+
     /// The login upload payload; allocates the byte copy the JWT encoder needs.
     #[must_use]
     pub fn to_client_skin(&self) -> protocol::ClientSkin {

@@ -92,7 +92,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
           components: rustfmt, clippy
-      - run: cargo fmt --check
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -114,6 +113,9 @@ jobs:
       - name: Enforce architecture boundaries
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       # The checks below are independent, so each reports even when an earlier one fails.
+      - name: Check formatting
+        if: ${{ !cancelled() }}
+        run: cargo fmt --check
       - name: Lint Rust workspace
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -121,7 +123,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
-          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control --locked -- -D warnings
+          cargo clippy -p bedrock-client --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
           cargo clippy -p bedrock-client --features reports --tests --locked -- -D warnings
       - name: Test local WASM mod and developer control adapters
         if: ${{ !cancelled() }}
@@ -269,7 +271,7 @@ jobs:
       PLATFORM_TEST_PACKAGES: >-
         -p asset-compiler -p assets -p bridge -p chunk-pipeline -p developer-control
         -p dist-local -p experience-runtime -p launcher -p mod-host -p pack-compiler
-        -p protocol -p render -p semantic-input -p server-experience -p visualcoverage
+        -p protocol -p render -p rich-presence -p semantic-input -p server-experience -p visualcoverage
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.93.1

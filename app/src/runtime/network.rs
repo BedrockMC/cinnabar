@@ -308,7 +308,9 @@ pub(crate) fn receive_network_events(
                 ui_runtime.experiences.marker = packs.extension_marker;
                 player_runtime.facts.publish_bootstrap_game_modes(
                     player_game_mode,
-                    world_default_game_mode,
+                    world_default_game_mode
+                        .hud_mode()
+                        .unwrap_or(protocol::PlayerGameMode::Unknown),
                     player_game_mode_uses_world_default,
                 );
                 ui_runtime.set_hardcore(hardcore);
@@ -389,6 +391,7 @@ pub(crate) fn receive_network_events(
                         "skipped malformed server block definitions"
                     );
                 }
+                stream.set_world_default_game_mode(world_default_game_mode);
                 stream.set_display_interval(display_interval);
                 stream.begin_frame_work();
                 stream.set_startup_priority(true);
@@ -681,15 +684,15 @@ pub(crate) fn receive_network_events(
         }
     }
 
-    let admission_capacity = client_world.stream.as_ref().map_or(
-        NETWORK_INGRESS_BUDGET_PER_FRAME,
-        WorldStream::remaining_admission_capacity,
-    );
-    let events = drain_world_ingress_until_barrier(
-        network.world_events_mut(),
-        NETWORK_INGRESS_BUDGET_PER_FRAME.min(admission_capacity),
-    );
-    for ingress in events {
+    let mut drain = WorldIngressDrain::new(NETWORK_INGRESS_BUDGET_PER_FRAME);
+    loop {
+        let admission_capacity = client_world.stream.as_ref().map_or(
+            NETWORK_INGRESS_BUDGET_PER_FRAME,
+            WorldStream::remaining_admission_capacity,
+        );
+        let Some(ingress) = drain.next(network.world_events_mut(), admission_capacity) else {
+            break;
+        };
         let sequenced = match ingress {
             session::WorldIngress::Event(sequenced) => {
                 network.record_readiness_event_consumed(&sequenced.event);
@@ -933,7 +936,7 @@ pub(crate) use actor_publication::{
 
 #[cfg(test)]
 pub(crate) use drain::drain_network_ingress;
-pub(crate) use drain::{drain_network_controls, drain_world_ingress_until_barrier};
+pub(crate) use drain::{WorldIngressDrain, drain_network_controls};
 
 #[cfg(feature = "acceptance")]
 pub(crate) use acceptance::committed_control::acceptance_surface_anchor;

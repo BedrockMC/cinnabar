@@ -41,7 +41,7 @@ impl UiPresentationRuntime {
         {
             self.menu_preview.revoke_capture();
         }
-        self.gui_scale_drag_targets.clear();
+        self.settings_slider_drag_targets.clear();
         self.form_presentation.menu_focus.clear();
         self.form_presentation.menu_focus_geometry.clear();
         self.form_presentation.menu_focus_landmarks.clear();
@@ -330,6 +330,22 @@ impl UiPresentationRuntime {
         }
         let mut hits = Vec::new();
         let mut keys = Vec::new();
+        for region in json_ui::focus_order(&frame.hits) {
+            let actions = super::global_resources::slider_actions(view, region)
+                .or_else(|| menu_screens::slider_actions(view, region))
+                .unwrap_or_else(|| menu_screens::action_for(view, region).into_iter().collect());
+            self.form_presentation
+                .menu_focus
+                .extend(actions.iter().copied());
+            for action in actions {
+                keys.push((action, region.key.clone()));
+            }
+        }
+        let focused_key = keys.iter().find_map(|(action, key)| {
+            (Some(*action) == view.focused_action).then_some(key.as_str())
+        });
+        self.menu_scrolls
+            .reveal_engine_focus(view.focused_action, focused_key, &frame);
         let mut sounds = Vec::new();
         let mut spots = Vec::new();
         let origin = [self.safe_area.left(), self.safe_area.top()];
@@ -338,18 +354,18 @@ impl UiPresentationRuntime {
             if let Some(actions) = super::global_resources::slider_actions(view, region)
                 .or_else(|| menu_screens::slider_actions(view, region))
             {
-                if region.control_name.as_deref() == Some("gui_scale") {
-                    let mut track = region.clone();
-                    track.clip = track.rect;
-                    self.gui_scale_drag_targets.extend(
-                        segments(&track, actions.len(), frame.scale, origin)
-                            .into_iter()
-                            .map(|(step, bounds)| (actions[step], bounds)),
-                    );
-                }
+                let mut track = region.clone();
+                track.clip = track.rect;
+                self.settings_slider_drag_targets.extend(
+                    segments(&track, actions.len(), frame.scale, origin)
+                        .into_iter()
+                        .map(|(step, bounds)| (actions[step], bounds)),
+                );
                 for (step, bounds) in segments(region, actions.len(), frame.scale, origin) {
                     hits.push((actions[step], bounds));
-                    keys.push((actions[step], region.key.clone()));
+                    if !region.takes_focus() {
+                        keys.push((actions[step], region.key.clone()));
+                    }
                 }
                 continue;
             }
@@ -358,7 +374,9 @@ impl UiPresentationRuntime {
             };
             if let Some(bounds) = window_rect(region, frame.scale, origin) {
                 hits.push((action, bounds));
-                keys.push((action, region.key.clone()));
+                if !keys.iter().any(|(candidate, _)| *candidate == action) {
+                    keys.push((action, region.key.clone()));
+                }
                 sounds.extend(region.sound.clone().map(|sound| (action, sound)));
                 spots.extend(text_spot(&frame, region, action, bounds, metrics));
             }
@@ -370,6 +388,7 @@ impl UiPresentationRuntime {
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
         {
             (hits, keys) = popup;
+            self.form_presentation.menu_focus = hits.iter().map(|(action, _)| *action).collect();
         }
         self.form_presentation.menu_keys = keys;
         Ok(Some(hits))

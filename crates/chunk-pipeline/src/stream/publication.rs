@@ -1,10 +1,22 @@
 use super::*;
 
 impl WorldStream {
+    /// Retains StartGame's level mode for remote-player target admission.
+    pub fn set_world_default_game_mode(&mut self, mode: client_world::ingestion::GameModeUpdate) {
+        self.authority.set_world_default_game_mode(mode);
+    }
+
     /// Read-only view of the admitted world; mutation stays behind ordered admission.
     #[must_use]
     pub const fn authority(&self) -> &client_world::WorldAuthority {
         &self.authority
+    }
+
+    /// Delivers each committed primitive-shape packet once in network order.
+    pub fn pop_primitive_shapes(
+        &mut self,
+    ) -> Option<render_api::primitive_shapes::PrimitiveShapesEvent> {
+        self.authority.pop_primitive_shapes()
     }
 
     pub fn set_publication_allowance(&mut self, allowance: PublicationAllowance) {
@@ -191,6 +203,10 @@ impl WorldStream {
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
+    }
+    /// Drops the local player's Java equip progress to zero, as a block placement does.
+    pub fn reset_local_java_equip(&mut self) {
+        self.authority.reset_local_java_equip()
     }
     /// Item use durations (ticks by identifier) that drive `query.main_hand_item_max_duration`.
     /// Layers the session's server-pack entity catalog over the vanilla one; its entities

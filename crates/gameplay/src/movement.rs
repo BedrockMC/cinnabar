@@ -56,8 +56,8 @@ pub use outbox::{
 use physics::PhysicsCorrectionConfirmation;
 pub use physics::{
     LocalPhysicsController, LocalPhysicsFrame, MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
-    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMovementSample, PhysicsSampleContext,
-    physics_movement_input,
+    PhysicsCorrectionMode, PhysicsCorrectionOutcome, PhysicsMotionSample, PhysicsMovementSample,
+    PhysicsSampleContext, physics_movement_input,
 };
 pub use prediction_sync::{PredictionSyncState, send_movement_prediction_sync};
 use sim::WorldCollisionIdentity;
@@ -86,6 +86,7 @@ pub enum MovementSource {
 struct QueuedPhysicsSample {
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
+    displacement: [f32; 3],
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
     mining: Option<crate::mining::QueuedMiningInteraction>,
@@ -148,6 +149,7 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
+    held_release: Option<outbox::HeldRelease>,
 }
 
 #[cfg(test)]
@@ -189,6 +191,7 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
+            held_release: None,
         }
     }
 
@@ -200,6 +203,7 @@ impl MovementTicker {
         initial_position: [f32; 3],
     ) {
         self.position_authority_changed();
+        self.held_release = None;
         self.session_active = true;
         self.session_generation = session_generation;
         self.next_tick = initial_server_tick.saturating_add(1);
@@ -223,6 +227,7 @@ impl MovementTicker {
 
     pub fn deactivate(&mut self) {
         self.position_authority_changed();
+        self.held_release = None;
         self.session_active = false;
         self.outbox.clear();
         self.pending_sends.clear();
@@ -347,6 +352,7 @@ impl MovementTicker {
         self.outbox.push_back(QueuedPhysicsSample {
             session_generation: self.session_generation,
             snapshot,
+            displacement: completed.movement,
             world_identity: completed.world_identity,
             evidence,
             mining: None,
@@ -532,6 +538,7 @@ impl MovementTicker {
             && identity.reanchor_epoch == self.reanchor_epoch
         {
             self.confirm_sent(&pending.sample);
+            self.confirm_held_release_facing(identity.tick);
         }
         self.sent_physics_packet_count = self.sent_physics_packet_count.saturating_add(1);
         self.tick_evidence.push_back(pending.evidence);
@@ -829,6 +836,7 @@ impl MovementTicker {
                     }
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = replayed.velocity;
+                    pending.displacement = replayed.movement;
                     pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
                     // Tick-bound actions survive; all movement flags come from replay.
                     pending.snapshot.flags = [

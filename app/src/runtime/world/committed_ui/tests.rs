@@ -590,7 +590,9 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 }),
                 item_registry: None,
                 player_game_mode: protocol::PlayerGameMode::Survival,
-                world_default_game_mode: protocol::PlayerGameMode::Survival,
+                world_default_game_mode: protocol::GameModeUpdate::Explicit(
+                    protocol::PlayerGameMode::Survival,
+                ),
                 player_game_mode_uses_world_default: false,
                 server_authoritative_block_breaking: true,
                 rewind_history_size: 20,

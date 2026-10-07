@@ -19,6 +19,7 @@ import (
 type FeaturedServer struct {
 	Name         string   `json:"name"`
 	Group        string   `json:"group"`
+	PlayerCount  *int64   `json:"player_count,omitempty"`
 	Address      string   `json:"address"`
 	Caption      string   `json:"caption"`
 	Description  string   `json:"description,omitempty"`

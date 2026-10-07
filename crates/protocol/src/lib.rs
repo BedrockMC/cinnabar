@@ -22,6 +22,7 @@ mod nbt_tree;
 mod packet;
 mod particle;
 mod permissions;
+mod primitive_shapes;
 mod raw_text;
 mod respawn;
 mod settings;
@@ -30,6 +31,7 @@ pub use skin_change::{cape_content_id, player_skin_packet, set_skin_packet_uuid}
 mod socket_transport;
 pub mod store_control;
 mod transfer;
+mod translation_parameter;
 mod ui;
 mod world;
 pub mod world_control;
@@ -45,12 +47,13 @@ pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_sc
 
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
-    ActorEffectEvent, ActorEvent, ActorInterpolation, ActorKind, ActorLinkEvent, ActorLinkType,
-    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
-    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage,
-    ITEM_ACTOR_NETWORK_OFFSET, MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES,
-    MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES,
+    ActorEffectEvent, ActorEvent, ActorIdentifier, ActorIdentifierRegistry, ActorInterpolation,
+    ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPacketError, ActorPositionOrigin, ActorProperty,
+    ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent,
+    CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET,
+    MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
+    MAX_ACTOR_IDENTIFIERS, MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES,
     MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES,
     MAX_ACTOR_PROPERTIES, MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS,
     MAX_PLAYER_LIST_SKIN_BYTES, MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES,
@@ -74,18 +77,25 @@ pub use blob_cache::{
 pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use boss::boss_registration_response;
 pub use camera::{
-    CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
-    CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
-    CameraShakeAction, CameraShakeEvent, CameraShakeType, CameraSwitchEvent,
-    CameraTargetInstruction, MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS,
+    CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
+    CameraAimAssistExclusions, CameraAimAssistItemSetting, CameraAimAssistPreset,
+    CameraAimAssistPresetSettings, CameraAimAssistPriorities, CameraAimAssistPriority,
+    CameraAimAssistRegistry, CameraAimAssistSettings, CameraAimAssistTargetMode, CameraEase,
+    CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes, CameraFovInstruction,
+    CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
+    CameraShakeEvent, CameraShakeType, CameraSpline, CameraSplineInstruction, CameraSplineKind,
+    CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame, CameraSwitchEvent,
+    CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
+    MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
-    click_block_packet, click_block_transaction_packet, destroy_block_packet, release_item_packet,
-    stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    click_block_packet, click_block_transaction_packet, destroy_block_packet,
+    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
+    stop_item_use_on_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
@@ -192,9 +202,14 @@ pub use raw_text::{
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextDocument, RawTextResolution,
     RawTextResolver, ResolvedRawText, format_translation, parse_raw_text,
 };
+pub use render_api::primitive_shapes::{
+    PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
+    PrimitiveShapesEvent, PrimitiveText,
+};
 pub use settings::request_chunk_radius_packet;
 pub use socket_transport::{SocketTransport, bridge_endpoint_path, report_pack_application};
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
+pub use translation_parameter::localize_parameter_prefix;
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,

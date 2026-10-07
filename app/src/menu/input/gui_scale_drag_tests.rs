@@ -63,6 +63,130 @@ fn pointer(app: &mut App, window: Entity, position: Vec2, event: Option<ButtonSt
     app.update();
 }
 
+/// Finds a usable slider press through the same public hit test as pointer input.
+fn settings_slider_point(presentation: &UiPresentationRuntime, index: u16) -> Option<Vec2> {
+    (0..PHYSICAL[1]).step_by(8).find_map(|y| {
+        (0..PHYSICAL[0]).step_by(8).find_map(|x| {
+            let point = UiPoint::new(x as f32, y as f32).unwrap();
+            matches!(presentation.hit_test_menu(point), Some(MenuAction::SettingsOption(candidate, _)) if candidate == index)
+                .then(|| presentation.settings_slider_thumb_contains(index, point))
+                .filter(|on_thumb| *on_thumb)
+                .map(|_| Vec2::new(x as f32, y as f32))
+        })
+    })
+}
+
+#[test]
+fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
+    let Some(presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping settings_slider_drag_keeps_tracking_outside_hover_until_released: fixture unavailable; requires installed local carriers (make assets)"
+        );
+        return;
+    };
+    let index = u16::try_from(
+        super::super::settings_options::SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == "field_of_view")
+            .unwrap(),
+    )
+    .unwrap();
+    let definition = &super::super::settings_options::SETTINGS_OPTIONS[usize::from(index)];
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(crate::player_runtime::PlayerRuntime::new(1))
+        .insert_resource(menu)
+        .insert_resource(presentation)
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                resolution: WindowResolution::new(PHYSICAL[0], PHYSICAL[1]),
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.update();
+    let middle =
+        app.world_mut()
+            .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
+                presentation.set_menu_view(Some(world.resource::<MenuRuntime>().view()));
+                let build = |presentation: &mut UiPresentationRuntime, world: &World| {
+                    presentation
+                        .build(
+                            world.resource::<crate::player_runtime::PlayerRuntime>(),
+                            &UiRuntime::new(1),
+                            0,
+                            PHYSICAL,
+                            DpiScale::new(1.0).unwrap(),
+                        )
+                        .unwrap();
+                };
+                build(&mut presentation, world);
+                let sections = presentation
+                    .visible_menu_actions()
+                    .filter(|action| matches!(action, MenuAction::SettingsSection(_)))
+                    .collect::<Vec<_>>();
+                for section in sections {
+                    {
+                        let mut menu = world.resource_mut::<MenuRuntime>();
+                        menu.activate(section);
+                        let value = menu.settings_options.get(usize::from(index));
+                        menu.refresh_settings_focus([MenuAction::SettingsOption(index, value)]);
+                    }
+                    presentation.set_menu_view(Some(world.resource::<MenuRuntime>().view()));
+                    build(&mut presentation, world);
+                    if let Some(point) = settings_slider_point(&presentation, index) {
+                        return point;
+                    }
+                }
+                panic!("native settings category navigation exposes the field of view slider");
+            });
+    pointer(&mut app, window, middle, Some(ButtonState::Pressed));
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .get(usize::from(index)),
+        definition.min
+    );
+    pointer(
+        &mut app,
+        window,
+        Vec2::new(PHYSICAL[0] as f32 - 1.0, PHYSICAL[1] as f32 - 1.0),
+        None,
+    );
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .get(usize::from(index)),
+        definition.max
+    );
+    pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Released));
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(
+        app.world()
+            .resource::<MenuRuntime>()
+            .settings_options
+            .get(usize::from(index)),
+        definition.max
+    );
+}
+
 #[test]
 fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
     let Some(presentation) = engine_presentation() else {

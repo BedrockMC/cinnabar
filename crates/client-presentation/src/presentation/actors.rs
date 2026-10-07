@@ -17,7 +17,8 @@ mod admission;
 pub use admission::within_actor_candidate_cube;
 mod tick_cache;
 pub use tick_cache::PoseConversions;
-use tick_cache::{TickKey, convert_bones};
+use tick_cache::TickKey;
+pub(crate) use tick_cache::convert_bones;
 
 /// Damage tint blended over a hurt or dying actor.
 const HURT_OVERLAY_RGBA: [f32; 4] = [1.0, 0.0, 0.0, client_world::HURT_OVERLAY_ALPHA];
@@ -602,11 +603,11 @@ fn interpolated_position(actor: &ActorSnapshot, partial_tick: f32) -> Option<[f3
     actor.interpolated_position(partial_tick)
 }
 
-fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
+pub(crate) fn lerp_degrees(start: f32, end: f32, alpha: f32) -> f32 {
     wrap_degrees(start + wrap_degrees(end - start) * alpha)
 }
 
-fn wrap_degrees(degrees: f32) -> f32 {
+pub(crate) fn wrap_degrees(degrees: f32) -> f32 {
     (degrees + 180.0).rem_euclid(360.0) - 180.0
 }
 

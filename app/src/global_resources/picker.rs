@@ -38,7 +38,7 @@ fn windows_filter() -> String {
 }
 
 /// Runs the first picker tool that launches; a launched tool's failure counts as cancellation.
-#[cfg(any(not(windows), test))]
+#[cfg(not(windows))]
 fn run_tools(commands: Vec<Command>) -> Result<Option<PathBuf>, String> {
     let mut launch_error = None;
     for mut command in commands {

@@ -17,6 +17,7 @@ mod mesh_neighbourhood;
 mod mutation;
 mod nbt_tree;
 mod palette;
+mod section_snapshot;
 mod store;
 mod sub_chunk;
 
@@ -40,12 +41,14 @@ pub use light::{
 pub use light_solver::{
     BlockPos, BoundaryLightSample, DimensionLightProfile, EmptyLight, LightBlockAccess,
     LightBlockSample, LightBounds, LightProperties, LightReadAccess, LightSolveError,
-    LightSolveOutput, LightSolveStats, SolverLimits, solve_light,
+    LightSolveOutput, LightSolveStats, LightSolverScratch, SolverLimits, solve_light,
+    solve_light_with_scratch,
 };
 pub use mesh_neighbourhood::{MeshDependencyMask, MeshNeighbourhood, MeshSample};
 pub use mutation::BlockUpdate;
 pub use nbt_tree::{NbtCompound, NbtValue};
 pub use palette::{BLOCKS_PER_SUB_CHUNK, Palette, PalettedStorage, SUB_CHUNK_SIDE};
+pub use section_snapshot::SectionSnapshot;
 pub use store::{
     ApplyLevelChunk, ChunkCollisionRevision, ChunkStore, DecodedLevelChunk, DimensionSlots,
     PreparedSubChunkMutation, decode_column_tail,

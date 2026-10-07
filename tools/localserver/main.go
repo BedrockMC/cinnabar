@@ -1,4 +1,5 @@
-// Command bedrock-local-server hosts a saved Dragonfly world using flat or natural terrain.
+// Command bedrock-local-server hosts saved Dragonfly worlds with flat or natural terrain,
+// or an opt-in synthetic terrain fixture.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
 // it. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
@@ -47,6 +48,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if cfg.terrainFixtureGenerate {
+		return generateTerrainFixture(cfg, stdout)
+	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
 	var ext *extension.Server
@@ -94,6 +98,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = ext.Listener(listen)
 		}
 	}
+	if cfg.cameraTest {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = cameraTestListener(listen)
+		}
+	}
+	if cfg.primitiveShapes {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = primitiveListener(listen)
+		}
+	}
+	cfg.configureTerrainFixture(&conf)
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)

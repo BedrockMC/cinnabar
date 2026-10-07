@@ -22,7 +22,9 @@ pub fn compile_native_fallback_fonts(
         || sources
             .iter()
             .any(|s| s.is_empty() || s.len() as u64 > assets::MAX_FONT_SOURCE_BYTES)
-        || sources.iter().try_fold(0u64, |total, source| total.checked_add(source.len() as u64))
+        || sources
+            .iter()
+            .try_fold(0u64, |total, source| total.checked_add(source.len() as u64))
             .is_none_or(|total| total > assets::MAX_FONT_SOURCE_BYTES)
     {
         return Err(invalid("native fallback sources exceed bounds"));

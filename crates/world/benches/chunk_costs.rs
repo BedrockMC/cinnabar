@@ -4,7 +4,8 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use world::{
     BLOCKS_PER_SUB_CHUNK, BlockPos, ChunkKey, ChunkStore, DecodedLevelChunk, DimensionLightProfile,
     DimensionSlots, EmptyLight, LightBlockAccess, LightBlockSample, LightBounds, LightChannel,
-    LightProperties, RawBiomeIds, RawBlockIds, SolverLimits, SubChunk, SubChunkKey, solve_light,
+    LightProperties, LightSolverScratch, RawBiomeIds, RawBlockIds, SolverLimits, SubChunk,
+    SubChunkKey, solve_light, solve_light_with_scratch,
 };
 
 const IDS: RawBlockIds = RawBlockIds { air: 0 };
@@ -225,6 +226,40 @@ fn light_benches(c: &mut Criterion) {
                     drop(black_box(
                         solve_light(black_box(fixture), &EmptyLight, bounds, 73, profile, limits)
                             .expect("light solve"),
+                    ));
+                });
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new(format!("{name}_reused"), "16x16x16_voxels"),
+            &fixture,
+            |b, fixture| {
+                let mut scratch = LightSolverScratch::default();
+                drop(
+                    solve_light_with_scratch(
+                        fixture,
+                        &EmptyLight,
+                        bounds,
+                        73,
+                        profile,
+                        limits,
+                        &mut scratch,
+                    )
+                    .expect("warm light solve"),
+                );
+                // Each solve still samples new input and packs an independently owned output.
+                b.iter(|| {
+                    drop(black_box(
+                        solve_light_with_scratch(
+                            black_box(fixture),
+                            &EmptyLight,
+                            bounds,
+                            73,
+                            profile,
+                            limits,
+                            &mut scratch,
+                        )
+                        .expect("light solve"),
                     ));
                 });
             },

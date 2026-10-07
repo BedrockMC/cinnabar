@@ -18,9 +18,12 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
-	dir, addr, name, gameMode, diff string
-	generator                       string
-	seed                            int64
+	primitiveShapes, cameraTest            bool
+	terrainFixture, terrainFixtureGenerate bool
+	terrainFixtureRadius                   int
+	dir, addr, name, gameMode, diff        string
+	generator                              string
+	seed                                   int64
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -36,6 +39,10 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	var s settings
 	flags := flag.NewFlagSet("bedrock-local-server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.BoolVar(&s.terrainFixture, "terrain-fixture", false, "serve deterministic synthetic hills, caves, trees and water")
+	flags.BoolVar(&s.terrainFixtureGenerate, "terrain-fixture-generate", false, "generate a new synthetic terrain database and exit")
+	flags.IntVar(&s.terrainFixtureRadius, "terrain-fixture-radius", terrainDefaultRadius, "synthetic pregeneration radius in chunks")
+	flags.BoolVar(&s.primitiveShapes, "primitive-shapes", false, "emit a debug-shape gallery; /shapes, /shapes update, /shapes clear")
 	flags.StringVar(&s.dir, "dir", "", "world data directory")
 	flags.StringVar(&s.addr, "addr", "", "loopback UDP listen address")
 	flags.StringVar(&s.name, "name", "World", "world display name")
@@ -43,6 +50,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
 	flags.Int64Var(&s.seed, "seed", 0, "world seed")
+	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
 	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
@@ -56,8 +64,11 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	if s.generator != "normal" && s.generator != "flat" {
 		return settings{}, fmt.Errorf("unknown generator %q", s.generator)
 	}
-	if s.dir == "" || s.addr == "" {
-		return settings{}, errors.New("-dir and -addr are required")
+	if s.dir == "" || (s.addr == "" && !s.terrainFixtureGenerate) {
+		return settings{}, errors.New("-dir and -addr are required; generation needs only -dir")
+	}
+	if s.terrainFixtureRadius < terrainMinRadius || s.terrainFixtureRadius > terrainMaxRadius {
+		return settings{}, fmt.Errorf("terrain fixture radius must be %d..%d", terrainMinRadius, terrainMaxRadius)
 	}
 	if s.experiences != "" && s.runtime == "" {
 		return settings{}, errors.New("-experience-runtime is required with -experiences")
@@ -159,5 +170,8 @@ func (s settings) applyTo(worlds ...*world.World) {
 	for _, w := range worlds {
 		w.SetDefaultGameMode(mode)
 		w.SetDifficulty(difficulty)
+		if s.terrainFixture {
+			freezeTerrainFixture(w)
+		}
 	}
 }

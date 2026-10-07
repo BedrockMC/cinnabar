@@ -31,6 +31,7 @@ fn font() -> CompiledFontCatalog {
         bearing: [0, 0],
         advance_64: 2 * 64,
     };
+    // Catalogs reject empty UV rectangles, so blank glyphs keep a one-texel cell.
     let glyphs = [
         GlyphMetrics {
             codepoint: ' ',

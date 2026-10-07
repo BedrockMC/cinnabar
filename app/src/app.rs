@@ -214,7 +214,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            (publish_local_player_frame, publish_interaction_origin)
+            (publish_local_player_frame, publish_interaction_origin, crate::camera::aim_assist::publish_assisted_interaction, crate::camera::aim_highlight::publish)
                 .chain()
                 .in_set(LocalPlayerFrameSet::Interaction)
                 .in_set(ClientFrameSet::Interaction),
@@ -410,6 +410,8 @@ fn bind_direct_session_directory(
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    #[cfg(feature = "developer-control")]
+    crate::developer_control::prepare_native_application()?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Declared first so it drops last: every spawned child is gone before `run` returns or unwinds.
     let _children = crate::lifecycle::children::StopOnDrop;
@@ -672,23 +674,27 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
-    app.add_plugins(
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(primary_window),
-                ..default()
-            })
-            .set(render_plugin())
-            .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-            // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
-            // graph requires post-process nodes that are intentionally absent
-            // from this compact custom renderer.
-            .disable::<AntiAliasPlugin>()
-            // The launcher owns the production process lifecycle. Keeping the
-            // OS default SIGINT action also preserves a real developer escape
-            // hatch if graceful Bevy teardown is wedged.
-            .disable::<TerminalCtrlCHandlerPlugin>(),
-    );
+    let plugins = DefaultPlugins
+        .set(WindowPlugin {
+            primary_window: Some(primary_window),
+            ..default()
+        })
+        .set(render_plugin())
+        .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
+        // Cinnabar uses FXAA without Bevy's TAA/SMAA/CAS bundle. The TAA
+        // graph requires post-process nodes that are intentionally absent
+        // from this compact custom renderer.
+        .disable::<AntiAliasPlugin>()
+        // The launcher owns the production process lifecycle. Keeping the
+        // OS default SIGINT action also preserves a real developer escape
+        // hatch if graceful Bevy teardown is wedged.
+        .disable::<TerminalCtrlCHandlerPlugin>();
+    #[cfg(feature = "tracy")]
+    let plugins = plugins.set(bevy::log::LogPlugin {
+        custom_layer: crate::tracy::layer,
+        ..default()
+    });
+    app.add_plugins(plugins);
     app.add_plugins(FxaaPlugin);
     app.add_systems(Update, crate::window_icon::apply);
     app.add_plugins(crate::local_worlds::LocalWorldsPlugin);
@@ -717,7 +723,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(SessionController::new(core_process))
+    .insert_resource(
+        SessionController::new(core_process).with_server_address(args.address.as_deref()),
+    )
     .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
@@ -868,6 +876,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::HandRigRenderPlugin,
         render::DroppedItemRenderPlugin,
         render::ScreenOverlayRenderPlugin,
+        render::AimAssistHighlightPlugin,
         render::ParticleRenderPlugin,
         render::BlockEntityRenderPlugin,
         render::EntityShadowRenderPlugin,
@@ -886,6 +895,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
     crate::block_selection::configure(&mut app);
+    crate::primitive_shapes::configure(&mut app);
     app.init_resource::<crate::presentation::viewmodel::HandAdapter>();
     if let Some(geometry) = hand_geometry {
         app.insert_resource(geometry);
@@ -901,9 +911,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);
     crate::server_experiences::configure(&mut app);
+    crate::discord_presence::configure(&mut app);
     configure_acceptance_finish_system(&mut app);
 
     let exit = app.run();
+    crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
         network.shutdown();
     }

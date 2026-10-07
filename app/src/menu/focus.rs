@@ -550,7 +550,7 @@ impl MenuRuntime {
     }
 }
 
-/// Whether two actions identify the same control despite a changed value.
+/// Dropdown radio rows are distinct controls; slider stops share one control.
 fn same_control(a: MenuAction, b: MenuAction) -> bool {
     match (a, b) {
         (MenuAction::SettingsOption(a, av), MenuAction::SettingsOption(b, bv)) if a == b => {
@@ -903,5 +903,49 @@ mod review_tests {
         menu.activate_focused();
         assert!(menu.focus_actions().is_empty());
         assert_eq!(menu.settings_options.get(usize::from(index)), value);
+    }
+
+    /// Keyboard and controller navigation retain each radio row's selected value.
+    #[test]
+    fn settings_dropdown_focus_reaches_and_activates_each_radio_choice() {
+        for name in ["animations", "graphics_mode"] {
+            let mut menu = MenuRuntime::new(true, 2, "Test".into());
+            menu.screen = MenuScreen::Settings;
+            let index = settings_options::SETTINGS_OPTIONS
+                .iter()
+                .position(|option| option.name == name)
+                .unwrap() as u16;
+            let actions = [
+                MenuAction::SettingsDropdown(index),
+                MenuAction::SettingsOption(index, 0),
+                MenuAction::SettingsOption(index, 1),
+            ];
+            menu.refresh_settings_focus(actions);
+            assert_eq!(
+                menu.focus_actions(),
+                actions,
+                "each radio row is a distinct focus control"
+            );
+            menu.focused = 0;
+            menu.activate_focused();
+            assert_eq!(menu.settings_dropdown, Some(index));
+            menu.refresh_settings_focus(actions);
+            menu.focus_pointer(actions[1]);
+            assert_eq!(menu.focus_actions()[menu.focused], actions[1]);
+            menu.move_focus(1);
+            assert_eq!(menu.focus_actions()[menu.focused], actions[2]);
+            menu.refresh_settings_focus(actions);
+            assert_eq!(menu.focus_actions()[menu.focused], actions[2]);
+            menu.activate_focused();
+            assert_eq!(menu.settings_options.value(name), 1);
+            assert_eq!(menu.settings_dropdown, None);
+            menu.focused = 0;
+            menu.activate_focused();
+            menu.refresh_settings_focus(actions);
+            menu.focus_pointer(actions[1]);
+            menu.activate_focused();
+            assert_eq!(menu.settings_options.value(name), 0);
+            assert_eq!(menu.settings_dropdown, None);
+        }
     }
 }

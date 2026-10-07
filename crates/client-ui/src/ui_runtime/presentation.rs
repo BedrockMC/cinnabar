@@ -35,6 +35,7 @@ pub mod nametag_atlas;
 pub mod nametags;
 pub mod paper_doll;
 pub mod player_preview;
+pub mod primitive_shapes;
 pub mod primitives;
 pub mod publish;
 pub mod retained_hud;
@@ -140,6 +141,7 @@ pub struct UiPresentationRuntime {
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
     player_preview_page: Option<u16>,
@@ -189,9 +191,8 @@ pub struct UiPresentationRuntime {
     menu_hit_targets: Vec<(MenuAction, UiRect)>,
     menu_skin_thumbnail_indices: Vec<usize>,
     menu_cape_thumbnail_indices: Vec<usize>,
-    /// Current full GUI slider geometry, including steps clipped from view.
-    /// Captured drags keep following it while scale changes move the row.
-    gui_scale_drag_targets: Vec<(MenuAction, UiRect)>,
+    /// Full settings slider geometry, including steps clipped from view.
+    settings_slider_drag_targets: Vec<(MenuAction, UiRect)>,
     menu_scrolls: menu_scroll::MenuScrolls,
     form_presentation: forms::FormPresentation,
     /// Window-space rect of the sign editor's Done button in the last build.
@@ -267,6 +268,7 @@ impl UiPresentationRuntime {
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),
             player_preview_page: None,
             player_preview_source_hash: None,
@@ -304,7 +306,7 @@ impl UiPresentationRuntime {
             menu_hit_targets: Vec::new(),
             menu_skin_thumbnail_indices: Vec::new(),
             menu_cape_thumbnail_indices: Vec::new(),
-            gui_scale_drag_targets: Vec::new(),
+            settings_slider_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
             form_presentation: forms::FormPresentation::default(),
             loading_stage: None,

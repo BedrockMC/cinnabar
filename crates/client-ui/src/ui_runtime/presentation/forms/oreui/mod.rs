@@ -485,7 +485,7 @@ impl UiPresentationRuntime {
                         .iter()
                         .map(|(action, _)| *action)
                         .collect();
-                    self.gui_scale_drag_targets.clear();
+                    self.settings_slider_drag_targets.clear();
                     self.form_presentation.oreui_settings_input = true;
                 }
                 MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {

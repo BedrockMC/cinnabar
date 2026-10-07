@@ -468,20 +468,28 @@ fn destroy_block_builder_shares_block_use_validation() {
 }
 
 #[test]
-fn block_use_builders_reject_finite_relative_hits_outside_block_bounds() {
-    for relative_hit in [
-        [-f32::EPSILON, 0.375, 1.0],
-        [0.0, 0.375, 1.0 + f32::EPSILON],
-    ] {
+fn held_block_use_preserves_relative_hits_outside_the_current_cell() {
+    for relative_hit in [[-1.5, 0.375, 1.0], [0.0, 0.375, 2.5]] {
         let mut request = base_request();
         request.relative_hit = relative_hit;
+        let packet =
+            click_block_transaction_packet(request, ItemUseTrigger::SimulationTick, true, None)
+                .unwrap();
+        let McpePacketData::InventoryTransactionPacket(packet) = packet.data else {
+            panic!("transaction");
+        };
+        let InventoryTransactionPacketTransaction::ItemUseInventoryTransaction(transaction) =
+            packet.transaction
+        else {
+            panic!("item use");
+        };
         assert_eq!(
-            click_block_packet(request.clone(), &session()).unwrap_err(),
-            BlockUsePacketError::RelativeHitOutOfRange
-        );
-        assert_eq!(
-            destroy_block_packet(request, &session()).unwrap_err(),
-            BlockUsePacketError::RelativeHitOutOfRange
+            [
+                transaction.click_position.x,
+                transaction.click_position.y,
+                transaction.click_position.z
+            ],
+            relative_hit
         );
     }
 }
@@ -670,7 +678,8 @@ fn click_block_transaction_carries_trigger_and_prediction() {
             EnumsItemUseInventoryTransactionPredictedResult::Success,
         ),
     ] {
-        let packet = click_block_transaction_packet(request.clone(), trigger, success).unwrap();
+        let packet =
+            click_block_transaction_packet(request.clone(), trigger, success, None).unwrap();
         let bytes = encode(&packet, &session()).unwrap();
         let McpePacketData::InventoryTransactionPacket(built) =
             decode_batch(bytes, &session()).unwrap().remove(0).data
@@ -884,4 +893,26 @@ fn plain_click_air_has_no_actions_or_legacy_request() {
         panic!("item use");
     };
     assert!(transaction.actions.actions.is_empty());
+}
+
+#[test]
+fn aim_assist_rotation_actions_are_attack_and_release() {
+    assert!(protocol::is_aim_assist_rotation_action(&decode_one(
+        ATTACK_ACTOR,
+        McpePacketName::InventoryTransactionPacket
+    )));
+    assert!(!protocol::is_aim_assist_rotation_action(&decode_one(
+        INTERACT_ACTOR,
+        McpePacketName::InventoryTransactionPacket
+    )));
+    assert!(protocol::is_aim_assist_rotation_action(
+        &release_item_packet(held_request()).unwrap()
+    ));
+    assert!(!protocol::is_aim_assist_rotation_action(
+        &click_air_packet(held_request(), None).unwrap()
+    ));
+    assert!(!protocol::is_aim_assist_rotation_action(&swing_arm_packet(
+        1,
+        SwingSource::ThrowItem
+    )));
 }

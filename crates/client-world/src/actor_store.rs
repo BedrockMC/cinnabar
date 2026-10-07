@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+mod aim_assist;
+
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
@@ -97,6 +99,7 @@ pub struct ActorSnapshot {
     pub on_ground: Option<bool>,
     pub teleported: bool,
     pub player_mode: Option<MovePlayerMode>,
+    pub player_game_mode: Option<protocol::GameModeUpdate>,
     pub source_tick: Option<u64>,
     pub metadata: HashMap<u32, ActorMetadataValue>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
@@ -191,6 +194,7 @@ impl ActorSnapshot {
             on_ground: None,
             teleported: false,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
             attributes: HashMap::with_capacity(spawn.attributes.len()),
@@ -244,6 +248,7 @@ impl ActorSnapshot {
             on_ground: Some(feed.on_ground),
             teleported: feed.teleported,
             player_mode: None,
+            player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
             attributes: HashMap::new(),
@@ -573,19 +578,22 @@ impl MovementFlagUpdate {
     }
 }
 
-/// Client-authored identity and pose for the local player's own third-person rig, which the
-/// server never spawns as an actor. When the player list carries no self entry, the skin backs
-/// a synthetic profile keyed by `uuid`; a real echo overrides it.
+/// Client-authored identity and pose for the local rig. The skin backs a synthetic profile;
+/// a server appearance takes priority unless `prefer_client_skin` explicitly overrides it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalPlayerFeed {
     pub uuid: [u8; 16],
     pub username: std::sync::Arc<str>,
     /// The client's own skin, uploaded at login and shown on the local body and HUD paperdoll.
     pub skin: PlayerSkin,
+    /// Uses the client appearance locally while retaining any server profile for restoration.
+    pub prefer_client_skin: bool,
     pub position: [f32; 3],
     /// Native simulation displacement per tick, passed through from `sim::PlayerState`.
     pub velocity: [f32; 3],
     pub on_ground: bool,
+    /// Active flight from the client's completed movement mode, rather than server abilities.
+    pub flying: bool,
     /// Look-input yaw driving the body target, not the camera boom.
     pub yaw: f32,
     pub head_yaw: f32,
@@ -593,6 +601,14 @@ pub struct LocalPlayerFeed {
     /// Identifiers of the client-owned main-hand and off-hand items.
     pub main_hand: Option<std::sync::Arc<str>>,
     pub off_hand: Option<std::sync::Arc<str>>,
+    /// The main-hand stack's data value.
+    pub main_hand_metadata: u32,
+    /// Positive server identity for the selected stack, if one is available.
+    pub main_hand_stack_id: Option<i32>,
+    /// Selected hotbar slot; equal stacks in different slots still re-equip.
+    pub main_hand_slot: u8,
+    /// Current Java swing duration, recalculated from the active effects each tick.
+    pub java_swing_ticks: i32,
     /// Snaps the pose and resets the rig instead of interpolating.
     pub teleported: bool,
     /// The camera renders from the player's eyes; selects the first-person render controller.
@@ -628,6 +644,10 @@ pub(crate) struct ActorStore {
     max_player_skin_bytes: usize,
     retained_player_skin_bytes: usize,
     ignored_movement_components: u64,
+    actor_identifier_skips: u64,
+    player_game_mode_skips: u64,
+    world_default_game_mode: Option<protocol::PlayerGameMode>,
+    aim_actor_classes: HashMap<std::sync::Arc<str>, bool>,
     actors: HashMap<u64, ActorSnapshot>,
     unique_to_runtime: HashMap<i64, u64>,
     rider_to_ridden: HashMap<i64, i64>,
@@ -652,8 +672,13 @@ pub(crate) struct ActorStore {
     local_first_person: bool,
     local_view_dirty: bool,
     local_view_bobbing: bool,
+    local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
     local_hands: [Option<std::sync::Arc<str>>; 2],
+    local_main_metadata: u32,
+    local_main_stack_id: Option<i32>,
+    local_main_slot: u8,
+    local_java_swing_ticks: i32,
     /// View `[pitch, yaw]` in degrees, sampled into each animation tick.
     camera_rotation: [f32; 2],
     /// View world position, sampled into each animation tick.
@@ -686,6 +711,7 @@ mod fire;
 mod hurt;
 mod lifecycle;
 mod lightning;
+mod mount;
 mod movement_interpolation;
 mod placement;
 mod projectile;
@@ -726,7 +752,9 @@ fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
 
 fn event_dimension(event: &ActorEvent) -> Option<i32> {
     match event {
-        ActorEvent::Spawn(event) => Some(event.dimension),
+        ActorEvent::Spawn(event) | ActorEvent::PlayerSpawn { spawn: event, .. } => {
+            Some(event.dimension)
+        }
         ActorEvent::Remove(event) => Some(event.dimension),
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),
@@ -734,7 +762,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
         ActorEvent::PlayerList(_)
         | ActorEvent::Skin { .. }
         | ActorEvent::Status(_)
-        | ActorEvent::TakeItem(_) => None,
+        | ActorEvent::TakeItem(_)
+        | ActorEvent::Identifiers(_) => None,
     }
 }
 

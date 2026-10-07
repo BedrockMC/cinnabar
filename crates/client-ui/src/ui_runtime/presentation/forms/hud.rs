@@ -341,6 +341,7 @@ impl UiPresentationRuntime {
             runtime,
             &frame,
             self.hud_textures.as_ref(),
+            &self.form_presentation.chat.settings.options,
         );
         let context = hud_context(renderer.context());
         let catalog = Arc::clone(renderer.catalog());
@@ -631,7 +632,6 @@ fn boss_tint(color: ui::BossColor) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
-#[cfg(any(test, feature = "test-support"))]
 impl CachedScreen {
     /// The last laid-out draw nodes, in virtual px.
     pub(super) fn nodes(&self) -> &[json_ui::DrawNode] {
