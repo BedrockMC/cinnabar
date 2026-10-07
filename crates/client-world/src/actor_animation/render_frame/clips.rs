@@ -19,37 +19,13 @@ pub(super) fn sample(
         super::super::skin_layers::blink_controller(evaluator.assets, state),
         budget,
     )?;
+    super::super::clock::sample(evaluator, &state.clip_clocks, &mut clips, budget)?;
     for weighted in &mut clips {
         if let Some(old) = previous
             .iter()
             .find(|old| old.clip == weighted.clip && old.started_tick == weighted.started_tick)
         {
             weighted.time = old.time;
-        } else if let Some(clock) = state
-            .clip_clocks
-            .get(&(weighted.clip, weighted.started_tick))
-        {
-            weighted.time = clock.time;
-        } else {
-            let clip = evaluator
-                .assets
-                .animation_clips()
-                .get(weighted.clip)
-                .ok_or(EvalError::Invalid)?;
-            let raw_time = if clip.anim_time_update.is_some() {
-                0.0
-            } else {
-                evaluator.anim_tick.saturating_sub(weighted.started_tick) as f32
-                    * ANIMATION_TICK_SECONDS
-            };
-            let length = clip.length_seconds.get();
-            weighted.time = match clip.loop_mode {
-                assets::EntityAnimationLoop::Loop if length > 0.0 && raw_time > length => {
-                    raw_time % length
-                }
-                assets::EntityAnimationLoop::HoldOnLastFrame => raw_time.min(length),
-                _ => raw_time,
-            };
         }
     }
     Ok(clips)

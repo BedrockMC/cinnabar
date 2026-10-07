@@ -25,4 +25,4 @@ Authored attack weights, pre-animation variables, arm channels and held-item cha
 
 Native player and held-item animation sample the interpolated attack progress. First-person attack weights remain active while the final wrap has nonzero progress; frame sampling preserves committed controller state and clip clocks.
 
-The actor presentation clock advances before interaction picking. Final local swing publication follows interaction admission and refreshes local poses without advancing remote actors again. Inventory, screen, view and item-use observations remain captured before outbound actions.
+The actor presentation clock advances before interaction picking. Final local swing publication follows interaction admission and refreshes local poses without advancing remote actors again. The refresh preserves stored clip clocks and the previous tick’s bone pose. Inventory, screen, view and item-use observations remain captured before outbound actions.

@@ -405,24 +405,19 @@ fn vanilla_draws(
 /// Retains the drawn stack through Java's dip while authored player rigs keep their whole hand.
 /// Attachables read the selected owner's use timing only after their retained stack is adopted.
 pub(super) fn hand_source(
-    inputs: HandInputs<'_>,
+    mut inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
     cache: &mut HandCache,
 ) -> Option<HandSource> {
-    let HandInputs {
-        stream,
-        presentation,
-        equipment_input,
-        owner_equipment,
-        consume_ticks,
-        item_animation,
-        alpha,
-        artwork,
-        motion,
-        sampling_camera,
-        ..
-    } = inputs;
-    let runtime_id = presentation.submission.input.identity.runtime_id;
+    let stream = inputs.stream;
+    let equipment_input = inputs.equipment_input;
+    let owner_equipment = inputs.owner_equipment;
+    let consume_ticks = inputs.consume_ticks;
+    let item_animation = inputs.item_animation;
+    let alpha = inputs.alpha;
+    let artwork = inputs.artwork;
+    let motion = inputs.motion;
+    let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
     let rig = stream.authority().actor_rig(runtime_id)?;
     if render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0)) {
         return None;
@@ -454,19 +449,12 @@ pub(super) fn hand_source(
         };
         let mut source = vanilla_hand_source(
             HandInputs {
-                stream,
-                presentation,
                 equipment_input: &retained_equipment,
-                owner_equipment,
-                consume_ticks,
-                item_animation,
-                alpha,
-                artwork,
-                motion,
-                sampling_camera,
+                ..inputs
             },
             equipment,
             progress,
+            &mut cache.native_pose,
         )?;
         let map = |item: &WornItem| &*item.identifier == FILLED_MAP;
         if main.as_ref().is_some_and(|item| !map(item))
@@ -476,7 +464,6 @@ pub(super) fn hand_source(
         }
         return Some(source);
     }
-    let body_pose = &presentation.submission;
     let main_layer = main.as_ref().and_then(|item| {
         let attachable =
             (retained == selected && java_draws_attachable(&item.identifier)).then(|| {
@@ -485,11 +472,19 @@ pub(super) fn hand_source(
                 input.animation_frame = java_bow_frame(rig.hand[1].use_ticks);
                 let input = equipment_input.attachable_input(input.for_hand(false));
                 let actor = stream.authority().actor(runtime_id)?;
-                equipment.first_person_attachable(body_pose, item, actor, &rig, input, Some(hand))
+                cache.native_pose.apply(&mut inputs);
+                equipment.first_person_attachable(
+                    &inputs.presentation.submission,
+                    item,
+                    actor,
+                    &rig,
+                    input,
+                    Some(hand),
+                )
             });
-        let layer = attachable
-            .flatten()
-            .or_else(|| equipment.first_person_java_item(body_pose, item, hand))?;
+        let layer = attachable.flatten().or_else(|| {
+            equipment.first_person_java_item(&inputs.presentation.submission, item, hand)
+        })?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
@@ -499,9 +494,18 @@ pub(super) fn hand_source(
             let input =
                 super::hand::attachable_hand_input(equipment_input, owner_equipment, input, true);
             let actor = stream.authority().actor(runtime_id)?;
-            equipment.first_person_attachable(body_pose, item, actor, &rig, input, None)
+            cache.native_pose.apply(&mut inputs);
+            equipment.first_person_attachable(
+                &inputs.presentation.submission,
+                item,
+                actor,
+                &rig,
+                input,
+                None,
+            )
         });
-        let layer = attachable.or_else(|| equipment.first_person_offhand(body_pose, item))?;
+        let layer = attachable
+            .or_else(|| equipment.first_person_offhand(&inputs.presentation.submission, item))?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))
     });
@@ -522,7 +526,7 @@ pub(super) fn hand_source(
     });
     let (body, java_body_camera) = match arm.flatten() {
         Some((bones, camera)) => {
-            let mut posed = presentation.submission.clone();
+            let mut posed = inputs.presentation.submission.clone();
             posed.input.previous_bones = Arc::clone(&bones);
             posed.input.current_bones = bones;
             let arms = FirstPersonArms {
@@ -534,7 +538,7 @@ pub(super) fn hand_source(
         None => (None, None),
     };
     Some(HandSource {
-        presentation,
+        presentation: inputs.presentation,
         body,
         items: [main_layer, off_layer],
         motion,

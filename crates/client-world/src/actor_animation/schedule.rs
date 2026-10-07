@@ -28,6 +28,7 @@ struct TickJob<'a> {
     actor: &'a ActorSnapshot,
     context: ActorTickContext,
     view_changed: bool,
+    refresh_view: bool,
     step: Step,
     /// `None` for an evaluating rig means the world budget was already spent.
     outcome: Option<Evaluation>,
@@ -166,6 +167,7 @@ impl ActorAnimationStore {
                 actor,
                 context,
                 view_changed,
+                refresh_view,
                 step,
                 outcome: None,
             });
@@ -180,6 +182,7 @@ impl ActorAnimationStore {
         };
         let mut ledger = Ledger {
             tick: completed_tick,
+            advance_history: !refresh_view,
             next_reset_generation,
             stats,
             starved: None,
@@ -453,6 +456,7 @@ fn evaluate_job(
         context,
         catalogs.tick,
         &mut budget,
+        !job.refresh_view,
         None,
     );
     if catalogs.exempt == Some(actor.runtime_id) {
@@ -469,6 +473,7 @@ fn evaluate_job(
             &ui_context,
             catalogs.tick,
             &mut budget,
+            !job.refresh_view,
         );
     } else {
         state.ui_pose = None;
@@ -482,6 +487,7 @@ fn evaluate_job(
 /// Store-wide counters a tick advances, always in the serial order.
 struct Ledger<'a> {
     tick: u64,
+    advance_history: bool,
     next_reset_generation: &'a mut u64,
     stats: &'a mut ActorAnimationStats,
     starved: Option<ActorLifetimeId>,
@@ -509,7 +515,9 @@ impl Ledger<'_> {
         match job.step {
             Step::Hold => {}
             Step::GeometryOnly => {
-                state.previous.clone_from(&state.current);
+                if self.advance_history {
+                    state.previous.clone_from(&state.current);
+                }
                 if state.reset_pending {
                     state.reset_pending = false;
                     state.reset_generation = self.take_reset_generation();
@@ -519,14 +527,18 @@ impl Ledger<'_> {
             }
             Step::Culled => {
                 state.culled = true;
-                state.previous.clone_from(&state.current);
+                if self.advance_history {
+                    state.previous.clone_from(&state.current);
+                }
                 state.completed_tick = self.tick;
             }
             Step::Evaluate { .. } => {
                 let Some(Evaluation { result, used }) = job.outcome.take() else {
                     self.starve(job.lifetime);
                     // A frozen tick holds the pose instead of replaying the last change.
-                    state.previous.clone_from(&state.current);
+                    if self.advance_history {
+                        state.previous.clone_from(&state.current);
+                    }
                     return;
                 };
                 self.stats.evaluated_molang_ops =
@@ -543,7 +555,9 @@ impl Ledger<'_> {
                             EvalError::WorldBudget => self.starve(job.lifetime),
                             EvalError::Invalid => self.freeze(),
                         }
-                        job.state.previous.clone_from(&job.state.current);
+                        if self.advance_history {
+                            job.state.previous.clone_from(&job.state.current);
+                        }
                     }
                 }
             }
@@ -561,10 +575,15 @@ impl Ledger<'_> {
         state.variables = evaluated.variables;
         state.render_frame = evaluated.render_frame;
         let restart = state.reset_pending || resumed || view_changed;
-        skin_layers::carry(&state.skin_layers, &mut evaluated.skin_layers, restart);
+        skin_layers::carry(
+            &state.skin_layers,
+            &mut evaluated.skin_layers,
+            restart,
+            self.advance_history,
+        );
         state.skin_layers = evaluated.skin_layers;
         if let Some(mut render) = evaluated.render {
-            render::carry_layer_poses(&state.render, &mut render, restart);
+            render::carry_layer_poses(&state.render, &mut render, restart, self.advance_history);
             state.render = render;
         }
         state.initialized = true;
@@ -577,8 +596,10 @@ impl Ledger<'_> {
         } else if resumed || view_changed {
             state.previous.clone_from(&evaluated.pose);
             state.current = evaluated.pose;
-        } else {
+        } else if self.advance_history {
             state.previous = std::mem::replace(&mut state.current, evaluated.pose);
+        } else {
+            state.current = evaluated.pose;
         }
         if view_changed {
             state.reset_generation = self.take_reset_generation();

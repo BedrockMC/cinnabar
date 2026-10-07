@@ -237,6 +237,7 @@ impl AttachablesRuntime {
             &context,
             owner_rig.completed_tick,
             &mut budget,
+            true,
             Some(tick::EvaluationInheritance {
                 variables: owner_rig.animation_variables,
                 overrides: input.owner_variables,

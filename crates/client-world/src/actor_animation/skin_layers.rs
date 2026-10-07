@@ -188,8 +188,13 @@ pub(super) fn evaluate(
         .collect()
 }
 
-/// Carries the last completed pose across ticks without interpolating a replaced model.
-pub(super) fn carry(previous: &[SkinRenderLayer], next: &mut [SkinRenderLayer], reset: bool) {
+/// Advances endpoints only on a tick, keeping view refreshes and replaced models separate.
+pub(super) fn carry(
+    previous: &[SkinRenderLayer],
+    next: &mut [SkinRenderLayer],
+    reset: bool,
+    advance_history: bool,
+) {
     if reset {
         return;
     }
@@ -197,7 +202,11 @@ pub(super) fn carry(previous: &[SkinRenderLayer], next: &mut [SkinRenderLayer], 
         if let Some(old) = previous.iter().find(|old| {
             old.image.kind == layer.image.kind && old.geometry.digest == layer.geometry.digest
         }) {
-            layer.previous = Arc::clone(&old.current);
+            layer.previous = Arc::clone(if advance_history {
+                &old.current
+            } else {
+                &old.previous
+            });
         }
     }
 }

@@ -32,6 +32,7 @@ pub(super) fn evaluate(
     context: &ActorTickContext,
     tick: u64,
     budget: &mut EvalBudget<'_>,
+    advance_clocks: bool,
 ) {
     let mut ui = state
         .ui_animation
@@ -43,7 +44,17 @@ pub(super) fn evaluate(
             initialized: state.initialized,
         });
     ui.swap_with(state);
-    let result = evaluate_state(assets, layout, state, actor, context, tick, budget, None);
+    let result = evaluate_state(
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        tick,
+        budget,
+        advance_clocks,
+        None,
+    );
     ui.swap_with(state);
     state.ui_pose = Some(match result {
         Ok(evaluated) => {
