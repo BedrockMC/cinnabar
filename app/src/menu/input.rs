@@ -506,7 +506,7 @@ pub(crate) fn drive_menu_input(
         }
         menu.activate(action);
     };
-    if !pointer_pressed {
+    if !pointer_pressed || menu.screen() != super::MenuScreen::Settings {
         menu.settings_slider_drag = None;
     }
     if pointer_just_pressed {
@@ -524,8 +524,9 @@ pub(crate) fn drive_menu_input(
     }
     if pointer_pressed
         && !pointer_just_pressed
-        && let Some(super::MenuAction::SettingsOption(index, value)) = menu.hovered
-        && menu.settings_slider_drag == Some(index)
+        && let Some(index) = menu.settings_slider_drag
+        && let Some(super::MenuAction::SettingsOption(_, value)) =
+            pointer.and_then(|point| presentation.settings_slider_drag_action(index, point))
     {
         menu.set_option(index, value);
     }
