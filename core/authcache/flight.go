@@ -9,10 +9,9 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 )
 
-const (
-	authRequestTimeout = 15 * time.Second // one auth HTTP request, so an unreachable host fails instead of hanging
-	derivationTimeout  = 30 * time.Second // one shared derivation, however many requests it chains
-)
+const authRequestTimeout = 15 * time.Second // one auth HTTP request, so an unreachable host fails instead of hanging
+
+var derivationTimeout = 30 * time.Second // one shared derivation, however many requests it chains
 
 // authHTTPClient sends every Xbox, PlayFab and service-auth request the account makes.
 var authHTTPClient = &http.Client{Timeout: authRequestTimeout}
@@ -58,18 +57,34 @@ func awaitFlight[T any](s *Account, ctx context.Context, key string, run func(co
 	}
 }
 
+// fly completes f when run returns or its deadline passes, whichever is first; a run still unwinding
+// past its deadline keeps the account's Close waiting, never the flight's callers.
 func (s *Account) fly(key string, f *flight, run func(context.Context) (any, error)) {
-	defer s.end()
 	ctx, cancel := context.WithTimeout(s.ctx, derivationTimeout)
-	value, err := run(auth.WithContextClient(ctx, s.http))
-	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		err = errDerivationTimeout // not the waiting caller's own deadline
+	type result struct {
+		value any
+		err   error
 	}
-	cancel()
+	done := make(chan result, 1)
+	go func() {
+		defer s.end()
+		defer cancel()
+		value, err := run(auth.WithContextClient(ctx, s.http))
+		done <- result{value, err}
+	}()
+	var r result
+	select {
+	case r = <-done:
+	case <-ctx.Done():
+		r.err = ctx.Err()
+	}
+	if r.err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		r.err = errDerivationTimeout // not the waiting caller's own deadline
+	}
 	s.flightMu.Lock()
 	delete(s.flights, key)
 	s.flightMu.Unlock()
-	f.value, f.err = value, err
+	f.value, f.err = r.value, r.err
 	close(f.done)
 }
 

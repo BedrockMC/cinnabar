@@ -311,3 +311,29 @@ func TestMain(m *testing.M) {
 	authHTTPClient.Transport = refusingTransport{}
 	os.Exit(m.Run())
 }
+
+// A derivation that ignores its context still releases its callers at the derivation deadline.
+func TestFlightCompletesAtItsDeadline(t *testing.T) {
+	previous := derivationTimeout
+	derivationTimeout = 50 * time.Millisecond
+	defer func() { derivationTimeout = previous }()
+	account := newAccount(context.Background(), "", oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, derivedDeps{})
+	release := make(chan struct{})
+	defer func() { close(release); _ = account.Close() }()
+	done := make(chan error, 1)
+	go func() {
+		_, err := awaitFlight(account, context.Background(), "stuck", func(context.Context) (struct{}, error) {
+			<-release
+			return struct{}{}, nil
+		})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errDerivationTimeout) {
+			t.Fatalf("stuck flight = %v, want the derivation timeout", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stuck flight held its caller past the derivation deadline")
+	}
+}
