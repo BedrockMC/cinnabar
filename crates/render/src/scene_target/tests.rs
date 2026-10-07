@@ -259,18 +259,18 @@ struct Hand { @location(0) colour: vec4f, @builtin(sample_mask) coverage: u32 }
                 .into(),
             ),
         });
-    let scene = SceneTarget::new(&device, size(), format, samples);
-    let resolved = SceneTarget::new(&device, size(), format, 1);
-    let opaque = pipeline(&device, &shader, format, samples, "opaque", None);
+    let scene = SceneTarget::new(device, size(), format, samples);
+    let resolved = SceneTarget::new(device, size(), format, 1);
+    let opaque = pipeline(device, &shader, format, samples, "opaque", None);
     let transparent = pipeline(
-        &device,
+        device,
         &shader,
         format.remove_srgb_suffix(),
         samples,
         "transparent",
         Some(wgpu::BlendState::ALPHA_BLENDING),
     );
-    let hand = pipeline(&device, &shader, format, samples, "hand", None);
+    let hand = pipeline(device, &shader, format, samples, "hand", None);
     let mut context = RenderContext::new(device.clone(), None);
     for (index, (encoded, pipeline)) in [(false, &opaque), (true, &transparent), (false, &hand)]
         .into_iter()
