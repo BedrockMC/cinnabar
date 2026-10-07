@@ -68,7 +68,6 @@ func (s *Account) fly(key string, f *flight, run func(context.Context) (any, err
 	done := make(chan result, 1)
 	go func() {
 		defer s.end()
-		defer cancel()
 		value, err := run(auth.WithContextClient(ctx, s.http))
 		done <- result{value, err}
 	}()
@@ -81,6 +80,7 @@ func (s *Account) fly(key string, f *flight, run func(context.Context) (any, err
 	if r.err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		r.err = errDerivationTimeout // not the waiting caller's own deadline
 	}
+	cancel() // only once the result is taken, so a finished run is never mistaken for a cancelled one
 	s.flightMu.Lock()
 	delete(s.flights, key)
 	s.flightMu.Unlock()

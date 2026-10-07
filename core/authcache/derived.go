@@ -424,57 +424,70 @@ func (s *Account) serviceToken(ctx context.Context) (*service.Token, error) {
 	if err := s.lock(ctx); err != nil {
 		return nil, err
 	}
-	token := s.service
+	// Without a native source the token came from disk, whose claims the source must rebuild first.
+	token, source := s.service, s.services
 	s.unlock()
-	if token != nil && token.Valid() {
+	if source != nil && token != nil && token.Valid() {
 		s.diagnostic("reuse", "service", "valid")
 		return token, nil
 	}
 	return awaitFlight(s, ctx, "service", s.exchangeService)
 }
 
-// exchangeService refreshes the shared service token; a failure keeps the current token.
+// exchangeService refreshes the shared service token against the current account state; a failure
+// keeps the current token.
 func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
-	if err := s.lock(ctx); err != nil {
-		return nil, err
-	}
-	env, source, seed, resets := s.environment, s.services, s.service, s.resets
-	if seed != nil && seed.Valid() {
-		s.unlock()
-		return seed, nil
-	}
-	if source == nil && env != nil {
-		source = s.deps.services(env, sessionTickets{s}, seed, s.serviceDeviceIDLocked(), s.sessionID)
-	}
-	s.unlock()
-	if env == nil {
-		return nil, errors.New("authentication: account changed during service refresh")
-	}
-	token, err := source.ServiceToken(ctx)
-	if err != nil || token == nil || !token.Valid() {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+	for range 3 {
+		env, err := s.ensureEnvironment(ctx)
+		if err != nil {
+			return nil, err
 		}
-		return nil, errors.New("authentication: refresh service credential")
-	}
-	if err := s.lock(ctx); err != nil {
-		return nil, err
-	}
-	current := s.service
-	if current != nil && current != seed && current.Valid() && current.ValidUntil.After(token.ValidUntil) {
+		if err := s.lock(ctx); err != nil {
+			return nil, err
+		}
+		source, seed, resets := s.services, s.service, s.resets
+		if s.environment != env {
+			s.unlock()
+			continue
+		}
+		if source != nil && seed != nil && seed.Valid() {
+			s.unlock()
+			return seed, nil
+		}
+		if source == nil {
+			source = s.deps.services(env, sessionTickets{s}, seed, s.serviceDeviceIDLocked(), s.sessionID)
+		}
 		s.unlock()
-		return current, nil // another refresh won with a fresher token
-	}
-	install := s.resets == resets && s.environment == env && token != current
-	if install {
+		token, err := source.ServiceToken(ctx)
+		if err != nil || token == nil || !token.Valid() {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, errors.New("authentication: refresh service credential")
+		}
+		if err := s.lock(ctx); err != nil {
+			return nil, err
+		}
+		if s.resets != resets || s.environment != env {
+			s.unlock() // superseded by a reset or a new environment: derive against the current state
+			continue
+		}
+		current := s.service
+		if current != nil && current != seed && current.Valid() && current.ValidUntil.After(token.ValidUntil) {
+			s.unlock()
+			return current, nil // another refresh won with a fresher token
+		}
 		s.service, s.services = token, source
-	}
-	s.unlock()
-	if install {
+		s.unlock()
+		if seed != nil && token.AuthorizationHeader == seed.AuthorizationHeader {
+			s.diagnostic("reuse", "service", "valid")
+			return token, nil
+		}
 		s.diagnostic("refresh", "service", "expired")
 		s.publish(ctx)
+		return token, nil
 	}
-	return token, nil
+	return nil, errors.New("authentication: account changed during service refresh")
 }
 
 // InvalidateServiceToken drops a service token a service refused and persists the eviction.
