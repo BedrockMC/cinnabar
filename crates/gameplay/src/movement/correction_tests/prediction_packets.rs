@@ -425,3 +425,71 @@ fn an_explicit_teleport_snap_discards_deferred_destinations() {
     ));
     assert_eq!(physics.network_position(), Some(destination));
 }
+
+/// An unretained source tick snaps the incoming authority without replaying older deferred state.
+fn assert_unretained_anchor_replaces_deferred_destination(correction_tick: u64) {
+    let world = DeferredDestinationWorld {
+        destination_loaded: false,
+    };
+    let mut physics = LocalPhysicsController::default();
+    physics.set_rewind_history_size(2);
+    physics.reanchor_network_position(
+        [0.0, 1.000_01 + protocol::PLAYER_NETWORK_OFFSET, 0.0],
+        100,
+        true,
+    );
+    let frame = physics.advance(Duration::from_millis(150), Default::default(), &world);
+    assert!(frame.blocked.is_none());
+    assert_eq!(frame.samples.len(), 3);
+    assert!(!physics.retains_tick(frame.samples[0].tick));
+    assert!(!physics.retains_tick(correction_tick));
+    let current = frame.samples.last().unwrap();
+    assert!(physics.retains_tick(current.tick));
+    let mut ticker = ticker_with_samples(frame.samples.iter().cloned());
+    let mut destination = current.position;
+    destination[0] = 48.0;
+    crate::movement::reconcile_prediction_correction(
+        &mut ticker,
+        &mut physics,
+        destination,
+        500,
+        true,
+        [0.0; 3],
+        &world,
+    )
+    .unwrap();
+    destination[0] = 8.0;
+    let velocity = [0.25, 0.0, 0.0];
+    assert_eq!(
+        reconcile_committed_correction(
+            &mut ticker,
+            &mut physics,
+            destination,
+            correction_tick,
+            false,
+            Some(velocity),
+            &world,
+        )
+        .unwrap(),
+        Some(PhysicsCorrectionOutcome::Snapped { tick: current.tick })
+    );
+    assert_eq!(physics.network_position(), Some(destination));
+    let state = physics.state().unwrap();
+    assert!(!state.on_ground);
+    assert_eq!(
+        state.velocity,
+        sim::Vec3::new(f64::from(velocity[0]), 0.0, 0.0)
+    );
+}
+
+/// A normal unmarked move has no retained source frame and its live destination wins.
+#[test]
+fn unretained_replay_keeps_zero_tick_incoming_anchor() {
+    assert_unretained_anchor_replaces_deferred_destination(0);
+}
+
+/// An expired correction uses the existing snap policy instead of an unrelated deferred frame.
+#[test]
+fn unretained_replay_keeps_expired_tick_incoming_anchor() {
+    assert_unretained_anchor_replaces_deferred_destination(101);
+}

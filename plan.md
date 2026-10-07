@@ -17,7 +17,8 @@
   separate distance rule. Deferred corrections clear old collision flags before
   replay so a relocation cannot invent a ladder climb. If replay cannot query
   terrain, its fallback preserves later retained server positions and motion.
-- Validation: 267 simulator tests, 69 semantic-input tests, 343 movement tests
+  Unstamped or expired reset corrections keep their incoming destination.
+- Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests
   and 16 focused client tests pass. The touched-crate compile check includes
   tests and the client app. The architecture check passes. Regression tests
   reproduced the stale collision and controller handoff bugs before their fixes.
