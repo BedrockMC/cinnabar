@@ -21,6 +21,7 @@ type settings struct {
 	primitiveShapes, cameraTest            bool
 	terrainFixture, terrainFixtureGenerate bool
 	terrainFixtureRadius                   int
+	opaqueOverdraw                         bool
 	dir, addr, name, gameMode, diff        string
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
@@ -47,6 +48,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
+	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
 	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
@@ -62,6 +64,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	}
 	if s.terrainFixtureRadius < terrainMinRadius || s.terrainFixtureRadius > terrainMaxRadius {
 		return settings{}, fmt.Errorf("terrain fixture radius must be %d..%d", terrainMinRadius, terrainMaxRadius)
+	}
+	if s.opaqueOverdraw && (s.terrainFixture || s.terrainFixtureGenerate) {
+		return settings{}, errors.New("-opaque-overdraw and -terrain-fixture select different generators")
 	}
 	if s.experiences != "" && s.runtime == "" {
 		return settings{}, errors.New("-experience-runtime is required with -experiences")
@@ -148,6 +153,10 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.Folder = filepath.Join(s.dir, "players")
 	uc.Players.MaxCount = maxPlayers
 	uc.Resources.Folder = s.resourcesDir()
+	if s.opaqueOverdraw {
+		uc.World.SaveData = false
+		uc.Players.SaveData = false
+	}
 	return uc
 }
 
@@ -165,6 +174,9 @@ func (s settings) applyTo(worlds ...*world.World) {
 		w.SetDifficulty(difficulty)
 		if s.terrainFixture {
 			freezeTerrainFixture(w)
+		}
+		if s.opaqueOverdraw {
+			freezeOpaqueOverdrawWorld(w)
 		}
 	}
 }
