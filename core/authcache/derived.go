@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -105,6 +106,7 @@ type Account struct {
 	rejected        map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
 	rejectedService *service.Token         // service token a service refused; dropped after every reload
 	deps            derivedDeps
+	http            *http.Client // sends the account's own Xbox requests
 
 	flightMu sync.Mutex
 	flights  map[string]*flight
@@ -139,7 +141,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 	ctx, cancel := context.WithCancel(ctx)
 	source := &Account{
 		ctx: ctx, cancel: cancel, gate: make(chan struct{}, 1), oauthGate: make(chan struct{}, 1), publishGate: make(chan struct{}, 1), diagnostics: diagnostics,
-		oauth: oauth, client: clientBinding(), sessionID: uuid.NewString(), deps: deps, xstsTokens: make(map[string]*xsts.Token),
+		oauth: oauth, client: clientBinding(), sessionID: uuid.NewString(), deps: deps, xstsTokens: make(map[string]*xsts.Token), http: authHTTPClient,
 	}
 	source.resolver = nsal.NewResolver(source)
 	defer func() {

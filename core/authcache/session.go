@@ -19,7 +19,7 @@ type accountSession struct {
 
 func newAccountSession(account *Account, config *sisu.SessionConfig) *accountSession {
 	if config.HTTPClient == nil {
-		config.HTTPClient = authHTTPClient
+		config.HTTPClient = account.http
 	}
 	s := &accountSession{account: account}
 	s.session = auth.AndroidConfig.New(s, config)

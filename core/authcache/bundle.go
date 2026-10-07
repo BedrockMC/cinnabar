@@ -127,6 +127,7 @@ func (s *Account) publish(ctx context.Context) {
 	if s.path == "" {
 		return
 	}
+	s.ensureDeviceToken(ctx)
 	// One publish at a time, each snapshotting after the last, so an older snapshot never lands last.
 	select {
 	case s.publishGate <- struct{}{}:
@@ -164,6 +165,29 @@ func (s *Account) publish(ctx context.Context) {
 		snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
 	}
 	s.persistLocked(snapshot)
+}
+
+// ensureDeviceToken fills a device token a reset cleared, since a bundle is never written without one.
+func (s *Account) ensureDeviceToken(ctx context.Context) {
+	if err := s.lock(ctx); err != nil {
+		return
+	}
+	device, current := s.device, s.deviceToken
+	s.unlock()
+	if current != nil {
+		return
+	}
+	token, err := device.DeviceToken(auth.WithContextClient(ctx, s.http))
+	if err != nil {
+		return
+	}
+	if err := s.lock(ctx); err != nil {
+		return
+	}
+	if s.device == device && s.deviceToken == nil {
+		s.deviceToken = token
+	}
+	s.unlock()
 }
 
 // syncedTokens names the service and XSTS tokens of the bundle last read or written.

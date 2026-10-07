@@ -61,7 +61,7 @@ func awaitFlight[T any](s *Account, ctx context.Context, key string, run func(co
 func (s *Account) fly(key string, f *flight, run func(context.Context) (any, error)) {
 	defer s.end()
 	ctx, cancel := context.WithTimeout(s.ctx, derivationTimeout)
-	value, err := run(auth.WithContextClient(ctx, authHTTPClient))
+	value, err := run(auth.WithContextClient(ctx, s.http))
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		err = errDerivationTimeout // not the waiting caller's own deadline
 	}

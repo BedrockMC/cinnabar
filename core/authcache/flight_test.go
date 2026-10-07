@@ -3,9 +3,12 @@ package authcache
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -265,4 +268,46 @@ func TestPlayFabFlightReusesAnInstalledSession(t *testing.T) {
 	if err != nil || client != installed || logins.Load() != 1 {
 		t.Fatalf("late login flight: same=%v logins=%d err=%v", client == installed, logins.Load(), err)
 	}
+}
+
+// keyedDevice issues a valid device token bound to a real proof key.
+type keyedDevice struct{ key *ecdsa.PrivateKey }
+
+func (d keyedDevice) DeviceToken(context.Context) (*xasd.Token, error) {
+	return &xasd.Token{Token: "device", NotAfter: time.Now().Add(time.Hour)}, nil
+}
+
+func (d keyedDevice) ProofKey() *ecdsa.PrivateKey { return d.key }
+
+// A service token exchanged without any Xbox request still reaches the shared cache.
+func TestServiceTokenPublishesWithoutAPriorDeviceRequest(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			return testServiceToken(time.Now().Add(time.Hour)), nil
+		}),
+	}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
+	defer account.Close()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.gate <- struct{}{}
+	account.device = keyedDevice{key}
+	account.session = newAccountSession(account, &sisu.SessionConfig{DeviceTokenSource: account.device})
+	account.unlock()
+	if _, err := account.ServiceToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := loadDerived(path); err != nil || state.ServiceToken == nil {
+		t.Fatalf("exchanged service token was not persisted: err=%v", err)
+	}
+}
+
+// TestMain keeps every test offline: the account's default HTTP client refuses all requests.
+func TestMain(m *testing.M) {
+	authHTTPClient.Transport = refusingTransport{}
+	os.Exit(m.Run())
 }
