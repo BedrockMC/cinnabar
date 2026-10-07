@@ -316,9 +316,10 @@ impl BlockUseRuntime {
         changed
     }
 
-    /// Releases a consumed press while keeping its held-repeat schedule.
+    /// Cancels pending presses without dropping the repeat schedule or a stop destination.
     pub fn clear_press(&mut self) {
         self.latched_press = false;
+        self.stop_repress = false;
     }
 
     pub fn clear(&mut self) {

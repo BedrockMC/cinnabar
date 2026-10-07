@@ -22,7 +22,7 @@ remain subject to each item's placement rules.
 | Reach | Mouse: 5.7 blocks; gamepad: 5.6. Touch: 6.7 in survival and 12 in creative. The pick segment continues to limit a locked line. |
 | Click position | A fresh hit keeps its world intercept relative to the selected support, even when the support changes. A miss continuation uses zero. Orientation-sensitive blocks keep the first successful world intercept throughout the hold; relative offsets may therefore lie outside the unit cube. |
 | Target type changes | A block, actor or ray miss does not reset the hold. An unusable or occluded pick suspends attempts while preserving the successful destination and line. A block interaction disables placement intention until a qualifying placement resumes it. |
-| Hold reset | Release, blocked gameplay input such as a menu, and a selected slot or held item change stop the hold. Stop reports the last successful destination; a new press starts fresh. |
+| Hold reset | Release, blocked gameplay input such as a menu, and a selected slot or held item change stop the hold. Stop reports the last successful destination; a new press starts fresh. Blocked gameplay also cancels deferred presses. |
 
 The delay is measured in milliseconds rather than counted ticks. For example, a
 100 ms threshold becomes eligible on the third exactly aligned 50 ms opportunity,
