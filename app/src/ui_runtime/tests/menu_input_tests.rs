@@ -638,3 +638,49 @@ fn consent_approval_frame_cannot_activate_or_edit_the_underlying_menu() {
     );
     assert!(app.world().resource::<Messages<KeyboardInput>>().is_empty());
 }
+
+#[test]
+fn retained_overlay_loss_opens_pause_and_focus_gain_keeps_it_open() {
+    let (mut app, window) = menu_input_app(MenuClipboard::with_access(|_| None, |_| {}));
+    let mut menu = MenuRuntime::new(false, 2, "test".into());
+    let pause = launcher::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "pause_menu_on_focus_lost")
+        .unwrap();
+    menu.activate(MenuAction::SettingsOption(pause as u16, 1));
+    app.insert_resource(menu);
+    let mut focus = client_presentation::camera::CursorFocus::default();
+    focus.focus_changed(false);
+    focus.focus_changed(true);
+    app.insert_resource(focus);
+    app.update();
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().screen(),
+        MenuScreen::Pause
+    );
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    app.world_mut()
+        .resource_mut::<client_presentation::camera::CursorFocus>()
+        .begin_frame(true);
+    app.update();
+    assert!(app.world().resource::<MenuRuntime>().is_visible());
+    press_key(&mut app, window, KeyCode::Escape, None);
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+}
+
+#[test]
+fn disabled_focus_pause_still_leaves_overlay_input_released() {
+    let (mut app, _) = menu_input_app(MenuClipboard::with_access(|_| None, |_| {}));
+    let mut menu = MenuRuntime::new(false, 2, "test".into());
+    let pause = launcher::menu::settings_options::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == "pause_menu_on_focus_lost")
+        .unwrap();
+    menu.activate(MenuAction::SettingsOption(pause as u16, 0));
+    app.insert_resource(menu);
+    let mut focus = client_presentation::camera::CursorFocus::default();
+    focus.focus_changed(false);
+    app.insert_resource(focus);
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+}

@@ -162,7 +162,12 @@ impl ItemUseRuntime {
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.latched_press);
         if pressed {
-            self.repeat_armed = !frame.press_consumed;
+            self.repeat_armed = !frame.press_consumed
+                && (frame.air_use.is_some()
+                    || frame
+                        .selection
+                        .as_ref()
+                        .is_none_or(|selection| selection.item.block_runtime_id() == 0));
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
         let release_pending = std::mem::take(&mut self.release_pending);
@@ -359,7 +364,7 @@ impl ItemUseRuntime {
     }
 
     /// Vanilla legacy request ids: even ids from -4 downward, restarting past the range.
-    fn next_legacy_request_id(&mut self) -> i32 {
+    pub fn next_legacy_request_id(&mut self) -> i32 {
         let current = if self.last_legacy_request_id < -2 {
             self.last_legacy_request_id
         } else {

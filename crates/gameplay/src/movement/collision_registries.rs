@@ -35,6 +35,17 @@ const FULL_CUBE: assets::CollisionBox = assets::CollisionBox {
 /// Registry records whose names the carrier deliberately withholds.
 const RESERVED_RECORD_NAME: &str = "cinnabar:reserved";
 
+/// Interaction facts shared by both runtime identity spaces.
+#[derive(Debug, Clone)]
+struct InteractionBlock {
+    identifier: Arc<str>,
+    full_cube: bool,
+    build_intention: bool,
+    tags: Arc<[Arc<str>]>,
+}
+
+type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
+
 /// Runtime-ID collision registries for both Bedrock palette identity modes.
 ///
 /// The two maps are intentionally distinct: a 32-bit network hash may have
@@ -48,8 +59,8 @@ pub struct PhysicsCollisionRegistries {
     hashed_count: usize,
     preg_sha256: [u8; 32],
     breg_sha256: [u8; 32],
-    interaction_blocks: BTreeMap<u32, (Arc<str>, bool, Arc<[Arc<str>]>)>,
-    hashed_interaction_blocks: BTreeMap<u32, (Arc<str>, bool, Arc<[Arc<str>]>)>,
+    interaction_blocks: InteractionBlocks,
+    hashed_interaction_blocks: InteractionBlocks,
     /// Named vanilla blocks as `(sort key, name, first sequential id)`, in id order.
     vanilla_runs: Vec<(u64, Arc<str>, u32)>,
     /// False when the carrier's ids are not in vanilla sort order, so customs cannot interleave.
@@ -181,11 +192,12 @@ impl PhysicsCollisionRegistries {
             let full_cube = record.model_family == assets::ModelFamily::Cube
                 && fact.boxes.len() == 1
                 && fact.boxes[0] == FULL_CUBE;
-            let binding = (
-                Arc::from(record.name.as_ref()),
+            let binding = InteractionBlock {
+                identifier: Arc::from(record.name.as_ref()),
                 full_cube,
-                native_block_tags(record),
-            );
+                build_intention: tags::has_build_intention(record),
+                tags: native_block_tags(record),
+            };
             interaction_blocks.insert(record.sequential_id, binding.clone());
             hashed_interaction_blocks.insert(record.network_hash, binding);
             let state: Arc<str> = Arc::from(record.canonical_state.as_ref());
@@ -300,11 +312,12 @@ impl PhysicsCollisionRegistries {
             let vanilla_before = self.vanilla_runs.get(after).map_or(first, |run| run.2);
             let earlier_customs = next - first;
             runs.push((vanilla_before + earlier_customs, block.state_count, next));
-            let binding = (
-                Arc::clone(&block.name),
-                block.collides && block.collision_box.is_none(),
-                Arc::clone(&block.tags),
-            );
+            let binding = InteractionBlock {
+                identifier: Arc::clone(&block.name),
+                full_cube: block.collides && block.collision_box.is_none(),
+                build_intention: false,
+                tags: Arc::clone(&block.tags),
+            };
             for _ in 0..block.state_count {
                 self.interaction_blocks.insert(next, binding.clone());
                 let boxes = custom_block_box(block);
@@ -376,11 +389,12 @@ impl PhysicsCollisionRegistries {
                 {
                     self.hashed_interaction_blocks.insert(
                         state.hash,
-                        (
-                            Arc::clone(&block.name),
-                            block.collides && block.collision_box.is_none(),
-                            Arc::clone(&block.tags),
-                        ),
+                        InteractionBlock {
+                            identifier: Arc::clone(&block.name),
+                            full_cube: block.collides && block.collision_box.is_none(),
+                            build_intention: false,
+                            tags: Arc::clone(&block.tags),
+                        },
                     );
                     apply_selection(&mut self.hashed, state.hash, block);
                     self.session_hashes.push(state.hash);
@@ -395,8 +409,7 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
-        map.get(&runtime_id)
-            .map(|(identifier, _, _)| identifier.as_ref())
+        map.get(&runtime_id).map(|block| block.identifier.as_ref())
     }
 
     /// The runtime id of `identifier` in exactly `states`, compared as parsed JSON.
@@ -415,7 +428,7 @@ impl PhysicsCollisionRegistries {
         };
         names
             .iter()
-            .filter(|(_, (name, _, _))| name.as_ref() == identifier)
+            .filter(|(_, block)| block.identifier.as_ref() == identifier)
             .find(|(runtime_id, _)| {
                 canonical.get(runtime_id).is_some_and(|state| {
                     serde_json::from_str::<serde_json::Map<_, _>>(state)
@@ -431,8 +444,7 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
-        map.get(&runtime_id)
-            .is_some_and(|(_, full_cube, _)| *full_cube)
+        map.get(&runtime_id).is_some_and(|block| block.full_cube)
     }
 
     /// The registry's canonical state JSON for `runtime_id`, when it is a registered state.

@@ -2439,6 +2439,7 @@ Only add provenance to docs/agents/vanilla-refs-map.md.
 
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Hurt event dispatch (`actor_store/hurt.rs` and `actor_animation.rs`): verified official 1.7.10 jar above, `sv.a(B)V` status 2 writes float 1.5 to `sv.aF` immediately, without comparing the hurt countdown. `sv.e(FF)V` copies `aF` to previous `aE`, eases by float 0.4 toward the capped movement target, then adds `aF` to phase `aG`. Consecutive events reset the amount; status 3 alone does not.
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
 - Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.
@@ -2551,3 +2552,123 @@ was not used as version evidence.
 ## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
 - Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
 >>>>>>> theirs
+
+## Crosshair presentation preferences
+
+- `crates/client-ui/src/ui_runtime/presentation/forms/engine/hud_renderers.rs`:
+  current 1.26.50.26 `FUN_149c5ff60` (artifact 6, RVA `0x9c5ff60`) selects
+  `ui_crosshair` and `textures/ui/cross_hair`, centered at 16×16 GUI pixels.
+  Vanilla 1.26.50.04 `materials/ui.material` makes `ui_crosshair` inherit
+  `ui_invert_overlay`, using `OneMinusDestColor` and `OneMinusSrcColor`.
+- `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  26.30 `HudCursorRenderer::render` (`0x1020b3700`) returns when
+  `ClientInstance::getRenderPlayerModel` (`0x102342080`) is true; the
+  `ClientInstance` vtable at `0x110b28730`, slot `+0x6a0`, confirms the call.
+  Current getter `FUN_146798550` (`0x6798550`) corroborates the camera's
+  `CameraRenderPlayerModelComponent` test, with an editor exception.
+  The current renderer's virtual slot has not been independently mapped.
+- Third-person visibility and disabling inversion are owner-requested options;
+  defaults retain first-person visibility and inverted colors. The Java HUD's
+  built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+## Desktop cursor focus ownership
+
+- `crates/client-presentation/src/camera/focus.rs`, `app/src/camera/focus.rs`, `app/src/camera/focus/native.rs`: `MinecraftGame::onAppFocusLost` releases held controls and cursor capture; `onAppFocusGained` checks the active screen before capture (R:MinecraftGame:102683–103207).
+- Focus-loss pause preference: R:GeneralSettingsFactoryAnon--b69a8d87dfcb:1789. Gameplay steals mouse outside touch input; ordinary screens do not (R:InGamePlayScreen:4997–5062; R:BaseScreen:823–830).
+- Cursor release clears logical capture and shows the pointer (R:MinecraftGame:124942–125235). macOS periodic centering requires captured state (R:__unmapped/00:1690783–1690824).
+
+- Version-matched Windows focus handlers: `current/1.26.50.26/src/__unmapped/00.cpp`: loss 1606419–1606753, gain 1606898–1607108; pause-screen dispatch 825180–825251 and 876546 onward; factory constructs `pause.pause_screen` at 1021123. Windows capture/release use hide/show, clip/unclip, and capture/release at 152158–152249. Focus-pause option is mapped in `__unmapped/04.cpp`:1635569–1635571.
+
+## Held block placement (1.26.50)
+
+Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.rs`,
+`crates/gameplay/src/block_use/intention.rs`, `crates/gameplay/src/block_use/packets.rs`,
+`crates/gameplay/src/block_use/stopping.rs`, `app/src/block_use.rs`,
+`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`.
+
+- Primary current evidence: Lens artifact 6, normalized build `1.26.50.26`,
+  source-backed `artifact_function` reads at RVAs `0x28b63a0`
+  (`continueBuildBlockAction`), `0x28b66b0` (`continueBuildBlock`),
+  `0x28b6f00` (`stopBuildBlock`), and `0x28d3ed0` (build callback).
+  Local canonical counterparts are
+  `~/coding/go/lunar/refs/mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/02.cpp`.
+  These confirm the hold flags, fresh-pick targeting, strict due-time comparison,
+  movement direction, line-cell intersection, cached orientation intercept,
+  clicked runtime ID before prediction, start/swing/transaction order and miss click zero.
+- Current Lens artifact 6, `_tickBuildAction` at `0x67883a0`, refreshes picks before
+  held continuation. The target-type early returns in `0x28b63a0` retain hold flags;
+  `useItemOn` at `0x28b74d0` disables intention after interaction while retaining the line.
+- Lens `read_data` on artifact 6 confirms float data addresses:
+  `0x150132700` = 300 ms, `0x14ff9cdc8` = 200 ms,
+  `0x15005ea40` = 900 speed divisor, `0x14feff2c8` = 180 ms,
+  `0x14ffa2648` = 100 ms survival floor, `0x14ffa90dc` = 20 Hz movement scale,
+  `0x1500c2b70` = 0.01 squared movement threshold.
+- Named-owner reference root:
+  `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src`.
+  `by-owner/g/GameMode.cpp`: `startBuildBlock` RVA `0xa0bd770`,
+  `buildBlock` `0xa0bd790`, `continueBuildBlockAction` `0xa0bdd30`,
+  `continueBuildBlock` `0xa0bdfe0`, `_calculatePlacePos` `0xa0be670`,
+  `stopBuildBlock` `0xa0be750`, and `getPickRange` `0xa0c1450`.
+  The GameMode hold stores prior success, interactive-use and placement-intention flags,
+  successful destination, locked direction/face, next destination and first world intercept.
+- `by-owner/c/ClientInstance.cpp`: `_tickBuildAction` RVA `0x2334cd0`,
+  refreshes main and liquid HitResults before held continuation; `resetBai`,
+  `clearInProgressBAI` and `getInProgressBAI` own input intention.
+  `by-owner/h/HitResultUtils.cpp`: `refreshHitResult` refreshes world pick evidence.
+  `by-owner/c/ClientInputCallbacks.cpp`: `handleBuildAction` RVA `0x23178c0`
+  owns first press; selected-slot and gameplay-input routing own stopping boundaries.
+- `by-owner/b/BlockItem.cpp`: `_calculatePlacePos` RVA `0xa5f6dc0`,
+  replace the clicked cell when admitted, otherwise offset by face.
+  `by-owner/p/PlanterItemComponent.cpp`: `getBlockPlacementContext` RVA `0xa2e0430`
+  supplies the qualifying intention bit, which is not equivalent to any nonzero block ID.
+  Current Lens artifact 6, source-backed raw RVA `0x3bd0ef0`, confirms
+  property mask `0x40003`, three virtual bool predicates, and carpet bit `0x80`
+  at BlockType offset `0x130`; custom block_placer component offset `0x42` enables
+  intention. The named reference uses mask `0x200003` and carpet bit `0x100` at
+  offset `0x108`. Lens vtable pointer read at `0x110ff1998` maps slots
+  `0xe8/0xf8/0x100` to `isFenceBlock/isThinFenceBlock/isWallBlock`;
+  `isFenceGateBlock` at `0xf0` is omitted. Stair and slab constructors set bits
+  1 and 2; the ordinary BlockType constructor supplies cube `0x200000`.
+  Runtime block-property admission in Cinnabar remains incomplete.
+  `crates/gameplay/src/movement/collision_registries.rs` and its `tags.rs`
+  admit conservative model families; `by-owner/l/LeavesBlock.cpp:130–145`
+  ORs leaf properties into the inherited ordinary cube properties, confirming
+  leaves retain placement intention. Chest, Bed, FenceGate and TrapDoor constructors
+  replace the default property mask and do not qualify merely from collision shape.
+  `by-owner/s/SoulSandBlock.cpp:38`, `by-owner/m/MudBlock.cpp:95`,
+  `by-owner/b/BarrierBlock.cpp:38`, and `by-owner/c/ChiseledBookShelfBlock.cpp:146`
+  call the ordinary BlockType constructor without replacing its cube property;
+  the identifier exceptions and their two-ID-space regressions cover these cases.
+- `by-owner/b/BlockStateHelper.cpp`: `isAnyDirection` RVA `0xb4b8560`,
+  initial world-intercept caching for cardinal direction, facing direction, vertical half,
+  direction, weirdo direction, orientation, upside-down/top-slot, standing rotation,
+  hanging, rotation, torch facing, vine bits and coral direction; pillar axis is absent.
+- Packet reference owners: `support/std/__func--bc8d9908b204/9.cpp:130567–131030`
+  (build callback), `support/std/__func--bc8d9908b204/1.cpp:135810–135897`
+  (use callback), `by-owner/c/CommonGameModeMessenger.cpp:101–229`,
+  `by-owner/i/ItemUseInventoryTransaction.cpp:3529–3556`,
+  `by-owner/l/LocalPlayer.cpp:10292–10413`. Lens named function
+  `0x10a0dc360` corroborates transaction construction. The current callback above
+  corroborates the first-success action and transaction fields for the target build.
+
+- Current Lens artifact 6, `handleItemStackResponse` at `0x28d10d0`, rejects IDs
+  unless `(~request_id & 0x80000001) == 0`: only negative odd client request IDs.
+  Canonical current `02.cpp:1476783–1476901` confirms this validation. Legacy
+  even placement scopes do not register in that response queue.
+  The local server pin `hashimthearab/dragonfly@58003c1d2ced`,
+  `server/session/handler_inventory_transaction.go:18–74`, processes
+  `LegacySetItemSlots` through `sendItem`/`sendInv`; `server/session/player.go:258–277`
+  sends `InventorySlot`/`InventoryContent`, not `ItemStackResponse`.
+
+## Absorption hearts
+
+- `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
+  `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  1.26.50.26 artifact 6 `FUN_149c64c10` (RVA `0x9c64c10`) reads absorption
+  current independently of its maximum, rounds upward, appends after health,
+  wraps at ten with fixed 10-pixel rows, blinks all container backgrounds, and selects wither sprites for absorption
+  only when wither wins the effect precedence. `FUN_149c65980` (RVA `0x9c65980`)
+  loads absorption full/half textures and hardcore variants.
+- `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
+  `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
+  `#show_survival_ui` to `#visible`; absorption is native renderer state.

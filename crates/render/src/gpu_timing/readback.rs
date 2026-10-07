@@ -77,18 +77,14 @@ pub(super) fn ticks_to_duration(ticks: u64, period_ns: f32) -> Duration {
     })
 }
 
-/// One frame's GPU durations per [`RuntimeStage::GPU`] stage; repeated passes are summed.
+/// Sums elapsed pass latencies, including overlapping work and gaps; unmeasured stages stay absent.
+/// Metal samples vertex-start to fragment-end and omits whole-frame, stock-pass and per-draw costs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GpuFrameTimes {
     stages: [Option<Duration>; RuntimeStage::GPU.len()],
 }
 
 impl GpuFrameTimes {
-    /// Partial pass coverage cannot stand in for the duration of a complete GPU frame.
-    pub(super) fn clear_frame_total(&mut self) {
-        self.stages[RuntimeStage::GpuFrame.gpu_index().unwrap()] = None;
-    }
-
     /// `None` when the stage is not GPU-timed or did not run in this frame.
     #[must_use]
     pub fn get(&self, stage: RuntimeStage) -> Option<Duration> {
@@ -136,11 +132,12 @@ pub(super) fn span_validity(begin: u64, end: u64) -> SpanValidity {
     }
 }
 
-/// Sums `(stage, begin, end)` tick spans, skipping missing, reversed, or sentinel samples.
+/// Sums valid tick spans; frame bounds are emitted only when coverage spans the frame.
 #[must_use]
 pub(crate) fn decode_spans(
     spans: impl IntoIterator<Item = (RuntimeStage, u64, u64)>,
     period_ns: f32,
+    complete_frame: bool,
 ) -> GpuFrameTimes {
     let mut times = GpuFrameTimes::default();
     let mut bounds: Option<(u64, u64)> = None;
@@ -153,7 +150,7 @@ pub(crate) fn decode_spans(
             (first.min(begin), last.max(end))
         }));
     }
-    if let Some((first, last)) = bounds {
+    if complete_frame && let Some((first, last)) = bounds {
         times.add(
             RuntimeStage::GpuFrame,
             ticks_to_duration(last - first, period_ns),
@@ -232,6 +229,7 @@ mod tests {
                 (RuntimeStage::GpuFxaa, 900, 800),
             ],
             2.0,
+            true,
         );
         assert_eq!(
             times.get(RuntimeStage::GpuOpaque),
@@ -256,7 +254,7 @@ mod tests {
         for (begin, end) in [(u64::MAX, u64::MAX), (100, u64::MAX), (u64::MAX, 100)] {
             assert_eq!(span_validity(begin, end), SpanValidity::Sentinel);
             assert_eq!(
-                decode_spans([(RuntimeStage::GpuOpaque, begin, end)], 1.0),
+                decode_spans([(RuntimeStage::GpuOpaque, begin, end)], 1.0, true),
                 GpuFrameTimes::default()
             );
         }
@@ -265,14 +263,37 @@ mod tests {
         assert_eq!(span_validity(2, 1), SpanValidity::Reversed);
         assert_eq!(span_validity(1, 1), SpanValidity::Valid);
         assert_eq!(
-            decode_spans([(RuntimeStage::GpuOpaque, 1, 1)], 1.0).get(RuntimeStage::GpuOpaque),
+            decode_spans([(RuntimeStage::GpuOpaque, 1, 1)], 1.0, true).get(RuntimeStage::GpuOpaque),
             Some(Duration::ZERO)
         );
     }
 
     #[test]
     fn unwritten_frame_reports_nothing() {
-        let times = decode_spans([(RuntimeStage::GpuOpaque, 0, 0)], 1.0);
+        let times = decode_spans([(RuntimeStage::GpuOpaque, 0, 0)], 1.0, true);
         assert_eq!(times, GpuFrameTimes::default());
+    }
+
+    #[test]
+    fn partial_pass_coverage_does_not_report_a_gpu_frame() {
+        let times = decode_spans(
+            [
+                (RuntimeStage::GpuTerrainOpaque, 100, 400),
+                (RuntimeStage::GpuUi, 600, 700),
+            ],
+            2.0,
+            false,
+        );
+        assert_eq!(times.get(RuntimeStage::GpuFrame), None);
+        assert_eq!(times.get(RuntimeStage::GpuOpaque), None);
+        assert_eq!(times.get(RuntimeStage::GpuFxaa), None);
+        assert_eq!(
+            times.get(RuntimeStage::GpuTerrainOpaque),
+            Some(Duration::from_nanos(600))
+        );
+        assert_eq!(
+            times.get(RuntimeStage::GpuUi),
+            Some(Duration::from_nanos(200))
+        );
     }
 }

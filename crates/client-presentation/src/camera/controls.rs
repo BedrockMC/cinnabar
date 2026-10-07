@@ -176,7 +176,7 @@ pub fn update_cursor_capture(
 
     // Focus loss has priority over every capture request, including auto-fly.
     // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
-    if !window.focused || policy.consent {
+    if !window.focused || !policy.capture_allowed || policy.consent {
         release_cursor(&mut cursor);
         clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
         auto_fly.capture_pending = false;
@@ -213,6 +213,7 @@ pub fn update_cursor_capture(
 }
 
 /// Routes device-scaled look input through freelook and the selected server rig.
+#[allow(clippy::too_many_arguments)]
 pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
     input: crate::observations::InputObservation<'_>,

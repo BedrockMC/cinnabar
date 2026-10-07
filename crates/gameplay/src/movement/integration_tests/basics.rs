@@ -635,3 +635,18 @@ fn review_invalid_correction_preserves_live_prediction_and_authority() {
     assert!(ticker.physics_is_authorized());
     assert_eq!(physics.network_position(), before);
 }
+
+/// Placement cadence sees collision-resolved motion while the wire retains tick-end velocity.
+#[test]
+fn held_placement_motion_is_distinct_from_auth_input_velocity() {
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 1_000, [1.0, 64.0, 2.0]);
+    ticker.set_source(MovementSource::Physics);
+    let mut sample = completed_sample(1_001, [1.0, 64.0, 2.0]);
+    sample.movement = [0.0; 3];
+    sample.velocity = [0.1, -0.0784, 0.0];
+    ticker.enqueue_completed_physics(sample).unwrap();
+    let observed = ticker.newest_unsent_sample().unwrap();
+    assert_eq!(observed.displacement, [0.0; 3]);
+    assert_eq!(observed.delta, [0.1, -0.0784, 0.0]);
+}
