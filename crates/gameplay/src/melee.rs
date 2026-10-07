@@ -130,6 +130,31 @@ impl MeleeRuntime {
         }
     }
 
+    /// Prioritizes current-frame block ticks, then this authority's exact rejected tick.
+    pub fn press_sample(
+        &self,
+        crosshair: Crosshair,
+        movement: &crate::movement::MovementTicker,
+        recent_ticks: usize,
+    ) -> Option<crate::movement::UnsentSampleView> {
+        if crosshair == Crosshair::Block {
+            movement
+                .first_unsent_sample_in_frame(recent_ticks)
+                .or_else(|| {
+                    if self.latched_press
+                        && self.position_authority
+                            == Some(movement.interaction_authority_identity())
+                    {
+                        movement.unsent_sample_at(self.rejected_tick?)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            movement.newest_unsent_sample()
+        }
+    }
+
     /// Resolves at most one latched press into packets; a held button never re-attacks.
     pub fn resolve(
         &mut self,
@@ -239,3 +264,7 @@ pub fn press_admission(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "melee/selection_tests.rs"]
+mod selection_tests;

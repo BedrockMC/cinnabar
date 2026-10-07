@@ -250,6 +250,14 @@ impl MovementTicker {
         self.outbox.back().map(UnsentSampleView::from_queued)
     }
 
+    /// Looks up only the exact tick still owned by the unsent movement queue.
+    pub fn unsent_sample_at(&self, tick: u64) -> Option<UnsentSampleView> {
+        self.outbox
+            .iter()
+            .find(|sample| sample.snapshot.tick == tick)
+            .map(UnsentSampleView::from_queued)
+    }
+
     /// The first eligible unsent tick committed in this render frame.
     pub fn first_unsent_sample_in_frame(&self, recent_ticks: usize) -> Option<UnsentSampleView> {
         if recent_ticks == 0 {
