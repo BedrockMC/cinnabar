@@ -16,7 +16,7 @@ use semantic_input::{
 };
 
 use super::{SemanticInputRuntime, SemanticInputSnapshot, SemanticTouchTargets};
-use crate::camera::input_is_active;
+use crate::camera::mouse_input_active;
 
 #[derive(Resource, Debug, Default)]
 pub(crate) struct PendingDeviceFrame {
@@ -39,6 +39,8 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     gamepads: Query<'w, 's, (Entity, &'static Gamepad)>,
     touches: Res<'w, Touches>,
     touch_targets: ResMut<'w, SemanticTouchTargets>,
+    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
 }
 
 pub(crate) fn collect_raw_input(
@@ -156,9 +158,14 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         gamepads,
         touches,
         mut touch_targets,
+        focus,
+        driven,
     } = inputs;
     let (window, cursor) = window.into_inner();
-    let gates = input_source_gates(window.focused, input_is_active(window, cursor));
+    let focused = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    let captured = mouse_input_active(window, cursor, focus.as_deref(), driven.is_some());
+    let gates = input_source_gates(focused, captured);
     if !gates.controllers_and_touch {
         touch_targets.release_all();
         return TranslatedDeviceFrame {
@@ -552,6 +559,77 @@ mod tests {
         assert!(keyboard.key_edges.pressed.contains(&forward));
         assert!(keyboard.key_edges.released.contains(&forward));
         assert!(keyboard.modifiers.shift);
+    }
+
+    #[test]
+    fn raw_motion_requires_desktop_capture_but_driven_input_has_no_os_grab() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .init_resource::<Touches>()
+            .init_resource::<SemanticTouchTargets>()
+            .init_resource::<PendingDeviceFrame>()
+            .init_resource::<client_presentation::camera::CursorFocus>()
+            .add_systems(Update, collect_raw_input);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window::default(),
+                CursorOptions {
+                    grab_mode: CursorGrabMode::Locked,
+                    visible: false,
+                    ..Default::default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<AccumulatedMouseMotion>()
+            .delta = bevy::prelude::Vec2::new(12.0, -4.0);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<PendingDeviceFrame>()
+                .frame
+                .as_ref()
+                .unwrap()
+                .keyboard_mouse
+                .as_ref()
+                .unwrap()
+                .mouse_motion,
+            [12.0, -4.0]
+        );
+        app.world_mut()
+            .resource_mut::<client_presentation::camera::CursorFocus>()
+            .occlusion_changed(true);
+        app.update();
+        let pending = app.world().resource::<PendingDeviceFrame>();
+        assert!(pending.frame.as_ref().unwrap().window_focus_lost);
+        assert!(pending.frame.as_ref().unwrap().keyboard_mouse.is_none());
+        app.world_mut()
+            .get_mut::<CursorOptions>(window)
+            .unwrap()
+            .grab_mode = CursorGrabMode::None;
+        app.world_mut()
+            .get_mut::<CursorOptions>(window)
+            .unwrap()
+            .visible = true;
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        app.init_resource::<crate::camera::DrivenInput>();
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<PendingDeviceFrame>()
+                .frame
+                .as_ref()
+                .unwrap()
+                .keyboard_mouse
+                .as_ref()
+                .unwrap()
+                .mouse_motion,
+            [12.0, -4.0]
+        );
     }
 
     #[test]
