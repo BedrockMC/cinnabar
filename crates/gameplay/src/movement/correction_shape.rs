@@ -246,26 +246,20 @@ pub fn reconcile_physics_anchor(
     mode: PhysicsCorrectionMode,
     world: &impl CollisionWorld,
 ) -> Result<PhysicsCorrectionOutcome, PhysicsAuthorityFault> {
-    let PhysicsAnchor {
-        network_position,
-        tick,
-        on_ground,
-        velocity,
-    } = anchor;
     if !ticker.physics_is_authorized() {
         return Err(PhysicsAuthorityFault::Unauthorized);
     }
 
-    if !network_position.into_iter().all(f32::is_finite) {
+    if !anchor.network_position.into_iter().all(f32::is_finite) {
         return Err(PhysicsAuthorityFault::CorrectionReplayFailed);
     }
 
-    let apply_candidate = |mode| {
+    let apply_candidate = |anchor: PhysicsAnchor, mode| {
         let aligned_tick = match mode {
-            PhysicsCorrectionMode::ReplayIfRetained => tick,
+            PhysicsCorrectionMode::ReplayIfRetained => anchor.tick,
             PhysicsCorrectionMode::Snap => ticker
                 .next_tick
-                .max(tick.saturating_add(1))
+                .max(anchor.tick.saturating_add(1))
                 .saturating_sub(1),
         };
         let mut candidate_physics = physics.clone();
@@ -274,10 +268,8 @@ pub fn reconcile_physics_anchor(
         let plan = candidate_physics
             .apply_correction(
                 PhysicsAnchor {
-                    network_position,
                     tick: aligned_tick,
-                    on_ground,
-                    velocity,
+                    ..anchor
                 },
                 mode,
                 confirmation.as_ref(),
@@ -299,7 +291,7 @@ pub fn reconcile_physics_anchor(
         Ok((candidate_ticker, candidate_physics, plan.outcome))
     };
 
-    let mut result = apply_candidate(mode);
+    let mut result = apply_candidate(anchor, mode);
     if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
         && matches!(
             result,
@@ -310,7 +302,7 @@ pub fn reconcile_physics_anchor(
         )
     {
         tracing::warn!(
-            tick,
+            tick = anchor.tick,
             error = ?result.as_ref().err(),
             "movement replay failed; snapping correction to the current tick"
         );
@@ -320,7 +312,10 @@ pub fn reconcile_physics_anchor(
         // remains authoritative in each case, so discard speculative history
         // and continue from a current-tick snap instead of silently restoring
         // free-camera movement.
-        result = apply_candidate(PhysicsCorrectionMode::Snap);
+        result = apply_candidate(
+            physics.replay_fallback_anchor(anchor),
+            PhysicsCorrectionMode::Snap,
+        );
     }
 
     match result {
