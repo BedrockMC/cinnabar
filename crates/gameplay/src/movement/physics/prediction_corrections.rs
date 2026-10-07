@@ -67,6 +67,8 @@ impl DeferredPredictionCorrections {
             f64::from(anchor.network_position[2]),
         );
         state.on_ground = anchor.on_ground;
+        // The previous location's collisions cannot authorize a climb at the corrected position.
+        state.collisions = sim::AxisCollisions::default();
         if let Some(velocity) = anchor
             .velocity
             .filter(|velocity| super::timeline::motion_is_simulable(*velocity))
