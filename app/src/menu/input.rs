@@ -334,6 +334,8 @@ pub(crate) fn drive_menu_input(
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut gui_scale_drag: Local<GuiScaleDrag>,
+    focus: Option<Res<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     if consent.is_some_and(|consent| consent.0) {
         keyboard_messages.clear();
@@ -385,7 +387,9 @@ pub(crate) fn drive_menu_input(
         return;
     }
     menu.pressed = None;
-    if !window.focused {
+    if driven.is_none()
+        && (!window.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
+    {
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
         if !menu.is_visible()
