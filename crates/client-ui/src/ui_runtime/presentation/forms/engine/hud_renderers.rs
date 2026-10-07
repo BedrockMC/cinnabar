@@ -2,8 +2,8 @@
 //! (hearts, armor, hunger, bubbles, mount hearts and jump bar, hotbar slot art,
 //! status effects, the crosshair) draw at their control's position, as the
 //! client's renderers do, so a pack that moves the control moves the art. What
-//! each draws is captured once per frame into [`HudPaint`] with Java Edition
-//! behavior (row layout, jitter, blink) per the HUD exception.
+//! each draws is captured once per frame into [`HudPaint`]. Native cells obey
+//! the control's inherited clip and viewport.
 
 use std::collections::BTreeMap;
 
@@ -175,10 +175,27 @@ pub(super) fn paint(
     };
     let (cells, origin) = cells;
     let px = painter.px;
+    let clip = painter.clip.map_or(painter.screen, |(bounds, _)| bounds);
+    let visible = [
+        clip[0].max(painter.screen[0]),
+        clip[1].max(painter.screen[1]),
+        clip[2].min(painter.screen[2]),
+        clip[3].min(painter.screen[3]),
+    ];
+    if visible[0] >= visible[2] || visible[1] >= visible[3] {
+        return true;
+    }
     for cell in cells {
         let x = origin[0] + cell.at[0] * px;
         let y = origin[1] + cell.at[1] * px;
         let bounds = [x, y, x + cell.size[0] * px, y + cell.size[1] * px];
+        if bounds[2] <= visible[0]
+            || bounds[3] <= visible[1]
+            || bounds[0] >= visible[2]
+            || bounds[1] >= visible[3]
+        {
+            continue;
+        }
         let color = alpha([255, 255, 255, cell.alpha]);
         let visual = cell
             .preferred
