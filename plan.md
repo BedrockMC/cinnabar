@@ -6110,3 +6110,12 @@ A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
 geometry, scene-dependent inverted colors versus plain white, both third-person
 views, F1 visibility, and legible unclipped settings with working pointer focus
 and immediate toggle updates. This verifies the preferences, not broader HUD parity.
+
+
+## Absorption HUD limits
+
+Absorption uses the local attribute's current points and the vanilla JSON-UI native
+heart renderer. Incomplete: the retained HUD stat supports at most 65,535 current
+points and health containers remain capped at six rows. Larger valid values are
+skipped or bounded; this change does not close an unrestricted custom-health or
+visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.
