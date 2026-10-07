@@ -129,7 +129,7 @@ fn step(
 /// Starts with a successful side placement followed by resolved forward movement.
 fn forward_bridge(jumping: bool) -> Vec<(u64, [i32; 3])> {
     let mut runtime = BlockUseRuntime::default();
-    runtime.observe_use(true, true, false);
+    runtime.observe_use(true, true, false, true);
     let mut placed = Vec::new();
     for tick in 1..=16 {
         let x = if tick < 8 {
@@ -191,7 +191,7 @@ fn jump_bridging_keeps_the_horizontal_line_while_airborne() {
 #[test]
 fn towering_waits_for_the_player_box_to_clear_and_retries_each_tick() {
     let mut runtime = BlockUseRuntime::default();
-    runtime.observe_use(true, true, false);
+    runtime.observe_use(true, true, false, true);
     let initial = Some(PlacementTarget {
         position: [0, 63, 0],
         face: 1,
@@ -255,7 +255,7 @@ fn towering_waits_for_the_player_box_to_clear_and_retries_each_tick() {
 #[test]
 fn sneak_bridging_backward_recasts_support_without_acquiring_a_line() {
     let mut runtime = BlockUseRuntime::default();
-    runtime.observe_use(true, true, false);
+    runtime.observe_use(true, true, false, true);
     let mut placed = Vec::new();
     for (tick, support, x) in [
         (1, [0, 63, 0], -0.5),
@@ -350,4 +350,53 @@ fn a_locked_line_rejects_rays_that_end_early_or_turn_away() {
             face: 5
         })
     );
+}
+
+#[test]
+fn an_authority_wait_preserves_the_line_and_resumes_with_fresh_evidence() {
+    let mut runtime = BlockUseRuntime::default();
+    runtime.synchronize((7, 0));
+    runtime.observe_use(true, true, false, true);
+    for (tick, support, face, x) in [(1, [-1, 63, 0], 5, 0.5), (8, [0, 63, 0], 1, 1.5)] {
+        assert!(
+            step(
+                &mut runtime,
+                tick,
+                Some(PlacementTarget {
+                    position: support,
+                    face
+                }),
+                [x, 65.62, 0.5],
+                [0.22, 0.0, 0.0],
+                false,
+            )
+            .is_some()
+        );
+    }
+    runtime.synchronize((7, 1));
+    runtime.observe_use(true, false, false, false);
+    assert!(
+        step(
+            &mut runtime,
+            11,
+            None,
+            [2.5, 65.62, 0.5],
+            [0.22, 0.0, 0.0],
+            false,
+        )
+        .is_none()
+    );
+    assert_eq!(runtime.last_success_destination(), Some([1, 63, 0]));
+    runtime.observe_use(true, false, false, true);
+    let (destination, packets) = step(
+        &mut runtime,
+        12,
+        None,
+        [2.5, 65.62, 0.5],
+        [0.22, 0.0, 0.0],
+        false,
+    )
+    .unwrap();
+    assert_eq!(destination, [2, 63, 0]);
+    assert_eq!(packets.len(), 2);
 }

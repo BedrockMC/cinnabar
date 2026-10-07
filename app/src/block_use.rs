@@ -83,7 +83,6 @@ pub(crate) fn produce_block_use(
             && !context.ui.ui_focused(&player_runtime)
             && caps.can_use_blocks()
             && input.input_mode != semantic_input::InputMode::Touch
-            && movement.accepts_block_interactions()
     }) else {
         runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);
@@ -101,13 +100,14 @@ pub(crate) fn produce_block_use(
     {
         return;
     }
-    if !runtime.observe_use(use_phase.held, use_phase.pressed, attacking) {
+    if !runtime.observe_use(
+        use_phase.held,
+        use_phase.pressed,
+        attacking,
+        movement.accepts_block_interactions(),
+    ) {
         return;
     }
-    // Frames between physics ticks have no unsent tick; a press waits for one.
-    let Some(sample) = movement.newest_unsent_sample() else {
-        return;
-    };
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
         runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);
@@ -118,6 +118,10 @@ pub(crate) fn produce_block_use(
     {
         return;
     }
+    // Frames between physics ticks have no unsent tick; a press waits for one.
+    let Some(sample) = movement.newest_unsent_sample() else {
+        return;
+    };
     let clock = RepeatClock::for_game_mode(
         u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
         sample.sneaking,

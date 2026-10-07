@@ -257,6 +257,7 @@ pub struct BlockUseRuntime {
     stop_repress: bool,
     pub inventory: HeldPlacementInventory,
     latched_press: bool,
+    waiting_for_authority: bool,
     last_use_millis: Option<u64>,
     /// The last success was a block interaction.
     slow_repeat: bool,
@@ -330,8 +331,15 @@ impl BlockUseRuntime {
         self.intention = BuildIntention::default();
     }
 
-    /// Latches an eligible use press until a physics tick can attempt it.
-    pub fn observe_use(&mut self, held: bool, pressed: bool, attacking: bool) -> bool {
+    /// Latches eligible input and suspends attempts until movement authority is ready.
+    pub fn observe_use(
+        &mut self,
+        held: bool,
+        pressed: bool,
+        attacking: bool,
+        authority_ready: bool,
+    ) -> bool {
+        self.waiting_for_authority = !authority_ready;
         if attacking || !(held || pressed || self.latched_press) {
             self.clear();
             return false;
@@ -377,6 +385,9 @@ impl BlockUseRuntime {
 
     /// The trigger due now, with the repeat's due time; at most one attempt per tick.
     pub fn due(&self, held: bool, tick: u64, clock: RepeatClock) -> Option<(ItemUseTrigger, u64)> {
+        if self.waiting_for_authority {
+            return None;
+        }
         if self.latched_press {
             return Some((ItemUseTrigger::PlayerInput, clock.now_millis));
         }
