@@ -471,3 +471,97 @@ fn touch_resume_returns_capture_after_focus_loss() {
         CursorGrabMode::Locked
     );
 }
+
+/// Sends a virtual Escape edge through the keyboard adapter without OS input.
+fn press_escape(app: &mut App, window: Entity) {
+    use bevy::input::{
+        ButtonState,
+        keyboard::{Key, KeyboardInput, NativeKey},
+    };
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Escape,
+        logical_key: Key::Unidentified(NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window,
+    });
+    app.update();
+}
+
+#[test]
+fn keyboard_wake_retains_return_until_server_acknowledgment() {
+    use crate::ui_runtime::interaction::drive_chat_keyboard_input;
+    use bevy::{input::keyboard::KeyboardInput, time::Real};
+    let (mut app, window) = focus_app();
+    app.init_resource::<Time<Real>>()
+        .add_message::<KeyboardInput>()
+        .add_systems(
+            Update,
+            drive_chat_keyboard_input.before(update_cursor_capture),
+        );
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .set_local_sleeping(true);
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    press_escape(&mut app, window);
+    assert_released(&app, window);
+    assert!(
+        app.world_mut()
+            .resource_mut::<UiRuntime>()
+            .flush_wake_request(Some(1), |_| Ok::<_, ()>(()))
+    );
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .set_local_sleeping(false);
+    app.update();
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}
+
+#[test]
+fn sign_finish_retains_return_until_transport_accepts_edit() {
+    use crate::ui_runtime::drive_sign_editor;
+    use bevy::input::keyboard::KeyboardInput;
+    use client_ui::{
+        test_support::fixture_font,
+        ui_runtime::{presentation::UiPresentationRuntime, sign_editor::SignEdit},
+    };
+    let (mut app, window) = focus_app();
+    app.add_message::<KeyboardInput>()
+        .init_resource::<crate::runtime::world::ClientWorld>()
+        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .add_systems(Update, drive_sign_editor.before(update_cursor_capture));
+    let mut edit = SignEdit::new([0, 0, 0], true, Default::default());
+    assert!(edit.insert('a', |_| true));
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .sign_editor_mut()
+        .open(edit);
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    press_escape(&mut app, window);
+    assert!(app.world().resource::<UiRuntime>().sign_editor().is_open());
+    assert_released(&app, window);
+    assert!(
+        app.world_mut()
+            .resource_mut::<UiRuntime>()
+            .sign_editor_mut()
+            .finish(|_| Ok(()))
+    );
+    app.update();
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}

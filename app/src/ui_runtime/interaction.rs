@@ -589,7 +589,12 @@ pub(crate) fn drive_chat_keyboard_input(
         if runtime.local_sleeping() && !runtime.chat_focused() {
             // The bed screen: Escape leaves the bed, T opens chat over it.
             match input.key_code {
-                KeyCode::Escape => runtime.request_wake(),
+                KeyCode::Escape => {
+                    runtime.request_wake();
+                    if let Some(focus) = focus.as_deref_mut() {
+                        focus.authorize_screen_return();
+                    }
+                }
                 key if binding_key(menu.as_deref(), "key.chat", key) => {
                     runtime.open_chat(&mut player_runtime);
                 }
