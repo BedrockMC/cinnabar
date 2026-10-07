@@ -66,6 +66,10 @@
   frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Every hurt event immediately resets the limb boost, including consecutive hits; movement
+  still contributes to the phase, and death alone does not trigger a flail.
+  Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
+  verify single and repeated hits, walking while hurt, and recovery to idle.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
@@ -6123,3 +6127,12 @@ A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
 geometry, scene-dependent inverted colors versus plain white, both third-person
 views, F1 visibility, and legible unclipped settings with working pointer focus
 and immediate toggle updates. This verifies the preferences, not broader HUD parity.
+
+
+## Absorption HUD limits
+
+Absorption uses the local attribute's current points and the vanilla JSON-UI native
+heart renderer. Incomplete: the retained HUD stat supports at most 65,535 current
+points and health containers remain capped at six rows. Larger valid values are
+skipped or bounded; this change does not close an unrestricted custom-health or
+visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.
