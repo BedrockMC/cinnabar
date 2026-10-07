@@ -61,6 +61,7 @@ fn local_skin_selection_updates_authoritative_roster_without_replacing_identity(
         main_hand_metadata: 0,
         main_hand_stack_id: None,
         main_hand_slot: 0,
+        bedrock_swing_ticks: crate::ACTOR_SWING_TICKS,
         java_swing_ticks: crate::ACTOR_SWING_TICKS,
         teleported: false,
         first_person: false,

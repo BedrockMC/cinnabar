@@ -73,6 +73,12 @@ pub(crate) fn produce_block_use(
     mut item_use: ResMut<crate::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -176,6 +182,9 @@ pub(crate) fn produce_block_use(
         &surroundings,
         &caps,
     );
+    if !runtime.may_attempt(sample.tick, local_use, &swings) {
+        return;
+    }
     let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
     let predicted = (local_use == LocalUse::Place)
         .then(|| {
@@ -200,7 +209,12 @@ pub(crate) fn produce_block_use(
         runtime.record(trigger, due, sample.tick, local_use, clock);
         return;
     }
-    let duration = swing_duration(context.effects.mining_effects());
+    let duration = swing_duration(
+        context
+            .effects
+            .mining_tick(sample.tick, movement.completed_tick())
+            .0,
+    );
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
         return;
     };
@@ -216,7 +230,7 @@ pub(crate) fn produce_block_use(
         .last_success_destination()
         .is_none()
         .then_some(destination);
-    let before_swing = swings.clone();
+    let mut before_swing = swings.clone();
     let packets = use_packets(
         (&observed, block_network_id),
         sample.position,
@@ -228,7 +242,8 @@ pub(crate) fn produce_block_use(
         |tick| swings.try_swing(tick, duration),
         sample.tick,
     );
-    let sent = !packets.is_empty() && context.network.send_inventory_packets(packets).is_ok();
+    let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
+    let sent = matches!(result, Some(Ok(())));
     if sent {
         runtime.intention.record(
             trigger == ItemUseTrigger::SimulationTick,
@@ -248,6 +263,12 @@ pub(crate) fn produce_block_use(
         );
     }
     if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+        runtime.refuse_transport(
+            sample.tick,
+            local_use,
+            matches!(result, Some(Err(client_session::BatchSendError::Full))),
+        );
+        before_swing.defer_unadmitted_attempt(&swings);
         *swings = before_swing;
         return;
     }
@@ -453,3 +474,7 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
     let admitted = packets.is_empty() || context.network.send_inventory_packets(packets).is_ok();
     runtime.admit_stop(admitted)
 }
+
+#[cfg(test)]
+#[path = "block_use/published_tests.rs"]
+mod published_tests;

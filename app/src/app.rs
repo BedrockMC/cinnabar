@@ -60,9 +60,9 @@ use crate::{
     runtime::{
         endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         network::{
-            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, prepare_actor_render_frame,
-            publish_actor_render_frame, publish_entity_shadows, receive_network_events,
-            spawn_network,
+            NetworkConfig, NetworkHandle, ResourcePackAdmissionState, advance_actor_frame,
+            prepare_actor_render_frame, publish_actor_render_frame, publish_entity_shadows,
+            receive_network_events, spawn_network,
         },
         publication::{PublicationController, begin_publication_frame},
         shutdown::{exit_on_fatal_runtime_error, exit_on_window_close_requested},
@@ -149,8 +149,28 @@ pub(crate) enum ClientFrameSet {
     ActorPreparation,
     UiPreparation,
     NetworkSend,
+    ActorFinalization,
     ActorPublication,
     UiPublication,
+}
+
+/// Registers the production actor observation and publication boundaries.
+pub(crate) fn configure_actor_render_systems(app: &mut App) {
+    app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
+        .add_systems(
+            Update,
+            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+        )
+        .add_systems(
+            Update,
+            prepare_actor_render_frame.in_set(ClientFrameSet::ActorFinalization),
+        )
+        .add_systems(
+            Update,
+            (publish_actor_render_frame, publish_entity_shadows)
+                .chain()
+                .in_set(ClientFrameSet::ActorPublication),
+        );
 }
 
 pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
@@ -160,6 +180,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     app.init_resource::<Phase3EvidenceEmitter>();
     app.init_resource::<crate::runtime::network::PackReload>();
     configure_client_authority_systems(app);
+    configure_actor_render_systems(app);
     crate::audio::configure(app);
     app.init_resource::<BlockUseRuntime>()
         .init_resource::<crate::item_use::ItemUseRuntime>()
@@ -238,19 +259,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         )
         .add_systems(
             Update,
-            prepare_actor_render_frame.in_set(ClientFrameSet::ActorPreparation),
-        )
-        .add_systems(
-            Update,
-            (publish_actor_render_frame, publish_entity_shadows)
-                .chain()
-                .in_set(ClientFrameSet::ActorPublication),
-        )
-        .add_systems(
-            Update,
             crate::hotbar::select_hotbar_slot
                 .after(ClientFrameSet::SemanticFinalize)
-                .before(ClientFrameSet::UiPreparation),
+                .before(ClientFrameSet::ActorPreparation),
         )
         .add_systems(
             Update,

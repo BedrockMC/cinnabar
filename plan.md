@@ -56,6 +56,38 @@
 - The final integrated rebuild repeats the native language/Home/Quit review with readable Japanese,
   Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
 
+## Movement and input audit fixes
+
+- Input packets retain digital buttons and raw jump/sneak events separately from
+  requested controls and resulting actor state. Opposing keys remain visible,
+  brief taps survive tickless frames, and retries and rewinds preserve the input
+  captured for each tick. Sprint admission includes direction, stall and
+  seven-tick double-tap checks retained through replay;
+  forced crouching does not invent a held sneak button. Blindness participates
+  in sprint admission; Swift Sneak scales crouch input from equipped leggings.
+  Consumed controller taps do not steal fresh keyboard movement on the next frame.
+- Physics uses the selected collision support for landing responses and the
+  near-feet material for travel friction. Auto-climb, levitation, restitution
+  thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+- Prediction corrections replay regardless of distance. Nonzero future ticks
+  attach to the current captured frame for a later rewind; zero ticks and ticks
+  older than retained history are discarded. MovePlayer teleports keep their
+  separate distance rule. Deferred corrections clear old collision flags before
+  replay so a relocation cannot invent a ladder climb. If replay cannot query
+  terrain, its fallback preserves later retained server positions and motion.
+  Unstamped or expired reset corrections keep their incoming destination.
+- Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests
+  and 16 focused client tests pass. The touched-crate compile check includes
+  tests and the client app. The architecture check passes. Regression tests
+  reproduced the stale collision and controller handoff bugs before their fixes.
+- Full parity remains incomplete: vehicle prediction, special-block and glide
+  coverage, equipment-dependent powder snow, dynamic actor sizes,
+  touch layouts, independent orientation, prediction-sync metadata and exact
+  loading/stall timing still require matched fixtures. Paired retail-client
+  packet captures and live server verification have not been completed, so this
+  work does not establish universal vanilla parity or identify a specific ban's
+  cause. Existing provisional behavior below stays provisional.
+
 ## Held block placement
 
 - Ordinary block holds now retain successful destinations, establish an adjacent
@@ -6231,3 +6263,9 @@ heart renderer. Incomplete: the retained HUD stat supports at most 65,535 curren
 points and health containers remain capped at six rows. Larger valid values are
 skipped or bounded; this change does not close an unrestricted custom-health or
 visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.
+
+Local swing publication: duration and progress tests cover both animation modes,
+and Java torso turning uses matching committed local ticks. Incomplete: native
+player body-turn timing remains on the provisional actor motion model. This work
+does not close the broader native body-motion or live visual parity gate. See
+`docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.
