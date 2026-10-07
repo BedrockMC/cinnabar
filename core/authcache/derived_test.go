@@ -1122,3 +1122,64 @@ func TestCachedXSTSPathHonoursRecordedRejection(t *testing.T) {
 		t.Fatal("cached path returned a token already recorded as rejected")
 	}
 }
+
+// A merge never restores a synced XSTS token another process has since evicted.
+func TestPublishMergeKeepsAnotherProcessEviction(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another process evicts the shared token; this account still holds it, unchanged since its last sync.
+	delete(state.SISU.XSTSTokens, cachedRelyingParty)
+	state.ServiceToken = nil
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publish(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.SISU.XSTSTokens[cachedRelyingParty] != nil || published.ServiceToken != nil {
+		t.Fatal("merge restored credentials another process evicted")
+	}
+}
+
+// A delayed service exchange never replaces a fresher token another refresh already installed.
+func TestDelayedServiceExchangeKeepsAFresherToken(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	fresher := &service.Token{AuthorizationHeader: "MCToken fresher", ValidUntil: time.Now().Add(2 * time.Hour)}
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			account.gate <- struct{}{}
+			account.service = fresher // adopted from another process mid-exchange
+			account.unlock()
+			return &service.Token{AuthorizationHeader: "MCToken older", ValidUntil: time.Now().Add(time.Hour)}, nil
+		}),
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token != fresher {
+		t.Fatalf("delayed exchange returned %v, err=%v; want the fresher token", token, err)
+	}
+	account.gate <- struct{}{}
+	current := account.service
+	account.unlock()
+	if current != fresher {
+		t.Fatal("delayed exchange replaced the fresher token")
+	}
+}
