@@ -2576,3 +2576,16 @@ was not used as version evidence.
 - `crates/client-world/src/actor_animation/motion.rs` and `tick.rs`: Bedrock 1.26.50 `Mob::aiStep` and `Mob::swing`; Java swing publication follows `EntityLivingBase.updateArmSwingProgress`.
 - `crates/client-world/src/actor_animation/render_frame.rs`, `render_frame/clips.rs` and `tick/selection.rs`: vanilla pack `animation_controllers/player.animation_controllers.json` first-person attack weights and `animations/player.animation.json` attack channels.
 - Rules: `docs/reference/swing-duration.md`.
+
+## Absorption hearts
+
+- `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
+  `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  1.26.50.26 artifact 6 `FUN_149c64c10` (RVA `0x9c64c10`) reads absorption
+  current independently of its maximum, rounds upward, appends after health,
+  wraps at ten with fixed 10-pixel rows, blinks all container backgrounds, and selects wither sprites for absorption
+  only when wither wins the effect precedence. `FUN_149c65980` (RVA `0x9c65980`)
+  loads absorption full/half textures and hardcore variants.
+- `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
+  `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
+  `#show_survival_ui` to `#visible`; absorption is native renderer state.
