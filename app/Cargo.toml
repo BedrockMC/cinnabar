@@ -91,6 +91,7 @@ futures-lite = "2"
 zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",

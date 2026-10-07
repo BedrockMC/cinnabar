@@ -2573,7 +2573,7 @@ was not used as version evidence.
 
 ## Desktop cursor focus ownership
 
-- `crates/client-presentation/src/camera/focus.rs`, `app/src/camera/focus.rs`: `MinecraftGame::onAppFocusLost` releases held controls and cursor capture; `onAppFocusGained` checks the active screen before capture (R:MinecraftGame:102683–103207).
+- `crates/client-presentation/src/camera/focus.rs`, `app/src/camera/focus.rs`, `app/src/camera/focus/native.rs`: `MinecraftGame::onAppFocusLost` releases held controls and cursor capture; `onAppFocusGained` checks the active screen before capture (R:MinecraftGame:102683–103207).
 - Focus-loss pause preference: R:GeneralSettingsFactoryAnon--b69a8d87dfcb:1789. Gameplay steals mouse outside touch input; ordinary screens do not (R:InGamePlayScreen:4997–5062; R:BaseScreen:823–830).
 - Cursor release clears logical capture and shows the pointer (R:MinecraftGame:124942–125235). macOS periodic centering requires captured state (R:__unmapped/00:1690783–1690824).
 

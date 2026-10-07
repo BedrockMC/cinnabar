@@ -5,14 +5,19 @@ use bevy::{
         mouse::{AccumulatedMouseMotion, MouseButtonInput},
     },
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
+    window::{CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
 use client_presentation::camera::CursorFocus;
 
 use super::{AutoFly, DrivenInput};
 
+#[cfg(any(windows, test))]
+mod native;
+
 /// Installs focus tracking without opening or calling into a native window.
 pub(super) fn install(app: &mut App) {
+    #[cfg(all(windows, not(test)))]
+    native::install(app);
     app.init_resource::<CursorFocus>()
         .add_message::<WindowFocused>()
         .add_message::<WindowOccluded>()
@@ -35,8 +40,6 @@ fn track_focus(
     mut motion: ResMut<AccumulatedMouseMotion>,
     gamepads: Query<&Gamepad>,
     touches: Option<Res<Touches>>,
-    mut was_available: Local<bool>,
-    #[cfg(windows)] _window_thread: bevy::ecs::system::NonSendMarker,
 ) {
     let (entity, window, mut cursor) = window.into_inner();
     focus.begin_frame(window.focused);
@@ -62,14 +65,10 @@ fn track_focus(
                 .any(|pad| pad.get_just_pressed().next().is_some()),
     );
     let available = focus.available();
-    let input_lost = std::mem::replace(&mut *was_available, available) && !available;
     if driven.is_some() {
         return;
     }
     if !available {
-        if native_release_needed(&cursor, &buttons, input_lost) {
-            release_native_capture();
-        }
         super::release_cursor(&mut cursor);
         keys.reset_all();
         buttons.reset_all();
@@ -104,6 +103,7 @@ pub(crate) fn update_cursor_capture(
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
     focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
     let mut policy = client_presentation::observations::CursorPolicy {
         capture_allowed: true,
@@ -130,6 +130,10 @@ pub(crate) fn update_cursor_capture(
             mouse_buttons.just_pressed(MouseButton::Left),
         );
     }
+    #[cfg(all(windows, not(test)))]
+    {
+        policy.capture_allowed &= native.0;
+    }
     client_presentation::camera::update_cursor_capture(
         policy,
         window,
@@ -145,44 +149,14 @@ fn enforce_cursor_ownership(
     focus: Res<CursorFocus>,
     driven: Option<Res<DrivenInput>>,
     mut cursors: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
-    if driven.is_some() || !focus.capture_allowed() {
+    let allowed = focus.capture_allowed();
+    #[cfg(all(windows, not(test)))]
+    let allowed = allowed && native.0;
+    if driven.is_some() || !allowed {
         for mut cursor in &mut cursors {
             super::release_cursor(&mut cursor);
-        }
-    }
-}
-
-/// A focus transition releases native ownership even after UI consumed local input.
-fn native_release_needed(
-    cursor: &CursorOptions,
-    buttons: &ButtonInput<MouseButton>,
-    input_lost: bool,
-) -> bool {
-    input_lost || cursor.grab_mode != CursorGrabMode::None || buttons.get_pressed().next().is_some()
-}
-
-/// Windows retains clipping and button capture independently of keyboard focus.
-fn release_native_capture() {
-    #[cfg(all(windows, not(test)))]
-    {
-        use windows_sys::Win32::UI::{
-            Input::KeyboardAndMouse::{GetCapture, ReleaseCapture},
-            WindowsAndMessaging::ClipCursor,
-        };
-        // A null rectangle releases the clip without moving the pointer.
-        if unsafe { ClipCursor(std::ptr::null()) } == 0 {
-            warn!(
-                "could not release cursor clip: {}",
-                std::io::Error::last_os_error()
-            );
-        }
-        // Capture belongs to the window thread, enforced by the focus system.
-        if !unsafe { GetCapture() }.is_null() && unsafe { ReleaseCapture() } == 0 {
-            warn!(
-                "could not release mouse capture: {}",
-                std::io::Error::last_os_error()
-            );
         }
     }
 }
