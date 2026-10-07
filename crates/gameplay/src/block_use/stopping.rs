@@ -69,6 +69,41 @@ mod tests {
     }
 
     #[test]
+    fn position_corrections_preserve_active_holds_and_refused_stops() {
+        for refused in [false, true] {
+            let mut runtime = BlockUseRuntime::default();
+            runtime.synchronize((7, 0));
+            runtime.intention.record(
+                false,
+                [0, 63, 1],
+                LocalUse::Place,
+                true,
+                false,
+                [0.5, 64.0, 0.5],
+            );
+            if refused {
+                assert_eq!(runtime.stop_packets(42, true).len(), 1);
+                assert!(!runtime.admit_stop(false));
+            }
+            runtime.synchronize((7, 1));
+            assert_eq!(runtime.last_success_destination(), Some([0, 63, 1]));
+            assert_eq!(runtime.stopping(), refused);
+            assert_eq!(runtime.stop_packets(42, false).len(), 1);
+            assert!(runtime.admit_stop(true));
+            let clock = RepeatClock {
+                now_millis: 1_000,
+                sneaking: false,
+                speed: 0.0,
+                survival: true,
+            };
+            assert_eq!(
+                runtime.due(false, 1, clock),
+                refused.then_some((ItemUseTrigger::PlayerInput, 1_000)),
+            );
+        }
+    }
+
+    #[test]
     fn selection_stop_preserves_a_press_latched_between_physics_ticks() {
         let mut runtime = BlockUseRuntime::default();
         let stack = protocol::NetworkItemStack::empty();

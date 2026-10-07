@@ -386,14 +386,15 @@ fn successful_uses_swing_before_their_always_sent_transaction() {
 }
 
 #[test]
-fn a_position_authority_change_drops_the_press_and_schedule() {
+fn a_position_authority_change_revokes_the_press_but_preserves_repeat_timing() {
     let mut runtime = BlockUseRuntime::default();
     runtime.synchronize((7, 0));
     runtime.latched_press = true;
     runtime.last_use_millis = Some(900);
     runtime.synchronize((7, 1));
     assert_eq!(runtime.due(false, 1, clock(1_000, 0.0)), None);
-    assert_eq!(runtime.last_use_millis, None);
+    assert_eq!(runtime.last_use_millis, Some(900));
+    assert_eq!(runtime.due(true, 1, clock(1_000, 0.0)), None);
 }
 
 #[test]
