@@ -140,6 +140,10 @@ impl SemanticInputRuntime {
             .truncate(semantic_input::MAX_DISCONNECTED_CONTROLLERS);
         self.stamp_activity(&mut frame);
         self.router.route(frame.clone())?;
+        // The router keeps these events; activity comparisons need only the held state.
+        for controller in &mut frame.controllers {
+            controller.button_edges = Default::default();
+        }
         self.previous = frame;
         Ok(())
     }
@@ -433,6 +437,56 @@ mod tests {
         assert!(
             second.keyboard_mouse.unwrap().activity_sequence
                 > runtime.previous.keyboard_mouse.unwrap().activity_sequence
+        );
+    }
+
+    /// A completed controller tap cannot outrank fresh keyboard input on the next frame.
+    #[test]
+    fn consumed_controller_edges_do_not_steal_new_keyboard_movement() {
+        let mut runtime = SemanticInputRuntime::default();
+        let controller = ControllerFrame {
+            device_id: 7,
+            axes: [0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        let tapped = runtime
+            .route_and_finalize(DeviceFrame {
+                keyboard_mouse: Some(semantic_input::KeyboardMouseFrame::default()),
+                controllers: vec![ControllerFrame {
+                    button_edges: semantic_input::ButtonEdges {
+                        pressed: vec![0],
+                        released: vec![0],
+                    },
+                    ..controller.clone()
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(tapped.input_mode, InputMode::GamePad);
+        assert_eq!(tapped.movement, [0.0, -1.0]);
+        let jump = tapped.phases[Action::Jump as usize];
+        assert!(jump.pressed && jump.released && !jump.held);
+        let controller_activity = runtime.previous.controllers[0].activity_sequence;
+
+        let keyboard = runtime
+            .route_and_finalize(DeviceFrame {
+                keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                    keys: vec![0x1a],
+                    key_edges: semantic_input::ButtonEdges {
+                        pressed: vec![0x1a],
+                        released: vec![],
+                    },
+                    ..Default::default()
+                }),
+                controllers: vec![controller],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(keyboard.input_mode, InputMode::KeyboardMouse);
+        assert_eq!(keyboard.movement, [0.0, 1.0]);
+        assert_eq!(
+            runtime.previous.controllers[0].activity_sequence,
+            controller_activity
         );
     }
 
