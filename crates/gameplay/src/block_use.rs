@@ -516,7 +516,6 @@ pub fn placement_state_is_certain(
 
 /// A successful hold starts once, then swings before its transaction and inventory delta.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub fn use_packets(
     (observed, block_network_id): (&FrozenBlockObservation, u32),
     player_position: [f32; 3],
