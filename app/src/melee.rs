@@ -154,12 +154,8 @@ pub(crate) fn produce_melee(
         return;
     };
     runtime.observe_crosshair(crosshair);
-    // Frames between physics ticks have no unsent tick; the press waits for one.
-    let sample = if crosshair == Crosshair::Block {
-        movement.first_unsent_sample_in_frame(context.effects.recent_tick_count())
-    } else {
-        movement.newest_unsent_sample()
-    };
+    // Fresh block presses wait for a tick committed in this frame.
+    let sample = runtime.press_sample(crosshair, &movement, context.effects.recent_tick_count());
     let Some(sample) = sample else {
         return;
     };
