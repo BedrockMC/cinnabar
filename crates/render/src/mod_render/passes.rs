@@ -318,14 +318,18 @@ fn prepare(
     let gpu = &mut *gpu;
     let current = |revision: u64| scene.passes.iter().any(|p| p.revision == revision);
     gpu.retain_pipelines(&scene);
-    let needs_depth = scene.passes.iter().any(|pass| pass.enabled && pass.depth);
+    let depth_stage = scene
+        .passes
+        .iter()
+        .position(|pass| pass.enabled && pass.depth)
+        .map(|slot| RuntimeStage::GPU_MOD_PASSES[slot.min(RuntimeStage::GPU_MOD_PASSES.len() - 1)]);
     gpu.resolved_depth.retain(|entity, _| {
-        needs_depth
+        depth_stage.is_some()
             && views
                 .get(*entity)
                 .is_ok_and(|(_, _, _, depth)| depth.is_some_and(multisample_depth))
     });
-    if needs_depth {
+    if let Some(stage) = depth_stage {
         for (entity, _, _, depth) in &views {
             let Some(depth) = depth.filter(|depth| multisample_depth(depth)) else {
                 continue;
@@ -336,7 +340,9 @@ fn prepare(
                 .is_none_or(|resolved| !resolved.matches(depth))
             {
                 gpu.resolved_depth
-                    .insert(entity, ResolvedDepth::new(&device, depth));
+                    .insert(entity, ResolvedDepth::new(&device, depth, stage));
+            } else if let Some(resolved) = gpu.resolved_depth.get_mut(&entity) {
+                resolved.set_stage(stage);
             }
         }
     }
@@ -465,7 +471,7 @@ impl ViewNode for ModPassNode {
         let format = target.main_texture_format();
         let resolved = gpu.resolved_depth.get(&view);
         if let Some(resolved) = resolved {
-            resolved.draw(context, None);
+            resolved.draw(context, world, None);
         }
         let depth_view = resolved
             .map(|resolved| &resolved.view)
@@ -543,7 +549,7 @@ impl ViewNode for ModPassNode {
                     label: Some("mod post pass"),
                     color_attachments: &attachments,
                     depth_stencil_attachment: None,
-                    timestamp_writes: None,
+                    timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, stage),
                     occlusion_query_set: None,
                 });
                 render_pass.set_render_pipeline(pipeline);

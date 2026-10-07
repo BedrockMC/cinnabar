@@ -139,13 +139,27 @@ fn resolved_scene_copy_preserves_texels_for_each_supported_sample_count() {
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         );
         let resolved_view = resolved.create_view(&Default::default());
-        let copy = SceneCopy::from_views(&device, [&source_view, &source_view], format, samples);
+        let copy = SceneCopy::from_views(
+            &device,
+            [&source_view, &source_view],
+            format,
+            samples,
+            RuntimeStage::GpuTransparent,
+        );
         let mut context = RenderContext::new(device.clone(), None);
         if samples == 1 {
-            copy.draw(&mut context, &source_view, &resolved_view, None, None);
+            copy.draw(
+                &mut context,
+                &World::new(),
+                &source_view,
+                &resolved_view,
+                None,
+                None,
+            );
         } else {
             copy.draw(
                 &mut context,
+                &World::new(),
                 &source_view,
                 &destination_view,
                 Some(&resolved_view),
@@ -296,12 +310,12 @@ fn scene_depth_and_hiz_preserve_nearest_and_conservative_sample_coverage() {
             },
             Some(0.0),
         );
-        let resolved = ResolvedDepth::new(&device, &depth);
+        let resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuPost);
         assert!(resolved.matches(&depth));
         for uncovered in [false, true] {
             let mut context = RenderContext::new(device.clone(), None);
             fill_depth(&mut context, &depth, uncovered);
-            resolved.draw(&mut context, None);
+            resolved.draw(&mut context, &World::new(), None);
             let expected = if samples == 1 && uncovered {
                 0.0
             } else {
@@ -411,7 +425,13 @@ fn gamma_msaa_resolve_and_writeback_preserve_encoded_blending() {
             format: Some(linear),
             ..Default::default()
         });
-        let copy = SceneCopy::from_views(&device, [&source_view, &source_view], linear, samples);
+        let copy = SceneCopy::from_views(
+            &device,
+            [&source_view, &source_view],
+            linear,
+            samples,
+            RuntimeStage::GpuTransparent,
+        );
         let mut context = RenderContext::new(device.clone(), None);
         let colour = if samples == 1 {
             &resolved_encoded
@@ -421,6 +441,7 @@ fn gamma_msaa_resolve_and_writeback_preserve_encoded_blending() {
         let resolve = (samples > 1).then_some(&resolved_encoded);
         copy.draw(
             &mut context,
+            &World::new(),
             &source_view,
             if samples == 1 {
                 &resolved_linear
@@ -499,10 +520,12 @@ fn gamma_msaa_resolve_and_writeback_preserve_encoded_blending() {
             [&resolved_linear, &resolved_linear],
             linear,
             samples,
+            RuntimeStage::GpuTransparent,
         );
         let mut context = RenderContext::new(device.clone(), None);
         writeback.draw(
             &mut context,
+            &World::new(),
             &resolved_linear,
             if samples == 1 {
                 &copied_view

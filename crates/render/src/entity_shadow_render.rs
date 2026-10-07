@@ -411,8 +411,16 @@ pub(crate) fn prepare_shadow_views(
             pipeline,
             rect,
             bind_group: None,
-            resolved_depth: (msaa.samples() > 1).then(|| ResolvedDepth::new(&device, depth)),
-            copy: (msaa.samples() > 1).then(|| SceneCopy::new(&device, target, msaa.samples())),
+            resolved_depth: (msaa.samples() > 1)
+                .then(|| ResolvedDepth::new(&device, depth, crate::RuntimeStage::GpuShadows)),
+            copy: (msaa.samples() > 1).then(|| {
+                SceneCopy::new(
+                    &device,
+                    target,
+                    msaa.samples(),
+                    crate::RuntimeStage::GpuShadows,
+                )
+            }),
         });
     }
 }
@@ -524,7 +532,7 @@ impl ViewNode for EntityShadowNode {
             return Ok(());
         }
         if let Some(depth) = &state.resolved_depth {
-            depth.draw(context, state.rect);
+            depth.draw(context, world, state.rect);
         }
         let origin = Origin3d { x: x0, y: y0, z: 0 };
         let mut source = target.main_texture().as_image_copy();
@@ -553,7 +561,10 @@ impl ViewNode for EntityShadowNode {
             label: Some("entity shadows"),
             color_attachments: &[Some(colour)],
             depth_stencil_attachment: None,
-            timestamp_writes: None,
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                crate::RuntimeStage::GpuShadows,
+            ),
             occlusion_query_set: None,
         });
         if let Some(viewport) = camera.viewport.as_ref() {
@@ -566,7 +577,7 @@ impl ViewNode for EntityShadowNode {
         pass.draw(0..SHADOW_VOLUME_VERTICES as u32, 0..gpu.count);
         drop(pass);
         if let Some(copy) = &state.copy {
-            copy.writeback(context, target, state.rect);
+            copy.writeback(context, world, target, state.rect);
         }
         Ok(())
     }

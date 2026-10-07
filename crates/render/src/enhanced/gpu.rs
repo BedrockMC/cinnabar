@@ -512,7 +512,11 @@ pub(crate) fn prepare_enhanced_views(
             .as_ref()
             .is_none_or(|resolved| !resolved.matches(depth))
         {
-            state.resolved_depth = Some(ResolvedDepth::new(&device, depth));
+            state.resolved_depth = Some(ResolvedDepth::new(
+                &device,
+                depth,
+                crate::RuntimeStage::GpuPost,
+            ));
         }
         let samples = depth.texture.sample_count();
         if samples == 1 {
@@ -522,7 +526,12 @@ pub(crate) fn prepare_enhanced_views(
             .as_ref()
             .is_none_or(|copy| !copy.matches(target, samples))
         {
-            state.copy = Some(SceneCopy::new(&device, target, samples));
+            state.copy = Some(SceneCopy::new(
+                &device,
+                target,
+                samples,
+                crate::RuntimeStage::GpuPost,
+            ));
         }
         state.settings = *settings;
         state.cascades = fits.iter().map(|fit| fit.bounds).collect();

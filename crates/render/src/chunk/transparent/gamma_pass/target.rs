@@ -130,7 +130,14 @@ pub(super) fn prepare_gamma_targets(
             gamma_view,
             srgb_view,
             multisample,
-            copy: (msaa.samples() > 1).then(|| SceneCopy::new(&device, target, msaa.samples())),
+            copy: (msaa.samples() > 1).then(|| {
+                SceneCopy::new(
+                    &device,
+                    target,
+                    msaa.samples(),
+                    crate::RuntimeStage::GpuTransparent,
+                )
+            }),
         });
     }
 }

@@ -121,6 +121,7 @@ fn post_bind_group(
 /// Draws one fullscreen pass.
 fn fullscreen_pass(
     context: &mut RenderContext,
+    world: &World,
     label: &'static str,
     target: &TextureView,
     load: LoadOp<wgpu::Color>,
@@ -141,7 +142,10 @@ fn fullscreen_pass(
             },
         })],
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            crate::RuntimeStage::GpuPost,
+        ),
         occlusion_query_set: None,
     });
     pass.set_render_pipeline(pipeline);
@@ -194,7 +198,7 @@ impl ViewNode for EnhancedPostNode {
         let Some(depth) = &state.resolved_depth else {
             return Ok(());
         };
-        depth.draw(context, None);
+        depth.draw(context, world, None);
         let device = context.render_device().clone();
         let shadow = state
             .shadow
@@ -223,6 +227,7 @@ impl ViewNode for EnhancedPostNode {
             let group = bind(black, black, black);
             fullscreen_pass(
                 context,
+                world,
                 "enhanced light shafts",
                 shaft_view,
                 clear,
@@ -235,6 +240,7 @@ impl ViewNode for EnhancedPostNode {
         let group = bind(post.source, black, shaft_view.unwrap_or(black));
         fullscreen_pass(
             context,
+            world,
             "enhanced composite",
             post.destination,
             clear,
@@ -242,7 +248,7 @@ impl ViewNode for EnhancedPostNode {
             &group,
         );
         if let Some(copy) = &state.copy {
-            copy.writeback(context, target, None);
+            copy.writeback(context, world, target, None);
         }
         Ok(())
     }

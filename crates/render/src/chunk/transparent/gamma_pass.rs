@@ -131,6 +131,7 @@ impl ViewNode for GammaTransparentPass {
         if let Some(copy) = &scratch.copy {
             copy.draw(
                 render_context,
+                world,
                 target.main_texture_view(),
                 scratch.colour_view(false),
                 None,
@@ -160,7 +161,10 @@ impl ViewNode for GammaTransparentPass {
                 label: Some("sorted ordinary transparent colour-space range"),
                 color_attachments: &[Some(colour)],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuTransparent,
+                ),
                 occlusion_query_set: None,
             });
             if let Some(viewport) =
@@ -172,7 +176,7 @@ impl ViewNode for GammaTransparentPass {
         }
         copy_scene(render_context, &scratch.texture, target.main_texture());
         if let Some(copy) = &scratch.copy {
-            copy.writeback(render_context, target, None);
+            copy.writeback(render_context, world, target, None);
         }
         Ok(())
     }

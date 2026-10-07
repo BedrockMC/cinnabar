@@ -1,9 +1,13 @@
 //! Single-sample consumers of the scene retain explicit MSAA resolve boundaries.
 
-use bevy::render::{
-    render_resource::{Texture, TextureView, TextureViewId},
-    renderer::{RenderContext, RenderDevice},
-    view::{ViewDepthTexture, ViewTarget},
+use crate::RuntimeStage;
+use bevy::{
+    prelude::World,
+    render::{
+        render_resource::{Texture, TextureView, TextureViewId},
+        renderer::{RenderContext, RenderDevice},
+        view::{ViewDepthTexture, ViewTarget},
+    },
 };
 
 #[cfg(test)]
@@ -14,16 +18,23 @@ pub(crate) struct SceneCopy {
     pipeline: wgpu::RenderPipeline,
     sources: [(TextureViewId, wgpu::BindGroup); 2],
     samples: u32,
+    stage: RuntimeStage,
 }
 
 impl SceneCopy {
-    /// Keeps both ping-pong scene inputs bound until a target is replaced.
-    pub(crate) fn new(device: &RenderDevice, target: &ViewTarget, samples: u32) -> Self {
+    /// Keeps both ping-pong inputs bound and attributes copies to their owning stage.
+    pub(crate) fn new(
+        device: &RenderDevice,
+        target: &ViewTarget,
+        samples: u32,
+        stage: RuntimeStage,
+    ) -> Self {
         Self::from_views(
             device,
             [target.main_texture_view(), target.main_texture_other_view()],
             target.main_texture_format(),
             samples,
+            stage,
         )
     }
 
@@ -33,6 +44,7 @@ impl SceneCopy {
         views: [&TextureView; 2],
         format: wgpu::TextureFormat,
         samples: u32,
+        stage: RuntimeStage,
     ) -> Self {
         let device = device.wgpu_device();
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -85,6 +97,7 @@ impl SceneCopy {
             pipeline,
             sources,
             samples,
+            stage,
         }
     }
 
@@ -105,6 +118,7 @@ impl SceneCopy {
     pub(crate) fn draw(
         &self,
         context: &mut RenderContext,
+        world: &World,
         source: &TextureView,
         destination: &TextureView,
         resolve: Option<&TextureView>,
@@ -130,7 +144,7 @@ impl SceneCopy {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, self.stage),
                 occlusion_query_set: None,
             });
         if let Some([x0, y0, x1, y1]) = rect {
@@ -145,6 +159,7 @@ impl SceneCopy {
     pub(crate) fn writeback(
         &self,
         context: &mut RenderContext,
+        world: &World,
         target: &ViewTarget,
         rect: Option<[u32; 4]>,
     ) {
@@ -152,7 +167,14 @@ impl SceneCopy {
             return;
         };
         // The resolved target already holds the result; later geometry performs the next resolve.
-        self.draw(context, target.main_texture_view(), destination, None, rect);
+        self.draw(
+            context,
+            world,
+            target.main_texture_view(),
+            destination,
+            None,
+            rect,
+        );
     }
 }
 
@@ -161,13 +183,18 @@ pub(crate) struct ResolvedDepth {
     pub(crate) _texture: Texture,
     pub(crate) view: TextureView,
     source: TextureViewId,
+    stage: RuntimeStage,
     pipeline: wgpu::RenderPipeline,
     binding: wgpu::BindGroup,
 }
 
 impl ResolvedDepth {
-    /// Samples depth instead of copying it, which also works for multisampled attachments.
-    pub(crate) fn new(device: &RenderDevice, depth: &ViewDepthTexture) -> Self {
+    /// Samples depth instead of copying it and attributes the pass to its consumer.
+    pub(crate) fn new(
+        device: &RenderDevice,
+        depth: &ViewDepthTexture,
+        stage: RuntimeStage,
+    ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("resolved scene depth"),
             size: depth.texture.size(),
@@ -226,6 +253,7 @@ impl ResolvedDepth {
             _texture: texture,
             view,
             source: depth.view().id(),
+            stage,
             pipeline,
             binding,
         }
@@ -236,8 +264,13 @@ impl ResolvedDepth {
         self.source == depth.view().id()
     }
 
+    /// Reassigns a shared resolve when its first consuming mod pass changes.
+    pub(crate) fn set_stage(&mut self, stage: RuntimeStage) {
+        self.stage = stage;
+    }
+
     /// Writes the nearest covered surface; Hi-Z uses its separate conservative farthest resolve.
-    pub(crate) fn draw(&self, context: &mut RenderContext, rect: Option<[u32; 4]>) {
+    pub(crate) fn draw(&self, context: &mut RenderContext, world: &World, rect: Option<[u32; 4]>) {
         let mut pass = context
             .command_encoder()
             .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -251,7 +284,7 @@ impl ResolvedDepth {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(world, self.stage),
                 occlusion_query_set: None,
             });
         if let Some([x0, y0, x1, y1]) = rect {

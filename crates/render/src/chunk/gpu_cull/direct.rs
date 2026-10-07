@@ -298,6 +298,13 @@ impl DirectOcclusion {
             .is_none_or(|storage| storage.capacity < slots)
         {
             let capacity = slots.max(MIN_CAPACITY).next_power_of_two();
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "terrain.occlusion_allocate",
+                capacity,
+                readback_bytes = occlusion_bytes(capacity) * SLOTS as u64
+            )
+            .entered();
             let device = device.wgpu_device();
             self.storage = Some(OcclusionStorage::new(device, capacity));
             self.readbacks = (0..SLOTS)
@@ -330,6 +337,15 @@ impl DirectOcclusion {
             let Some(tag) = tag else {
                 return;
             };
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "terrain.occlusion_readback_apply",
+                slot,
+                frame = tag.frame,
+                records = tag.slots,
+                bytes = readbacks[slot].size(),
+            )
+            .entered();
             let buffer = &readbacks[slot];
             history.apply(
                 tag,
@@ -386,7 +402,12 @@ pub(super) fn prepare_direct_occlusion(
         &mut hidden,
     );
     occlusion.upload(&device, &queue);
-    let _ = device.poll(PollType::Poll);
+    {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("terrain.occlusion_poll", frame = occlusion.frame).entered();
+        let _ = device.poll(PollType::Poll);
+    }
     occlusion.apply_verdicts();
 
     let Some(queued) = frame.view else {
@@ -443,7 +464,13 @@ pub(super) fn prepare_direct_occlusion(
             prepared.pyramid.mip_count(),
         );
         let uniform = CullViewUniform::new(&input, CullPhase::Late, slots, storage.capacity);
-        queue.write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
+        {
+            #[cfg(feature = "tracy")]
+            let _span =
+                bevy::log::info_span!("terrain.occlusion_uniform_write", frame = occlusion.frame)
+                    .entered();
+            queue.write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
+        }
         if occlusion
             .bind_group
             .as_ref()
@@ -492,9 +519,21 @@ pub(super) fn submit_direct_occlusion(mut occlusion: ResMut<DirectOcclusion>) {
         return;
     }
     let state = occlusion.verdicts.submit(slot);
+    #[cfg(feature = "tracy")]
+    let frame = occlusion.frame;
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("terrain.occlusion_map_request", slot, frame).entered();
     occlusion.readbacks[slot]
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "terrain.occlusion_map_callback",
+                slot,
+                frame,
+                ok = result.is_ok()
+            )
+            .entered();
             state.store(
                 if result.is_ok() { MAPPED } else { FAILED },
                 Ordering::Release,
@@ -576,7 +615,10 @@ impl ViewNode for TerrainPassNode {
                 label: Some("terrain solid pass"),
                 color_attachments: &[Some(target.get_color_attachment())],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-                timestamp_writes: None,
+                timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuTerrainOpaque,
+                ),
                 occlusion_query_set: None,
             });
             if let Some(viewport) =

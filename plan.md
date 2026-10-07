@@ -1,3 +1,24 @@
+## Frame attribution and unchanged GPU uploads
+
+- Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
+  durations are delayed plots. macOS zones alone cannot separate preemption from waits.
+- Per-packet ingress admission preserves queued events when consumer fan-out fills
+  headroom; regression tests cover resumption and zero steady-state drain allocations.
+- Named schedule traces and bounded frame recordings separate main work, render
+  handoff, drawable acquisition, command submission and presentation. Metal
+  timestamp queries use owned render passes and leave uncovered stages absent.
+- Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
+  redundant staging work. Regression tests assert allocations, writes and retained
+  buffers; hardware captures measure elapsed time separately.
+- Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
+  not vanilla terrain generation or the populated-lobby/flight release replay.
+  Hidden-window measurements do not establish displayed FPS. Shared-pass GPU
+  categories, exact per-item costs and complete long-stall attribution remain open.
+  Earlier captures reach 87 ms; later Tracy captures reproduce 100–187 ms stalls
+  with waiting observed at main/render handoff. Exact CPU/wait time and a short
+  native GPU regression remain unresolved. See [frame breakdown evidence](docs/evidence/frame-breakdown.md)
+  and [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
+
 ## Camera packets and aim assist
 
 - Packet admission covers spline registries/instructions, aim presets, commands
@@ -6112,3 +6133,12 @@ A macOS/Metal client pass at 1920×1080, DPI 1, GUI scale 2 verified centered
 geometry, scene-dependent inverted colors versus plain white, both third-person
 views, F1 visibility, and legible unclipped settings with working pointer focus
 and immediate toggle updates. This verifies the preferences, not broader HUD parity.
+
+
+## Absorption HUD limits
+
+Absorption uses the local attribute's current points and the vanilla JSON-UI native
+heart renderer. Incomplete: the retained HUD stat supports at most 65,535 current
+points and health containers remain capped at six rows. Larger valid values are
+skipped or bounded; this change does not close an unrestricted custom-health or
+visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.

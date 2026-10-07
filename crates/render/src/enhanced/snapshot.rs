@@ -45,7 +45,7 @@ impl ViewNode for EnhancedSnapshotNode {
         let Some(depth) = &state.resolved_depth else {
             return Ok(());
         };
-        depth.draw(context, None);
+        depth.draw(context, world, None);
         let diagnostics = context.diagnostic_recorder();
         let span = diagnostics.time_span(context.command_encoder(), "enhanced opaque snapshot");
         context.command_encoder().copy_texture_to_texture(
