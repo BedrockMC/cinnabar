@@ -33,10 +33,12 @@ fn a_standing_toast_stays_until_its_cause_ends_then_slides_out() {
     assert_eq!(shown(&hud, 0).map(|toast| toast.2), Some(0.0));
     let held = shown(&hud, UNTIL - 1).unwrap();
     assert_eq!((held.1, held.2), (Some(ToastPress::JoinRequests), 1.0));
-    assert!(
-        UNTIL - 1 > TOAST_DISPLAY_MILLIS * 3,
-        "outlives an ordinary toast"
-    );
+    const {
+        assert!(
+            UNTIL - 1 > TOAST_DISPLAY_MILLIS * 3,
+            "outlives an ordinary toast"
+        )
+    };
     assert_eq!(
         shown(&hud, UNTIL + TOAST_SLIDE_OUT_MILLIS / 2).map(|toast| toast.2),
         Some(0.5)
