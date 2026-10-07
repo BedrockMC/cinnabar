@@ -1,8 +1,9 @@
 //! What the HUD's native renderers draw each frame: health, armor, hunger,
 //! mount-health and air rows, status effects, the mount jump bar, and the
-//! crosshair, laid out relative to each renderer's control with the Java
-//! Edition rules (row stacking, jitter, regeneration wave, damage blink).
+//! crosshair, laid out relative to each JSON-UI renderer's control. Heart
+//! rows and absorption sprites follow the Bedrock HUD's display rules.
 
+use crate::ui_runtime::gameplay_hud::HeartVariant;
 use assets::HudTextureRole;
 
 use super::{
@@ -28,6 +29,14 @@ fn hardcore_path(role: HudTextureRole) -> Option<&'static str> {
         HudTextureRole::HeartHalf => "textures/ui/hardcore/heart_half",
         HudTextureRole::HeartFlashFull => "textures/ui/hardcore/heart_flash",
         HudTextureRole::HeartFlashHalf => "textures/ui/hardcore/heart_flash_half",
+        HudTextureRole::PoisonHeartFull => "textures/ui/hardcore/poison_heart",
+        HudTextureRole::PoisonHeartHalf => "textures/ui/hardcore/poison_heart_half",
+        HudTextureRole::PoisonHeartFlashFull => "textures/ui/hardcore/poison_heart_flash",
+        HudTextureRole::PoisonHeartFlashHalf => "textures/ui/hardcore/poison_heart_flash_half",
+        HudTextureRole::WitherHeartFull => "textures/ui/hardcore/wither_heart",
+        HudTextureRole::WitherHeartHalf => "textures/ui/hardcore/wither_heart_half",
+        HudTextureRole::WitherHeartFlashFull => "textures/ui/hardcore/wither_heart_flash",
+        HudTextureRole::WitherHeartFlashHalf => "textures/ui/hardcore/wither_heart_flash_half",
         HudTextureRole::AbsorptionHeartFull => "textures/ui/hardcore/absorption_heart",
         HudTextureRole::AbsorptionHeartHalf => "textures/ui/hardcore/absorption_heart_half",
         HudTextureRole::FreezeHeartFull => "textures/ui/hardcore/freeze_heart",
@@ -53,16 +62,16 @@ fn heart_rows(runtime: &UiRuntime) -> Option<HeartRows> {
     let scale = u32::from(health.scale()).max(1);
     // Half-heart units on the reference 20-point scale.
     let current = u32::from(health.current()).div_ceil(scale);
-    let maximum = u32::from(health.maximum()) / scale;
+    let maximum = u32::from(health.maximum()).div_ceil(scale);
     let absorption = runtime
         .hud()
         .absorption()
         .map(|stat| u32::from(stat.current()).div_ceil(u32::from(stat.scale()).max(1)))
         .unwrap_or(0);
     let health_hearts = maximum.div_ceil(2).min(u32::from(MAX_HEART_ROWS) * 10);
-    let total = (health_hearts + absorption.div_ceil(2).min(20)).max(1);
+    let total = (health_hearts + absorption.div_ceil(2)).max(1);
     let rows = total.div_ceil(10).max(1);
-    let pitch = (10 - rows.saturating_sub(2)).max(3) as f32;
+    let pitch = 10.0;
     Some(HeartRows {
         current,
         absorption,
@@ -144,6 +153,11 @@ fn hearts(
     let tick = now_tick.unwrap_or(frame.now_millis / 50);
     let regenerating = runtime.gameplay_hud().regeneration_active(now_tick);
     let hardcore = runtime.gameplay_hud().hardcore();
+    let background = if flash == Some(true) {
+        "textures/ui/heart_blink"
+    } else {
+        path(HudTextureRole::HeartBackground)
+    };
     let mut cells = Vec::new();
     for index in 0..rows.total {
         let lift = heart_lift(
@@ -157,7 +171,7 @@ fn hearts(
             (index % 10) as f32 * 8.0,
             -((index / 10) as f32) * rows.pitch - lift,
         ];
-        cells.push(Cell::icon(at, path(HudTextureRole::HeartBackground)));
+        cells.push(Cell::icon(at, background));
         let foreground = if index < rows.health_hearts {
             heart_role(variant, flash, rows.current.saturating_sub(index * 2))
         } else {
@@ -166,7 +180,9 @@ fn hearts(
                 .saturating_sub((index - rows.health_hearts) * 2)
             {
                 0 => None,
+                1 if variant == HeartVariant::Withered => Some(HudTextureRole::WitherHeartHalf),
                 1 => Some(HudTextureRole::AbsorptionHeartHalf),
+                _ if variant == HeartVariant::Withered => Some(HudTextureRole::WitherHeartFull),
                 _ => Some(HudTextureRole::AbsorptionHeartFull),
             }
         };
@@ -330,3 +346,6 @@ fn effects(runtime: &UiRuntime, now_tick: Option<u64>) -> Vec<Cell> {
     }
     cells
 }
+
+#[cfg(test)]
+mod absorption_tests;
