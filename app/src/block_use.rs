@@ -85,11 +85,15 @@ pub(crate) fn produce_block_use(
             && input.input_mode != semantic_input::InputMode::Touch
             && movement.accepts_block_interactions()
     }) else {
+        runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);
         return;
     };
     let use_phase = context.input.phase(Action::Use);
     let attacking = context.input.phase(Action::Attack).held;
+    if attacking {
+        runtime.clear_press();
+    }
     if (runtime.stopping()
         || (runtime.last_success_destination().is_some()
             && (attacking || use_phase.pressed || !use_phase.held)))
@@ -105,6 +109,7 @@ pub(crate) fn produce_block_use(
         return;
     };
     let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
+        runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);
         return;
     };

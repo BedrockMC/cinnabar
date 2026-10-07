@@ -69,6 +69,34 @@ mod tests {
     }
 
     #[test]
+    fn blocked_input_cancels_a_deferred_press_without_discarding_its_refused_stop() {
+        let mut runtime = BlockUseRuntime::default();
+        runtime.intention.record(
+            false,
+            [0, 63, 1],
+            LocalUse::Place,
+            true,
+            false,
+            [0.5, 64.0, 0.5],
+        );
+        assert_eq!(runtime.stop_packets(42, true).len(), 1);
+        assert!(!runtime.admit_stop(false));
+        runtime.clear_press();
+        assert!(runtime.stopping());
+        assert_eq!(runtime.last_success_destination(), Some([0, 63, 1]));
+        assert_eq!(runtime.stop_packets(42, false).len(), 1);
+        assert!(runtime.admit_stop(true));
+        assert!(!runtime.observe_use(false, false, false));
+        let clock = RepeatClock {
+            now_millis: 1_000,
+            sneaking: false,
+            speed: 0.0,
+            survival: true,
+        };
+        assert_eq!(runtime.due(false, 1, clock), None);
+    }
+
+    #[test]
     fn position_corrections_preserve_active_holds_and_refused_stops() {
         for refused in [false, true] {
             let mut runtime = BlockUseRuntime::default();
