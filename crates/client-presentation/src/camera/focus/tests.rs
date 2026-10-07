@@ -47,3 +47,31 @@ fn programmatic_screen_close_after_focus_return_does_not_rearm_capture() {
     assert!(!focus.allow_capture(false, false));
     assert!(focus.allow_capture(false, true));
 }
+
+#[test]
+fn delayed_screen_return_retains_explicit_dismissal_until_transport_finishes() {
+    let mut focus = CursorFocus::default();
+    focus.begin_frame(false);
+    assert!(!focus.allow_capture(true, false));
+    focus.begin_frame(true);
+    focus.record_activation(true);
+    focus.authorize_screen_return();
+    assert!(focus.allow_capture(true, false));
+    focus.begin_frame(true);
+    assert!(focus.allow_capture(false, false));
+    focus.begin_frame(false);
+    focus.begin_frame(true);
+    assert!(!focus.allow_capture(false, false));
+}
+
+#[test]
+fn programmatic_screen_return_cannot_authorize_delayed_capture() {
+    let mut focus = CursorFocus::default();
+    focus.begin_frame(false);
+    assert!(!focus.allow_capture(true, false));
+    focus.begin_frame(true);
+    focus.authorize_screen_return();
+    assert!(!focus.allow_capture(true, false));
+    focus.begin_frame(true);
+    assert!(!focus.allow_capture(false, false));
+}

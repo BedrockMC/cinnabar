@@ -59,6 +59,13 @@ impl CursorFocus {
         self.activated = self.available() && activated;
     }
 
+    /// Retains an explicit screen dismissal while its response still owns input.
+    pub fn authorize_screen_return(&mut self) {
+        if self.available() && self.activated {
+            self.waiting_for_return = false;
+        }
+    }
+
     /// Permits capture after a focused click or an explicit return from a screen.
     pub fn allow_capture(&mut self, ui_owned_input: bool, clicked: bool) -> bool {
         if self.available()
