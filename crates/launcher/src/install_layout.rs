@@ -213,6 +213,18 @@ impl InstallLayout {
         self.resource_root.join("assets/skin/player.png")
     }
 
+    pub fn dressing_room_dir(&self) -> PathBuf {
+        self.user_data_root.join("skins")
+    }
+
+    pub fn dressing_room_capes_dir(&self) -> PathBuf {
+        self.dressing_room_dir().join("capes")
+    }
+
+    pub fn skin_selection_file(&self) -> PathBuf {
+        self.user_config_root.join("skin-selection.json")
+    }
+
     #[must_use]
     pub fn auth_cache(&self) -> PathBuf {
         self.user_data_root.join("auth/microsoft-token.json")
