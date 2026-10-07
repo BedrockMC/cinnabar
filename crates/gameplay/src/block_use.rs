@@ -343,24 +343,16 @@ impl BlockUseRuntime {
         admitted
     }
 
-    /// Position corrections reset targeting; admitted inventory changes survive within the session.
+    /// Position corrections revoke pending presses while retaining admitted holds and inventory.
     pub fn synchronize(&mut self, authority: (u64, u64)) {
-        if self
-            .position_authority
-            .is_some_and(|previous| previous != authority)
+        if let Some(previous) = self.position_authority
+            && previous != authority
         {
-            let inventory = if self
-                .position_authority
-                .is_some_and(|previous| previous.0 == authority.0)
-            {
-                std::mem::take(&mut self.inventory)
+            if previous.0 == authority.0 {
+                self.latched_press = false;
             } else {
-                HeldPlacementInventory::default()
-            };
-            *self = Self {
-                inventory,
-                ..Self::default()
-            };
+                *self = Self::default();
+            }
         }
         self.position_authority = Some(authority);
     }
