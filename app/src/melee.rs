@@ -155,7 +155,12 @@ pub(crate) fn produce_melee(
     };
     runtime.observe_crosshair(crosshair);
     // Fresh block presses wait for a tick committed in this frame.
-    let sample = runtime.press_sample(crosshair, &movement, context.effects.recent_tick_count());
+    let sample = runtime.press_sample(
+        crosshair,
+        &movement,
+        context.effects.recent_tick_count(),
+        input.frame_sequence,
+    );
     let Some(sample) = sample else {
         return;
     };

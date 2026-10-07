@@ -16,7 +16,7 @@ fn reject_block_press(
     );
     runtime.observe_input(true, true);
     let sample = runtime
-        .press_sample(Crosshair::Block, movement, recent_ticks)
+        .press_sample(Crosshair::Block, movement, recent_ticks, 1)
         .unwrap();
     let press = PressContext {
         tick: sample.tick,
@@ -42,7 +42,7 @@ fn a_rejected_block_press_recovers_without_another_physics_tick() {
     let press = reject_block_press(&mut runtime, &mut swings, &movement, 1);
     swings.published_progress(movement.completed_tick());
     let sample = runtime
-        .press_sample(Crosshair::Block, &movement, 0)
+        .press_sample(Crosshair::Block, &movement, 0, 2)
         .expect("an owned rejected swing keeps its retained unsent tick");
     assert_eq!(sample.tick, press.tick);
     assert_eq!(sample.position, press.player_position);
@@ -78,21 +78,21 @@ fn block_retry_selection_preserves_current_frame_priority_and_exact_tick() {
     assert_eq!(press.tick, 101);
     assert_eq!(
         runtime
-            .press_sample(Crosshair::Block, &movement, 0)
+            .press_sample(Crosshair::Block, &movement, 0, 2)
             .unwrap()
             .tick,
         press.tick
     );
     assert_eq!(
         runtime
-            .press_sample(Crosshair::Block, &movement, 1)
+            .press_sample(Crosshair::Block, &movement, 1, 2)
             .unwrap()
             .tick,
         103
     );
     assert_eq!(
         runtime
-            .press_sample(Crosshair::Miss, &movement, 0)
+            .press_sample(Crosshair::Miss, &movement, 0, 2)
             .unwrap()
             .tick,
         103
@@ -112,7 +112,7 @@ fn fresh_block_selection_cannot_borrow_another_owners_retry() {
     swings.published_progress(101);
     assert!(
         runtime
-            .press_sample(Crosshair::Block, &movement, 0)
+            .press_sample(Crosshair::Block, &movement, 0, 2)
             .is_none()
     );
 }
@@ -132,7 +132,7 @@ fn a_block_retry_revokes_selection_after_cancel_authority_change_or_expiry() {
         }
         assert!(
             runtime
-                .press_sample(Crosshair::Block, &movement, 0)
+                .press_sample(Crosshair::Block, &movement, 0, 2)
                 .is_none()
         );
     }
@@ -155,7 +155,109 @@ fn a_block_retry_does_not_select_a_different_retained_tick_after_its_tick_drains
     assert!(movement.unsent_sample_at(101).is_none());
     assert!(
         runtime
-            .press_sample(Crosshair::Block, &movement, 0)
+            .press_sample(Crosshair::Block, &movement, 0, 2)
+            .is_none()
+    );
+}
+
+#[test]
+fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
+    let mut movement = ticker_with_ticks(1);
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    swings.published_progress(movement.completed_tick());
+    runtime.synchronize(movement.interaction_authority_identity());
+    runtime.observe_input(true, false);
+    for frame in [1, 2 + MAX_PENDING_INTERACTION_FRAMES] {
+        assert!(
+            runtime
+                .press_sample(Crosshair::Block, &movement, 0, frame)
+                .is_none()
+        );
+    }
+    assert!(
+        !runtime.observe_input(false, false),
+        "a released press must expire during a physics stall"
+    );
+    movement
+        .enqueue_completed_physics(crate::test_support::survival_mining::completed(102))
+        .unwrap();
+    let sample = runtime
+        .press_sample(
+            Crosshair::Block,
+            &movement,
+            1,
+            3 + MAX_PENDING_INTERACTION_FRAMES,
+        )
+        .unwrap();
+    let press = PressContext {
+        tick: sample.tick,
+        player_position: sample.position,
+        input_mode: PlayerInputMode::Mouse,
+        local_runtime_id: 1,
+        selection: None,
+        swing_duration: client_world::ACTOR_SWING_TICKS,
+        now_millis: 1,
+    };
+    assert!(
+        runtime
+            .resolve(Crosshair::Block, &press, &mut swings)
+            .packets
+            .is_empty(),
+        "resumed simulation must not fire stale input"
+    );
+    assert_eq!(swings.take_started(), None);
+}
+
+#[test]
+fn a_quick_released_block_press_waits_through_a_short_physics_stall() {
+    let movement = ticker_with_ticks(1);
+    let mut runtime = MeleeRuntime::default();
+    runtime.synchronize(movement.interaction_authority_identity());
+    runtime.observe_input(true, false);
+    for frame in [1, 1 + MAX_PENDING_INTERACTION_FRAMES] {
+        assert!(
+            runtime
+                .press_sample(Crosshair::Block, &movement, 0, frame)
+                .is_none()
+        );
+        assert!(
+            runtime.observe_input(false, false),
+            "release must retain a recent quick click"
+        );
+    }
+}
+
+#[test]
+fn an_owned_block_retry_expires_after_repeated_full_admissions() {
+    let movement = ticker_with_ticks(1);
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let press = reject_block_press(&mut runtime, &mut swings, &movement, 1);
+    swings.published_progress(movement.completed_tick());
+    for frame in 2..=2 + MAX_PENDING_INTERACTION_FRAMES {
+        let sample = runtime
+            .press_sample(Crosshair::Block, &movement, 0, frame)
+            .unwrap();
+        assert_eq!(sample.tick, press.tick);
+        resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            Crosshair::Block,
+            &press,
+            frame,
+            |_| Err(BatchSendError::Full),
+        );
+    }
+    assert!(!runtime.observe_input(false, false));
+    assert!(
+        runtime
+            .press_sample(
+                Crosshair::Block,
+                &movement,
+                0,
+                3 + MAX_PENDING_INTERACTION_FRAMES
+            )
             .is_none()
     );
 }
