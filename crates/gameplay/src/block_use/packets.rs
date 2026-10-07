@@ -5,7 +5,7 @@ use protocol::PredictedSlotChange;
 /// Keeps local count changes until the server restates the selected slot.
 #[derive(Debug, Default)]
 pub struct HeldPlacementInventory {
-    predicted: Option<PlacementStack>,
+    slots: [Option<PlacementStack>; protocol::HOTBAR_SLOT_COUNT as usize],
 }
 
 #[derive(Debug)]
@@ -25,7 +25,9 @@ impl HeldPlacementInventory {
         if let Some(selection) = self.predicted_selection(server, revision) {
             return selection;
         }
-        self.predicted = None;
+        if let Some(slot) = self.slots.get_mut(usize::from(server.slot)) {
+            *slot = None;
+        }
         server.clone()
     }
 
@@ -35,7 +37,7 @@ impl HeldPlacementInventory {
         server: &FrozenMiningSelection,
         revision: u64,
     ) -> Option<FrozenMiningSelection> {
-        let predicted = self.predicted.as_ref()?;
+        let predicted = self.slots.get(usize::from(server.slot))?.as_ref()?;
         (predicted.server == *server && predicted.revision == revision).then(|| {
             FrozenMiningSelection {
                 slot: server.slot,
@@ -64,11 +66,13 @@ impl HeldPlacementInventory {
         revision: u64,
         change: PredictedSlotChange,
     ) {
-        self.predicted = Some(PlacementStack {
-            server,
-            revision,
-            item: change.to,
-        });
+        if let Some(slot) = self.slots.get_mut(usize::from(server.slot)) {
+            *slot = Some(PlacementStack {
+                server,
+                revision,
+                item: change.to,
+            });
+        }
     }
 }
 
@@ -107,6 +111,31 @@ mod tests {
         inventory.commit(server.clone(), 1, change);
         assert_eq!(inventory.selection(&server, 1).item.count(), 1);
         assert_eq!(inventory.selection(&server, 2).item.count(), 3);
+    }
+
+    #[test]
+    fn reselecting_slots_preserves_each_admitted_prediction_until_its_server_write() {
+        let first = selected(3);
+        let mut second = selected(5);
+        second.slot = first.slot + 1;
+        let mut inventory = HeldPlacementInventory::default();
+        let change = inventory.prepare_change(&first, -4);
+        let expected_first = change.to.clone();
+        inventory.commit(first.clone(), 1, change);
+        let selected_second = inventory.selection(&second, 1);
+        let change = inventory.prepare_change(&selected_second, -6);
+        let expected_second = change.to.clone();
+        inventory.commit(second.clone(), 1, change);
+        assert_eq!(inventory.selection(&first, 1).item, expected_first);
+        assert_eq!(inventory.selection(&second, 1).item, expected_second);
+        assert_eq!(inventory.selection(&first, 2).item, first.item);
+        assert_eq!(inventory.selection(&second, 1).item, expected_second);
+        let mut invalid = first.clone();
+        invalid.slot = protocol::HOTBAR_SLOT_COUNT;
+        assert_eq!(inventory.selection(&invalid, 1), invalid);
+        let ignored = inventory.prepare_change(&invalid, -8);
+        inventory.commit(invalid, 1, ignored);
+        assert_eq!(inventory.selection(&second, 1).item, expected_second);
     }
 
     #[test]
