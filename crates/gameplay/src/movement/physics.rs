@@ -15,9 +15,11 @@ mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
 mod fixed_ticks;
+mod motion_ticks;
 mod timeline;
 mod visual_correction;
 
+pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
 
 use super::anchor_probe::BeforeTick;
@@ -230,6 +232,7 @@ pub struct LocalPhysicsController {
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
+    motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     history_capacity: usize,
@@ -266,6 +269,7 @@ impl Default for LocalPhysicsController {
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
             server_motions: VecDeque::new(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
@@ -315,6 +319,7 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.motion_ticks.clear();
         self.server_motions.clear();
         self.server_control_flags = None;
         self.modes.reset();
@@ -368,6 +373,7 @@ impl LocalPhysicsController {
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
+        self.motion_ticks.clear();
         self.server_motions.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -683,6 +689,15 @@ impl LocalPhysicsController {
                             .expect("completed tick appended a movement sample")
                             .clone(),
                     );
+                    motion_ticks::retain(
+                        &mut self.motion_ticks,
+                        self.sample_history
+                            .back()
+                            .expect("completed sample retained"),
+                        self.controller_history
+                            .back()
+                            .expect("completed controller retained"),
+                    );
                     self.jump_edge_pending = false;
                     self.fly_toggle_pending = false;
                     input.jump_pressed = false;
@@ -782,35 +797,6 @@ impl LocalPhysicsController {
         self.sample_history
             .iter()
             .find(|sample| sample.tick == tick)
-    }
-
-    /// Visits completed ticks with pre-travel velocity and liquid contact.
-    /// An absent cursor visits only the latest tick to prime a new observer.
-    pub fn visit_completed_ticks(
-        &self,
-        after: Option<u64>,
-        visit: &mut dyn FnMut(&PhysicsMovementSample, &sim::MovementEnvironment, [f32; 3]),
-    ) {
-        let after = after.or_else(|| {
-            self.sample_history
-                .back()
-                .map(|sample| sample.tick.saturating_sub(1))
-        });
-        let mut samples = self.sample_history.iter().peekable();
-        for frame in &self.controller_history {
-            if after.is_some_and(|tick| frame.tick <= tick) {
-                continue;
-            }
-            while samples
-                .peek()
-                .is_some_and(|sample| sample.tick < frame.tick)
-            {
-                samples.next();
-            }
-            if let Some(sample) = samples.peek().filter(|sample| sample.tick == frame.tick) {
-                visit(sample, &frame.environment, frame.entry_velocity);
-            }
-        }
     }
 
     #[must_use]

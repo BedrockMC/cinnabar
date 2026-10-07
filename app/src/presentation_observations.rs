@@ -45,7 +45,7 @@ impl PhysicsObservation for crate::movement::LocalPhysicsController {
                     entry_velocity,
                     movement: sample.movement,
                     on_ground: sample.grounded_after_tick,
-                    sneaking: sample.processed.sneaking,
+                    sneaking: sample.sneaking,
                     in_water: environment.in_water,
                 },
             );
