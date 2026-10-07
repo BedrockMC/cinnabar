@@ -188,6 +188,25 @@ pub(super) fn evaluate(
         .collect()
 }
 
+/// Bounds the additional persona composition before sampling a body's frame pose.
+pub(super) fn sample(
+    state: &ActorRigState,
+    evaluator: &Evaluator<'_>,
+    variables: &MolangVariables,
+    local: &[LocalDelta],
+    render: Option<&[RenderTextureLayer]>,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Vec<SkinRenderLayer>, EvalError> {
+    let work = state.skin_skeleton().map_or(0, |skin| {
+        skin.layers.iter().map(|layer| layer.bones.len()).sum()
+    });
+    if work > budget.work_left {
+        return Err(EvalError::ActorBudget);
+    }
+    budget.work_left -= work;
+    Ok(evaluate(state, evaluator, variables, local, render))
+}
+
 /// Advances endpoints only on a tick, keeping view refreshes and replaced models separate.
 pub(super) fn carry(
     previous: &[SkinRenderLayer],

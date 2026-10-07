@@ -290,6 +290,17 @@ pub fn prepare_actor_render_frame(
         });
     // Registered together below: each registration rebuilds and re-uploads the whole catalog.
     let mut new_geometries = Vec::new();
+    let local_emote_pose = (!first_person)
+        .then(|| {
+            let stream = client_world.stream.as_ref()?;
+            let rig = stream
+                .authority()
+                .actor_rig(stream.local_player_runtime_id())?;
+            let (emote, elapsed) = input.custom_emote?;
+            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
+        })
+        .flatten();
+    let mut native_body_sampled = false;
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -336,6 +347,7 @@ pub fn prepare_actor_render_frame(
                             poses,
                         )
                         .map(|mut presentation| {
+                            let java_applied = java_pose.is_some();
                             if let Some(java_pose) = java_pose {
                                 java::apply_pose(
                                     &mut presentation,
@@ -346,15 +358,15 @@ pub fn prepare_actor_render_frame(
                                 );
                                 java_posed.push(java_pose.posed);
                             }
-                            if local && !java_mode && !first_person {
-                                java_hand.native_pose.apply_presentation(
+                            if local && !first_person && !java_applied && local_emote_pose.is_none()
+                            {
+                                java_hand.native_pose.apply_body(
                                     stream,
                                     &mut presentation,
-                                    None,
-                                    None,
                                     step.partial_tick,
                                     *captured_sampling_camera,
                                 );
+                                native_body_sampled = true;
                             }
                             preparation::register_player_skin(
                                 &mut presentation,
@@ -443,14 +455,6 @@ pub fn prepare_actor_render_frame(
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.finish_hand_readiness(reused_hand);
     }
-    let local_emote_pose = (!first_person)
-        .then(|| {
-            let stream = client_world.stream.as_ref()?;
-            let rig = stream.authority().actor_rig(local_runtime_id)?;
-            let (emote, elapsed) = input.custom_emote?;
-            client_world::sample_custom_emote(&rig, emote, elapsed, elapsed)
-        })
-        .flatten();
     let visibility_snapshot = local_visibility.snapshot().copied();
     let (local_visible, local) = visibility_snapshot.map_or((false, None), |visibility| {
         if visibility.runtime_id() != local_runtime_id {
@@ -632,7 +636,15 @@ pub fn prepare_actor_render_frame(
                     .flatten();
                 let java_layers =
                     java::posed(&java_posed, runtime_id).map(|posed| posed.skin_layers.as_slice());
-                Some(emote_geometry::skin_layer_snapshot(rig, emote, java_layers))
+                let native_layers = (runtime_id == local_runtime_id && native_body_sampled)
+                    .then(|| java_hand.native_pose.skin_layers())
+                    .flatten();
+                Some(emote_geometry::skin_layer_snapshot(
+                    rig,
+                    emote,
+                    java_layers,
+                    native_layers,
+                ))
             },
             skin_rigs,
             |geometry| new_geometries.push(geometry),

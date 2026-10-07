@@ -6,6 +6,12 @@ pub(super) mod camera;
 mod clips;
 pub(super) mod sampling;
 
+/// Completed slices stay borrowed; sampled layers own only their frame's changed pose data.
+pub struct ActorRenderLayers<'a> {
+    pub render: Cow<'a, [RenderTextureLayer]>,
+    pub skin: Cow<'a, [SkinRenderLayer]>,
+}
+
 /// A bounded render-layer evaluation frame, borrowing tick-owned actor and rig state.
 pub struct ActorRenderFrame<'a> {
     store: &'a crate::actor_store::ActorStore,
@@ -30,7 +36,14 @@ impl<'a> ActorRenderFrame<'a> {
     /// Unsupported or exhausted evaluations retain the completed tick's layers.
     pub fn layers(&mut self, runtime_id: u64) -> Option<Cow<'a, [RenderTextureLayer]>> {
         self.store
-            .render_layers(runtime_id, self.alpha, &mut self.remaining_ops)
+            .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, false)
+            .map(|layers| layers.render)
+    }
+
+    /// Samples the native body and its persona skeletons once under the same frame budget.
+    pub fn layers_with_skin(&mut self, runtime_id: u64) -> Option<ActorRenderLayers<'a>> {
+        self.store
+            .render_layers(runtime_id, self.alpha, &mut self.remaining_ops, true)
     }
 }
 
@@ -51,13 +64,17 @@ impl ActorAnimationStore {
         camera_rotation: [f32; 2],
         camera_position: [f32; 3],
         remaining_ops: &mut usize,
-    ) -> Option<Cow<'_, [RenderTextureLayer]>> {
+        sample_skin: bool,
+    ) -> Option<ActorRenderLayers<'_>> {
         let lifetime = self.runtime_to_lifetime.get(&actor.runtime_id)?;
         let state = self.rigs.get(lifetime)?;
         if lifetime.spawn_revision != actor.spawn_revision {
             return None;
         }
-        let completed = || Cow::Borrowed(state.render.as_slice());
+        let completed = || ActorRenderLayers {
+            render: Cow::Borrowed(state.render.as_slice()),
+            skin: Cow::Borrowed(state.skin_layers.as_slice()),
+        };
         let Some(frame) = state.render_frame.as_ref().filter(|_| {
             (partial_tick > 0.0 || state.samples_camera_poses || state.samples_swing_poses)
                 && *remaining_ops > 0
@@ -132,18 +149,25 @@ impl ActorAnimationStore {
             None
         };
         let clips = sampled_clips.as_deref().unwrap_or(&frame.clips);
-        let pose = if (state.samples_camera_poses && pose_inputs_changed) || swing_changed {
+        let sampled_local = if (state.samples_camera_poses && pose_inputs_changed) || swing_changed
+        {
             let Ok(local) =
                 pose::sample_clips(&evaluator, &mut variables, &state.bones, clips, &mut budget)
             else {
                 return Some(completed());
             };
-            let Some(pose) = state.compose(&local) else {
-                return Some(completed());
-            };
-            Some(Arc::<[BoneTransform]>::from(pose))
+            Some(local)
         } else {
             None
+        };
+        let pose = match &sampled_local {
+            Some(local) => {
+                let Some(pose) = state.compose(local) else {
+                    return Some(completed());
+                };
+                Some(Arc::<[BoneTransform]>::from(pose))
+            }
+            None => None,
         };
         let geometry = assets
             .rig_geometries()
@@ -211,7 +235,26 @@ impl ActorAnimationStore {
                 layer.hidden_bones = Arc::clone(&previous.hidden_bones);
             }
         }
-        Some(Cow::Owned(layers))
+        let skin = match sampled_local.as_deref().filter(|_| sample_skin) {
+            Some(local) if !state.skin_layers.is_empty() => {
+                let Ok(skin) = skin_layers::sample(
+                    state,
+                    &evaluator,
+                    &variables,
+                    local,
+                    Some(&layers),
+                    &mut budget,
+                ) else {
+                    return Some(completed());
+                };
+                Cow::Owned(skin)
+            }
+            _ => Cow::Borrowed(state.skin_layers.as_slice()),
+        };
+        Some(ActorRenderLayers {
+            render: Cow::Owned(layers),
+            skin,
+        })
     }
 }
 

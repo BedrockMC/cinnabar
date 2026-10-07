@@ -805,7 +805,7 @@ pub use particles::ActorParticleController;
 mod query;
 mod render;
 mod render_frame;
-pub use render_frame::ActorRenderFrame;
+pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
 mod replay;
 mod schedule;
 mod skin;

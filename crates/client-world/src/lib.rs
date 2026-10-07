@@ -19,9 +19,9 @@ pub use action::{
 pub use actor_animation::{
     ACTOR_SWING_TICKS, ACTOR_TICK_DURATION, ActorAnimationStats, ActorAnimationVariables,
     ActorAnimationView, ActorLifetimeId, ActorParticleController, ActorRenderFrame,
-    ActorRigSnapshot, AttachableAnimationInput, AttachableRigSnapshot, AttachablesRuntime,
-    BoneTransform, EntityRigId, HandPhase, ItemAnimationState, JavaHeldItem, JavaMotion,
-    LocalSwingMotionSample, LocalSwingProgress, MAX_ACTOR_ACTION_HISTORY,
+    ActorRenderLayers, ActorRigSnapshot, AttachableAnimationInput, AttachableRigSnapshot,
+    AttachablesRuntime, BoneTransform, EntityRigId, HandPhase, ItemAnimationState, JavaHeldItem,
+    JavaMotion, LocalSwingMotionSample, LocalSwingProgress, MAX_ACTOR_ACTION_HISTORY,
     MAX_CONTROLLER_TRANSITIONS_PER_TICK, MAX_MOLANG_OPS_PER_ACTOR_TICK,
     MAX_MOLANG_OPS_PER_RENDER_FRAME, MAX_MOLANG_OPS_PER_WORLD_TICK, MAX_RUNTIME_BONES_PER_RIG,
     MODEL_PART_ORIGIN_Y, RenderTextureLayer, SkinRenderLayer, java_mounted_body_yaw,

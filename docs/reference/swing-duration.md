@@ -23,7 +23,7 @@ A fresh action waits when the retained unsent tick has already been published. O
 
 A pressed block swing uses the first eligible tick committed in the current frame. Its own refused batch can retry that exact retained tick when it is still the latest published tick. Older attempts wait for a fresh eligible tick within the pending-input deadline. Held mining then continues through the remaining committed ticks in order; the same first-tick attempt is admitted only once.
 
-Authored attack weights, pre-animation variables, arm channels and held-item channels read the same sampled local swing progress. Frame sampling leaves completed animation state and clip clocks unchanged.
+Authored attack weights, pre-animation variables, arm channels and held-item channels read the same sampled local swing progress. Frame sampling leaves completed animation state and clip clocks unchanged. Native third-person bodies, held parents and animated persona layers share the physics swing sample, including native posture fallbacks selected under Java mode. Successful custom emotes consume their own sampled pose instead.
 
 Native player and held-item animation sample the interpolated attack progress. First-person attack weights remain active while the final wrap has nonzero progress; frame sampling preserves committed controller state and clip clocks.
 
