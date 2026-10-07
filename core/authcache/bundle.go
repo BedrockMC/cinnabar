@@ -190,6 +190,11 @@ func (s *Account) publishOnce(ctx context.Context) (retry bool) {
 		return false
 	}
 	defer lease.Close()
+	signIn, ok := s.holdSignIn(ctx)
+	if !ok {
+		return false
+	}
+	defer signIn.Close()
 	if err := s.lock(ctx); err != nil {
 		return false
 	}
@@ -211,6 +216,26 @@ func (s *Account) publishOnce(ctx context.Context) (retry bool) {
 	}
 	s.persistLocked(snapshot)
 	return false
+}
+
+// holdSignIn takes the Microsoft cache lease, after the derived one as Remove does, and reports whether
+// this account's sign-in still owns it: a sign-out or a new sign-in since must never get this bundle back.
+func (s *Account) holdSignIn(ctx context.Context) (io.Closer, bool) {
+	source, ok := s.oauth.(*persistingSource)
+	if !ok {
+		return io.NopCloser(nil), true
+	}
+	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	lease, err := lockfile.AcquireContext(wait, source.path+cacheLockSuffix)
+	if err != nil {
+		return nil, false
+	}
+	if cached, err := load(source.path); err != nil || cached.Generation != source.generation {
+		_ = lease.Close()
+		return nil, false
+	}
+	return lease, true
 }
 
 // ensureDeviceToken fills a device token a reset cleared, since a bundle is never written without one.
