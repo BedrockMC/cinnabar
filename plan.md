@@ -53,6 +53,8 @@
   were inspected. Mouse Cancel, Escape and keyboard Cancel work; focus remains inside the modal.
   The final build also verifies restored native Play/settings/status icons, server symbols and the
   latest merged input. User language, appearance and section preferences were preserved.
+- The final integrated rebuild repeats the native language/Home/Quit review with readable Japanese,
+  Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
 
 ## Held block placement
 

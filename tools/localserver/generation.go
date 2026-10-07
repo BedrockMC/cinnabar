@@ -13,7 +13,8 @@ type worldGenerators map[world.Dimension]vanilla.Generator
 
 func (s settings) configureGenerators(conf *server.Config) (worldGenerators, error) {
 	generators := make(worldGenerators)
-	if s.generator != "normal" || s.terrainFixture {
+	fixture := s.terrainFixture || s.opaqueOverdraw
+	if s.generator != "normal" || fixture {
 		return generators, nil
 	}
 	for _, dim := range []world.Dimension{world.Overworld, world.Nether, world.End} {

@@ -1,5 +1,5 @@
 // Command bedrock-local-server hosts saved Dragonfly worlds with flat or natural terrain,
-// or an opt-in synthetic terrain fixture.
+// or opt-in synthetic terrain and opaque-overdraw fixtures.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
 // it. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
@@ -109,6 +109,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 	}
 	cfg.configureTerrainFixture(&conf)
+	cfg.configureOpaqueOverdraw(&conf)
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
