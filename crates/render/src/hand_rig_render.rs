@@ -431,6 +431,12 @@ fn upload_uniforms(
 ) {
     let projection = projection.to_cols_array();
     if gpu.uniforms.as_ref().is_none_or(|old| old.0 != projection) {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "hand.projection_write",
+            bytes = std::mem::size_of_val(&projection)
+        )
+        .entered();
         queue.write_buffer(&gpu.view_uniform, 0, bytemuck::cast_slice(&projection));
         #[cfg(test)]
         {
@@ -438,6 +444,10 @@ fn upload_uniforms(
         }
     }
     if gpu.uniforms.as_ref().is_none_or(|old| old.1 != light) {
+        #[cfg(feature = "tracy")]
+        let _span =
+            bevy::log::info_span!("hand.light_write", bytes = std::mem::size_of_val(&light))
+                .entered();
         queue.write_buffer(&gpu.light_uniform, 0, bytemuck::bytes_of(&light));
         #[cfg(test)]
         {
@@ -509,6 +519,14 @@ fn upload_pose(
             bytemuck::cast_slice::<_, u8>(&frame.rig.current_bones),
         ),
     ] {
+        #[cfg(feature = "tracy")]
+        let _span = bevy::log::info_span!(
+            "hand.pose_upload",
+            label,
+            revision = frame.revision,
+            bytes = bytes.len()
+        )
+        .entered();
         match slot {
             Some(buffer) if buffer.size() == bytes.len() as u64 => {
                 queue.write_buffer(buffer, 0, bytes);

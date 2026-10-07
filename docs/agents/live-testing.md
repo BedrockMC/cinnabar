@@ -94,6 +94,47 @@ hardware gets lower resolution or view distance, never permission to stutter.
   from the window's current monitor, or a slower frame cap. Text is rate-limited; every event is
   counted, marked in the frame trace and totalled as `slow_frames` in `RUST_MCBE_STAGE_PROFILE`.
 
+## Tracy frame attribution
+
+Tracy is the standard interactive frame/stall trace. `make play TRACY=1` enables
+it; agents instead build with `--features developer-control,tracy` through `cslot`
+and launch through the MCP with `headless: true`, connecting with `local_server`.
+Keep INFO spans enabled. The feature is off by default; its subscriber, zones and
+GPU plots are absent from ordinary builds. Domain crates remain Bevy-free.
+Zone names stay fixed; changing counters and job IDs appear as zone text to avoid
+exhausting the collector’s source-location table.
+
+Install the capture tools with `brew install tracy` if missing. Match their Tracy
+protocol to `tracy-client-sys` in `Cargo.lock` (the recorded tool release is in the
+[evidence](../evidence/frame-breakdown-tracy.md)). With the hidden local scene settled:
+
+```sh
+tracy-capture -a 127.0.0.1 -o /private/tmp/cinnabar-frames.tracy -s 120
+tracy-csvexport -u /private/tmp/cinnabar-frames.tracy > /private/tmp/cinnabar-zones.csv
+```
+
+Keep captures and exports outside git. The client accepts only loopback capture
+connections and records on demand; source transfer, broadcast, sampling and
+system tracing are disabled.
+Never collect or export process environments. Export zones/plots, not metadata.
+
+The frame bar marks post-present intervals; completion submissions and cleanup may
+follow each marker. Select a long interval, then expand the main/render threads and
+nested schedules, systems and graph nodes (their identities are in zone text).
+Inspect `stream.*`, `light.*`, `mesh.*`,
+`*.upload*`, `*.device_poll`, readback and completion zones, plus Bevy's
+`prepare_windows`, `submit_graph_commands` and `present_frames`. Worker-wait and
+queue-lock zones identify explicit waits; a long upload/poll is elapsed API time,
+not proof of active CPU work. macOS Tracy has no scheduler trace; use separately
+correlated native scheduler evidence before assigning preemption or lock owners.
+
+The pinned Bevy `trace_tracy` bundles a GPU recorder whose calibration uses encoder
+timestamps and waits for completion. Metal does not support that path. Our feature
+uses Bevy `trace`/`debug` and the same Tracy layer without that recorder. Existing
+Metal pass queries appear as delayed `elapsed ms (readback)` plots, not GPU timeline
+zones; they overlap and cannot be added or matched to the receipt frame. Clock
+anchor zones bound the sampled wall/game-clock relationship for trace comparison.
+
 ## Native and performance evidence
 
 Use native Bedrock/BDS comparison when it decides a contract or closes an explicit

@@ -42,7 +42,23 @@ pub(crate) fn trace_frame_focus(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut events: MessageReader<WindowOccluded>,
     mut occluded: Local<bool>,
+    #[cfg(feature = "tracy")] mut anchor: Local<Option<Instant>>,
 ) {
+    #[cfg(feature = "tracy")]
+    if anchor.is_none_or(|last| last.elapsed() >= Duration::from_secs(1)) {
+        *anchor = Some(Instant::now());
+        let _window = bevy::log::info_span!("profile.clock_window").entered();
+        let unix_ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        let _zone = bevy::log::info_span!(
+            "profile.clock_anchor",
+            unix_ns,
+            game_seconds = time.elapsed_secs_f64()
+        )
+        .entered();
+    }
     for event in events.read() {
         *occluded = event.occluded;
     }
