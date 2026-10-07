@@ -86,6 +86,7 @@ type Account struct {
 	oauth           oauth2.TokenSource
 	binding         string
 	resets          uint64 // counts resetLocked, so a derivation can tell its own OAuth rotation from a replaced account state
+	serviceGen      uint64 // counts service-token changes an in-flight exchange must not overwrite
 	client          string
 	device          xasd.TokenSource
 	deviceToken     *xasd.Token
@@ -445,7 +446,7 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 		if err := s.lock(ctx); err != nil {
 			return nil, err
 		}
-		source, seed, resets := s.services, s.service, s.resets
+		source, seed, resets, gen := s.services, s.service, s.resets, s.serviceGen
 		if s.environment != env {
 			s.unlock()
 			continue
@@ -468,7 +469,7 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 		if err := s.lock(ctx); err != nil {
 			return nil, err
 		}
-		if s.resets != resets || s.environment != env || s.rejectedServiceLocked(token) {
+		if s.resets != resets || s.serviceGen != gen || s.environment != env || s.rejectedServiceLocked(token) {
 			s.unlock() // superseded or refused meanwhile: derive against the current state
 			continue
 		}
@@ -478,6 +479,7 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 			return current, nil // another refresh won with a fresher token
 		}
 		s.service, s.services = token, source
+		s.serviceGen++
 		s.unlock()
 		if seed != nil && token.AuthorizationHeader == seed.AuthorizationHeader {
 			s.diagnostic("reuse", "service", "valid")
@@ -516,6 +518,7 @@ func (s *Account) InvalidateServiceToken(rejected *service.Token) {
 	if s.service != nil && s.service.AuthorizationHeader == rejected.AuthorizationHeader {
 		s.service = nil
 		s.services = nil
+		s.serviceGen++
 	}
 	s.unlock()
 	s.diagnostic("invalidate", "service", "rejected")
@@ -604,6 +607,7 @@ func (s *Account) discoverEnvironment(ctx context.Context) (*service.Authorizati
 	if !sameEnvironment(s.cachedEnv, fresh) {
 		s.service = nil
 		s.services = nil
+		s.serviceGen++
 		s.diagnostic("miss", "service", "environment")
 	}
 	s.environment = env
@@ -783,6 +787,7 @@ func (s *Account) prepare(ctx context.Context) error {
 
 func (s *Account) resetLocked(binding string) {
 	s.resets++
+	s.serviceGen++
 	var proofKey *ecdsa.PrivateKey
 	if s.device != nil {
 		proofKey = s.device.ProofKey()

@@ -148,6 +148,7 @@ func (s *Account) installServiceRefresh(
 		return 0, errors.New("authentication: account changed during service refresh")
 	}
 	s.service, s.services = token, source
+	s.serviceGen++
 	s.unlock()
 	s.diagnostic("refresh", "service", "expiring")
 	s.publish(ctx)
