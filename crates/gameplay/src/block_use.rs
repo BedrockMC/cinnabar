@@ -3,7 +3,7 @@ use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsColl
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{BlockUseRequest, ItemUseTrigger, SwingSource, VerifiedNetworkItemStack};
 
-// Held-use repeat timing is wall-clock. All values need independent measurement.
+// Held repeats are checked on simulation ticks against a monotonic deadline.
 const SLOW_REPEAT_MILLIS: u64 = 300;
 const STILL_REPEAT_MILLIS: u64 = 200;
 const MOVING_REPEAT_MAX_MILLIS: u64 = 180;
@@ -253,14 +253,19 @@ impl LocalUse {
 /// Press latch and the held-repeat schedule.
 #[derive(Debug, Default)]
 pub struct BlockUseRuntime {
+    stopping: bool,
+    stop_repress: bool,
+    pub inventory: HeldPlacementInventory,
     latched_press: bool,
     last_use_millis: Option<u64>,
-    /// The last success was an interaction or a not-yet-lined placement.
+    /// The last success was a block interaction.
     slow_repeat: bool,
     last_attempt_tick: Option<u64>,
-    /// Tick whose use press interacted with a block, which starts no item use.
+    /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
     position_authority: Option<(u64, u64)>,
+    pub intention: BuildIntention,
+    selected_item: Option<(u8, i32, i32)>,
 }
 
 /// One held-use repeat's timing inputs.
@@ -274,14 +279,36 @@ pub struct RepeatClock {
 }
 
 impl BlockUseRuntime {
+    /// Returns the successful destination retained until the held action stops.
+    pub fn last_success_destination(&self) -> Option<[i32; 3]> {
+        self.intention.last_success_destination()
+    }
+
+    /// A slot or item-type change stops the old placement line without inventing a press.
+    pub fn selection_changed(&mut self, selection: &crate::mining::FrozenMiningSelection) -> bool {
+        let identity = (
+            selection.slot,
+            selection.item.network_id(),
+            selection.item.block_runtime_id(),
+        );
+        let changed = self
+            .selected_item
+            .is_some_and(|previous| previous != identity);
+        self.selected_item = Some(identity);
+        changed
+    }
+
     /// Releases a consumed press while keeping its held-repeat schedule.
     pub fn clear_press(&mut self) {
         self.latched_press = false;
     }
 
     pub fn clear(&mut self) {
+        self.stopping = false;
+        self.stop_repress = false;
         self.latched_press = false;
         self.slow_repeat = false;
+        self.intention = BuildIntention::default();
     }
 
     /// Latches an eligible use press until a physics tick can attempt it.
@@ -289,6 +316,9 @@ impl BlockUseRuntime {
         if attacking || !(held || pressed || self.latched_press) {
             self.clear();
             return false;
+        }
+        if pressed {
+            self.clear();
         }
         self.latched_press |= pressed;
         true
@@ -333,7 +363,7 @@ impl BlockUseRuntime {
         }
         let interval = repeat_interval_millis(
             clock.sneaking,
-            self.slow_repeat,
+            self.slow_repeat || self.intention.unlined(),
             clock.speed,
             clock.survival,
         );
@@ -373,9 +403,7 @@ impl BlockUseRuntime {
             }
             ItemUseTrigger::SimulationTick | ItemUseTrigger::PlayerInput => clock.now_millis,
         });
-        // A placement line is treated as established after its first repeat.
-        self.slow_repeat = local_use == LocalUse::Interact
-            || (local_use == LocalUse::Place && trigger == ItemUseTrigger::PlayerInput);
+        self.slow_repeat = local_use == LocalUse::Interact;
     }
 }
 
@@ -474,17 +502,31 @@ pub fn placement_state_is_certain(
     full_cube && stateless && placed_identifier.is_some()
 }
 
-/// A successful local use swings before its transaction, using the supplied wire identity.
+/// A successful hold starts once, then swings before its transaction and inventory delta.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn use_packets(
     (observed, block_network_id): (&FrozenBlockObservation, u32),
     player_position: [f32; 3],
     trigger: ItemUseTrigger,
     local_use: LocalUse,
+    start_destination: Option<[i32; 3]>,
+    change: Option<protocol::PredictedSlotChange>,
     local_runtime_id: u64,
     mut try_swing: impl FnMut(u64) -> bool,
     tick: u64,
 ) -> Vec<protocol::Packet> {
-    let mut packets = Vec::with_capacity(2);
+    let mut packets = Vec::with_capacity(3);
+    if local_use != LocalUse::Nothing
+        && let Some(destination) = start_destination
+    {
+        packets.push(protocol::start_item_use_on_packet(
+            local_runtime_id,
+            observed.target.position,
+            destination,
+            observed.target.face,
+        ));
+    }
     if let Some(source) = local_use.swing().filter(|_| try_swing(tick)) {
         packets.push(protocol::swing_arm_packet(local_runtime_id, source));
     }
@@ -498,7 +540,9 @@ pub fn use_packets(
         block_runtime_id: u64::from(block_network_id),
     };
     let predicted = local_use != LocalUse::Nothing;
-    if let Ok(packet) = protocol::click_block_transaction_packet(request, trigger, predicted) {
+    if let Ok(packet) =
+        protocol::click_block_transaction_packet(request, trigger, predicted, change)
+    {
         packets.push(packet);
     }
     packets
@@ -508,3 +552,11 @@ pub fn use_packets(
 mod tests;
 
 mod respawn_anchor;
+
+mod intention;
+pub use intention::{BuildIntention, PlacementTarget, orientation_sensitive};
+
+mod packets;
+pub use packets::HeldPlacementInventory;
+
+mod stopping;

@@ -81,6 +81,8 @@ pub struct UnsentSampleView {
     /// Network (eye-offset) position.
     pub position: [f32; 3],
     pub delta: [f32; 3],
+    /// Resolved motion controls held-use cadence independently of outbound velocity.
+    pub displacement: [f32; 3],
     pub sneaking: bool,
 }
 
@@ -235,6 +237,7 @@ impl MovementTicker {
             tick: sample.snapshot.tick,
             position: sample.snapshot.position,
             delta: sample.snapshot.delta,
+            displacement: sample.displacement,
             sneaking: sample.snapshot.flags.bits() & protocol::PlayerInputFlags::SNEAKING.bits()
                 != 0,
         })

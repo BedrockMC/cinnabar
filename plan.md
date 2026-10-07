@@ -1,3 +1,16 @@
+## Held block placement
+
+- Ordinary block holds now retain successful destinations, establish an adjacent
+  placement line, and use fresh ray segments to continue beyond ledges or upward.
+- Repeats use resolved movement and stance; transactions carry their trigger,
+  start/stop actions, local outcome, click position and survival inventory delta.
+- Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
+  backward sneak bridging, failed attempts and refused transport.
+- Incomplete: complete runtime block-property and custom block-placer admission,
+  item-specific replacement/state rules and live vanilla/server acceptance remain open. No
+  complete placement parity or performance gate is closed by these tests.
+- Vanilla rules: [held block placement](docs/reference/held-block-placement.md).
+
 ## Frame attribution and unchanged GPU uploads
 
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
