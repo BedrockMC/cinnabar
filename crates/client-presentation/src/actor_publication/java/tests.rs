@@ -137,7 +137,8 @@ fn published_persona_layers_follow_the_sampled_local_emote_only() {
     )
     .unwrap();
     assert_ne!(emote.skin_layers[0].current, native_pose);
-    let published = super::super::emote_geometry::skin_layer_snapshot(rig, Some(&emote), None);
+    let published =
+        super::super::emote_geometry::skin_layer_snapshot(rig, Some(&emote), None, None);
     assert_eq!(published.current, emote.current.as_ref());
     assert_eq!(
         published.skin_layers[0].current,
@@ -150,7 +151,7 @@ fn published_persona_layers_follow_the_sampled_local_emote_only() {
     assert_eq!(published.skin_layers[0].image, native_layer.image);
     assert_eq!(published.skin_layers[0].uv_anim, native_layer.uv_anim);
     assert_eq!(native_layer.current, native_pose);
-    let unchanged = super::super::emote_geometry::skin_layer_snapshot(rig, None, None);
+    let unchanged = super::super::emote_geometry::skin_layer_snapshot(rig, None, None, None);
     assert_eq!(unchanged.skin_layers[0].current, native_pose);
 }
 

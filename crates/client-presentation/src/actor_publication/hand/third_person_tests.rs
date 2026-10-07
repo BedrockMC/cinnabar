@@ -5,12 +5,53 @@ use bevy::math::Quat;
 use bevy::prelude::{PerspectiveProjection, Projection, Time, Transform, World};
 use bevy::time::Real;
 
+#[derive(Clone, Copy, PartialEq)]
+enum BodyCase {
+    Native,
+    JavaFallback,
+    Emote,
+    InvalidEmote,
+    Persona,
+}
+
 /// Runs the actual early and final publication owners with independent interpolation clocks.
-fn assert_native_body_sample(equipment_parent: bool) {
+fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
     for duration in [6.0f32, 4.0, 8.0] {
         for (actor_alpha, physics_alpha) in [(0.1, 0.75), (0.9, 0.25)] {
             let ((mut stream, equipment, artwork, input), entities) =
-                super::native_tests::fixture_with_clock(Some("minecraft:shield"), false);
+                super::native_tests::fixture_with_appearance(
+                    Some("minecraft:shield"),
+                    false,
+                    case == BodyCase::Persona,
+                );
+            if case == BodyCase::JavaFallback {
+                stream
+                    .submit(
+                        1,
+                        protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                            protocol::ActorMetadataUpdateEvent {
+                                dimension: 0,
+                                runtime_id: 1,
+                                metadata: Arc::from([protocol::ActorMetadata {
+                                    key: 0,
+                                    value: protocol::ActorMetadataValue::Flags(1 << 57),
+                                }]),
+                                properties: Arc::from([]),
+                                tick: 0,
+                            },
+                        )),
+                    )
+                    .unwrap();
+                stream.advance_actor_interpolation_frame(1);
+                assert!(
+                    stream
+                        .authority()
+                        .actor_rig(1)
+                        .unwrap()
+                        .java
+                        .vanilla_posture
+                );
+            }
             let mut world = World::new();
             let mut time = Time::<Real>::default();
             time.advance_by(std::time::Duration::from_millis(50));
@@ -34,7 +75,7 @@ fn assert_native_body_sample(equipment_parent: bool) {
             let mut settings = crate::camera::CameraSettingsAuthority::default();
             let mut user = ui::UserSettings::default();
             user.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
-            user.video.java_animations = false;
+            user.video.java_animations = case == BodyCase::JavaFallback;
             settings.replace(1, &user).unwrap();
             world.insert_resource(settings);
             world.insert_resource(crate::local_player::LocalViewPose::default());
@@ -62,7 +103,11 @@ fn assert_native_body_sample(equipment_parent: bool) {
                     swing_progress: None,
                     renders_game: true,
                     hide_hand: false,
-                    custom_emote: None,
+                    custom_emote: match case {
+                        BodyCase::Emote => Some((client_world::CustomEmote::Twerk, 0.1)),
+                        BodyCase::InvalidEmote => Some((client_world::CustomEmote::Twerk, -1.0)),
+                        _ => None,
+                    },
                 },
                 |_| {},
                 |_, _| (None, None),
@@ -108,6 +153,29 @@ fn assert_native_body_sample(equipment_parent: bool) {
                 .find(|draw| draw.input.identity.layer == render::ACTOR_LAYER_BODY)
                 .unwrap()
                 .clone();
+            if case == BodyCase::Emote {
+                let pose = client_world::sample_custom_emote(
+                    &rig,
+                    client_world::CustomEmote::Twerk,
+                    0.1,
+                    0.1,
+                )
+                .unwrap();
+                assert_eq!(
+                    body.input.current_bones,
+                    crate::presentation::actors::convert_bones(&pose.current).unwrap()
+                );
+                assert_eq!(
+                    world
+                        .resource::<super::super::ActorFrameState>()
+                        .java_hand
+                        .native_pose
+                        .sample_work,
+                    (0, 0),
+                    "successful emotes discard native body sampling"
+                );
+                continue;
+            }
             let presentation = crate::presentation::actors::actor_rig_presentation(
                 &rig,
                 actor,
@@ -165,19 +233,46 @@ fn assert_native_body_sample(equipment_parent: bool) {
                 assert_eq!(body.input.previous_bones, previous);
                 assert_eq!(body.input.current_bones, current);
             }
+            if case == BodyCase::Persona {
+                assert_eq!(
+                    rig.skin_layers.len(),
+                    1,
+                    "synthetic animated skin is admitted"
+                );
+                let layer = world
+                    .resource::<super::super::PreparedActorPublication>()
+                    .submissions()
+                    .unwrap()
+                    .iter()
+                    .find(|draw| {
+                        crate::presentation::skin_layers::is_skin_layer(draw.input.identity.layer)
+                    })
+                    .unwrap();
+                assert!(
+                    Quat::from_array(layer.input.current_bones[0].rotation)
+                        .abs_diff_eq(expected, 1e-5),
+                    "native persona layer must use physics {physics_alpha}, not actor {actor_alpha}: {:?}",
+                    layer.input.current_bones[0].rotation
+                );
+                assert!(
+                    Quat::from_array(layer.input.previous_bones[0].rotation)
+                        .abs_diff_eq(expected, 1e-5)
+                );
+                assert_ne!(
+                    layer.input.current_bones[0].translation_scale,
+                    body.input.current_bones[arm].translation_scale,
+                    "layer retains its own geometry pivot"
+                );
+            }
             let mut repeated = presentation.clone();
             let mut state = world.resource_mut::<super::super::ActorFrameState>();
             let work = state.java_hand.native_pose.sample_work;
             assert_eq!(work.0, 1, "only the native body consumer samples the frame");
             let allocations = crate::test_allocations::count();
-            state.java_hand.native_pose.apply_presentation(
-                &stream,
-                &mut repeated,
-                None,
-                None,
-                actor_alpha,
-                camera,
-            );
+            state
+                .java_hand
+                .native_pose
+                .apply_body(&stream, &mut repeated, actor_alpha, camera);
             assert_eq!(state.java_hand.native_pose.sample_work, work);
             assert_eq!(crate::test_allocations::count(), allocations);
             drop(state);
@@ -197,10 +292,30 @@ fn assert_native_body_sample(equipment_parent: bool) {
 
 #[test]
 fn native_third_person_body_samples_the_physics_swing_without_committing_state() {
-    assert_native_body_sample(false);
+    assert_native_body_sample(false, BodyCase::Native);
 }
 
 #[test]
 fn native_third_person_equipment_samples_the_complete_physics_parent() {
-    assert_native_body_sample(true);
+    assert_native_body_sample(true, BodyCase::Native);
+}
+
+#[test]
+fn native_third_person_java_native_fallback_samples_physics_phase() {
+    assert_native_body_sample(false, BodyCase::JavaFallback);
+}
+
+#[test]
+fn native_third_person_successful_emote_discards_no_native_sampling_work() {
+    assert_native_body_sample(false, BodyCase::Emote);
+}
+
+#[test]
+fn native_third_person_invalid_emote_keeps_native_sampling() {
+    assert_native_body_sample(false, BodyCase::InvalidEmote);
+}
+
+#[test]
+fn native_third_person_persona_layer_samples_its_own_physics_pose() {
+    assert_native_body_sample(false, BodyCase::Persona);
 }

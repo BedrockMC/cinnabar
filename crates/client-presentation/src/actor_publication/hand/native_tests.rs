@@ -28,6 +28,23 @@ pub(super) fn fixture_with_clock(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
+    fixture_with_appearance(main, clock, false)
+}
+
+/// Gives the original player fixture an optional animated skin geometry and atlas.
+pub(super) fn fixture_with_appearance(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -166,6 +183,25 @@ pub(super) fn fixture_with_clock(
             rgba8: vec![255; 64 * 64 * 4].into(),
             cape: None,
             geometry: None,
+        });
+    }
+    if animated {
+        let mut body = geometry["minecraft:geometry"][0].clone();
+        body["description"]["identifier"] = "geometry.persona_test".into();
+        let layer = serde_json::json!({
+            "description":{"identifier":"geometry.persona_layer","texture_width":32,"texture_height":32},
+            "bones":[{"name":"rightarm","pivot":[8,18,0],"cubes":[{"origin":[8,8,0],"size":[4,10,4],"uv":[0,0]}]}]
+        });
+        let side = protocol::CLASSIC_SKIN_SIDE as u32;
+        feed.skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+            width: side, height: side, rgba8: vec![255; (side * side * 4) as usize].into(), cape: None,
+            geometry: Some(Arc::new(protocol::SkinGeometrySource {
+                resource_patch: serde_json::json!({"geometry":{"default":"geometry.persona_test","animated_32x32":"geometry.persona_layer"}}).to_string().into(),
+                geometry_data: serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[body,layer]}).to_string().into(),
+                animations: Arc::from([protocol::SkinAnimation {
+                    kind: protocol::SkinAnimationKind::Body32, width:32,height:32,rgba8: vec![255;32*32*4].into(),frames:1,blinking:false,
+                }]),
+            })),
         });
     }
     feed.first_person = true;
