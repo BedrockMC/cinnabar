@@ -830,3 +830,162 @@ fn committed_swing_samples_are_bounded_across_large_tick_jumps_and_authority_res
         vec![(2, LocalSwingProgress::default())]
     );
 }
+
+/// A new press waits for a new simulation tick even when another owner holds retry permission.
+fn assert_fresh_published_press_waits(crosshair: Crosshair, foreign_retry: bool) {
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let mut press = press(PlayerInputMode::Mouse);
+    if foreign_retry {
+        let mut candidate = swings.clone();
+        assert!(candidate.try_swing(press.tick, press.swing_duration));
+        swings.defer_unadmitted_attempt(&candidate);
+    }
+    swings.published_progress(press.tick);
+    runtime.observe_input(true, false);
+    let mut sends = 0;
+    assert!(!resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        crosshair,
+        &press,
+        1,
+        |_| {
+            sends += 1;
+            Ok(())
+        },
+    ));
+    assert_eq!(
+        sends, 0,
+        "a fresh press must not consume an already-published tick"
+    );
+    assert!(
+        runtime.observe_input(false, false),
+        "the press stays latched"
+    );
+    assert_eq!(swings.take_started(), None);
+    press.tick += 1;
+    let missed = resolve_and_send(&mut runtime, &mut swings, crosshair, &press, 2, |packets| {
+        assert_eq!(
+            kinds(&packets),
+            if crosshair == Crosshair::Miss {
+                vec!["AnimatePacket"]
+            } else {
+                vec!["AnimatePacket", "InventoryTransactionPacket"]
+            }
+        );
+        Ok(())
+    });
+    assert_eq!(missed, crosshair == Crosshair::Miss);
+    assert!(!runtime.observe_input(false, false));
+    assert_eq!(swings.take_started(), Some(press.swing_duration));
+    swings.published_progress(press.tick);
+    assert_eq!(
+        swings.published_progress(press.tick + 1).java,
+        [0.0, 1.0 / 6.0]
+    );
+}
+
+#[test]
+fn a_fresh_miss_waits_for_an_unpublished_tick() {
+    assert_fresh_published_press_waits(Crosshair::Miss, false);
+}
+
+#[test]
+fn a_fresh_actor_press_waits_for_an_unpublished_tick() {
+    assert_fresh_published_press_waits(ZOMBIE, false);
+}
+
+#[test]
+fn a_fresh_press_cannot_borrow_another_owners_swing_retry() {
+    for crosshair in [Crosshair::Miss, ZOMBIE] {
+        assert_fresh_published_press_waits(crosshair, true);
+    }
+}
+
+#[test]
+fn fresh_published_presses_expire_without_sending() {
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let press = press(PlayerInputMode::Mouse);
+    swings.published_progress(press.tick);
+    runtime.observe_input(true, false);
+    for frame in [1, 2 + MAX_PENDING_INTERACTION_FRAMES] {
+        assert!(!resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            ZOMBIE,
+            &press,
+            frame,
+            |_| {
+                panic!("a published tick cannot submit a fresh attack");
+            }
+        ));
+    }
+    assert!(!runtime.observe_input(false, false));
+}
+
+#[test]
+fn melee_retry_permission_clears_on_cancel_authority_change_and_expiry() {
+    for reset in 0..3 {
+        let mut runtime = MeleeRuntime::default();
+        runtime.synchronize((1, 1));
+        let mut swings = SwingTracker::default();
+        let press = press(PlayerInputMode::Mouse);
+        runtime.observe_input(true, false);
+        resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            Crosshair::Miss,
+            &press,
+            1,
+            |_| Err(BatchSendError::Full),
+        );
+        swings.published_progress(press.tick);
+        match reset {
+            0 => runtime.cancel(),
+            1 => runtime.synchronize((1, 2)),
+            _ => runtime.defer(2 + MAX_PENDING_INTERACTION_FRAMES),
+        }
+        runtime.observe_input(true, false);
+        assert!(!resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            Crosshair::Miss,
+            &press,
+            3,
+            |_| {
+                panic!("a new press cannot reuse a cleared retry lease");
+            }
+        ));
+        assert!(runtime.observe_input(false, false));
+    }
+}
+
+#[test]
+fn a_fresh_unpublished_press_still_obeys_the_half_duration_guard() {
+    for crosshair in [Crosshair::Miss, ZOMBIE] {
+        let mut runtime = MeleeRuntime::default();
+        let mut swings = SwingTracker::default();
+        let mut press = press(PlayerInputMode::Mouse);
+        assert!(swings.try_swing(press.tick, press.swing_duration));
+        swings.take_started();
+        swings.published_progress(press.tick);
+        press.tick += 1;
+        runtime.observe_input(true, false);
+        let missed = resolve_and_send(&mut runtime, &mut swings, crosshair, &press, 1, |packets| {
+            assert_eq!(
+                kinds(&packets),
+                if crosshair == Crosshair::Miss {
+                    vec![]
+                } else {
+                    vec!["InventoryTransactionPacket"]
+                }
+            );
+            Ok(())
+        });
+        assert_eq!(missed, crosshair == Crosshair::Miss);
+        assert!(!runtime.observe_input(false, false));
+        assert_eq!(swings.take_started(), None);
+    }
+}

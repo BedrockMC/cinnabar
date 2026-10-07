@@ -19,6 +19,8 @@ The client's local effect timeline expires finite effects on committed simulatio
 
 Held attempts repeat every four, three and five ticks for durations six, four and eight. A tick attempts the swing before effects expire, then publishes progress after expiry. Catch-up ticks retain both effect phases, and publication retains the final two simulation samples independently of the actor presentation clock. Bedrock packet admission and the selected animation mode use independent counters.
 
+A fresh action waits when the retained unsent tick has already been published. Only an attempt whose own transport batch was refused may retry that published tick; another action's refused swing does not grant permission.
+
 A pressed block swing uses the first eligible tick committed in the current frame. Held mining then continues through the remaining committed ticks in order; the same first-tick attempt is admitted only once.
 
 Authored attack weights, pre-animation variables, arm channels and held-item channels read the same sampled local swing progress. Frame sampling leaves completed animation state and clip clocks unchanged.

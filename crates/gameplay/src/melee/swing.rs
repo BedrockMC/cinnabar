@@ -102,6 +102,17 @@ impl SwingTracker {
         }
     }
 
+    /// Identifies the movement authority owning the current counters and retry history.
+    pub fn authority_identity(&self) -> Option<(u64, u64)> {
+        self.authority
+    }
+
+    /// Reports ticks already consumed by animation publication, independently of retry permission.
+    pub fn tick_is_published(&self, tick: u64) -> bool {
+        self.completed_tick
+            .is_some_and(|completed| tick <= completed)
+    }
+
     /// Attempts both native animations independently; the result admits the Bedrock wire packet.
     pub fn try_swing(&mut self, tick: u64, duration: i32) -> bool {
         if self.authority.is_none() && self.attempted_tick.is_some_and(|previous| tick < previous) {
