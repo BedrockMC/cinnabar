@@ -1,7 +1,15 @@
 use super::*;
+use super::{
+    queries::DRAW_SPANS,
+    readback::{SLOTS, decode_spans},
+};
 use bevy::render::{render_graph::RenderGraph, renderer::WgpuWrapper};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU32, Ordering},
+};
 
-fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
+pub(super) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -73,7 +81,7 @@ fn run_opaque(world: &World, device: &RenderDevice) -> Vec<wgpu::CommandBuffer> 
 #[test]
 fn missing_timestamp_feature_runs_nodes_untimed() {
     let (device, queue) = noop_device(wgpu::Features::empty());
-    assert!(GpuTimestamps::new(&device, &queue, true).is_none());
+    assert!(GpuTimestamps::new(&device, &queue, true, wgpu::Backend::Noop).is_none());
     let (world, runs) = timed_world();
     assert!(run_opaque(&world, &device).is_empty());
     assert_eq!(runs.load(Ordering::Relaxed), 1);
@@ -83,7 +91,7 @@ fn missing_timestamp_feature_runs_nodes_untimed() {
 fn timed_frame_is_read_back_on_a_later_frame_without_waiting() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     let (mut world, runs) = timed_world();
-    let mut timestamps = GpuTimestamps::new(&device, &queue, true).unwrap();
+    let mut timestamps = GpuTimestamps::new(&device, &queue, true, wgpu::Backend::Noop).unwrap();
     assert!(!timestamps.draw_spans);
     let mut frames = Vec::new();
     timestamps.begin(|frame| frames.push(*frame));
@@ -110,7 +118,7 @@ fn timed_frame_is_read_back_on_a_later_frame_without_waiting() {
 #[test]
 fn frame_without_spans_releases_its_slot() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
-    let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false, wgpu::Backend::Noop).unwrap();
     for _ in 0..SLOTS * 2 {
         timestamps.begin(|_| unreachable!("no frame was submitted"));
         timestamps.submit(&device, &queue);
@@ -123,12 +131,12 @@ fn draw_overflow_drops_categories_but_keeps_passes() {
     let features = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
     let (device, queue) = noop_device(features);
     assert!(
-        !GpuTimestamps::new(&device, &queue, false)
+        !GpuTimestamps::new(&device, &queue, false, wgpu::Backend::Noop)
             .unwrap()
             .draw_spans,
         "per-draw spans stay off without aggregate profiling"
     );
-    let mut timestamps = GpuTimestamps::new(&device, &queue, true).unwrap();
+    let mut timestamps = GpuTimestamps::new(&device, &queue, true, wgpu::Backend::Noop).unwrap();
     timestamps.begin(|_| {});
     assert!(timestamps.open_pass(RuntimeStage::GpuOpaque).is_some());
     let draws = (0..=DRAW_SPANS)
@@ -181,4 +189,69 @@ fn nodes_are_wrapped_inside_the_render_app_under_pipelined_rendering() {
         .get_node_state(Node3d::MainOpaquePass)
         .unwrap();
     assert!(state.node.downcast_ref::<TimedNode>().is_some());
+}
+
+#[test]
+fn metal_skips_compute_markers_for_unrelated_graph_work() {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut world = World::new();
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false, wgpu::Backend::Metal).unwrap();
+    timestamps.begin(|_| {});
+    world.insert_resource(timestamps);
+    let mut context = RenderContext::new(device, None);
+    let mut ran = false;
+    timed(&world, &mut context, RuntimeStage::GpuUi, |_| ran = true);
+    assert!(ran);
+    assert_eq!(
+        world
+            .resource::<GpuTimestamps>()
+            .frame
+            .passes
+            .load(Ordering::Relaxed),
+        0
+    );
+    assert!(context.finish().0.is_empty());
+}
+
+#[test]
+fn incomplete_pass_coverage_never_reports_a_whole_gpu_frame() {
+    let mut frame = decode_spans([(RuntimeStage::GpuOpaque, 10, 20)], 1.0);
+    assert!(frame.get(RuntimeStage::GpuFrame).is_some());
+    frame.clear_frame_total();
+    assert!(frame.get(RuntimeStage::GpuFrame).is_none());
+    assert!(frame.get(RuntimeStage::GpuOpaque).is_some());
+}
+
+mod native_pass;
+
+#[test]
+fn metal_retains_queries_until_render_completion_and_explicit_resolution() {
+    use super::queries::{MAPPED, READY_TO_RESOLVE, WAITING_RENDER};
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timestamps = GpuTimestamps::new(&device, &queue, false, wgpu::Backend::Metal).unwrap();
+    timestamps.begin(|_| unreachable!("no submitted frame"));
+    assert!(timestamps.open_pass(RuntimeStage::GpuOpaque).is_some());
+    timestamps.submit(&device, &queue);
+    let slot = timestamps.ring.oldest_in_flight().unwrap();
+    assert!(matches!(
+        timestamps.slots[slot].state.load(Ordering::Acquire),
+        WAITING_RENDER | READY_TO_RESOLVE
+    ));
+    timestamps.begin(|_| unreachable!("render completion is not a mapped readback"));
+    timestamps.submit(&device, &queue);
+    assert_eq!(timestamps.ring.oldest_in_flight(), Some(slot));
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    assert_eq!(
+        timestamps.slots[slot].state.load(Ordering::Acquire),
+        READY_TO_RESOLVE
+    );
+    timestamps.resolve_ready(&device, &queue);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    assert_eq!(timestamps.slots[slot].state.load(Ordering::Acquire), MAPPED);
+    let mut frames = 0;
+    timestamps.begin(|_| frames += 1);
+    timestamps.submit(&device, &queue);
+    assert_eq!(frames, 1);
+    assert!(timestamps.ring.oldest_in_flight().is_none());
 }
