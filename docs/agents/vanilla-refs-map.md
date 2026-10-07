@@ -2439,6 +2439,7 @@ Only add provenance to docs/agents/vanilla-refs-map.md.
 
 ## crates/client-world/src/actor_animation/java.rs (Java Edition 1.7.10)
 - Limb swing: EntityLivingBase.moveEntityWithHeading tail and EntityOtherPlayerMP.onUpdate; hurt flail: handleHealthUpdate(2).
+- Hurt event dispatch (`actor_store/hurt.rs` and `actor_animation.rs`): verified official 1.7.10 jar above, `sv.a(B)V` status 2 writes float 1.5 to `sv.aF` immediately, without comparing the hurt countdown. `sv.e(FF)V` copies `aF` to previous `aE`, eases by float 0.4 toward the capped movement target, then adds `aF` to phase `aG`. Consecutive events reset the amount; status 3 alone does not.
 - Cape chase: EntityPlayer.onUpdate tail (field_71094_bP/field_71095_bQ/field_71085_bR); bob: EntityOtherPlayerMP.onLivingUpdate and EntityPlayer.onLivingUpdate's grounded/live target; mounted reset: EntityPlayer.updateRidden. Walk distance cast order: Entity.moveEntity. Its walking trigger is disabled by EntityPlayer.canTriggerWalking while PlayerCapabilities.isFlying, freezing walked phase without stopping chasing coordinates. The local predicted flight observation enters through client-presentation/actor_feed.rs, LocalPlayerFeed and ActorTickContext.
 - Swing: EntityLivingBase.updateArmSwingProgress and swingItem. Walk accumulation and cast order: Entity.moveEntity, with EntityPlayer.canTriggerWalking.
 - Body yaw: EntityLivingBase.onUpdate and func_110146_f; equip: ItemRenderer.updateEquippedItem with Minecraft.rightClickMouse's resetEquippedProgress2.

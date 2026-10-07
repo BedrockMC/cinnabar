@@ -32,6 +32,10 @@
   frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Every hurt event immediately resets the limb boost, including consecutive hits; movement
+  still contributes to the phase, and death alone does not trigger a flail.
+  Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
+  verify single and repeated hits, walking while hurt, and recovery to idle.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
