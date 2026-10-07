@@ -984,3 +984,41 @@ func TestConcurrentCallsSerializeDiagnostics(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// A service-token eviction survives another process publishing the refused token concurrently.
+func TestServiceEvictionSurvivesAConcurrentPublication(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	rejected := account.service
+	account.gate <- struct{}{}
+	account.rejectedService, account.service = rejected, nil
+	account.unlock()
+	// Another process republishes a compatible bundle that still carries the refused token.
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publish(context.Background())
+	if state, err := loadDerived(path); err != nil || state.ServiceToken != nil {
+		t.Fatalf("publish kept the refused service token on disk: err=%v", err)
+	}
+	account.gate <- struct{}{}
+	account.reloadLocked()
+	service := account.service
+	account.unlock()
+	if service != nil {
+		t.Fatal("reload resurrected the refused service token")
+	}
+}
