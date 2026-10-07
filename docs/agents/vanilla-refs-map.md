@@ -2577,6 +2577,7 @@ was not used as version evidence.
 - `crates/client-world/src/actor_animation/motion.rs` and `tick.rs`: Bedrock 1.26.50 `Mob::aiStep` and `Mob::swing`; Java swing publication follows `EntityLivingBase.updateArmSwingProgress`.
 - `crates/client-world/src/actor_animation/render_frame.rs`, `render_frame/clips.rs` and `tick/selection.rs`: vanilla pack `animation_controllers/player.animation_controllers.json` first-person attack weights and `animations/player.animation.json` attack channels.
 - `app/src/runtime/network/actor_publication.rs` and `crates/client-presentation/src/actor_publication/preparation.rs`: local tick admission precedes swing-counter publication; actor picking retains the actor interpolation boundary.
+- `crates/client-world/src/actor_animation/java/body.rs` and `local_motion.rs`: Java 1.7.10 `EntityLivingBase.onUpdate` calls `onLivingUpdate` before its swing-dependent facing choice and `func_110146_f`; `EntityPlayer.updateEntityActionState` updates arm swing progress during that living update.
 - Rules: `docs/reference/swing-duration.md`.
 
 ## Held block placement (1.26.50)

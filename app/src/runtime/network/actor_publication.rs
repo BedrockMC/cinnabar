@@ -148,6 +148,14 @@ pub(crate) fn advance_actor_frame(
             .hand
         }),
     };
+    if let Some(stream) = world.stream.as_mut() {
+        stream.set_local_motion_authority(
+            movement
+                .as_deref()
+                .filter(|movement| movement.physics_is_authorized())
+                .map(|movement| movement.interaction_authority_identity()),
+        );
+    }
     let ClientWorld {
         stream,
         entity_assets,
@@ -238,6 +246,28 @@ pub(crate) fn prepare_actor_render_frame(
         progress.frame_alpha = Some(physics.tick_alpha());
         Some(progress)
     });
+    if let (Some(stream), Some(movement), Some(swings)) = (
+        world.stream.as_mut(),
+        movement
+            .as_deref()
+            .filter(|movement| movement.physics_is_authorized()),
+        swings.as_deref(),
+    ) {
+        let alpha = physics.tick_alpha();
+        let samples = swings
+            .committed_samples()
+            .filter_map(|(tick, mut progress)| {
+                let sample = physics.sample_at(tick)?;
+                progress.frame_alpha = Some(alpha);
+                Some(client_world::LocalSwingMotionSample {
+                    tick,
+                    delta: sample.movement,
+                    yaw: sample.yaw,
+                    progress,
+                })
+            });
+        stream.sync_local_swing_motion(movement.interaction_authority_identity(), samples);
+    }
     let ClientWorld {
         stream,
         entity_assets,

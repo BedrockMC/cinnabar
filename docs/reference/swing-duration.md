@@ -26,3 +26,7 @@ Authored attack weights, pre-animation variables, arm channels and held-item cha
 Native player and held-item animation sample the interpolated attack progress. First-person attack weights remain active while the final wrap has nonzero progress; frame sampling preserves committed controller state and clip clocks.
 
 The actor presentation clock advances before interaction picking. Final local swing publication follows interaction admission and refreshes local poses without advancing remote actors again. The refresh preserves stored clip clocks and the previous tick’s bone pose. Inventory, screen, view and item-use observations remain captured before outbound actions.
+
+Java torso turning reads each completed local tick's swing progress after admission and effect expiry. Catch-up frames retain those individual samples and their resolved movement and yaw. Torso headings use the local physics fraction; equip, limb and cape-position animation retain their own clock. A changed same-tick retry replaces that torso tick once.
+
+Early hand readiness evaluates an uncommitted attachable preview. Final source reuse commits it once; a changed source restores the original geometry and animation state before its final evaluation. Authored variables, controller transitions and clip clocks therefore advance once per published hand frame.

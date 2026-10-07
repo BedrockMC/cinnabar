@@ -353,6 +353,7 @@ pub(super) struct SourceKey {
     hand: [client_world::HandPhase; 2],
     java: client_world::JavaMotion,
     sampled_swing: [f32; 2],
+    sampled_body_yaw: f32,
     equipped: Option<client_world::JavaHeldItem>,
     use_frame: (Option<u32>, Option<(u32, Option<u32>, u32, bool)>),
 }
@@ -369,8 +370,10 @@ pub(super) fn source_key(
         .actor_rig(stream.local_player_runtime_id())?;
     let mut java = rig.java;
     java.local_swing_alpha = None;
+    java.body_frame_alpha = None;
     let swing_alpha = rig.java.local_swing_alpha.unwrap_or(alpha);
     Some(SourceKey {
+        sampled_body_yaw: rig.java.body_yaw_at(alpha),
         sampled_swing: [
             hand_progress(rig.hand, None, swing_alpha).swing,
             rig.java.swing_progress(alpha),

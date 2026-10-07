@@ -180,6 +180,11 @@ pub(super) fn third_person<'a>(
         body_yaw: rig.java.body_yaw[1],
         ..*rig
     };
+    if rig.java.body_frame_alpha.is_some() {
+        let body_yaw = rig.java.body_yaw_at(alpha);
+        java_rig.previous_body_yaw = body_yaw;
+        java_rig.body_yaw = body_yaw;
+    }
     let head_yaw = head_look(actor, alpha, local.is_some()).0;
     if let Some(body_yaw) = mounted::body_yaw(stream, actor, head_yaw, alpha) {
         java_rig.previous_body_yaw = body_yaw;
@@ -213,7 +218,7 @@ pub(super) fn third_person<'a>(
     let [chase_from, chase_to] = motion.cape.map(Vec3::from_array);
     let cape = JavaCapeInput {
         chase: chase_from.lerp(chase_to, alpha),
-        body_yaw: lerp_degrees(motion.body_yaw[0], motion.body_yaw[1], alpha),
+        body_yaw: motion.body_yaw_at(alpha),
         bob: lerp(motion.bob),
         walked: lerp(motion.walked),
         sneaking: actor.is_sneaking(),

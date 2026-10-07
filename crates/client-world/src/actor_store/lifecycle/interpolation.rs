@@ -3,6 +3,28 @@
 use super::*;
 
 impl ActorStore {
+    /// Java torso ticks follow this local simulation identity rather than the remote actor clock.
+    pub(crate) fn set_local_motion_authority(
+        &mut self,
+        runtime_id: u64,
+        authority: Option<(u64, u64)>,
+    ) {
+        self.animation
+            .set_local_motion_authority(runtime_id, authority);
+    }
+
+    /// Corrects only local torso motion after this frame's interaction admissions.
+    pub(crate) fn sync_local_swing_motion(
+        &mut self,
+        runtime_id: u64,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = crate::LocalSwingMotionSample>,
+    ) {
+        self.local_view_dirty |= self
+            .animation
+            .sync_local_swing_motion(runtime_id, authority, samples);
+    }
+
     /// Changed committed local swing samples refresh the local rig even between actor ticks.
     pub(crate) fn sync_local_swing(
         &mut self,
