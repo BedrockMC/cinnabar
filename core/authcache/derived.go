@@ -1,29 +1,18 @@
 package authcache
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
-	"crypto/x509"
-	_ "embed"
-	"encoding/base64"
-	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
-	"net/url"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/go-playfab/v2"
-	"github.com/df-mc/go-playfab/v2/title"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/df-mc/go-xsapi/v2/xal/nsal"
 	"github.com/df-mc/go-xsapi/v2/xal/sisu"
@@ -31,26 +20,11 @@ import (
 	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/clientplatform"
-	"github.com/hashimthearab/rust-mcbe/core/internal/lockfile"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
-	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"golang.org/x/oauth2"
 )
-
-const (
-	derivedCacheVersion = 1
-)
-
-//go:embed derived_suffix.txt
-var derivedCacheSuffix string
-
-// DerivedCachePath returns the private cache path used for authentication
-// state derived from the Microsoft token at oauthPath.
-func DerivedCachePath(oauthPath string) string {
-	return oauthPath + derivedCacheSuffix
-}
 
 // NewAccount returns the signed-in account's runtime: the Xbox, PlayFab and Minecraft service
 // credentials every consumer shares, with proof-key-bound state persisted at path (empty disables
@@ -96,23 +70,6 @@ func defaultDerivedDeps() derivedDeps {
 	}
 }
 
-type derivedEnvironment struct {
-	ServiceURI     string      `json:"service_uri"`
-	Issuer         string      `json:"issuer"`
-	PlayFabTitleID title.Title `json:"playfab_title_id"`
-}
-
-type derivedState struct {
-	Version       int                 `json:"version"`
-	OAuthBinding  string              `json:"oauth_binding"`
-	ClientBinding string              `json:"client_binding"`
-	Environment   *derivedEnvironment `json:"environment,omitempty"`
-	DeviceToken   *xasd.Token         `json:"device_token,omitempty"`
-	ProofKey      string              `json:"proof_key,omitempty"`
-	SISU          *sisu.Snapshot      `json:"sisu,omitempty"`
-	ServiceToken  *service.Token      `json:"service_token,omitempty"`
-}
-
 // Account is the per-account runtime; every method is safe for concurrent use. The gate guards
 // state only briefly and is never held across a network request: each credential is derived in its
 // own flight, so one hung request never delays an unrelated credential.
@@ -121,6 +78,7 @@ type Account struct {
 	cancel          context.CancelFunc
 	gate            chan struct{}
 	oauthGate       chan struct{} // orders OAuth reads with the binding change each applies
+	publishGate     chan struct{} // serializes bundle publication
 	path            string
 	diagnostics     io.Writer
 	diagnosticsMu   sync.Mutex // diagnostics are written outside the gate
@@ -178,7 +136,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	source := &Account{
-		ctx: ctx, cancel: cancel, gate: make(chan struct{}, 1), oauthGate: make(chan struct{}, 1), diagnostics: diagnostics,
+		ctx: ctx, cancel: cancel, gate: make(chan struct{}, 1), oauthGate: make(chan struct{}, 1), publishGate: make(chan struct{}, 1), diagnostics: diagnostics,
 		oauth: oauth, client: clientBinding(), sessionID: uuid.NewString(), deps: deps, xstsTokens: make(map[string]*xsts.Token),
 	}
 	source.resolver = nsal.NewResolver(source)
@@ -328,12 +286,12 @@ func (s *Account) XSTSToken(ctx context.Context, relyingParty string) (*xsts.Tok
 }
 
 func (s *Account) deriveXSTS(ctx context.Context, relyingParty string) (*xsts.Token, error) {
-	if err := s.lock(ctx); err != nil {
-		return nil, err
-	}
-	session, device := s.session, s.device
-	s.unlock()
-	for range 2 {
+	for range 3 {
+		if err := s.lock(ctx); err != nil {
+			return nil, err
+		}
+		session, device := s.session, s.device
+		s.unlock()
 		token, err := session.XSTSToken(ctx, relyingParty)
 		if err != nil {
 			return nil, err
@@ -342,19 +300,20 @@ func (s *Account) deriveXSTS(ctx context.Context, relyingParty string) (*xsts.To
 		if err := s.lock(ctx); err != nil {
 			return nil, err
 		}
+		if s.session != session {
+			s.unlock() // a reset or reload replaced the session while the request ran
+			continue
+		}
 		if s.rejectedLocked(relyingParty, token) {
 			// The request overlapped an invalidation and read the refused token before SISU evicted it.
 			s.unlock()
 			session.InvalidateXSTSToken(relyingParty, token)
 			continue
 		}
-		changed := false
-		if s.session == session {
-			changed = s.xstsTokens[relyingParty] != token
-			s.xstsTokens[relyingParty] = token
-			if deviceErr == nil && s.device == device && s.deviceToken != deviceToken {
-				s.deviceToken, changed = deviceToken, true
-			}
+		changed := s.xstsTokens[relyingParty] != token
+		s.xstsTokens[relyingParty] = token
+		if deviceErr == nil && s.device == device && s.deviceToken != deviceToken {
+			s.deviceToken, changed = deviceToken, true
 		}
 		s.unlock()
 		if !changed {
@@ -365,7 +324,7 @@ func (s *Account) deriveXSTS(ctx context.Context, relyingParty string) (*xsts.To
 		s.publish(ctx)
 		return token, nil
 	}
-	return nil, errors.New("authentication: relying party keeps refusing the XSTS token")
+	return nil, errors.New("authentication: XSTS token superseded during refresh")
 }
 
 func (s *Account) rejectedLocked(relyingParty string, token *xsts.Token) bool {
@@ -475,6 +434,10 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 		return nil, err
 	}
 	env, source, seed, binding := s.environment, s.services, s.service, s.binding
+	if seed != nil && seed.Valid() {
+		s.unlock()
+		return seed, nil
+	}
 	if source == nil && env != nil {
 		source = s.deps.services(env, sessionTickets{s}, seed, s.serviceDeviceIDLocked(), s.sessionID)
 	}
@@ -588,6 +551,14 @@ func (s *Account) ensureEnvironment(ctx context.Context) (*service.Authorization
 }
 
 func (s *Account) discoverEnvironment(ctx context.Context) (*service.AuthorizationEnvironment, error) {
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	existing := s.environment
+	s.unlock()
+	if existing != nil {
+		return existing, nil
+	}
 	env, err := s.deps.discover(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -632,6 +603,14 @@ func (s *Account) playFab(ctx context.Context) (*playfab.Client, error) {
 }
 
 func (s *Account) loginPlayFab(ctx context.Context, env *service.AuthorizationEnvironment) (*playfab.Client, error) {
+	if err := s.lock(ctx); err != nil {
+		return nil, err
+	}
+	existing := s.playfab
+	s.unlock()
+	if existing != nil {
+		return existing, nil // an earlier flight logged in after this caller looked
+	}
 	client, err := s.deps.login(ctx, env, s.resolver)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -775,151 +754,6 @@ func (s *Account) prepare(ctx context.Context) error {
 	return s.reload(ctx)
 }
 
-// reload adopts state another process published, holding the cache lease only for the local read.
-func (s *Account) reload(ctx context.Context) error {
-	lease, err := s.acquireLease(ctx)
-	if err != nil || lease == nil {
-		return err
-	}
-	defer lease.Close()
-	if err := s.lock(ctx); err != nil {
-		return err
-	}
-	defer s.unlock()
-	s.reloadLocked()
-	return nil
-}
-
-// acquireLease bounds waits for the optional derived cache. A miss keeps
-// the account usable in memory without publishing over another process's state.
-func (s *Account) acquireLease(ctx context.Context) (io.Closer, error) {
-	if s.path == "" {
-		return nil, nil
-	}
-	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	lease, err := lockfile.AcquireContext(wait, s.path+cacheLockSuffix)
-	if err == nil {
-		return lease, nil
-	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	s.diagnostic("miss", "write", "unavailable")
-	return nil, nil
-}
-
-// reloadLocked adopts a bundle another process published since this account last read or wrote it.
-func (s *Account) reloadLocked() {
-	if s.path == "" {
-		return
-	}
-	state, fingerprint, err := loadDerivedBundle(s.path)
-	if err != nil || fingerprint == s.persisted || state.OAuthBinding != s.binding || state.ClientBinding != s.client {
-		return
-	}
-	s.adoptLocked(state, fingerprint)
-}
-
-// adoptLocked restores a published bundle, re-applying this account's evictions to it.
-func (s *Account) adoptLocked(state *derivedState, fingerprint string) bool {
-	if s.restore(state) != nil {
-		return false
-	}
-	s.persisted = fingerprint
-	for relyingParty, token := range s.rejected {
-		s.session.InvalidateXSTSToken(relyingParty, token)
-		delete(s.xstsTokens, relyingParty)
-	}
-	if s.service != nil && s.rejectedService != nil && s.service.AuthorizationHeader == s.rejectedService.AuthorizationHeader {
-		s.service = nil
-	}
-	return true
-}
-
-// publish writes the account's derived state for other processes. A bundle another process published
-// since this account last read or wrote one is adopted first, so only this account's evictions override it.
-func (s *Account) publish(ctx context.Context) {
-	if s.path == "" {
-		return
-	}
-	if err := s.lock(ctx); err != nil {
-		return
-	}
-	session := s.session
-	s.unlock()
-	// SISU holds its own locks across requests, so the snapshot is never taken under the gate.
-	snapshot := session.Snapshot()
-	lease, err := s.acquireLease(ctx)
-	if err != nil || lease == nil {
-		return
-	}
-	defer lease.Close()
-	if err := s.lock(ctx); err != nil {
-		return
-	}
-	defer s.unlock()
-	if s.session != session {
-		return
-	}
-	state, fingerprint, err := loadDerivedBundle(s.path)
-	if err == nil && fingerprint != s.persisted && state.OAuthBinding == s.binding && state.ClientBinding == s.client {
-		// Another process published since this account last synced: adopt it, keeping this account's evictions.
-		if !s.adoptLocked(state, fingerprint) {
-			return
-		}
-		snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
-	}
-	s.persistLocked(snapshot)
-}
-
-func (s *Account) persistLocked(snapshot *sisu.Snapshot) {
-	device, proofKey := s.deviceToken, s.device.ProofKey()
-	if device == nil || proofKey == nil {
-		return
-	}
-	if snapshot != nil {
-		// A snapshot taken before an invalidation finished may still hold the refused token.
-		for relyingParty, token := range snapshot.XSTSTokens {
-			if s.rejectedLocked(relyingParty, token) {
-				delete(snapshot.XSTSTokens, relyingParty)
-			}
-		}
-	}
-	key, err := x509.MarshalECPrivateKey(proofKey)
-	if err != nil {
-		return
-	}
-	environment := snapshotEnvironment(s.environment)
-	if environment == nil {
-		environment = s.cachedEnv
-	}
-	state := derivedState{
-		Version:       derivedCacheVersion,
-		OAuthBinding:  s.binding,
-		ClientBinding: s.client,
-		Environment:   environment,
-		DeviceToken:   device,
-		ProofKey:      base64.RawStdEncoding.EncodeToString(key),
-		SISU:          snapshot,
-		ServiceToken:  s.service,
-	}
-	b, err := json.Marshal(state)
-	if err != nil || len(b)+1 >= maxCacheSize {
-		return
-	}
-	b = append(b, '\n')
-	fingerprint := bytesFingerprint(b)
-	if fingerprint == s.persisted {
-		return
-	}
-	if err := savePrivate(s.path, b); err != nil {
-		s.diagnostic("miss", "write", "contended")
-		return
-	}
-	s.persisted = fingerprint
-}
-
 func (s *Account) resetLocked(binding string) {
 	var proofKey *ecdsa.PrivateKey
 	if s.device != nil {
@@ -937,151 +771,4 @@ func (s *Account) resetLocked(binding string) {
 	s.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, proofKey)
 	s.session = newAccountSession(s, &sisu.SessionConfig{DeviceTokenSource: s.device})
 	s.persisted = ""
-}
-
-func (s *Account) restore(state *derivedState) error {
-	if state == nil || state.DeviceToken == nil || state.ProofKey == "" || state.SISU == nil {
-		return errDerivedCacheMiss
-	}
-	der, err := base64.RawStdEncoding.DecodeString(state.ProofKey)
-	if err != nil {
-		return errDerivedCacheMiss
-	}
-	key, err := x509.ParseECPrivateKey(der)
-	if err != nil || key.Curve == nil || key.Curve.Params().Name != "P-256" {
-		return errDerivedCacheMiss
-	}
-	if s.device != nil && s.device.ProofKey() != nil {
-		current := s.device.ProofKey()
-		if current.Curve == nil || current.Curve.Params().Name != key.Curve.Params().Name || current.D.Cmp(key.D) != 0 {
-			return errDerivedCacheMiss
-		}
-		key = current
-	}
-	var cachedEnv *derivedEnvironment
-	if state.Environment != nil {
-		if _, err := restoreEnvironment(state.Environment); err != nil {
-			return errDerivedCacheMiss
-		}
-		cachedEnv = state.Environment
-	}
-	device := xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, state.DeviceToken, key)
-	tokens := maps.Clone(state.SISU.XSTSTokens) // SISU keeps and mutates the snapshot's own map
-	if tokens == nil {
-		tokens = make(map[string]*xsts.Token)
-	}
-	session := newAccountSession(s, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: device})
-	var serviceToken *service.Token
-	if state.ServiceToken != nil && state.ServiceToken.Valid() && cachedEnv != nil {
-		serviceToken = state.ServiceToken
-	}
-	s.device = device
-	s.deviceToken = state.DeviceToken
-	s.session = session
-	s.xstsTokens = tokens
-	if !sameEnvironment(snapshotEnvironment(s.environment), cachedEnv) {
-		s.environment = nil // a restored environment is checked against discovery once more
-	}
-	s.cachedEnv = cachedEnv
-	// The in-memory copy of an unchanged token keeps the service clock its validity is judged by.
-	if s.service == nil || cachedEnv == nil || state.ServiceToken == nil ||
-		s.service.AuthorizationHeader != state.ServiceToken.AuthorizationHeader {
-		s.service = serviceToken
-	}
-	s.services = nil
-	return nil
-}
-
-var errDerivedCacheMiss = errors.New("derived authentication cache miss")
-
-func loadDerived(path string) (*derivedState, error) {
-	state, _, err := loadDerivedBundle(path)
-	return state, err
-}
-
-// loadDerivedBundle also returns the fingerprint of the exact bytes read.
-func loadDerivedBundle(path string) (*derivedState, string, error) {
-	b, err := loadPrivate(path, maxCacheSize)
-	if err != nil {
-		return nil, "", err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	var state derivedState
-	if err := decoder.Decode(&state); err != nil {
-		return nil, "", errDerivedCacheMiss
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return nil, "", errDerivedCacheMiss
-	}
-	if state.Version != derivedCacheVersion || state.OAuthBinding == "" || state.ClientBinding == "" {
-		return nil, "", errDerivedCacheMiss
-	}
-	return &state, bytesFingerprint(b), nil
-}
-
-func oauthBinding(token *oauth2.Token) string {
-	h := sha256.New()
-	for _, value := range []string{token.AccessToken, token.RefreshToken, token.TokenType} {
-		var length [8]byte
-		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
-		_, _ = h.Write(length[:])
-		_, _ = h.Write([]byte(value))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func bytesFingerprint(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-func clientBinding() string {
-	b, _ := json.Marshal(struct {
-		Config   auth.Config `json:"xal"`
-		Protocol string      `json:"protocol"`
-		App      string      `json:"application"`
-	}{auth.AndroidConfig, protocol.CurrentVersion, service.ApplicationTypeMinecraftPE})
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-func snapshotEnvironment(env *service.AuthorizationEnvironment) *derivedEnvironment {
-	if !validEnvironment(env) {
-		return nil
-	}
-	return &derivedEnvironment{
-		ServiceURI:     env.ServiceURI.String(),
-		Issuer:         env.Issuer.String(),
-		PlayFabTitleID: env.PlayFabTitleID,
-	}
-}
-
-func restoreEnvironment(cached *derivedEnvironment) (*service.AuthorizationEnvironment, error) {
-	serviceURI, err := url.Parse(cached.ServiceURI)
-	if err != nil {
-		return nil, err
-	}
-	issuer, err := url.Parse(cached.Issuer)
-	if err != nil {
-		return nil, err
-	}
-	env := &service.AuthorizationEnvironment{ServiceURI: serviceURI, Issuer: issuer, PlayFabTitleID: cached.PlayFabTitleID}
-	if !validEnvironment(env) {
-		return nil, fmt.Errorf("invalid environment")
-	}
-	return env, nil
-}
-
-func validEnvironment(env *service.AuthorizationEnvironment) bool {
-	return env != nil && validHTTPSURL(env.ServiceURI) && validHTTPSURL(env.Issuer) && env.PlayFabTitleID != ""
-}
-
-func sameEnvironment(left, right *derivedEnvironment) bool {
-	return left != nil && right != nil && left.ServiceURI == right.ServiceURI && left.Issuer == right.Issuer && left.PlayFabTitleID == right.PlayFabTitleID
-}
-
-func validHTTPSURL(value *url.URL) bool {
-	return value != nil && value.Scheme == "https" && value.Host != "" && value.User == nil
 }
