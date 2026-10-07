@@ -10,13 +10,13 @@ use bevy::{
         render_graph::{Node, NodeRunError, RenderGraphContext, ViewNode, ViewNodeRunner},
         render_phase::{TrackedRenderPass, ViewBinnedRenderPhases},
         render_resource::{CommandEncoderDescriptor, PipelineCache, RenderPassDescriptor, StoreOp},
-        renderer::{RenderAdapterInfo, RenderContext, RenderDevice},
+        renderer::{RenderContext, RenderDevice},
     },
 };
 
 /// Uses the original single-pass opaque, alpha-mask and skybox draw sequence on Metal.
 pub(super) fn replacement(world: &mut World) -> Option<Box<dyn Node>> {
-    if world.get_resource::<RenderAdapterInfo>()?.backend != wgpu::Backend::Metal
+    if !cfg!(target_os = "macos")
         || !world
             .get_resource::<RenderDevice>()?
             .features()
@@ -64,7 +64,10 @@ impl ViewNode for OpaqueTimingNode {
                 label: Some("timed main opaque pass"),
                 color_attachments: &colors,
                 depth_stencil_attachment: depth,
-                timestamp_writes: super::pass_writes(world, crate::RuntimeStage::GpuOpaque),
+                timestamp_writes: super::render_pass_timestamps(
+                    world,
+                    crate::RuntimeStage::GpuOpaque,
+                ),
                 occlusion_query_set: None,
             });
             let mut pass = TrackedRenderPass::new(&device, pass);
