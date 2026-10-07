@@ -7,7 +7,7 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEven
 use render::{ActorArtworkPages, ActorRigRoute};
 use std::{fs, path::PathBuf, sync::Arc};
 
-pub(super) struct Pack(PathBuf);
+pub(crate) struct Pack(PathBuf);
 impl Pack {
     fn new() -> Self {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -48,7 +48,7 @@ fn weighted_fixture(
 
 /// A one-entity pack (`minecraft:example`) whose wave clip is weighted by `weight`, compiled with
 /// its rig drawn in `pose_mode`.
-pub(super) fn compiled_fixture(
+pub(crate) fn compiled_fixture(
     weight: &str,
     repetitions: usize,
     pose_mode: assets::ActorPoseMode,
@@ -108,7 +108,7 @@ fn spawn_runtime(runtime_id: u64, unique_id: i64) -> WorldEvent {
         links: Arc::from([]),
     }))
 }
-pub(super) fn stream(entities: Arc<RuntimeEntityAssets>) -> WorldStream {
+pub(crate) fn stream(entities: Arc<RuntimeEntityAssets>) -> WorldStream {
     WorldStream::new_with_asset_sets(
         WorldBootstrap {
             local_player_unique_id: 1,
