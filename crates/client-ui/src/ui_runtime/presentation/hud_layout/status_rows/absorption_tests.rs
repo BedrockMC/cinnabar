@@ -150,3 +150,57 @@ fn absorption_poison_wither_hardcore_and_damage_flash_match_vanilla() {
         );
     }
 }
+
+#[test]
+fn absorption_texture_dispatch_is_bounded_independently_of_offscreen_rows() {
+    let (player, runtime) = absorbed(f32::from(u16::MAX), f32::MAX);
+    let paint = painted(&player, &runtime);
+    assert!(
+        paint.textures().count() <= 100,
+        "offscreen rows must not enumerate textures"
+    );
+}
+
+#[test]
+fn absorption_cell_generation_follows_moved_controls_and_clips_with_bounded_work() {
+    let (player, runtime) = absorbed(f32::from(u16::MAX), f32::MAX);
+    let paint = painted(&player, &runtime);
+    for px in [0.5, 1.0, 4.0] {
+        for y in [-30.0, 3.0, 10.0, 180.0, 300.0] {
+            let origin = [0.0, y];
+            let bounds = [0.0, 0.0, 100.0, 180.0];
+            let intersects = |cell: &Cell| {
+                let x = origin[0] + cell.at[0] * px;
+                let y = origin[1] + cell.at[1] * px;
+                x < bounds[2]
+                    && x + cell.size[0] * px > bounds[0]
+                    && y < bounds[3]
+                    && y + cell.size[1] * px > bounds[1]
+            };
+            let visible: Vec<_> = paint.hearts.visible_cells(origin, px, bounds).collect();
+            assert!(
+                visible.len() <= 800,
+                "work depends on viewport, not absorption"
+            );
+            assert_eq!(
+                visible.into_iter().filter(intersects).collect::<Vec<_>>(),
+                paint.hearts.iter().filter(intersects).collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
+#[test]
+fn absorption_invalid_gui_scale_generates_no_cells() {
+    let (player, runtime) = absorbed(4.0, f32::MAX);
+    let paint = painted(&player, &runtime);
+    for px in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert_eq!(
+            paint
+                .hearts
+                .visible_cells([0.0, 180.0], px, [0.0, 0.0, 320.0, 180.0])
+                .count(),
+            0
+        );
+    }
+}
