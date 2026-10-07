@@ -15,8 +15,9 @@
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
   separate distance rule. Deferred corrections clear old collision flags before
-  replay so a relocation cannot invent a ladder climb.
-- Validation: 267 simulator tests, 69 semantic-input tests, 339 movement tests
+  replay so a relocation cannot invent a ladder climb. If replay cannot query
+  terrain, its fallback preserves later retained server positions and motion.
+- Validation: 267 simulator tests, 69 semantic-input tests, 343 movement tests
   and 16 focused client tests pass. The touched-crate compile check includes
   tests and the client app. The architecture check passes. Regression tests
   reproduced the stale collision and controller handoff bugs before their fixes.

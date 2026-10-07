@@ -83,6 +83,40 @@ impl DeferredPredictionCorrections {
 }
 
 impl LocalPhysicsController {
+    /// Preserves later authoritative state when a failed replay must discard speculative history.
+    pub(in crate::movement) fn replay_fallback_anchor(
+        &self,
+        anchor: PhysicsAnchor,
+    ) -> PhysicsAnchor {
+        let Some(superseded_boundary) = anchor.tick.checked_add(1) else {
+            return anchor;
+        };
+        let Some(mut latest) = self
+            .deferred_corrections
+            .frames
+            .iter()
+            .filter(|frame| frame.tick > superseded_boundary && self.retains_tick(frame.tick))
+            .max_by_key(|frame| frame.tick)
+            .copied()
+        else {
+            return anchor;
+        };
+        // Same-frame motion was merged on arrival; later frames replace only velocity.
+        if let Some(motion) = self
+            .server_motions
+            .iter()
+            .filter(|motion| motion.tick > latest.tick)
+            .max_by_key(|motion| motion.tick)
+        {
+            latest.velocity = Some([
+                motion.velocity.x as f32,
+                motion.velocity.y as f32,
+                motion.velocity.z as f32,
+            ]);
+        }
+        latest
+    }
+
     /// Prediction corrections require a nonzero tick at or above the retained history floor.
     pub(in crate::movement) fn prediction_correction_is_eligible(&self, tick: u64) -> bool {
         tick != 0
