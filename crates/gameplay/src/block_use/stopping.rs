@@ -1,0 +1,78 @@
+use super::BlockUseRuntime;
+
+impl BlockUseRuntime {
+    /// A refused stop must leave before another placement can start.
+    pub fn stopping(&self) -> bool {
+        self.stopping
+    }
+
+    /// Retains the stop destination and any new press until transport accepts the stop.
+    pub fn stop_packets(&mut self, local_runtime_id: u64, repress: bool) -> Vec<protocol::Packet> {
+        self.stop_repress |= repress;
+        let Some(destination) = self.last_success_destination() else {
+            return Vec::new();
+        };
+        self.stopping = true;
+        vec![protocol::stop_item_use_on_packet(
+            local_runtime_id,
+            destination,
+        )]
+    }
+
+    /// Clears an admitted hold while preserving a press received during a refused stop.
+    pub fn admit_stop(&mut self, admitted: bool) -> bool {
+        if admitted {
+            let repress = self.stop_repress;
+            self.clear();
+            self.latched_press = repress;
+        }
+        admitted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block_use::{LocalUse, RepeatClock};
+    use protocol::ItemUseTrigger;
+
+    #[test]
+    fn refused_stop_preserves_destination_and_replays_a_quick_press_after_admission() {
+        let mut runtime = BlockUseRuntime::default();
+        runtime.intention.record(
+            false,
+            [0, 63, 1],
+            LocalUse::Place,
+            true,
+            false,
+            [0.5, 64.0, 0.5],
+        );
+        assert_eq!(runtime.stop_packets(42, true).len(), 1);
+        assert!(!runtime.admit_stop(false));
+        assert!(runtime.stopping());
+        assert_eq!(runtime.last_success_destination(), Some([0, 63, 1]));
+        assert_eq!(runtime.stop_packets(42, false).len(), 1);
+        assert!(runtime.admit_stop(true));
+        assert!(!runtime.stopping());
+        assert_eq!(runtime.last_success_destination(), None);
+        assert!(runtime.observe_use(false, false, false));
+        let clock = RepeatClock {
+            now_millis: 1_000,
+            sneaking: false,
+            speed: 0.0,
+            survival: true,
+        };
+        assert_eq!(
+            runtime.due(false, 1, clock),
+            Some((ItemUseTrigger::PlayerInput, 1_000))
+        );
+    }
+
+    #[test]
+    fn release_before_a_success_has_no_stop_action() {
+        let mut runtime = BlockUseRuntime::default();
+        assert!(runtime.stop_packets(42, false).is_empty());
+        assert!(runtime.admit_stop(true));
+        assert!(!runtime.observe_use(false, false, false));
+    }
+}
