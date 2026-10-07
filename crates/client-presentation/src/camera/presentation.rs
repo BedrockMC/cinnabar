@@ -290,7 +290,8 @@ pub fn update_screen_overlays(
     vision.darkness = approach(vision.darkness, goal(active[3]), step);
 
     overlays.layers = compute_overlays(&ScreenEffectInputs {
-        first_person: settings.perspective() == PerspectiveMode::FirstPerson,
+        first_person: server
+            .renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson),
         head: *medium,
         carved_pumpkin_worn: pumpkin,
         on_fire: facts.on_fire,
@@ -313,6 +314,7 @@ pub fn apply_camera_presentation(
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
     client_world: Option<crate::observations::WorldObservation<'_>>,
+    collisions: Option<&dyn crate::observations::CollisionLookup>,
     mut server: ResMut<ServerCameraView>,
     mut cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
 ) {
@@ -350,9 +352,18 @@ pub fn apply_camera_presentation(
         }
     }
     server.advance(dt);
+    server.advance_target(dt, &context);
 
     let override_pose = server.pose_override(&context);
     let mut pose = override_pose.unwrap_or(base);
+    if let (Some(stream), Some(collisions)) = (stream, collisions) {
+        let world = sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+        );
+        pose = server.collision_safe_pose(&context, pose, &world);
+    }
     let mut changed = override_pose.is_some();
 
     if override_pose.is_none() && hand.eye_height_adjustment != 0.0 {
@@ -368,7 +379,7 @@ pub fn apply_camera_presentation(
         changed = true;
     }
 
-    if override_pose.is_none() && settings.perspective() == PerspectiveMode::FirstPerson {
+    if server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson) {
         let effect = hand.hurt * hand.bob.matrix();
         if effect != Mat4::IDENTITY && effect.is_finite() {
             pose = Transform::from_matrix(pose.to_matrix() * effect.inverse());
@@ -377,23 +388,25 @@ pub fn apply_camera_presentation(
     }
 
     if let Some(mut projection) = projection {
-        let distortion = portal.as_deref().map_or(Mat4::IDENTITY, |portal| {
-            portal_distortion(
-                portal.value(),
-                portal.elapsed_ticks(),
-                portal.confusion_active,
-                settings.feel().distortion_scale,
-            )
-        });
+        let distortion = portal
+            .as_deref()
+            .filter(|_| server.portal_distortion_enabled())
+            .map_or(Mat4::IDENTITY, |portal| {
+                portal_distortion(
+                    portal.value(),
+                    portal.elapsed_ticks(),
+                    portal.confusion_active,
+                    settings.feel().distortion_scale,
+                )
+            });
         apply_distortion(&mut projection, distortion);
     }
 
     let shake = server.shake_offset();
     if settings.feel().camera_shake
-        && (shake.translation != Vec3::ZERO || shake.rotation != Quat::IDENTITY)
+        && (shake.translation != Vec3::ZERO || shake.rotation_radians.is_some())
     {
-        pose.translation += pose.rotation * shake.translation;
-        pose.rotation = (pose.rotation * shake.rotation).normalize();
+        shake.apply(&mut pose);
         changed = true;
     }
 
@@ -404,7 +417,7 @@ pub fn apply_camera_presentation(
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::{App, Update};
+    use bevy::prelude::{App, Entity, Projection, Update};
     use protocol::{CameraEvent, CameraInstructionEvent, CameraSetInstruction};
 
     use super::*;
@@ -429,6 +442,7 @@ mod tests {
             hand,
             portal,
             view,
+            None,
             None,
             server,
             cameras,
@@ -479,19 +493,52 @@ mod tests {
     }
 
     #[test]
-    fn server_set_instruction_overrides_the_camera_pose() {
+    fn free_camera_suppresses_portal_projection_until_clear_even_with_player_effects() {
         let mut app = camera_app();
-        let mut instructions = ServerCameraInstructions::default();
-        instructions.admit(
-            1,
-            0,
-            [client_world::CommittedCameraEvent {
-                sequence: 1,
-                event: CameraEvent::Instruction(CameraInstructionEvent {
+        let entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<FlyCamera>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Projection::default());
+        let mut portal = PortalProgress::default();
+        portal.advance_with_confusion(true, None, 1.0);
+        app.insert_resource(portal);
+        app.update();
+        assert!(matches!(
+            app.world().get::<Projection>(entity),
+            Some(Projection::Custom(_))
+        ));
+        let context = ViewContext {
+            base: Transform::IDENTITY,
+            subject: Transform::IDENTITY,
+            base_fov: 90.0,
+            actors: &|_| None,
+        };
+        {
+            let mut server = app.world_mut().resource_mut::<ServerCameraView>();
+            server.apply(
+                1,
+                &CameraEvent::Presets(
+                    vec![protocol::CameraPreset {
+                        name: "free_effects".into(),
+                        inherit_from: "minecraft:free".into(),
+                        player_effects: Some(true),
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+                &context,
+            );
+            server.apply(
+                2,
+                &CameraEvent::Instruction(Box::new(CameraInstructionEvent {
                     set: Some(CameraSetInstruction {
                         preset_id: 0,
                         ease: None,
-                        position: Some([10.0, 20.0, 30.0]),
+                        position: None,
                         rotation_degrees: None,
                         facing_position: None,
                         view_offset: None,
@@ -500,8 +547,59 @@ mod tests {
                         remove_ignore_starting_values: false,
                     }),
                     ..Default::default()
-                }),
-            }],
+                })),
+                &context,
+            );
+        }
+        app.update();
+        assert!(matches!(
+            app.world().get::<Projection>(entity),
+            Some(Projection::Perspective(_))
+        ));
+        app.world_mut().resource_mut::<ServerCameraView>().clear();
+        app.update();
+        assert!(matches!(
+            app.world().get::<Projection>(entity),
+            Some(Projection::Custom(_))
+        ));
+    }
+
+    #[test]
+    fn server_set_instruction_overrides_the_camera_pose() {
+        let mut app = camera_app();
+        let mut instructions = ServerCameraInstructions::default();
+        instructions.admit(
+            1,
+            0,
+            [
+                client_world::CommittedCameraEvent {
+                    sequence: 1,
+                    event: CameraEvent::Presets(
+                        [protocol::CameraPreset {
+                            name: std::sync::Arc::from("minecraft:free"),
+                            ..Default::default()
+                        }]
+                        .into(),
+                    ),
+                },
+                client_world::CommittedCameraEvent {
+                    sequence: 2,
+                    event: CameraEvent::Instruction(Box::new(CameraInstructionEvent {
+                        set: Some(CameraSetInstruction {
+                            preset_id: 0,
+                            ease: None,
+                            position: Some([10.0, 20.0, 30.0]),
+                            rotation_degrees: None,
+                            facing_position: None,
+                            view_offset: None,
+                            entity_offset: None,
+                            default_preset: None,
+                            remove_ignore_starting_values: false,
+                        }),
+                        ..Default::default()
+                    })),
+                },
+            ],
         );
         app.insert_resource(instructions);
         app.update();

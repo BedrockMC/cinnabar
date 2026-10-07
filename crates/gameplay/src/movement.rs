@@ -148,6 +148,7 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<u64>,
     mining_epoch_publisher: watch::Sender<u64>,
+    held_release: Option<outbox::HeldRelease>,
 }
 
 #[cfg(test)]
@@ -189,6 +190,7 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
+            held_release: None,
         }
     }
 
@@ -200,6 +202,7 @@ impl MovementTicker {
         initial_position: [f32; 3],
     ) {
         self.position_authority_changed();
+        self.held_release = None;
         self.session_active = true;
         self.session_generation = session_generation;
         self.next_tick = initial_server_tick.saturating_add(1);
@@ -223,6 +226,7 @@ impl MovementTicker {
 
     pub fn deactivate(&mut self) {
         self.position_authority_changed();
+        self.held_release = None;
         self.session_active = false;
         self.outbox.clear();
         self.pending_sends.clear();
@@ -532,6 +536,7 @@ impl MovementTicker {
             && identity.reanchor_epoch == self.reanchor_epoch
         {
             self.confirm_sent(&pending.sample);
+            self.confirm_held_release_facing(identity.tick);
         }
         self.sent_physics_packet_count = self.sent_physics_packet_count.saturating_add(1);
         self.tick_evidence.push_back(pending.evidence);

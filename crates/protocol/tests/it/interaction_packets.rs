@@ -885,3 +885,25 @@ fn plain_click_air_has_no_actions_or_legacy_request() {
     };
     assert!(transaction.actions.actions.is_empty());
 }
+
+#[test]
+fn aim_assist_rotation_actions_are_attack_and_release() {
+    assert!(protocol::is_aim_assist_rotation_action(&decode_one(
+        ATTACK_ACTOR,
+        McpePacketName::InventoryTransactionPacket
+    )));
+    assert!(!protocol::is_aim_assist_rotation_action(&decode_one(
+        INTERACT_ACTOR,
+        McpePacketName::InventoryTransactionPacket
+    )));
+    assert!(protocol::is_aim_assist_rotation_action(
+        &release_item_packet(held_request()).unwrap()
+    ));
+    assert!(!protocol::is_aim_assist_rotation_action(
+        &click_air_packet(held_request(), None).unwrap()
+    ));
+    assert!(!protocol::is_aim_assist_rotation_action(&swing_arm_packet(
+        1,
+        SwingSource::ThrowItem
+    )));
+}

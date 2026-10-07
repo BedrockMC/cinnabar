@@ -347,6 +347,20 @@ pub struct VisionEffects {
     pub nausea: f32,
 }
 
+impl VisionEffects {
+    /// Applies the selected camera's player-state capability without resetting effect clocks.
+    pub fn for_camera(self, camera: &super::ServerCameraView) -> Self {
+        if camera.player_effects_enabled() {
+            self
+        } else {
+            Self {
+                nausea: self.nausea,
+                ..Self::default()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

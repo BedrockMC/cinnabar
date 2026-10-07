@@ -99,6 +99,9 @@ impl LocalPlayerFacts {
                 self.player_mode_from_default = false;
                 true
             }
+            GameModeUpdate::LegacyViewer => {
+                self.apply_game_mode_update(GameModeUpdate::Explicit(PlayerGameMode::Spectator))
+            }
             GameModeUpdate::WorldDefault => match self.world_default_game_mode {
                 Some(default) => {
                     self.player_game_mode = Some(default);
@@ -121,6 +124,9 @@ impl LocalPlayerFacts {
                 }
                 true
             }
+            GameModeUpdate::LegacyViewer => self.apply_default_game_mode_update(
+                GameModeUpdate::Explicit(PlayerGameMode::Spectator),
+            ),
             GameModeUpdate::WorldDefault | GameModeUpdate::Unknown(_) => false,
         }
     }

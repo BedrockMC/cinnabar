@@ -203,8 +203,22 @@ impl HudRules {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameModeUpdate {
     Explicit(crate::PlayerGameMode),
+    /// Legacy viewer modes share HUD capabilities but are not native spectators.
+    LegacyViewer,
     WorldDefault,
     Unknown(i32),
+}
+
+impl GameModeUpdate {
+    /// Resolves explicit HUD capabilities while preserving default and unknown sentinels.
+    #[must_use]
+    pub fn hud_mode(self) -> Option<crate::PlayerGameMode> {
+        match self {
+            Self::Explicit(mode) => Some(mode),
+            Self::LegacyViewer => Some(crate::PlayerGameMode::Spectator),
+            Self::WorldDefault | Self::Unknown(_) => None,
+        }
+    }
 }
 
 /// A runtime SetPlayerGameType / SetDefaultGameType change.

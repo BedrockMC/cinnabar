@@ -175,6 +175,13 @@ impl ChunkStore {
         Ok(true)
     }
 
+    /// Checks residency without acquiring a reference-counted section handle.
+    pub fn contains_sub_chunk(&self, key: SubChunkKey) -> bool {
+        self.chunks
+            .get(&key.chunk())
+            .is_some_and(|chunk| chunk.sub_chunks.contains_key(&key.y))
+    }
+
     /// Returns an `Arc` snapshot suitable for handing to a mesh worker.
     #[must_use]
     pub fn sub_chunk(&self, key: SubChunkKey) -> Option<Arc<SubChunk>> {

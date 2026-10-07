@@ -726,23 +726,6 @@ fn lang_catalog_resolves_rawtext_translation_and_item_names() {
     );
 }
 
-fn raw_text_event(json: &str) -> protocol::UiEvent {
-    protocol::UiEvent::RawText(protocol::RawTextEvent {
-        text: protocol::TextEvent {
-            category: protocol::TextCategory::MessageOnly,
-            kind: protocol::TextKind::Raw,
-            needs_translation: false,
-            source: None,
-            message: std::sync::Arc::from(""),
-            parameters: std::sync::Arc::from([]),
-            xuid: std::sync::Arc::from(""),
-            platform_chat_id: std::sync::Arc::from(""),
-            filtered_message: None,
-        },
-        document: protocol::parse_raw_text(json).unwrap(),
-    })
-}
-
 #[test]
 fn rawtext_scores_resolve_real_owners_and_selectors_use_known_state() {
     let mut player_runtime = player_state::PlayerState::new(1);

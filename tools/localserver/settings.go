@@ -18,7 +18,7 @@ const maxPlayers = 4 // one local player plus a reconnect overlapping its predec
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
-	primitiveShapes                        bool
+	primitiveShapes, cameraTest            bool
 	terrainFixture, terrainFixtureGenerate bool
 	terrainFixtureRadius                   int
 	dir, addr, name, gameMode, diff        string
@@ -46,6 +46,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.name, "name", "World", "world display name")
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
+	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
 	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")

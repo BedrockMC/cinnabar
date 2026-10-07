@@ -7,6 +7,7 @@ use sim::{
 };
 use thiserror::Error;
 
+mod aim_pose;
 mod controller_frame;
 mod correction;
 mod dimension_wait;
@@ -15,6 +16,7 @@ use controller_frame::ControllerFrame;
 mod eye;
 mod fixed_ticks;
 mod timeline;
+mod visual_correction;
 
 pub use timeline::ServerControlFlags;
 
@@ -215,6 +217,7 @@ pub struct LocalPhysicsController {
     state: Option<PlayerState>,
     previous_position: Vec3,
     eye_offset: eye::LocalEyeOffset,
+    visual_correction: visual_correction::VisualCorrection,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
     previous_jump_held: bool,
@@ -252,6 +255,7 @@ impl Default for LocalPhysicsController {
             state: None,
             previous_position: Vec3::ZERO,
             eye_offset: eye::LocalEyeOffset::default(),
+            visual_correction: visual_correction::VisualCorrection::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
             previous_jump_held: false,
@@ -301,6 +305,7 @@ impl LocalPhysicsController {
         self.prediction_sync.clear();
         self.state = None;
         self.eye_offset = eye::LocalEyeOffset::default();
+        self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
@@ -352,6 +357,7 @@ impl LocalPhysicsController {
         self.state = Some(state);
         self.previous_position = feet;
         self.eye_offset = eye::LocalEyeOffset::default();
+        self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
@@ -570,8 +576,10 @@ impl LocalPhysicsController {
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
+                    self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
+                        eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
                         fly_toggle: self.fly_toggle_pending,
@@ -590,7 +598,7 @@ impl LocalPhysicsController {
                     });
                     effects.commit_successful_tick();
                     self.previous_position = before;
-                    self.eye_offset.tick(input.mode, input.sneaking);
+                    self.visual_correction.tick();
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
                     frame.completed_ticks += 1;
@@ -735,7 +743,9 @@ impl LocalPhysicsController {
     pub fn render_feet_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
         let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
-        let feet = self.previous_position + (state.position - self.previous_position) * alpha;
+        let feet = self.previous_position
+            + (state.position - self.previous_position) * alpha
+            + self.visual_correction.offset(alpha as f32);
         Some([feet.x as f32, feet.y as f32, feet.z as f32])
     }
 

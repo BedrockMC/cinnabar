@@ -122,6 +122,7 @@ pub(crate) fn apply_camera_presentation(
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
     client_world: Option<Res<ClientWorld>>,
+    collisions: Option<Res<PhysicsCollisionRegistries>>,
     server: ResMut<ServerCameraView>,
     cameras: Query<(&mut Transform, Option<&mut Projection>), With<FlyCamera>>,
 ) {
@@ -137,6 +138,9 @@ pub(crate) fn apply_camera_presentation(
                 stream: world.stream.as_ref(),
             },
         ),
+        collisions
+            .as_deref()
+            .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
         server,
         cameras,
     );

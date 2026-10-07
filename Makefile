@@ -179,7 +179,7 @@ UPDATE_TRUSTED_KEYS ?=
 PKG_CORE_LDFLAGS = -s -w -X main.releaseVersion=$(PKG_VERSION) -X main.trustedUpdateKeys=$(UPDATE_TRUSTED_KEYS)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --bin bedrock-client --bin assetc
+	$(CARGO) build --release --locked -p bedrock-client -p asset-compiler --features bedrock-client/local-mods --bin bedrock-client --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
