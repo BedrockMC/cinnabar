@@ -2222,7 +2222,6 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
 
-<<<<<<< ours
 ## Experience player counts
 
 - `crates/client-ui/src/ui_runtime/presentation/forms/play_screen.rs`, `crates/launcher/src/menu/view.rs`,
@@ -2243,7 +2242,7 @@ Agent cross-reference index: for each file, the vanilla symbols and addresses it
 - Typed gophertunnel userstats batch: current 1.26.50.26 `src/__unmapped/01.cpp:970426` imports `XblUserStatisticsGetMultipleUserStatisticsForMultipleServiceConfigurationsAsync`; `00.cpp:1129438` builds the four-stat request for every configuration, `1192663` selects names, and `1192739` sums doubles across configurations.
 - Retail configuration order: `reference/26.30/src/__unmapped/03.cpp:27900-27971` initializes `BEDROCK_XBOXLIVE_ALL_SCIDS` as Kindle, Google, iOS, Xbox, Windows, Switch, Berwick. Installed release 1.26.50.04 binary strings corroborate the seven IDs; its bundled XboxServicesAPI framework identifies `XboxServicesAPI/2025.10.20251000.0`.
 - The batch wire schema and headers also match Microsoft's Xbox Live SDK `Source/Services/Stats/user_statistics_service.cpp` and `Source/Services/Common/http_call.cpp`; successful authenticated live requests were not captured.
-=======
+
 ## crates/protocol/src/ui/commands.rs
 - Command-name suggestions use substring matching, as shown by the vanilla command-completion recording attached to issue 220: https://github.com/user-attachments/assets/8fc14920-47a1-4b4e-a57a-99f31e84ef83. Current `CommandRegistry::autoComplete` owns command-name candidate selection.
 
@@ -2551,7 +2550,6 @@ was not used as version evidence.
 
 ## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
 - Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
->>>>>>> theirs
 
 ## Crosshair presentation preferences
 
@@ -2579,6 +2577,14 @@ was not used as version evidence.
 - `app/src/runtime/network/actor_publication.rs` and `crates/client-presentation/src/actor_publication/preparation.rs`: local tick admission precedes swing-counter publication; actor picking retains the actor interpolation boundary.
 - `crates/client-world/src/actor_animation/java/body.rs` and `local_motion.rs`: Java 1.7.10 `EntityLivingBase.onUpdate` calls `onLivingUpdate` before its swing-dependent facing choice and `func_110146_f`; `EntityPlayer.updateEntityActionState` updates arm swing progress during that living update.
 - Rules: `docs/reference/swing-duration.md`.
+
+## Desktop cursor focus ownership
+
+- `crates/client-presentation/src/camera/focus.rs`, `app/src/camera/focus.rs`, `app/src/camera/focus/native.rs`: `MinecraftGame::onAppFocusLost` releases held controls and cursor capture; `onAppFocusGained` checks the active screen before capture (R:MinecraftGame:102683–103207).
+- Focus-loss pause preference: R:GeneralSettingsFactoryAnon--b69a8d87dfcb:1789. Gameplay steals mouse outside touch input; ordinary screens do not (R:InGamePlayScreen:4997–5062; R:BaseScreen:823–830).
+- Cursor release clears logical capture and shows the pointer (R:MinecraftGame:124942–125235). macOS periodic centering requires captured state (R:__unmapped/00:1690783–1690824).
+
+- Version-matched Windows focus handlers: `current/1.26.50.26/src/__unmapped/00.cpp`: loss 1606419–1606753, gain 1606898–1607108; pause-screen dispatch 825180–825251 and 876546 onward; factory constructs `pause.pause_screen` at 1021123. Windows capture/release use hide/show, clip/unclip, and capture/release at 152158–152249. Focus-pause option is mapped in `__unmapped/04.cpp`:1635569–1635571.
 
 ## Held block placement (1.26.50)
 
