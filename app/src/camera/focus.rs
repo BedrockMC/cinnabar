@@ -35,6 +35,7 @@ fn track_focus(
     mut motion: ResMut<AccumulatedMouseMotion>,
     gamepads: Query<&Gamepad>,
     touches: Option<Res<Touches>>,
+    mut was_available: Local<bool>,
     #[cfg(windows)] _window_thread: bevy::ecs::system::NonSendMarker,
 ) {
     let (entity, window, mut cursor) = window.into_inner();
@@ -60,11 +61,13 @@ fn track_focus(
                 .iter()
                 .any(|pad| pad.get_just_pressed().next().is_some()),
     );
+    let available = focus.available();
+    let input_lost = std::mem::replace(&mut *was_available, available) && !available;
     if driven.is_some() {
         return;
     }
-    if !focus.available() {
-        if native_release_needed(&cursor, &buttons) {
+    if !available {
+        if native_release_needed(&cursor, &buttons, input_lost) {
             release_native_capture();
         }
         super::release_cursor(&mut cursor);
@@ -150,9 +153,13 @@ fn enforce_cursor_ownership(
     }
 }
 
-/// Clipping and held buttons can retain native mouse ownership after focus loss.
-fn native_release_needed(cursor: &CursorOptions, buttons: &ButtonInput<MouseButton>) -> bool {
-    cursor.grab_mode != CursorGrabMode::None || buttons.get_pressed().next().is_some()
+/// A focus transition releases native ownership even after UI consumed local input.
+fn native_release_needed(
+    cursor: &CursorOptions,
+    buttons: &ButtonInput<MouseButton>,
+    input_lost: bool,
+) -> bool {
+    input_lost || cursor.grab_mode != CursorGrabMode::None || buttons.get_pressed().next().is_some()
 }
 
 /// Windows retains clipping and button capture independently of keyboard focus.
