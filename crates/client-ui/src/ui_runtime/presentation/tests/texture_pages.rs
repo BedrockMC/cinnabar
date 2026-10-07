@@ -814,3 +814,28 @@ fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
         [render_model::UI_LOCAL_FONT_PAGE_SIDE; 2]
     );
 }
+
+#[test]
+fn multiple_coverage_families_use_their_actual_bytes_during_startup_admission() {
+    let family = (*independent_font(&[2048; 3]))
+        .clone()
+        .with_coverage_pages();
+    let font = family
+        .with_named_font("body", &family)
+        .unwrap()
+        .with_named_font("heading", &family)
+        .unwrap();
+    let presentation =
+        UiPresentationRuntime::with_hud(Arc::new(font), crate::test_support::fixture_hud())
+            .unwrap();
+    let plan = presentation.textures.plan();
+    assert!(plan.bytes() < render_model::MAX_UI_TEXTURE_BYTES);
+    assert!(plan.validate_device(4096, 256).is_ok());
+    for index in 0..9 {
+        let location = plan.locations()[index];
+        assert_eq!(
+            plan.buckets()[location.bucket].format,
+            render_model::UiTextureFormat::Coverage
+        );
+    }
+}

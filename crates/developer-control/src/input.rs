@@ -1,6 +1,6 @@
 //! Input commands reduced to held, released and tapped controls.
 
-use crate::protocol::{InputCommand, Look};
+use crate::protocol::{InputCommand, Look, Scroll};
 
 /// Hotbar slots reachable through `key.hotbar.N`.
 pub const HOTBAR_SLOTS: u8 = 9;
@@ -59,6 +59,8 @@ pub struct InputPlan {
     pub tap: Vec<Control>,
     pub tap_frames: u32,
     pub look: Option<Look>,
+    pub pointer: Option<[f32; 2]>,
+    pub scroll: Option<Scroll>,
     pub release_control: bool,
 }
 
@@ -74,6 +76,8 @@ impl InputPlan {
             tap: parse(&command.press)?,
             tap_frames: command.press_frames.unwrap_or(DEFAULT_PRESS_FRAMES).max(1),
             look: command.look,
+            pointer: command.pointer,
+            scroll: command.scroll.clone(),
             release_control: command.release_control,
         };
         if let Some(look) = &command.look
@@ -81,9 +85,21 @@ impl InputPlan {
         {
             return Err("look angles must be finite".into());
         }
+        if let Some(point) = command.pointer
+            && !point.iter().all(|coordinate| coordinate.is_finite())
+        {
+            return Err("pointer coordinates must be finite".into());
+        }
         if let Some(movement) = command.movement {
             plan.axis(movement.forward, "key.forward", "key.back")?;
             plan.axis(movement.strafe, "key.right", "key.left")?;
+        }
+        if command.scroll.as_ref().is_some_and(|scroll| {
+            ![scroll.x, scroll.y]
+                .iter()
+                .all(|value| value.is_finite() && value.abs() <= 4096.0)
+        }) {
+            return Err("scroll deltas must be finite and within 4096 units".into());
         }
         for (state, name) in [
             (command.jump, "key.jump"),
@@ -137,6 +153,27 @@ pub fn yaw_difference(from: f32, to: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::protocol::Move;
+
+    #[test]
+    fn wheel_commands_keep_units_and_reject_invalid_deltas() {
+        let command: InputCommand =
+            serde_json::from_str(r#"{"pointer":[50,60],"scroll":{"y":-2,"pixels":true}}"#).unwrap();
+        let plan = InputPlan::from_command(&command).unwrap();
+        assert_eq!(plan.scroll.as_ref().unwrap().y, -2.0);
+        assert!(plan.scroll.as_ref().unwrap().pixels);
+        for invalid in [f32::NAN, f32::INFINITY, 4097.0] {
+            assert!(
+                InputPlan::from_command(&InputCommand {
+                    scroll: Some(Scroll {
+                        y: invalid,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn controls_parse_by_kind() {
@@ -217,6 +254,23 @@ mod tests {
         })
         .unwrap();
         assert!(plan.release_all && plan.release_control);
+    }
+
+    #[test]
+    fn pointer_input_preserves_logical_coordinates_and_rejects_invalid_values() {
+        let plan = InputPlan::from_command(&InputCommand {
+            pointer: Some([125.5, 240.0]),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(plan.pointer, Some([125.5, 240.0]));
+        assert!(
+            InputPlan::from_command(&InputCommand {
+                pointer: Some([f32::NAN, 0.0]),
+                ..Default::default()
+            })
+            .is_err()
+        );
     }
 
     #[test]

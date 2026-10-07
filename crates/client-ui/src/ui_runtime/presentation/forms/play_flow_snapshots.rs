@@ -217,10 +217,10 @@ fn the_server_list_scrolls_under_the_wheel() {
         .collect();
     let runtime = UiRuntime::new(1);
     let dpi = DpiScale::new(1.0).unwrap();
-    let frame = |presentation: &mut super::super::UiPresentationRuntime| {
+    let frame = |presentation: &mut super::super::UiPresentationRuntime, millis| {
         presentation.set_menu_view(Some(view.clone()));
         let input = presentation
-            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .build(&player_runtime, &runtime, millis, [1280, 720], dpi)
             .unwrap();
         (presentation.menu_hit_targets.clone(), input)
     };
@@ -229,7 +229,7 @@ fn the_server_list_scrolls_under_the_wheel() {
             .find(|(action, _)| *action == MenuAction::SelectFeatured(index))
             .map(|(_, bounds)| *bounds)
     };
-    let (before, input) = frame(&mut presentation);
+    let (before, input) = frame(&mut presentation, 0);
     super::snapshot::write(&input, "flow-servers-top");
     assert!(
         row(&before, 19).is_none(),
@@ -238,7 +238,12 @@ fn the_server_list_scrolls_under_the_wheel() {
     let first = row(&before, 0).unwrap().min();
     let point = ui::UiPoint::new(first.x() + 4.0, first.y() + 4.0).unwrap();
     assert!(presentation.scroll_menu(point, -100.0, false));
-    let (after, input) = frame(&mut presentation);
+    let (start, _) = frame(&mut presentation, 0);
+    assert!(
+        row(&start, 19).is_none(),
+        "wheel input starts a transition instead of jumping"
+    );
+    let (after, input) = frame(&mut presentation, 200);
     super::snapshot::write(&input, "flow-servers-scrolled");
     assert!(row(&after, 19).is_some(), "the last row scrolled into view");
     assert!(row(&after, 0).is_none(), "the first row scrolled out");
@@ -364,8 +369,10 @@ fn snapshot_local_worlds() {
         ),
     ));
     menu.update(Input::BeginCreate);
+    menu.update(Input::SetBackend(Backend::Bds));
+    menu.update(Input::SubmitCreate);
     shot(&menu, "local-docker-missing");
-    menu.update(Input::Prompt(PromptButton::CreateFlat));
+    menu.update(Input::Prompt(PromptButton::UseDragonfly));
     shot(&menu, "local-create-flat-only");
 }
 

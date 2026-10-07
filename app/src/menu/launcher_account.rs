@@ -630,6 +630,7 @@ impl AccountControl for LauncherAccount {
                 .into_iter()
                 .map(|ping| {
                     let info = PingInfo {
+                        motd: ping.motd,
                         online: ping.online,
                         players: ping.players,
                         max_players: ping.max_players,
@@ -693,6 +694,7 @@ fn featured_card(server: &FeaturedServer) -> (MenuServerCard, ServerDetails) {
         icon: None,
     };
     let details = ServerDetails {
+        group: server.group.clone(),
         description: server.description.clone(),
         banner: server.background.path.clone(),
         news_title: server.news_title.clone(),

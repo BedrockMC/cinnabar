@@ -25,6 +25,8 @@ mod permissions;
 mod raw_text;
 mod respawn;
 mod settings;
+mod skin_change;
+pub use skin_change::{cape_content_id, player_skin_packet, set_skin_packet_uuid};
 mod socket_transport;
 pub mod store_control;
 mod transfer;
@@ -46,14 +48,15 @@ pub use actor::{
     ActorEffectEvent, ActorEvent, ActorInterpolation, ActorKind, ActorLinkEvent, ActorLinkType,
     ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
     ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET,
-    MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
-    MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES,
-    MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,
-    MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
-    MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES, MAX_STANDARD_SKIN_SIDE,
-    PlayerListEntry, PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, SkinAnimation,
-    SkinAnimationKind, SkinGeometrySource, SkinRgba8, StandardSkin, expand_legacy_skin_rgba8,
+    ActorStatusKind, ActorTakeItemEvent, CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage,
+    ITEM_ACTOR_NETWORK_OFFSET, MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES,
+    MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES,
+    MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES,
+    MAX_ACTOR_PROPERTIES, MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS,
+    MAX_PLAYER_LIST_SKIN_BYTES, MAX_SKIN_ANIMATION_LAYERS, MAX_SKIN_GEOMETRY_SOURCE_BYTES,
+    MAX_STANDARD_SKIN_SIDE, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
+    PlayerSkinUnavailable, SkinAnimation, SkinAnimationKind, SkinGeometrySource, SkinRgba8,
+    StandardSkin, expand_legacy_skin_rgba8, normalize_classic_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -152,7 +155,7 @@ pub use item::{
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use jolyne::GameData;
-pub use jolyne::stream::client::ClientSkin;
+pub use jolyne::stream::client::{ClientCape, ClientSkin};
 pub use jolyne::stream::{
     ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, ResourcePackIdentity,
     ResourcePackStore,

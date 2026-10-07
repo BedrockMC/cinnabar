@@ -2,6 +2,63 @@
 use super::{MenuAction, MenuRuntime, MenuScreen};
 
 #[test]
+fn settings_background_follows_the_world_or_launcher_below() {
+    let mut menu = MenuRuntime::new(true, 2, "Tester".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    assert!(
+        menu.uses_panorama(),
+        "launcher Settings keeps the title background"
+    );
+
+    menu.show_world();
+    menu.open_pause();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    assert!(menu.over_world());
+    assert!(
+        !menu.uses_panorama(),
+        "Settings opened from pause retains the live world background"
+    );
+    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let ui = client_ui::ui_runtime::UiRuntime::new(1);
+    let presentation = crate::ui_runtime::presentation::forms::tests::mini_engine_presentation();
+    assert!(crate::screen_policy::renders_game(
+        &player,
+        Some(&ui),
+        Some(&menu),
+        Some(&presentation)
+    ));
+    assert!(crate::screen_policy::absorbs_input(
+        &player,
+        Some(&ui),
+        Some(&menu),
+        Some(&presentation)
+    ));
+    assert!(crate::screen_policy::renders_game(
+        &player,
+        None,
+        Some(&menu),
+        None
+    ));
+    menu.go_back();
+    assert_eq!(menu.screen(), MenuScreen::Pause);
+    assert!(!menu.uses_panorama());
+
+    menu.show_world();
+    menu.open_death();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    assert!(
+        !menu.uses_panorama(),
+        "Settings above death retains the world"
+    );
+    menu.show_home();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    assert!(
+        menu.uses_panorama(),
+        "returning home restores the title background"
+    );
+}
+
+#[test]
 fn death_screen_opens_once_per_death_and_requests_respawn() {
     let mut menu = MenuRuntime::new(false, 2, "Steve".to_owned());
     menu.open_death();
@@ -54,6 +111,34 @@ fn server_draft_joins_the_separate_port_box() {
     menu.address.set_text("play.example");
     menu.port.clear();
     assert_eq!(menu.draft_endpoint(), "play.example");
+}
+
+#[test]
+fn add_server_focus_skips_disabled_actions_and_tracks_the_footer_order() {
+    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+    menu.activate(MenuAction::PlayAddServer);
+    assert_eq!(
+        menu.focus_actions(),
+        vec![
+            MenuAction::AddName,
+            MenuAction::AddAddress,
+            MenuAction::AddPort,
+            MenuAction::AddBack,
+        ]
+    );
+    menu.name.set_text("My server");
+    menu.address.set_text("example.test");
+    assert_eq!(
+        menu.focus_actions(),
+        vec![
+            MenuAction::AddName,
+            MenuAction::AddAddress,
+            MenuAction::AddPort,
+            MenuAction::AddBack,
+            MenuAction::AddSave,
+            MenuAction::AddSaveConnect,
+        ]
+    );
 }
 
 // A new device code opens the pre-filled sign-in page once; repeats of that code do not.

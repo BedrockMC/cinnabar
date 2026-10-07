@@ -29,8 +29,17 @@ pub struct Move {
     pub strafe: f32,
 }
 
-/// Synthetic input. Controls are vanilla binding names (`key.jump`, `key.hotbar.1`), Bevy
-/// key names as mods bind them (`Digit1`, `KeyF`, `F8`), or `MouseLeft`/`MouseRight`/...
+/// A wheel delta uses lines unless `pixels` selects window-logical pixels.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Scroll {
+    #[serde(default)]
+    pub x: f32,
+    pub y: f32,
+    #[serde(default)]
+    pub pixels: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputCommand {
@@ -50,6 +59,10 @@ pub struct InputCommand {
     /// Selects hotbar slot 1..=9 through its binding.
     pub hotbar: Option<u8>,
     pub look: Option<Look>,
+    /// Menu pointer position in window-logical pixels.
+    pub pointer: Option<[f32; 2]>,
+    /// One wheel delta, in lines by default or window-logical pixels.
+    pub scroll: Option<Scroll>,
     #[serde(default)]
     pub release_all: bool,
     /// Releases everything and hands the window back to the real keyboard and mouse.
@@ -110,6 +123,14 @@ pub enum Command {
     },
     Disconnect,
     Input(InputCommand),
+    /// Imports a classic PNG through the same path as the Dressing Room file picker.
+    ImportSkin {
+        path: PathBuf,
+    },
+    /// Imports a PNG cape through the same path as the Dressing Room file picker.
+    ImportCape {
+        path: PathBuf,
+    },
     /// A chat line, or a command when it starts with `/`.
     Chat {
         text: String,

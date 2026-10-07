@@ -59,6 +59,8 @@ pub fn definitions() -> Value {
                 "move": { "type": "object", "properties": { "forward": { "type": "number" }, "strafe": { "type": "number" } }, "description": "Sign of each axis holds key.forward/back and key.right/left; 0 releases" },
                 "jump": { "type": "boolean" }, "sneak": { "type": "boolean" }, "sprint": { "type": "boolean" },
                 "hotbar": { "type": "integer", "minimum": 1, "maximum": 9 },
+                "pointer": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Window-logical [x, y] for menu hover, clicks and captured drags; does not move the OS cursor." },
+                "scroll": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "pixels": { "type": "boolean" } }, "required": ["y"], "additionalProperties": false, "description": "One wheel delta in lines, or window-logical pixels when pixels is true. Positive y scrolls up." },
                 "look": { "type": "object", "properties": {
                     "yaw": { "type": "number" }, "pitch": { "type": "number" },
                     "relative": { "type": "boolean" }, "frames": { "type": "integer", "description": "Turn over this many frames (0 snaps)" }

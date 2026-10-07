@@ -12,13 +12,11 @@ use client_ui::ui_runtime::UiRuntime;
 
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
-fn frame(app: &mut App) -> UiRect {
+fn frame(app: &mut App, action: MenuAction) -> UiRect {
     let view = app.world().resource::<MenuRuntime>().view();
     app.world_mut()
         .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
             presentation.set_menu_view(Some(view));
-            // The pinned video section places this slider below its other controls.
-            // Scroll its native pane into view before interacting with real hit regions.
             let pane = UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap();
             for _ in 0..32 {
                 presentation
@@ -30,15 +28,17 @@ fn frame(app: &mut App) -> UiRect {
                         DpiScale::new(1.0).unwrap(),
                     )
                     .unwrap();
-                if let Some(track) = presentation.gui_scale_slider_track() {
-                    return track;
-                }
-                assert!(
-                    presentation.scroll_menu(pane, -20.0, false),
-                    "the native video pane takes scrolling"
+                assert_eq!(presentation.gui_scale_slider_track(), None);
+                assert_eq!(
+                    presentation.gui_scale_drag_action(UiPoint::new(0.0, 0.0).unwrap()),
+                    None
                 );
+                if let Some(bounds) = presentation.menu_action_bounds(action) {
+                    return bounds;
+                }
+                assert!(presentation.scroll_menu(pane, -20.0, false));
             }
-            panic!("the native video slider enters the viewport after scrolling");
+            panic!("the native GUI-scale option enters the viewport after scrolling");
         })
 }
 
@@ -54,63 +54,24 @@ fn pointer(app: &mut App, window: Entity, position: Vec2, event: Option<ButtonSt
             state,
             window,
         });
-        if state == ButtonState::Pressed {
-            app.world_mut()
-                .resource_mut::<ButtonInput<MouseButton>>()
-                .press(MouseButton::Left);
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        match state {
+            ButtonState::Pressed => buttons.press(MouseButton::Left),
+            ButtonState::Released => buttons.release(MouseButton::Left),
         }
     }
     app.update();
 }
 
-fn relayout(app: &mut App) {
-    let view = app.world().resource::<MenuRuntime>().view();
-    app.world_mut()
-        .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
-            presentation.set_menu_view(Some(view));
-            let first = presentation
-                .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
-                    &UiRuntime::new(1),
-                    0,
-                    PHYSICAL,
-                    DpiScale::new(1.0).unwrap(),
-                )
-                .unwrap();
-            let left = UiPoint::new(0.0, 0.0).unwrap();
-            let action = presentation.gui_scale_drag_action(left);
-            let repeated = presentation
-                .build(
-                    world.resource::<crate::player_runtime::PlayerRuntime>(),
-                    &UiRuntime::new(1),
-                    0,
-                    PHYSICAL,
-                    DpiScale::new(1.0).unwrap(),
-                )
-                .unwrap();
-            assert_eq!(
-                first.revision, repeated.revision,
-                "the steady menu reuses its output"
-            );
-            assert_eq!(action, Some(MenuAction::SettingsScale(-2)));
-            assert_eq!(
-                presentation.gui_scale_drag_action(left),
-                action,
-                "cached menu output keeps the current unclipped drag geometry"
-            );
-        })
-}
-
 #[test]
-fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
+fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
     let Some(presentation) = engine_presentation() else {
         eprintln!(
-            "skipping gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases: fixture unavailable; requires installed local carriers (make assets)"
+            "skipping native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices: missing installed local carriers (make assets)"
         );
         return;
     };
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
-    menu.activate(MenuAction::SettingsScale(0));
     menu.set_gui_scale_preference(None);
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let mut app = App::new();
@@ -138,84 +99,69 @@ fn gui_scale_drag_keeps_capture_through_relayout_clamps_ends_and_releases() {
         ))
         .id();
     app.update();
-    let track = frame(&mut app);
-    let middle = Vec2::new(
-        (track.min().x() + track.max().x()) / 2.0,
-        (track.min().y() + track.max().y()) / 2.0,
+    let bounds = frame(&mut app, MenuAction::SettingsScale(-1));
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .refresh_settings_focus([MenuAction::SettingsScale(0)]);
+    let centre = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
     );
-
-    pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Pressed));
-    pointer(&mut app, window, middle, None);
-    assert_eq!(
-        app.world().resource::<MenuRuntime>().gui_scale_offset(),
-        0,
-        "a press outside the slider does not capture it"
-    );
-    pointer(&mut app, window, middle, Some(ButtonState::Released));
-    pointer(&mut app, window, middle, Some(ButtonState::Pressed));
+    pointer(&mut app, window, centre, Some(ButtonState::Pressed));
+    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), 0);
+    pointer(&mut app, window, centre, Some(ButtonState::Released));
     assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
-    assert!(
-        !app.world()
-            .resource::<ButtonInput<MouseButton>>()
-            .pressed(MouseButton::Left),
-        "menu consumption clears Bevy input while raw-button capture remains held"
-    );
-
-    // The slider may move or become clipped after relayout. Capture still
-    // follows its current full geometry, without scrolling it back into view.
-    relayout(&mut app);
-    pointer(&mut app, window, Vec2::ZERO, None);
     assert_eq!(
-        app.world().resource::<MenuRuntime>().gui_scale_offset(),
-        -2,
-        "dragging beyond the left end clamps to its native value despite leaving the slider vertically"
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .gui_scale_preference(),
+        Some(3)
     );
-    relayout(&mut app);
-    pointer(
-        &mut app,
-        window,
-        Vec2::new(PHYSICAL[0] as f32 - 1.0, PHYSICAL[1] as f32 - 1.0),
-        None,
+    let bounds = frame(&mut app, MenuAction::SettingsScale(-1));
+    let centre = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
     );
+    pointer(&mut app, window, centre, Some(ButtonState::Pressed));
+    let inert = Vec2::new(PHYSICAL[0] as f32 * 0.75, 1.0);
     assert_eq!(
-        app.world().resource::<MenuRuntime>().gui_scale_offset(),
-        0,
-        "capture follows the new layout and clamps beyond the right end"
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .hit_test_menu(UiPoint::new(inert.x, inert.y).unwrap()),
+        None
     );
-
-    pointer(&mut app, window, middle, Some(ButtonState::Released));
-    let track = frame(&mut app);
-    pointer(
-        &mut app,
-        window,
-        Vec2::new(track.min().x(), (track.min().y() + track.max().y()) / 2.0),
-        None,
-    );
-    assert_eq!(
-        app.world().resource::<MenuRuntime>().gui_scale_offset(),
-        0,
-        "release ends capture before subsequent pointer movement"
-    );
-
-    use crate::server_experiences::input::{ConsentInput, consume};
-    app.insert_resource(ConsentInput(false))
-        .add_systems(Update, consume.before(drive_menu_input));
-    let track = frame(&mut app);
-    let middle = Vec2::new(
-        (track.min().x() + track.max().x()) / 2.0,
-        (track.min().y() + track.max().y()) / 2.0,
-    );
-    pointer(&mut app, window, middle, Some(ButtonState::Pressed));
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
-    relayout(&mut app);
-    app.world_mut().resource_mut::<ConsentInput>().0 = true;
-    pointer(&mut app, window, Vec2::ZERO, Some(ButtonState::Pressed));
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
-    app.world_mut().resource_mut::<ConsentInput>().0 = false;
-    pointer(&mut app, window, Vec2::ZERO, None);
+    pointer(&mut app, window, inert, None);
     assert_eq!(
         app.world().resource::<MenuRuntime>().gui_scale_offset(),
         -1,
-        "consent cancels retained slider capture and consumes its dismissal click"
+        "holding the pointer across relayout does not capture option buttons"
+    );
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().focused_action,
+        Some(MenuAction::SettingsScale(-1))
+    );
+    assert!(
+        !app.world()
+            .resource::<MenuRuntime>()
+            .view()
+            .navigation_focus_visible
+    );
+    pointer(&mut app, window, inert, Some(ButtonState::Released));
+    let bounds = frame(&mut app, MenuAction::SettingsScale(0));
+    let centre = Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    );
+    pointer(&mut app, window, centre, None);
+    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
+    pointer(&mut app, window, centre, Some(ButtonState::Pressed));
+    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
+    pointer(&mut app, window, centre, Some(ButtonState::Released));
+    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), 0);
+    assert_eq!(
+        app.world()
+            .resource::<UiPresentationRuntime>()
+            .gui_scale_preference(),
+        Some(4)
     );
 }

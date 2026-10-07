@@ -1,3 +1,198 @@
+## OreUI Unicode fallback
+
+- Native language labels and server MOTDs use installed locale-specific Noto fallback fonts.
+  Primary Latin glyphs keep their metrics; mixed runs retain each face's sampling and em scale.
+  Language labels are warmed from the installed pack. Additional characters compile off-thread
+  into shared, bounded pages; locale changes invalidate the fallback and unchanged inputs reuse it.
+- Missing Japanese text reproduced before the fix. Regression and rendered checks are in progress.
+  Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+
+## OreUI Dark Mode
+
+- Local and uncommitted: Video → View customization → Dark Mode is persistent, defaults off and
+  updates immediately. Shared roles provide dark neutral faces and readable text while retaining
+  the primary/destructive accents and full-color art. Dark Mode dims menu and dimension backdrops
+  further through the existing overlay fade. Quit uses the shared OreUI confirmation, exclusive
+  input targets and optional entrance/exit motion; Accounts inherits the same appearance/motion.
+- Palette, persistence, reset, immediate switching, retained loading appearance, stronger backdrop
+  and Quit input regressions pass. The rebuilt native macOS/Metal review is in progress.
+- This is an owner-requested visual extension. Version-matched vanilla parity and measured
+  performance gates remain open; work is uncommitted and unpushed.
+
+## Local world backend and generator follow-up
+
+- Local and uncommitted: Advanced separates Backend (Dragonfly by default, or BDS) from World
+  generator (Normal (Vanilla), or Flat). Both choices persist independently. Selecting unavailable
+  BDS shows the detected runtime warning; submitting offers Docker setup/retry or Dragonfly while
+  retaining the generator, name and seed. Create new world also works from the template screen.
+- Dragonfly Normal uses the owner-requested `bedrock-mc/vanilla-gen` dependency, pinned in the local
+  server module. The saved signed seed reaches its Overworld, Nether and End generators. A new world
+  uses the generator's spawn; reopening preserves the saved spawn and existing chunks.
+- Template navigation, default backend, independent choices and the former Dragonfly Normal
+  rejection reproduced in focused regressions. Launcher local-world tests, 214 OreUI tests, the
+  core packages and local-server packages pass, including actual terrain generation and saved-world
+  reopening. Module verification and the touched-crate check pass. Visible-client review is in progress.
+- Incomplete parity: this explicitly requested generator targets Java-style generation; matching
+  Bedrock terrain, structures and mob behavior remain unverified. The UI reference is near-version.
+  No native terrain, UI or performance gate closes. Work remains uncommitted and unpushed.
+
+## OreUI Create New World follow-up
+
+- Local and in progress: the create/edit form uses solid native panels, the installed 16:9
+  preview, flat sidebar categories and runtime category icons. General/Advanced controls share
+  Settings' raised choices: selected green and lowered, unselected light with dark text. World
+  fields inherit their native panel surface. Sidebar and each form tab scroll independently;
+  keyboard focus reveals obscured controls. Category motion retains the surrounding screen.
+- Unsupported categories, Hardcore and Create on Realms remain disabled. The quieter Realms
+  action follows the owner's commerce preference. No settings are presented as working unless
+  the world backend applies them.
+- Missing selected input targets/green choices and transparent enclosing panels reproduced in
+  focused regressions. The owner's rendered frame exposed a retained draw-order error hiding
+  the form controls; a final-mesh regression reproduces it. Backgrounds now receive earlier
+  node IDs and resize after content measurement. The regression fails with the previous draw
+  order and passes with the fix. The canonical build passes and the visible macOS/Metal client
+  was restarted at the owner's request. Corrected form capture and broader checks remain open;
+  changes are local and uncommitted.
+- Incomplete parity: reference bundle is near-version; responsive choice dropdowns, additional
+  category settings, Hardcore and Realm creation remain open. No native parity gate closes.
+
+## OreUI Inbox follow-up
+
+- Local and uncommitted: Inbox replaces generic category rows with the shared native neutral80
+  sidebar faces, runtime icons and 200 ms glimmers. Highlights keep drawing through pointer exit.
+  A bordered, illustrated empty-message card replaces the floating label. Category changes animate
+  only the message pane; message views, maintenance and deletion use the shared quick transitions.
+  Screen animations disables all new motion. Sidebar/content scroll independently on small screens.
+- Missing hover-release rendering and absent category content entrances reproduced in focused
+  regressions. All 206 OreUI tests, seven Inbox domain tests, two app focus tests, the touched-crate
+  check and canonical visible client build pass. The owner accepted the restarted client's Inbox.
+- Incomplete parity: the installed reference is near-version. Invite preference toggles,
+  subscriber-specific upsells and rich message templates remain separate work; quiet empty-commerce
+  cards follow the owner's design preference. No native parity or performance gate closes.
+
+## OreUI home redesign
+
+- Local and uncommitted: the owner-requested home layout places the shipped logo above Play and
+  interactive character panels. Servers/Settings are secondary; Realms and Marketplace use quiet
+  text actions without promotional artwork. Compact utility buttons replace the broad footer bar.
+  App, Minecraft and protocol versions read their shared sources. Compact windows retain Dressing
+  Room access and scrollable actions.
+- The prior Home route did not own an OreUI presentation, reproduced by a focused action/focus
+  regression. All 185 OreUI tests and four account tests pass, including shared logo placement,
+  version labels, compact action access, quiet commerce routes and saved profile artwork.
+  The touched-crate check and canonical live build pass. The visible macOS/Metal client was
+  restarted and its 1280×720 home layout inspected: shared title, aligned cards, compact utility
+  buttons and version text render without overlap or clipping.
+- The owner accepted the rendered Home layout. This authorized custom layout does not close a native parity gate.
+
+## OreUI field and Play tab polish
+
+- Local and uncommitted: fields honor the shared caret blink and suppress the caret during
+  selection. Newly inserted characters briefly reveal in 75 ms using the final cached text layout;
+  the caret eases between edit positions while pointer/navigation placement remains immediate.
+  Screen animations disables the custom typing motion.
+- Play uses installed Worlds/Realms/Servers icons and native border-image faces. Its selected icon
+  uses the shared 200 ms glimmer, disabled by Screen animations, without replaying on unchanged
+  selection. Click targets stay fixed during depression.
+- The prior always-visible caret and missing native Play icons reproduced in focused regressions.
+  All 195 OreUI tests, the touched-crate check and canonical live build passed. The visible
+  macOS/Metal client was restarted, and native Play faces/icons were inspected. The owner accepted
+  these changes; the installed near-version witness does not close a matching-version parity gate.
+
+## OreUI motion follow-up
+
+- Local and uncommitted: owner-requested animation polish adds independent segmented selection,
+  continuous switch travel, radio selection easing, faster icon glimmers, dialog exits and
+  background dimming. Selected options stay lowered, and settings-tab presses keep the selected
+  brightness. World tab changes animate only their content; joining stages retain their surrounding
+  artwork and do not replay for download updates. Clouds has a localized label and description.
+  Input stays immediate and click targets remain fixed. The persisted Video → Screen animations
+  option disables all new motion and the retained OreUI control timelines.
+- Focused checks pass: 179 OreUI tests, including continuous reversals, disabled motion, independent
+  selections, stable hit targets, dialog clipping and page continuity. The earlier 24 UI model tests
+  cover shared mesh topology; the latest touched-crate check passes.
+- The canonical developer-control client build passes; the latest visible client was restarted
+  on macOS with the Apple M3 Pro Metal renderer. Changes remain uncommitted and unpushed.
+- Incomplete rendered acceptance: the owner requested the visible macOS/Metal client for live
+  review. This is an authorized custom visual extension; no native parity or performance gate closes.
+
+## OreUI menu follow-up
+
+- Local and uncommitted: Add / edit server uses an OreUI modal with scrollable fields,
+  corner dismissal and fixed Save and Save & join actions. Pause uses one full-world dimming layer, an action panel,
+  a fitted interactive character card and direct Dressing Room access. Join and terrain loading
+  use a shared OreUI progress card while retaining stage, cancellation, pack download amounts,
+  dimension backdrop and server artwork behavior.
+- The owner requested silent interface clicks, overriding the earlier tab-sound parity request.
+  Interface requests filter the click definition; other interface and gameplay sound paths remain.
+- The slim-body cape marker placed the separate cape model in front of the torso. Cape poses now
+  retarget animated offsets from the skin's rest marker onto the cape's own shoulder attachment,
+  preserving parent transforms and movement flutter. Slim attachment and installed geometry
+  regression reproduced the issue. Focused checks pass: 140 OreUI tests, nine cape tests,
+  nine app menu-flow tests, the silent-click test and loading subtree ownership test.
+  The developer-control client build passed and the visible macOS/Metal client was relaunched
+  from the canonical executable for the owner's live review. Changes remain uncommitted.
+- Rendered acceptance is incomplete. The owner tests the visible macOS/Metal client using ordinary
+  input; no automated GUI driving or headless visual run. Keep these changes local until that pass.
+- Owner review follow-up, local: server drafts use a corner X and visibly centered field text.
+  Pause resolves the current account name and server-pack logo, with actions below the caption.
+  Loading uses one centered logo/status group, the installed cube animation for unknown progress,
+  actual download fractions and scrollable long status text. Focused verification passes:
+  147 OreUI tests, the authored title-path regression and three loading texture checks.
+  Two optional server-fixture checks skipped. The canonical developer-control client build
+  passed and the visible macOS/Metal client was relaunched for review. The updated layouts
+  remain local and uncommitted until the owner's live rendered review.
+- Local spacing follow-up: Pause moves its heading, caption and actions to the bottom inset,
+  aligned with the character card's action, and adds a small logo top inset. Shared text fields
+  use an even border instead of the heavier recessed top edge. Both issues reproduced in
+  regressions; all 15 route tests and the canonical client build pass. The visible macOS/Metal
+  client was relaunched for owner review. Changes remain local and uncommitted.
+- Further owner-requested spacing: desktop Pause panels have slightly more top and bottom
+  padding while retaining aligned actions. The canonical build passes and the visible client
+  was restarted for immediate owner review. This styling change remains local and uncommitted.
+- Local loading follow-up: terrain backdrops retain pack textures beneath a dark tint; dimension
+  travel adds a static portal badge. Both cards use a neutral edge and shadow. Connecting keeps
+  its existing treatment and loader; Pause loses the decorative green stripe above the logo.
+  All 152 OreUI checks and three loading texture checks pass; two optional pack checks skip.
+  The app integration test was interrupted at the owner's request to relaunch immediately.
+  The canonical developer-control build passes and the visible macOS/Metal client was restarted.
+  Rendered review remains open; changes are local and uncommitted.
+- Dimension travel follow-up, local: the destination heading distinguishes Overworld, Nether
+  and End using the active dimension state. Installed grass-block and portal artwork replaces
+  the drawn badge; charcoal shading replaces the purple wash. Terrain's grey treatment stays.
+  All 154 OreUI checks, destination-label checks and the installed-art check pass; an optional
+  server-pack snapshot skips. The canonical developer-control build passes and the visible
+  macOS/Metal client was restarted. Live rendered review of these destination variants remains
+  open; changes are uncommitted and unpushed.
+- Local dimension-art follow-up: the owner's Overworld, Nether and End scenes are private runtime
+  artwork, selected by destination and cropped to fill the viewport beneath a subtle dark tint.
+  Netherrack and End-stone block icons replace the portal pictures; the native grass block stays.
+  All 156 OreUI checks, full-resolution/invalid-art handling and destination-label checks pass;
+  an optional server-pack snapshot skips. Terrain retains the approved grey treatment. The new
+  backgrounds remain outside git. The canonical developer-control build passes and the client
+  was restarted for live macOS/Metal review. Rendered acceptance remains open; code is uncommitted.
+- Owner tint adjustment: all three destination backdrops now have a substantially stronger dark
+  overlay. The background coverage check and canonical client build pass; the visible macOS/Metal
+  client was restarted. This styling adjustment remains local and uncommitted for owner review.
+
+## Dressing Room and menu character interaction
+
+- Implemented, local and uncommitted: an owner-approved OreUI wardrobe replaces Dressing Room's
+  Profile route. Steve/Alex, imported skins and independent cape selection persist, including
+  classic/slim models and imported item rename/removal. Official Java cape PNGs stay in the
+  private runtime cache; downloads do not block skin selection. Preview framing, idle arms,
+  reversed drag and pointer head tracking have focused regressions. Targeted checks and the
+  client build pass. Fresh macOS Metal renders at 2048×1152 and Retina 2560×1440 verify framing,
+  captions, cape artwork, dialogs and keyboard focus. Live checks cover imports, rename/removal,
+  failed-save recovery, restart persistence, Home/Pause interaction and a third-person cape.
+- Local follow-up: the rotation hint centres visible glyphs with more breathing room and a soft
+  divider; pending skin changes preserve the import button's appearance. Focused regressions
+  pass. The owner requested the visible client for the rendered check; that review remains open.
+- Incomplete native parity: the preview's drag sensitivity is provisional. Capture ownership,
+  retained rotation, pointer head tracking and authored Home/Pause orientation are identified;
+  the exact numeric drag gain still needs a version-matched witness. This does not close the
+  broader menu preview parity gate.
+
 ## Compatibility landing
 
 - The owner accepted the final live macOS Metal build and authorized landing the
@@ -75,6 +270,33 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## OreUI Settings
+
+- Global Resources is an owner-requested design exception using expandable OreUI pack cards,
+  imported thumbnails, priority actions and a native variant picker. Vanilla Textures is always
+  the immutable base of the displayed stack. Apply tracks staged edits against the acknowledged
+  running stack; finished work clears its transient status. Rendered verification is pending.
+- Controller uses its native category image; category selection plays the 500ms highlight.
+  Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
+  detail-row top/bottom edges now retain their native state roles and group boundaries.
+  The integrated Settings regressions and installed-font tests pass. The visible macOS client
+  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
+- Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
+  switches, filled sliders, inline choices, and independent panel scrollbars.
+- Shared launcher options, key remapping, language, accounts, packs and storage retain their
+  existing actions. Keyboard focus includes rows below the viewport and reveals them; resize
+  clamps scroll positions before painting. Always Sprint and VSync remain user extensions.
+- Regression tests reproduce legacy routing and unreachable offscreen focus. Rendered macOS
+  acceptance is pending; this does not close the Settings parity gate.
+- Incomplete: native options without a host model, controller binding glyphs, account management
+  actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
+  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
+  kerning, CPU distance-field rasterization, coverage shading, control states and
+  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
+  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  acceptance remains open. Reference facts are tracked in
+  [OreUI](docs/oreui.md).
 
 ## Distant grass sides
 
@@ -5947,6 +6169,16 @@ all task background processes, skipping the remaining verification and pushing
 directly to remote dev; the affected gate and new unit regressions were not run.
 Native hat geometry, other block-entity materials and full version-matched
 rendering parity remain open gates.
+
+## Servers catalogue and classic OreUI view
+
+The classic Servers feed now retains ranked featured and creator groups, localized descriptions,
+tagged logos/banners/activity artwork and real pong MOTDs. The detail pane renders its populated
+sections with independent scrolling and quick optional selection/glimmer motion. Regression
+checks cover grouping, rank zero, image roles, selection across catalogue reorder, detail content
+and bounded artwork packing. Integrated visible macOS review is in progress. Version-matched
+native acceptance, narrow metadata layout, full-capacity badges and server notification panels
+remain incomplete; this work does not close those parity gates.
 
 ## Freelook extension
 

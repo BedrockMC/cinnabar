@@ -211,6 +211,8 @@ impl MenuRuntime {
                     A::Create,
                     A::Tab(Tab::General),
                     A::SeedField,
+                    A::Backend(protocol::world_control::Backend::Dragonfly),
+                    A::Backend(protocol::world_control::Backend::Bds),
                     A::Flat(false),
                     A::Flat(true),
                 ]),

@@ -181,6 +181,12 @@ impl WorldStream {
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
         self.authority.sync_local_player_pose(feed)
     }
+
+    /// Publishes a client-selected appearance against the retained local player profile.
+    pub fn update_local_player_skin(&mut self, profile: &client_world::PlayerProfile) -> bool {
+        self.authority
+            .update_local_player_skin(profile.skin.clone())
+    }
     /// Starts the local player's arm swing, which the server never echoes back to its owner.
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.
     pub fn start_local_player_swing(&mut self, ticks: i32) {

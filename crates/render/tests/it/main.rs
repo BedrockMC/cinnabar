@@ -47,6 +47,7 @@ mod liquid_shader;
 mod material_variations;
 mod mod_render;
 mod native_sky;
+mod oreui_font;
 mod plugin;
 mod portal_overlay;
 mod present_mode_policy;

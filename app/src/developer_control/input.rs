@@ -8,7 +8,7 @@ use bevy::{
     input::{
         ButtonState, InputSystems,
         keyboard::{Key, KeyboardFocusLost, KeyboardInput, NativeKey},
-        mouse::MouseButtonInput,
+        mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel},
     },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowFocused},
@@ -78,6 +78,29 @@ pub(super) fn apply(world: &mut World, command: &InputCommand) -> Result<Value, 
         resolve(&plan.hold)?,
         resolve(&plan.tap)?,
     );
+    if let Some(point) = plan.pointer {
+        let mut windows = world.query_filtered::<&mut Window, With<PrimaryWindow>>();
+        let mut window = windows
+            .single_mut(world)
+            .map_err(|_| "primary window unavailable")?;
+        window.set_cursor_position(Some(Vec2::from_array(point)));
+    }
+    if let Some(scroll) = &plan.scroll {
+        let mut windows = world.query_filtered::<Entity, With<PrimaryWindow>>();
+        let window = windows
+            .single(world)
+            .map_err(|_| "primary window unavailable")?;
+        world.write_message(MouseWheel {
+            window,
+            x: scroll.x,
+            y: scroll.y,
+            unit: if scroll.pixels {
+                MouseScrollUnit::Pixel
+            } else {
+                MouseScrollUnit::Line
+            },
+        });
+    }
     let mut driver = world.resource_mut::<Driver>();
     if plan.release_all {
         let held: Vec<_> = driver.held.iter().map(|(physical, _)| *physical).collect();

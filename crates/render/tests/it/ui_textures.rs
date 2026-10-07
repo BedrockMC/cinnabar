@@ -28,8 +28,10 @@ fn planner_checks_entire_catalog_and_all_limits() {
     assert!(UiTexturePlan::new(&[[u32::MAX, u32::MAX]]).is_err());
     assert!(UiTexturePlan::new(&[[0, 256]]).is_err());
     assert!(UiTexturePlan::new(&vec![[1, 1]; 257]).is_err());
-    let nine_dimensions = (1..=9).map(|n| [n, n]).collect::<Vec<_>>();
-    assert!(UiTexturePlan::new(&nine_dimensions).is_err());
+    let distinct_dimensions = (1..=render_model::MAX_UI_TEXTURE_LAYERS)
+        .map(|n| [n, 1])
+        .collect::<Vec<_>>();
+    assert!(UiTexturePlan::new(&distinct_dimensions).is_ok());
     assert!(UiTexturePage::owned([1, 1], vec![0; 3].into()).is_err());
     assert!(UiTexturePage::owned([4097, 1], vec![0; 4].into()).is_err());
     assert!(UiTextureCatalog::new(Vec::new(), 0).is_err());
