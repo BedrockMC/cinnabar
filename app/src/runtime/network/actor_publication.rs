@@ -118,11 +118,11 @@ pub(crate) fn prepare_actor_render_frame(
             .selected_stack()
             .map(|stack| stack.stack_network_id)
             .filter(|id| *id > 0);
-        feed.java_swing_ticks = effects
+        let mining_effects = effects
             .as_deref()
-            .map_or(client_world::ACTOR_SWING_TICKS, |effects| {
-                crate::melee::swing_duration(effects.mining_effects())
-            });
+            .map_or_else(Default::default, |effects| effects.mining_effects());
+        feed.bedrock_swing_ticks = gameplay::melee::swing_duration(mining_effects);
+        feed.java_swing_ticks = gameplay::melee::java_swing_duration(mining_effects);
     }
     let input = ActorFrameInput {
         local_feed,
@@ -130,10 +130,19 @@ pub(crate) fn prepare_actor_render_frame(
         predicted_feet: physics.render_feet_position(),
         local_equipment,
         // Consume only while a stream exists, as the prior publisher did.
-        swing_started: stream.and_then(|_| {
-            swings
-                .as_deref_mut()
-                .and_then(crate::melee::SwingTracker::take_started)
+        swing_progress: stream.and_then(|_| {
+            let movement = movement.as_deref()?;
+            let swings = swings.as_deref_mut()?;
+            if let Some(effects) = effects.as_deref() {
+                swings.sync_ticks(
+                    movement.interaction_authority_identity(),
+                    movement.completed_tick(),
+                    effects,
+                );
+            }
+            let mut progress = swings.published_progress(movement.completed_tick());
+            progress.frame_alpha = Some(physics.tick_alpha());
+            Some(progress)
         }),
         renders_game: crate::screen_policy::renders_game(
             &player,

@@ -59,7 +59,7 @@ pub struct ActorFrameInput {
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
     pub local_equipment: crate::presentation::equipment::ActorEquipmentInput,
-    pub swing_started: Option<i32>,
+    pub swing_progress: Option<client_world::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
     pub custom_emote: Option<(client_world::CustomEmote, f64)>,
@@ -374,8 +374,8 @@ pub fn prepare_actor_render_frame(
             stream.sync_local_player_pose(feed);
         }
         // Attacks, mining and use swing the local arm at once; the server echoes no swing.
-        if let Some(ticks) = input.swing_started {
-            stream.start_local_player_swing(ticks);
+        if let Some(progress) = input.swing_progress {
+            stream.sync_local_swing(progress);
         }
         stream.set_actor_camera_rotation(actor_camera_rotation(view.camera_rotation()));
         if let Ok((transform, _)) = camera.single() {
@@ -591,7 +591,12 @@ pub fn prepare_actor_render_frame(
                     equip: 1.0,
                     consume: None,
                 },
-                |rig| hand_progress(rig.hand, consume_ticks, step.partial_tick),
+                |rig| {
+                    let mut hand = hand_progress(rig.hand, consume_ticks, step.partial_tick);
+                    let alpha = rig.java.local_swing_alpha.unwrap_or(step.partial_tick);
+                    hand.swing = hand_progress(rig.hand, None, alpha).swing;
+                    hand
+                },
             );
             hand::vanilla_hand_source(
                 hand::HandInputs {

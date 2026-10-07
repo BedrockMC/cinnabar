@@ -186,8 +186,14 @@ impl AttachablesRuntime {
                 .main_hand
                 .get_or_insert_with(|| Arc::from(identifier));
         }
-        let item =
+        let mut item =
             owner_rig.item_animation[0].interpolate(owner_rig.item_animation[1], frame_alpha);
+        item.attack_time = owner_rig.item_animation[0]
+            .interpolate(
+                owner_rig.item_animation[1],
+                owner_rig.java.local_swing_alpha.unwrap_or(frame_alpha),
+            )
+            .attack_time;
         let offhand = owner_rig.off_hand_animation[0]
             .interpolate(owner_rig.off_hand_animation[1], frame_alpha);
         state.history.clear();

@@ -143,6 +143,11 @@ impl WorldAuthority {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
+    /// Uses committed local swing samples without re-admitting them on the remote actor clock.
+    pub fn sync_local_swing(&mut self, progress: crate::LocalSwingProgress) {
+        self.actors
+            .sync_local_swing(self.local_player_runtime_id, progress);
+    }
     /// Drops the local player's Java equip progress to zero at its next tick.
     pub fn reset_local_java_equip(&mut self) {
         self.actors.reset_java_equip(self.local_player_runtime_id);

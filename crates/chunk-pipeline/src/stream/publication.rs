@@ -198,6 +198,10 @@ impl WorldStream {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
     }
+    /// Uses committed local swing samples without re-admitting them on the remote actor clock.
+    pub fn sync_local_swing(&mut self, progress: client_world::LocalSwingProgress) {
+        self.authority.sync_local_swing(progress);
+    }
     /// Drops the local player's Java equip progress to zero, as a block placement does.
     pub fn reset_local_java_equip(&mut self) {
         self.authority.reset_local_java_equip()

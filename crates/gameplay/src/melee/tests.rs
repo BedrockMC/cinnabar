@@ -221,7 +221,8 @@ fn a_new_swing_waits_for_half_the_current_one() {
     assert_eq!(swings.take_started(), None);
     assert!(!swings.try_swing(10, 6));
     assert!(!swings.try_swing(12, 6));
-    assert!(swings.try_swing(13, 6));
+    assert!(!swings.try_swing(13, 6));
+    assert!(swings.try_swing(14, 6));
     // Reanchored tick numbers never lock swinging out.
     assert!(swings.try_swing(2, 6));
 }
@@ -407,4 +408,194 @@ fn an_air_press_swings_and_reports_a_missed_swing() {
     assert_eq!(kinds(&outcome.packets), ["AnimatePacket"]);
     assert!(outcome.missed_swing);
     assert!(swings.take_started().is_some());
+}
+
+/// Java 1.7 has no Conduit Power swing modifier, even when fatigue is active.
+#[test]
+fn java_swing_ignores_conduit_power() {
+    assert_eq!(
+        java_swing_duration(MiningEffects {
+            conduit_power: Some(1),
+            ..Default::default()
+        }),
+        6
+    );
+    assert_eq!(
+        java_swing_duration(MiningEffects {
+            conduit_power: Some(1),
+            mining_fatigue: Some(0),
+            ..Default::default()
+        }),
+        8
+    );
+}
+
+/// Zero-based amplifiers produce the reference tick counts in both animation modes.
+#[test]
+fn swing_modes_match_no_effects_haste_ii_and_fatigue_i() {
+    for (effects, duration) in [
+        (MiningEffects::default(), 6),
+        (
+            MiningEffects {
+                haste: Some(1),
+                ..Default::default()
+            },
+            4,
+        ),
+        (
+            MiningEffects {
+                mining_fatigue: Some(0),
+                ..Default::default()
+            },
+            8,
+        ),
+    ] {
+        assert_eq!(swing_duration(effects), duration);
+        assert_eq!(java_swing_duration(effects), duration);
+    }
+    assert_eq!(
+        swing_duration(MiningEffects {
+            conduit_power: Some(1),
+            ..Default::default()
+        }),
+        4
+    );
+}
+
+/// Held attempts arrive before the tick advances the counter from its initial -1.
+#[test]
+fn held_swing_admission_matches_the_native_counter_phase() {
+    for (duration, interval) in [(6, 4), (4, 3), (8, 5)] {
+        let mut swings = SwingTracker::default();
+        let started = (100..120)
+            .filter(|tick| swings.try_swing(*tick, duration))
+            .collect::<Vec<_>>();
+        let expected = (100..120).step_by(interval).collect::<Vec<_>>();
+        assert_eq!(started, expected, "duration {duration}");
+    }
+}
+
+/// Published progress follows each accepted held attempt even when all ticks arrive in one frame.
+#[test]
+fn local_swing_progress_is_exact_for_batched_held_ticks() {
+    for (duration, interval) in [(6, 4), (4, 3), (8, 5)] {
+        let mut batched = SwingTracker::default();
+        let mut sequential = SwingTracker::default();
+        let mut expected = client_world::LocalSwingProgress::default();
+        for tick in 1..=8 {
+            batched.try_swing(tick, duration);
+            sequential.try_swing(tick, duration);
+            expected = sequential.published_progress(tick);
+        }
+        assert_eq!(
+            batched.published_progress(8),
+            expected,
+            "duration {duration}, interval {interval}"
+        );
+        assert_eq!(
+            batched.published_progress(8),
+            expected,
+            "unchanged tick retains samples"
+        );
+    }
+}
+
+/// A completed Haste swing cannot become active again when its duration grows.
+#[test]
+fn a_completed_short_swing_admits_after_effect_expiry() {
+    let mut swings = SwingTracker::default();
+    assert!(swings.try_swing(1, 4));
+    assert_eq!(swings.published_progress(5).java[1], 0.0);
+    assert!(swings.try_swing(6, 6));
+    assert_eq!(swings.published_progress(6).java, [0.0; 2]);
+}
+
+/// A correction changes the local clock identity, even if its tick number advances.
+#[test]
+fn movement_authority_change_resets_local_swing_samples() {
+    let effects = crate::movement::LocalMovementEffectTimeline::default();
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 10, &effects);
+    assert!(swings.try_swing(10, 6));
+    swings.published_progress(12);
+    swings.sync_ticks((1, 2), 2, &effects);
+    assert!(swings.try_swing(2, 6));
+    assert_eq!(swings.published_progress(2).java, [0.0; 2]);
+    swings.sync_ticks((1, 3), 20, &effects);
+    assert!(swings.try_swing(20, 6));
+    assert_eq!(swings.published_progress(20).bedrock, [0.0; 2]);
+}
+
+/// A block press starts on the first catch-up tick before held attempts continue in order.
+#[test]
+fn pressed_block_swing_keeps_held_catchup_ticks() {
+    let movement = crate::test_support::survival_mining::ticker_with_ticks(5);
+    let first = movement.first_unsent_sample_in_frame(5).unwrap();
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &crate::movement::LocalMovementEffectTimeline::default(),
+    );
+    runtime.observe_input(true, true);
+    runtime.resolve(
+        Crosshair::Block,
+        &PressContext {
+            tick: first.tick,
+            ..press(PlayerInputMode::Mouse)
+        },
+        &mut swings,
+    );
+    for tick in 101..=105 {
+        swings.try_swing(tick, 6);
+    }
+    assert_eq!(swings.published_progress(105).java, [0.5, 0.0]);
+    assert_eq!(first.tick, 101);
+    assert!(movement.first_unsent_sample_in_frame(0).is_none());
+    assert_eq!(movement.first_unsent_sample_in_frame(2).unwrap().tick, 104);
+    assert_eq!(movement.newest_unsent_sample().unwrap().tick, 105);
+}
+
+/// Each published simulation sample follows the native counter for the three reported cases.
+#[test]
+fn local_published_swing_matches_native_tick_samples() {
+    for (duration, samples) in [
+        (
+            6,
+            vec![
+                0.0,
+                1.0 / 6.0,
+                2.0 / 6.0,
+                0.5,
+                4.0 / 6.0,
+                5.0 / 6.0,
+                0.0,
+                0.0,
+            ],
+        ),
+        (4, vec![0.0, 0.25, 0.5, 0.75, 0.0, 0.0]),
+        (
+            8,
+            vec![0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 0.0, 0.0],
+        ),
+    ] {
+        let mut swings = SwingTracker::default();
+        assert!(swings.try_swing(100, duration));
+        let mut previous = 0.0;
+        for (offset, expected) in samples.into_iter().enumerate() {
+            let progress = swings.published_progress(100 + offset as u64);
+            assert_eq!(
+                progress.bedrock,
+                [previous, expected],
+                "duration {duration}, offset {offset}"
+            );
+            assert_eq!(
+                progress.java,
+                [previous, expected],
+                "duration {duration}, offset {offset}"
+            );
+            previous = expected;
+        }
+    }
 }

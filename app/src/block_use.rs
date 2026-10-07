@@ -72,6 +72,12 @@ pub(crate) fn produce_block_use(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(movement.interaction_authority_identity());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -165,7 +171,12 @@ pub(crate) fn produce_block_use(
         runtime.record(trigger, due, sample.tick, local_use, clock);
         return;
     }
-    let duration = swing_duration(context.effects.mining_effects());
+    let duration = swing_duration(
+        context
+            .effects
+            .mining_tick(sample.tick, movement.completed_tick())
+            .0,
+    );
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
         return;
     };

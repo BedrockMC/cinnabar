@@ -87,6 +87,30 @@ pub struct ActorRigSnapshot<'a> {
     pub java_equipped: Option<&'a JavaHeldItem>,
 }
 
+/// Local swing samples from the committed physics ticks, independent of the remote actor clock.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LocalSwingProgress {
+    pub bedrock: [f32; 2],
+    pub java: [f32; 2],
+    pub frame_alpha: Option<f32>,
+}
+
+impl LocalSwingProgress {
+    /// Samples the native forward wrap using the local physics frame fraction when available.
+    pub fn bedrock_progress(self, alpha: f32) -> f32 {
+        Self::interpolate(self.bedrock, self.frame_alpha.unwrap_or(alpha))
+    }
+
+    /// The native final frame wraps forward before the next tick returns to rest.
+    pub(super) fn interpolate([previous, current]: [f32; 2], alpha: f32) -> f32 {
+        let mut delta = current - previous;
+        if delta < 0.0 {
+            delta += 1.0;
+        }
+        previous + delta * alpha
+    }
+}
+
 /// The arm's swing and equip progress over one tick, as the first-person item reads them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HandPhase {
@@ -234,10 +258,12 @@ struct ActorRigState {
     variables: MolangVariables,
     samples_render_frames: bool,
     samples_camera_poses: bool,
+    samples_swing_poses: bool,
     render_frame: Option<render_frame::FrameState>,
     initialized: bool,
     /// Outside the animation view at its last tick, holding its pose.
     culled: bool,
+    local_swing: Option<LocalSwingProgress>,
     motion: MotionState,
     java: java::JavaMotionState,
 }
@@ -469,9 +495,38 @@ impl ActorAnimationStore {
             return;
         };
         if let Some(state) = self.rigs.get_mut(lifetime) {
+            state.local_swing = None;
+            state.java.motion.local_swing_alpha = None;
+            state.motion.set_local_swing(None);
             state.motion.start_swing(ticks);
             state.java.start_swing(ticks);
         }
+    }
+
+    /// Installs authoritative local swing samples and requests evaluation only when they change.
+    pub(crate) fn sync_local_swing(
+        &mut self,
+        runtime_id: u64,
+        progress: LocalSwingProgress,
+    ) -> bool {
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .and_then(|id| self.rigs.get_mut(id))
+        else {
+            return false;
+        };
+        let changed = state
+            .local_swing
+            .is_none_or(|old| old.bedrock != progress.bedrock || old.java != progress.java);
+        state.local_swing = Some(progress);
+        state.motion.set_local_swing(Some(progress.bedrock[1]));
+        state.java.motion.swing = progress.java;
+        state.java.motion.local_swing_alpha = progress.frame_alpha;
+        if let Some(input) = state.history.back_mut() {
+            input.attack_time = progress.bedrock[1];
+        }
+        changed
     }
 
     /// Advances tick state; only the frame's final tick evaluates visual controllers and poses.

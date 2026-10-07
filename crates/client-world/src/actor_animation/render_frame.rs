@@ -3,6 +3,8 @@ use std::borrow::Cow;
 use super::*;
 
 pub(super) mod camera;
+mod clips;
+pub(super) mod sampling;
 
 /// A bounded render-layer evaluation frame, borrowing tick-owned actor and rig state.
 pub struct ActorRenderFrame<'a> {
@@ -57,7 +59,7 @@ impl ActorAnimationStore {
         }
         let completed = || Cow::Borrowed(state.render.as_slice());
         let Some(frame) = state.render_frame.as_ref().filter(|_| {
-            (partial_tick > 0.0 || state.samples_camera_poses)
+            (partial_tick > 0.0 || state.samples_camera_poses || state.samples_swing_poses)
                 && *remaining_ops > 0
                 && (!state.culled || state.samples_camera_poses)
                 && !state.reset_pending
@@ -70,6 +72,14 @@ impl ActorAnimationStore {
         } else {
             (self.assets.as_deref()?, self.layout.as_ref())
         };
+        let swing = state
+            .local_swing
+            .map(|progress| progress.bedrock_progress(partial_tick));
+        let swing_changed = state.samples_swing_poses
+            && swing.is_some_and(|value| value != frame.input.attack_time);
+        if !state.samples_render_frames && !swing_changed {
+            return Some(completed());
+        }
         let pose_inputs_changed = camera_rotation != frame.context.camera_rotation
             || camera_position != frame.context.camera_position
             || partial_tick != frame.context.frame_alpha;
@@ -99,6 +109,9 @@ impl ActorAnimationStore {
             stack: Vec::new(),
         };
         let mut variables = frame.variables.clone();
+        if let Some(swing) = swing {
+            variables.set(layout.engine.attack_time, swing);
+        }
         let rig = assets.rig_bindings().get(state.rig_binding)?;
         if let Some(script) = rig.pre_animation
             && evaluator
@@ -107,14 +120,22 @@ impl ActorAnimationStore {
         {
             return Some(completed());
         }
-        let pose = if state.samples_camera_poses && pose_inputs_changed {
-            let Ok(local) = pose::sample_clips(
-                &evaluator,
-                &mut variables,
-                &state.bones,
-                &frame.clips,
-                &mut budget,
-            ) else {
+        tick::set_item_rotation_factor(&layout.engine, &mut variables);
+        let sampled_clips = if swing_changed {
+            let Ok(clips) =
+                clips::sample(&evaluator, &mut variables, state, &frame.clips, &mut budget)
+            else {
+                return Some(completed());
+            };
+            Some(clips)
+        } else {
+            None
+        };
+        let clips = sampled_clips.as_deref().unwrap_or(&frame.clips);
+        let pose = if (state.samples_camera_poses && pose_inputs_changed) || swing_changed {
+            let Ok(local) =
+                pose::sample_clips(&evaluator, &mut variables, &state.bones, clips, &mut budget)
+            else {
                 return Some(completed());
             };
             let Some(pose) = state.compose(&local) else {
@@ -163,7 +184,7 @@ impl ActorAnimationStore {
                             &evaluator,
                             &variables,
                             &state.layer_skeletons,
-                            &frame.clips,
+                            clips,
                             geometry,
                             &mut budget,
                         ) else {
@@ -192,85 +213,6 @@ impl ActorAnimationStore {
         }
         Some(Cow::Owned(layers))
     }
-}
-
-pub(super) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
-    let Some(rig) = assets.rig_bindings().get(binding) else {
-        return false;
-    };
-    let mut expressions = Vec::new();
-    expressions.extend(rig.pre_animation);
-    let data = assets.render_data();
-    for layer in assets.render_layers(binding) {
-        expressions.extend(layer.condition);
-        expressions.extend(layer.light_color_multiplier);
-        for channels in [
-            layer.color,
-            layer.overlay_color,
-            layer.hurt_color,
-            layer.on_fire_color,
-            layer.uv_anim,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            expressions.extend(channels);
-        }
-        let first = layer.first_geometry as usize;
-        if let Some(choices) = data
-            .geometries
-            .get(first..first + usize::from(layer.geometry_count))
-        {
-            expressions.extend(choices.iter().filter_map(|choice| choice.condition));
-        }
-        let first = layer.first_visibility as usize;
-        if let Some(rules) = data
-            .visibility
-            .get(first..first + usize::from(layer.visibility_count))
-        {
-            expressions.extend(rules.iter().map(|rule| rule.condition));
-        }
-        let first = layer.first_slot as usize;
-        if let Some(slots) = data.slots.get(first..first + usize::from(layer.slot_count)) {
-            for slot in slots {
-                let first = slot.first_candidate as usize;
-                if let Some(choices) = data
-                    .candidates
-                    .get(first..first + usize::from(slot.candidate_count))
-                {
-                    expressions.extend(choices.iter().filter_map(|choice| choice.condition));
-                }
-            }
-        }
-    }
-    expressions.into_iter().any(|expression| {
-        let Some(expression) = assets.molang_expressions().get(expression as usize) else {
-            return false;
-        };
-        let first = expression.first_op as usize;
-        let Some(ops) = assets
-            .molang_ops()
-            .get(first..first + usize::from(expression.op_count))
-        else {
-            return false;
-        };
-        ops.iter().any(|op| {
-            let symbol = match op {
-                MolangOp::LoadQuery(symbol) => *symbol,
-                MolangOp::CallQuery(call) => call.symbol,
-                _ => return false,
-            };
-            assets
-                .molang_symbols()
-                .get(symbol as usize)
-                .is_some_and(|symbol| {
-                    matches!(
-                        symbol.identifier.as_ref(),
-                        "query.frame_alpha" | "query.life_time"
-                    )
-                })
-        })
-    })
 }
 
 #[cfg(test)]

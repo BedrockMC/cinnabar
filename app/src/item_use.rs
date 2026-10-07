@@ -305,6 +305,12 @@ pub(crate) fn produce_item_use(
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(context.ui.session_id());
     let focused =
         !context.menu.is_visible() && context.windows.single().is_ok_and(|window| window.focused);
@@ -381,7 +387,12 @@ pub(crate) fn produce_item_use(
     if let Some(reason) = runtime.press_drop_reason(&frame) {
         crate::movement::note_click_drop("use", reason);
     }
-    let duration = swing_duration(context.effects.mining_effects());
+    let duration = swing_duration(
+        context
+            .effects
+            .mining_tick(sample.tick, movement.completed_tick())
+            .0,
+    );
     admit_with_action_aim(
         &mut runtime,
         &mut swings,
