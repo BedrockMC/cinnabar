@@ -69,6 +69,40 @@ mod tests {
     }
 
     #[test]
+    fn selection_stop_preserves_a_press_latched_between_physics_ticks() {
+        let mut runtime = BlockUseRuntime::default();
+        let stack = protocol::NetworkItemStack::empty();
+        let item =
+            protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
+        let mut selection = crate::mining::FrozenMiningSelection { slot: 0, item };
+        assert!(!runtime.selection_changed(&selection));
+        runtime.intention.record(
+            false,
+            [0, 63, 1],
+            LocalUse::Place,
+            true,
+            false,
+            [0.5, 64.0, 0.5],
+        );
+        assert!(runtime.observe_use(true, true, false));
+        selection.slot = 1;
+        assert!(runtime.selection_changed(&selection));
+        runtime.stop_packets(42, false);
+        assert!(runtime.admit_stop(true));
+        let clock = RepeatClock {
+            now_millis: 1_000,
+            sneaking: false,
+            speed: 0.0,
+            survival: true,
+        };
+        assert!(runtime.observe_use(false, false, false));
+        assert_eq!(
+            runtime.due(false, 1, clock),
+            Some((ItemUseTrigger::PlayerInput, 1_000))
+        );
+    }
+
+    #[test]
     fn release_before_a_success_has_no_stop_action() {
         let mut runtime = BlockUseRuntime::default();
         assert!(runtime.stop_packets(42, false).is_empty());
