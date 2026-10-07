@@ -90,13 +90,12 @@ pub(crate) fn produce_block_use(
     };
     let use_phase = context.input.phase(Action::Use);
     let attacking = context.input.phase(Action::Attack).held;
-    if runtime.stopping()
+    if (runtime.stopping()
         || (runtime.last_success_destination().is_some()
-            && (attacking || use_phase.pressed || !use_phase.held))
+            && (attacking || use_phase.pressed || !use_phase.held)))
+        && !stop_block_use(&mut runtime, &context, use_phase.pressed && !attacking)
     {
-        if !stop_block_use(&mut runtime, &context, use_phase.pressed && !attacking) {
-            return;
-        }
+        return;
     }
     if !runtime.observe_use(use_phase.held, use_phase.pressed, attacking) {
         return;
