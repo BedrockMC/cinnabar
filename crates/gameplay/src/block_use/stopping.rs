@@ -55,7 +55,7 @@ mod tests {
         assert!(runtime.admit_stop(true));
         assert!(!runtime.stopping());
         assert_eq!(runtime.last_success_destination(), None);
-        assert!(runtime.observe_use(false, false, false));
+        assert!(runtime.observe_use(false, false, false, true));
         let clock = RepeatClock {
             now_millis: 1_000,
             sneaking: false,
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(runtime.last_success_destination(), Some([0, 63, 1]));
         assert_eq!(runtime.stop_packets(42, false).len(), 1);
         assert!(runtime.admit_stop(true));
-        assert!(!runtime.observe_use(false, false, false));
+        assert!(!runtime.observe_use(false, false, false, true));
         let clock = RepeatClock {
             now_millis: 1_000,
             sneaking: false,
@@ -147,7 +147,7 @@ mod tests {
             false,
             [0.5, 64.0, 0.5],
         );
-        assert!(runtime.observe_use(true, true, false));
+        assert!(runtime.observe_use(true, true, false, true));
         selection.slot = 1;
         assert!(runtime.selection_changed(&selection));
         runtime.stop_packets(42, false);
@@ -158,7 +158,7 @@ mod tests {
             speed: 0.0,
             survival: true,
         };
-        assert!(runtime.observe_use(false, false, false));
+        assert!(runtime.observe_use(false, false, false, true));
         assert_eq!(
             runtime.due(false, 1, clock),
             Some((ItemUseTrigger::PlayerInput, 1_000))
@@ -170,6 +170,6 @@ mod tests {
         let mut runtime = BlockUseRuntime::default();
         assert!(runtime.stop_packets(42, false).is_empty());
         assert!(runtime.admit_stop(true));
-        assert!(!runtime.observe_use(false, false, false));
+        assert!(!runtime.observe_use(false, false, false, true));
     }
 }

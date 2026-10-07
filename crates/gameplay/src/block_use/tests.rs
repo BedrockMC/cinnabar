@@ -400,15 +400,15 @@ fn a_position_authority_change_revokes_the_press_but_preserves_repeat_timing() {
 #[test]
 fn review_quick_use_press_survives_release_before_the_next_tick() {
     let mut runtime = BlockUseRuntime::default();
-    assert!(runtime.observe_use(true, true, false));
-    assert!(runtime.observe_use(false, false, false));
+    assert!(runtime.observe_use(true, true, false, true));
+    assert!(runtime.observe_use(false, false, false, true));
     assert!(runtime.due(false, 1, clock(1000, 0.0)).is_some());
 }
 
 #[test]
 fn review_refused_use_preserves_the_press_and_success_schedule() {
     let mut runtime = BlockUseRuntime::default();
-    runtime.observe_use(true, true, false);
+    runtime.observe_use(true, true, false, true);
     assert!(!runtime.admit(
         ItemUseTrigger::PlayerInput,
         1000,
