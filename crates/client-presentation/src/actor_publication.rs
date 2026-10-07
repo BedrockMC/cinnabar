@@ -346,6 +346,16 @@ pub fn prepare_actor_render_frame(
                                 );
                                 java_posed.push(java_pose.posed);
                             }
+                            if local && !java_mode && !first_person {
+                                java_hand.native_pose.apply_presentation(
+                                    stream,
+                                    &mut presentation,
+                                    None,
+                                    None,
+                                    step.partial_tick,
+                                    *captured_sampling_camera,
+                                );
+                            }
                             preparation::register_player_skin(
                                 &mut presentation,
                                 &rig,

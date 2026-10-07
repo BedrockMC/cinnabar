@@ -8,6 +8,8 @@ mod lighting_tests;
 mod native_pose;
 #[cfg(test)]
 mod native_tests;
+#[cfg(test)]
+mod third_person_tests;
 pub(super) use native_pose::NativePoseCache;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height

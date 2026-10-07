@@ -21,7 +21,7 @@ Held attempts repeat every four, three and five ticks for durations six, four an
 
 A fresh action waits when the retained unsent tick has already been published. Only an attempt whose own transport batch was refused may retry that published tick; another action's refused swing does not grant permission.
 
-A pressed block swing uses the first eligible tick committed in the current frame. Its own refused batch can retry that exact retained tick when the next frame commits none. Held mining then continues through the remaining committed ticks in order; the same first-tick attempt is admitted only once.
+A pressed block swing uses the first eligible tick committed in the current frame. Its own refused batch can retry that exact retained tick when it is still the latest published tick. Older attempts wait for a fresh eligible tick within the pending-input deadline. Held mining then continues through the remaining committed ticks in order; the same first-tick attempt is admitted only once.
 
 Authored attack weights, pre-animation variables, arm channels and held-item channels read the same sampled local swing progress. Frame sampling leaves completed animation state and clip clocks unchanged.
 
