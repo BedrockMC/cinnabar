@@ -113,6 +113,11 @@ impl SwingTracker {
             .is_some_and(|completed| tick <= completed)
     }
 
+    /// Identifies the latest consumed tick without granting permission to replay it.
+    pub fn tick_is_current_publication(&self, tick: u64) -> bool {
+        self.completed_tick == Some(tick)
+    }
+
     /// Attempts both native animations independently; the result admits the Bedrock wire packet.
     pub fn try_swing(&mut self, tick: u64, duration: i32) -> bool {
         if self.authority.is_none() && self.attempted_tick.is_some_and(|previous| tick < previous) {

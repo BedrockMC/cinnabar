@@ -261,3 +261,102 @@ fn an_owned_block_retry_expires_after_repeated_full_admissions() {
             .is_none()
     );
 }
+
+#[test]
+fn a_rejected_old_block_tick_waits_for_a_new_tick_after_catchup_publication() {
+    let mut movement = ticker_with_ticks(3);
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let mut press = reject_block_press(&mut runtime, &mut swings, &movement, 3);
+    assert_eq!(press.tick, 101);
+    let published = swings.published_progress(movement.completed_tick());
+    let retained = runtime
+        .press_sample(Crosshair::Block, &movement, 0, 2)
+        .unwrap();
+    assert_eq!(retained.tick, press.tick);
+    let mut sends = 0;
+    resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        Crosshair::Block,
+        &press,
+        2,
+        |_| {
+            sends += 1;
+            Ok(())
+        },
+    );
+    assert_eq!(sends, 0, "an old block tick cannot submit an empty retry");
+    assert!(
+        runtime.observe_input(false, false),
+        "the un-replayable block press waits for a fresh tick"
+    );
+    assert_eq!(swings.published_progress(103), published);
+    movement
+        .enqueue_completed_physics(crate::test_support::survival_mining::completed(104))
+        .unwrap();
+    let sample = runtime
+        .press_sample(Crosshair::Block, &movement, 1, 3)
+        .unwrap();
+    press.tick = sample.tick;
+    press.player_position = sample.position;
+    resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        Crosshair::Block,
+        &press,
+        3,
+        |packets| {
+            assert_eq!(packets.len(), 1);
+            sends += packets.len();
+            Ok(())
+        },
+    );
+    assert_eq!(sends, 1);
+    assert!(!runtime.observe_input(false, false));
+    assert_eq!(swings.take_started(), Some(press.swing_duration));
+    assert_eq!(swings.published_progress(104).java, [0.0; 2]);
+    assert_eq!(
+        swings.published_progress(105).java,
+        [0.0, 1.0 / press.swing_duration as f32]
+    );
+}
+
+#[test]
+fn an_unreplayable_owned_block_tick_remains_bounded() {
+    let movement = ticker_with_ticks(3);
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let press = reject_block_press(&mut runtime, &mut swings, &movement, 3);
+    swings.published_progress(movement.completed_tick());
+    for frame in [2, 2 + MAX_PENDING_INTERACTION_FRAMES] {
+        assert_eq!(
+            runtime
+                .press_sample(Crosshair::Block, &movement, 0, frame)
+                .unwrap()
+                .tick,
+            press.tick
+        );
+        resolve_and_send(
+            &mut runtime,
+            &mut swings,
+            Crosshair::Block,
+            &press,
+            frame,
+            |_| {
+                panic!("an old rejected block tick must wait without submitting");
+            },
+        );
+    }
+    assert!(!runtime.observe_input(false, false));
+    assert!(
+        runtime
+            .press_sample(
+                Crosshair::Block,
+                &movement,
+                0,
+                3 + MAX_PENDING_INTERACTION_FRAMES
+            )
+            .is_none()
+    );
+}

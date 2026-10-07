@@ -232,7 +232,8 @@ pub fn resolve_and_send(
 ) -> bool {
     if runtime.latched_press
         && swings.tick_is_published(press.tick)
-        && runtime.rejected_tick != Some(press.tick)
+        && (runtime.rejected_tick != Some(press.tick)
+            || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
         runtime.observe_crosshair(crosshair);
         runtime.defer(input_frame);

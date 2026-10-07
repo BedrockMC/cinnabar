@@ -16,7 +16,7 @@ fn fixture(
 }
 
 /// Adds an authored incremental item clock to the original player/attachable fixture.
-fn fixture_with_clock(
+pub(super) fn fixture_with_clock(
     main: Option<&str>,
     clock: bool,
 ) -> (

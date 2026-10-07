@@ -1,4 +1,4 @@
-//! Read-only native arm and item-parent poses, retained for unchanged captured frames.
+//! Read-only native body, arm and item-parent poses retained for unchanged captured frames.
 use super::*;
 use std::borrow::Cow;
 
@@ -13,7 +13,7 @@ struct PoseKey {
     camera: Option<([f32; 2], [f32; 3])>,
 }
 
-/// Keeps one lifetime's sampled pose instead of resampling unchanged hand inputs.
+/// Keeps one lifetime's sampled pose instead of resampling unchanged captured inputs.
 #[derive(Default)]
 pub(in super::super) struct NativePoseCache {
     key: Option<PoseKey>,
@@ -25,16 +25,31 @@ pub(in super::super) struct NativePoseCache {
 impl NativePoseCache {
     /// Applies the sampled parent only when a native arm or attachable consumes its bones.
     pub(in super::super) fn apply(&mut self, inputs: &mut HandInputs<'_>) {
-        if let Some([previous, current]) = self.sample(
+        self.apply_presentation(
             inputs.stream,
-            &inputs.presentation,
+            &mut inputs.presentation,
             inputs.consume_ticks,
             inputs.item_animation,
             inputs.alpha,
             inputs.sampling_camera,
-        ) {
-            inputs.presentation.submission.input.previous_bones = previous;
-            inputs.presentation.submission.input.current_bones = current;
+        );
+    }
+
+    /// Shares the complete sampled native parent with body and equipment publication.
+    pub(in super::super) fn apply_presentation(
+        &mut self,
+        stream: &WorldStream,
+        presentation: &mut ActorRigPresentation,
+        consume: Option<u32>,
+        animation: Option<client_world::AttachableAnimationInput<'static>>,
+        alpha: f32,
+        camera: Option<([f32; 2], [f32; 3])>,
+    ) {
+        if let Some([previous, current]) =
+            self.sample(stream, presentation, consume, animation, alpha, camera)
+        {
+            presentation.submission.input.previous_bones = previous;
+            presentation.submission.input.current_bones = current;
         }
     }
 
