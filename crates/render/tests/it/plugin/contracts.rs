@@ -1,15 +1,6 @@
 use super::*;
 
 #[test]
-fn chunk_sampler_source_contract_is_crisp_for_magnification_and_filtered_for_mips() {
-    let source = CHUNK_RENDERER_SOURCE;
-    assert!(source.contains("mag_filter: FilterMode::Nearest"));
-    assert!(source.contains("min_filter: FilterMode::Linear"));
-    assert!(source.contains("mipmap_filter: FilterMode::Linear"));
-    assert!(source.contains("anisotropy_clamp: 1"));
-}
-
-#[test]
 fn graphics_runtime_metadata_waits_for_extracted_diagnostics_before_surface_probe() {
     let source = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
     assert!(

@@ -137,7 +137,7 @@ fn neutral_shader_validates_and_has_private_projection_abi() {
 
 #[test]
 fn hand_attachment_specialization_matches_hdr_and_msaa_without_world_depth() {
-    for samples in [1, 4] {
+    for samples in [1, 2, 4, 8] {
         for hdr in [false, true] {
             let pipeline = specialized_hand_pipeline(hand_layout(), samples, hdr);
             assert_eq!(pipeline.multisample.count, samples);

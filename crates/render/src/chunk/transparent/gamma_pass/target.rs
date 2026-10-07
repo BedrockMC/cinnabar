@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use crate::scene_sampling::SceneCopy;
 
 /// One scene-sized scratch texture per admitted camera, with two views of the
 /// same encoded bytes. Resize replaces it; no unbounded historical target map.
@@ -7,6 +8,41 @@ pub(super) struct GammaTarget {
     pub(super) texture: Texture,
     pub(super) gamma_view: TextureView,
     pub(super) srgb_view: TextureView,
+    multisample: Option<(Texture, TextureView, TextureView)>,
+    pub(super) copy: Option<SceneCopy>,
+}
+
+impl GammaTarget {
+    /// Both colour-space views refer to the same per-sample colour storage.
+    pub(super) fn colour_view(&self, gamma: bool) -> &TextureView {
+        match &self.multisample {
+            Some((_, encoded, linear)) => {
+                if gamma {
+                    encoded
+                } else {
+                    linear
+                }
+            }
+            None => {
+                if gamma {
+                    &self.gamma_view
+                } else {
+                    &self.srgb_view
+                }
+            }
+        }
+    }
+
+    /// Each sorted range resolves into the corresponding view of the shared encoded image.
+    pub(super) fn resolve_view(&self, gamma: bool) -> Option<&TextureView> {
+        self.multisample.as_ref().map(|_| {
+            if gamma {
+                &self.gamma_view
+            } else {
+                &self.srgb_view
+            }
+        })
+    }
 }
 
 use super::admitted;
@@ -38,7 +74,18 @@ pub(super) fn prepare_gamma_targets(
             continue;
         }
         let size = target.main_texture().size();
-        if previous.is_some_and(|scratch| scratch.texture.size() == size) {
+        if previous.is_some_and(|scratch| {
+            scratch.texture.size() == size
+                && scratch
+                    .multisample
+                    .as_ref()
+                    .map_or(1, |(texture, _, _)| texture.sample_count())
+                    == msaa.samples()
+                && scratch
+                    .copy
+                    .as_ref()
+                    .is_none_or(|copy| copy.matches(target, msaa.samples()))
+        }) {
             continue;
         }
         let srgb = TextureFormat::bevy_default();
@@ -60,10 +107,30 @@ pub(super) fn prepare_gamma_targets(
             format: Some(srgb),
             ..default()
         });
+        let multisample = (msaa.samples() > 1).then(|| {
+            let texture = device.create_texture(&TextureDescriptor {
+                label: Some("ordinary gamma multisample scene"),
+                size,
+                mip_level_count: 1,
+                sample_count: msaa.samples(),
+                dimension: TextureDimension::D2,
+                format: gamma,
+                usage: TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[srgb],
+            });
+            let encoded = texture.create_view(&TextureViewDescriptor::default());
+            let linear = texture.create_view(&TextureViewDescriptor {
+                format: Some(srgb),
+                ..default()
+            });
+            (texture, encoded, linear)
+        });
         commands.entity(entity).insert(GammaTarget {
             texture,
             gamma_view,
             srgb_view,
+            multisample,
+            copy: (msaa.samples() > 1).then(|| SceneCopy::new(&device, target, msaa.samples())),
         });
     }
 }

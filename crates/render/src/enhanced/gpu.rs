@@ -23,7 +23,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{CachedTexture, TextureCache},
-        view::{ExtractedView, ViewTarget},
+        view::{ExtractedView, ViewDepthTexture, ViewTarget},
     },
 };
 
@@ -32,7 +32,10 @@ use super::{
     frame::{CascadeBounds, EnhancedFrameGpu, ViewInputs, build_frame},
     materials::material_classes,
 };
-use crate::{AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets};
+use crate::{
+    AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets,
+    scene_sampling::{ResolvedDepth, SceneCopy},
+};
 
 pub(crate) const CASTER_SLOT_BYTES: u64 = 256;
 const CASTER_UNIFORM_BYTES: u64 = 96;
@@ -383,6 +386,8 @@ pub(crate) struct EnhancedViewGpu {
     pub(crate) shadow: Option<ShadowTargets>,
     pub(crate) scene_colour: Option<CachedTexture>,
     pub(crate) scene_depth: Option<CachedTexture>,
+    pub(crate) resolved_depth: Option<ResolvedDepth>,
+    pub(crate) copy: Option<SceneCopy>,
     pub(crate) shafts: Option<CachedTexture>,
     pub(crate) view_bind_group: Option<BindGroup>,
     pub(crate) caster_bind_group: Option<BindGroup>,
@@ -410,6 +415,8 @@ impl EnhancedViewGpu {
             shadow: None,
             scene_colour: None,
             scene_depth: None,
+            resolved_depth: None,
+            copy: None,
             shafts: None,
             view_bind_group: None,
             caster_bind_group: None,
@@ -480,20 +487,43 @@ pub(crate) fn prepare_enhanced_views(
     mut texture_cache: ResMut<TextureCache>,
     atmosphere: Option<Res<AtmosphereFrame>>,
     time: Res<Time>,
-    views: Query<(Entity, &ExtractedView, &ViewTarget, &EnhancedRendering)>,
+    views: Query<(
+        Entity,
+        &ExtractedView,
+        &ViewTarget,
+        &ViewDepthTexture,
+        &EnhancedRendering,
+    )>,
 ) {
     state.0.retain(|entity, _| views.contains(*entity));
     let atmosphere = atmosphere.map(|frame| *frame).unwrap_or_default();
     let seconds = time.elapsed_secs_wrapped();
     let view_layout = pipeline_cache.get_bind_group_layout(&enhanced_view_layout());
     let caster_layout = pipeline_cache.get_bind_group_layout(&enhanced_caster_layout());
-    for (entity, view, target, settings) in &views {
+    for (entity, view, target, depth, settings) in &views {
         let inputs = view_inputs(view, seconds);
         let (frame, fits) = build_frame(&inputs, settings, &atmosphere);
         let state = state
             .0
             .entry(entity)
             .or_insert_with(|| EnhancedViewGpu::new(&device, *settings));
+        if state
+            .resolved_depth
+            .as_ref()
+            .is_none_or(|resolved| !resolved.matches(depth))
+        {
+            state.resolved_depth = Some(ResolvedDepth::new(&device, depth));
+        }
+        let samples = depth.texture.sample_count();
+        if samples == 1 {
+            state.copy = None;
+        } else if state
+            .copy
+            .as_ref()
+            .is_none_or(|copy| !copy.matches(target, samples))
+        {
+            state.copy = Some(SceneCopy::new(&device, target, samples));
+        }
         state.settings = *settings;
         state.cascades = fits.iter().map(|fit| fit.bounds).collect();
         queue.write_buffer(&state.frame, 0, bytemuck::bytes_of(&frame));

@@ -6076,7 +6076,26 @@ hands, matching the existing world equipment fallback. Inventory banners retain 
 colored model icon. Exact native 3D held-banner geometry and patterns remain incomplete;
 the fallback availability regression is fixed, but it does not close that parity gate.
 
-### Crosshair preferences
+## Image clarity and multisampling
+
+Desktop rendering removes FXAA, defaults to two MSAA coverage samples when the device
+supports them, and exposes supported sample counts through Video's Anti-Aliasing slider.
+Terrain uses point-filtered texels, linear mip interpolation and byte-space atlas mips.
+See [the Vanilla rules](docs/reference/rendering.md) for established behavior and evidence
+limits. These changes do not close the cross-platform rendering parity gate.
+
+Exact per-sample color at overlapping opaque and transparent silhouettes remains incomplete:
+the gamma-compositing path seeds its multisampled target from resolved opaque color. The
+renderer does not expose its multisampled color attachment for shader reads. Shadow and
+enhanced post-process writeback also use resolved scene color. These paths retain depth
+coverage but do not preserve every original color sample through composition.
+
+Matched native screenshots, material-specific actor/item mip policies, custom-pack mip-level
+limits, console/mobile defaults and texel anti-aliasing remain unverified. Mac headless
+captures and focused GPU tests cannot qualify Intel-integrated performance, other native
+platforms, release streaming or hitch budgets. Those acceptance gates remain open.
+
+## Crosshair preferences
 
 Video settings expose Third Person Crosshair (off by default) and Invert
 Crosshair Colors (on by default). Both persist and reset with Video settings.

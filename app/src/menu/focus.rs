@@ -78,12 +78,14 @@ impl MenuRuntime {
         let focused = self.focus_actions().get(self.focused).copied();
         match focused {
             Some(MenuAction::SettingsOption(index, _)) if self.dialog.is_none() => {
-                if let Some(option) = settings_options::SETTINGS_OPTIONS.get(usize::from(index)) {
-                    let value = self.settings_options.get(usize::from(index));
-                    self.activate(MenuAction::SettingsOption(
-                        index,
-                        value.saturating_add(direction * option.step),
-                    ));
+                if settings_options::SETTINGS_OPTIONS
+                    .get(usize::from(index))
+                    .is_some()
+                {
+                    let value = self
+                        .settings_options
+                        .offset_value(usize::from(index), direction);
+                    self.activate(MenuAction::SettingsOption(index, value));
                 }
             }
             Some(MenuAction::SettingsScale(_)) if self.dialog.is_none() => {

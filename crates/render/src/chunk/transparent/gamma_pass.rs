@@ -1,11 +1,4 @@
-//! Ordinary world transparency blends encoded colour, not linear colour.
-//!
-//! Vanilla selects UNORM format 0x57, while
-//! the renderer uses that format for the colour attachment. The near-version ordinary
-//! RenderChunk/Transparent Metal fragment writes gamma RGB without a transfer.
-//! Opaque sRGB-target bytes already have that encoding: copy them unchanged into
-//! a UNORM scratch target and preserve the globally sorted transparent phase.
-//! HDR/Enhanced and MSAA retain their previous path; their parity is incomplete.
+//! Ordinary world transparency blends encoded colour while retaining sorted draw order.
 
 mod target;
 #[cfg(test)]
@@ -31,8 +24,9 @@ use bevy::{
 };
 use target::{GammaTarget, prepare_gamma_targets};
 
-pub(crate) fn admitted(hdr: bool, msaa: Msaa, enhanced: bool) -> bool {
-    !hdr && msaa == Msaa::Off && !(render_model::ENHANCED_RENDERING_ENABLED && enhanced)
+/// Encoded blending applies to ordinary LDR views at every sample count.
+pub(crate) fn admitted(hdr: bool, _msaa: Msaa, enhanced: bool) -> bool {
+    !hdr && !(render_model::ENHANCED_RENDERING_ENABLED && enhanced)
 }
 
 pub(in crate::chunk) fn install(app: &mut App) {
@@ -134,19 +128,29 @@ impl ViewNode for GammaTransparentPass {
                 .usage()
                 .contains(TextureUsages::COPY_DST)
         );
-        copy_scene(render_context, target.main_texture(), &scratch.texture);
+        if let Some(copy) = &scratch.copy {
+            copy.draw(
+                render_context,
+                target.main_texture_view(),
+                scratch.colour_view(false),
+                None,
+                None,
+            );
+        } else {
+            copy_scene(render_context, target.main_texture(), &scratch.texture);
+        }
         for (range, gamma) in contiguous_ranges(&phase.items, |item| {
             draws.contains(&Some(item.draw_function()))
         }) {
-            let colour_view = if gamma {
-                &scratch.gamma_view
-            } else {
-                &scratch.srgb_view
-            };
+            let colour_view = scratch.colour_view(gamma);
             let colour = RenderPassColorAttachment {
                 view: colour_view,
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target: if range.end == phase.items.len() {
+                    scratch.resolve_view(gamma).map(|view| &**view)
+                } else {
+                    None
+                },
                 ops: Operations {
                     load: LoadOp::Load,
                     store: StoreOp::Store,
@@ -167,6 +171,9 @@ impl ViewNode for GammaTransparentPass {
             phase.render_range(&mut pass, world, graph.view_entity(), range)?;
         }
         copy_scene(render_context, &scratch.texture, target.main_texture());
+        if let Some(copy) = &scratch.copy {
+            copy.writeback(render_context, target, None);
+        }
         Ok(())
     }
 }

@@ -29,6 +29,14 @@ pub(super) fn install_graph(world: &mut World) {
         EnhancedSnapshotLabel,
         Node3d::MainTransparentPass,
     ));
+    for predecessor in [
+        crate::chunk::GpuCullLateLabel.intern(),
+        crate::entity_shadow_render::EntityShadowLabel.intern(),
+    ] {
+        if graph.get_node_state(predecessor).is_ok() {
+            graph.add_node_edge(predecessor, EnhancedSnapshotLabel);
+        }
+    }
     graph.add_node(EnhancedShadowLabel, shadow);
     graph.add_node_edges((EnhancedShadowLabel, Node3d::MainOpaquePass));
     graph.add_node(EnhancedPostLabel, post);

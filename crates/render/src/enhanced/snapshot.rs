@@ -29,7 +29,7 @@ impl ViewNode for EnhancedSnapshotNode {
         &self,
         _graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (entity, settings, target, depth): QueryItem<Self::ViewQuery>,
+        (entity, settings, target, _depth): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         if !super::ENHANCED_RENDERING_ENABLED || !settings.water_reflections {
@@ -42,6 +42,10 @@ impl ViewNode for EnhancedSnapshotNode {
         let (Some(colour), Some(scene_depth)) = (&state.scene_colour, &state.scene_depth) else {
             return Ok(());
         };
+        let Some(depth) = &state.resolved_depth else {
+            return Ok(());
+        };
+        depth.draw(context, None);
         let diagnostics = context.diagnostic_recorder();
         let span = diagnostics.time_span(context.command_encoder(), "enhanced opaque snapshot");
         context.command_encoder().copy_texture_to_texture(
@@ -52,7 +56,7 @@ impl ViewNode for EnhancedSnapshotNode {
         context.command_encoder().copy_texture_to_texture(
             TexelCopyTextureInfo {
                 aspect: TextureAspect::DepthOnly,
-                ..depth.texture.as_image_copy()
+                ..depth._texture.as_image_copy()
             },
             TexelCopyTextureInfo {
                 aspect: TextureAspect::DepthOnly,

@@ -38,7 +38,10 @@ use render_model::{
     entity_shadow_colour, shadow_screen_rect, shadow_volume_mesh,
 };
 
-use crate::{AtmosphereFrame, SkyKind};
+use crate::{
+    AtmosphereFrame, SkyKind,
+    scene_sampling::{ResolvedDepth, SceneCopy},
+};
 
 const SHADER: Handle<Shader> = uuid_handle!("6b0e5c1d-3f8a-4e27-9b41-2d7c0a5e8f13");
 const INSTANCE_BYTES: u64 = size_of::<EntityShadow>() as u64;
@@ -79,7 +82,8 @@ impl Plugin for EntityShadowRenderPlugin {
                     prepare_shadow_buffers.in_set(RenderSystems::PrepareResources),
                     prepare_shadow_views
                         .in_set(RenderSystems::PrepareResources)
-                        .after(bevy::render::view::prepare_view_targets),
+                        .after(bevy::render::view::prepare_view_targets)
+                        .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                     prepare_shadow_bind_groups.in_set(RenderSystems::PrepareBindGroups),
                 ),
             );
@@ -329,6 +333,8 @@ pub(crate) struct EntityShadowView {
     pipeline: CachedRenderPipelineId,
     rect: Option<[u32; 4]>,
     bind_group: Option<(BindGroupKey, BindGroup)>,
+    resolved_depth: Option<ResolvedDepth>,
+    copy: Option<SceneCopy>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -347,6 +353,7 @@ type ShadowViews<'w, 's> = Query<
         &'static ExtractedView,
         &'static ViewTarget,
         &'static Msaa,
+        &'static ViewDepthTexture,
         Option<&'static mut EntityShadowView>,
     ),
     With<Camera3d>,
@@ -360,21 +367,25 @@ pub(crate) fn prepare_shadow_views(
     mut gpu: ResMut<EntityShadowGpu>,
     mut views: ShadowViews,
 ) {
-    for (entity, view, target, msaa, state) in &mut views {
+    for (entity, view, target, msaa, depth, state) in &mut views {
         let clip_from_world = view
             .clip_from_world
             .unwrap_or_else(|| view.clip_from_view * view.world_from_view.to_matrix().inverse());
-        let rect = (*msaa == Msaa::Off)
-            .then(|| {
-                shadow_screen_rect(clip_from_world, &scene.0.shadows, view.viewport.to_array())
-            })
-            .flatten();
+        let rect = shadow_screen_rect(clip_from_world, &scene.0.shadows, view.viewport.to_array());
         let main = target.main_texture();
         let format = main.format().remove_srgb_suffix();
         if let Some(mut state) = state {
             state.rect = rect;
             if rect.is_none()
-                || (state.scratch.size() == main.size() && state.scratch.format() == format)
+                || (state.scratch.size() == main.size()
+                    && state.scratch.format() == format
+                    && state.copy.as_ref().map_or(msaa.samples() == 1, |copy| {
+                        copy.matches(target, msaa.samples())
+                    })
+                    && state
+                        .resolved_depth
+                        .as_ref()
+                        .is_none_or(|resolved| resolved.matches(depth)))
             {
                 continue;
             }
@@ -400,6 +411,8 @@ pub(crate) fn prepare_shadow_views(
             pipeline,
             rect,
             bind_group: None,
+            resolved_depth: (msaa.samples() > 1).then(|| ResolvedDepth::new(&device, depth)),
+            copy: (msaa.samples() > 1).then(|| SceneCopy::new(&device, target, msaa.samples())),
         });
     }
 }
@@ -421,8 +434,12 @@ pub(crate) fn prepare_shadow_bind_groups(
         if state.rect.is_none() || !depth_is_sampleable(depth) {
             continue;
         }
+        let depth_view = state
+            .resolved_depth
+            .as_ref()
+            .map_or(depth.view(), |resolved| &resolved.view);
         let key = BindGroupKey {
-            depth: depth.view().id(),
+            depth: depth_view.id(),
             scratch: state.scratch_view.id(),
             instances: gpu.instances.id(),
             view_uniforms: uniforms.id(),
@@ -444,7 +461,7 @@ pub(crate) fn prepare_shadow_bind_groups(
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(depth.view()),
+                    resource: BindingResource::TextureView(depth_view),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -469,7 +486,6 @@ fn depth_is_sampleable(depth: &ViewDepthTexture) -> bool {
         .texture
         .usage()
         .contains(TextureUsages::TEXTURE_BINDING)
-        && depth.texture.sample_count() == 1
 }
 
 #[derive(Default)]
@@ -506,6 +522,9 @@ impl ViewNode for EntityShadowNode {
                 .is_some_and(|panorama| !panorama.game_visible())
         {
             return Ok(());
+        }
+        if let Some(depth) = &state.resolved_depth {
+            depth.draw(context, state.rect);
         }
         let origin = Origin3d { x: x0, y: y0, z: 0 };
         let mut source = target.main_texture().as_image_copy();
@@ -545,6 +564,10 @@ impl ViewNode for EntityShadowNode {
         pass.set_bind_group(0, bind_group, &[offset.offset]);
         pass.set_vertex_buffer(0, gpu.mesh.slice(..));
         pass.draw(0..SHADOW_VOLUME_VERTICES as u32, 0..gpu.count);
+        drop(pass);
+        if let Some(copy) = &state.copy {
+            copy.writeback(context, target, state.rect);
+        }
         Ok(())
     }
 }
