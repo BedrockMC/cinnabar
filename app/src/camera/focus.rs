@@ -34,6 +34,7 @@ fn track_focus(
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
     gamepads: Query<&Gamepad>,
+    touches: Option<Res<Touches>>,
 ) {
     let (entity, window, mut cursor) = window.into_inner();
     focus.begin_frame(window.focused);
@@ -43,14 +44,17 @@ fn track_focus(
     for event in occluded.read().filter(|event| event.window == entity) {
         focus.occlusion_changed(event.occluded);
     }
-    let pointer_activated = pointer_edges
-        .read()
-        .any(|event| event.window == entity && event.button == MouseButton::Left);
+    let mut pointer_activated = false;
+    for event in pointer_edges.read() {
+        pointer_activated |= event.window == entity && event.button == MouseButton::Left;
+    }
     focus.record_activation(
         keys.get_just_pressed().next().is_some()
             || pointer_activated
             || buttons.just_pressed(MouseButton::Left)
             || buttons.just_released(MouseButton::Left)
+            || touches
+                .is_some_and(|touches| touches.any_just_pressed() || touches.any_just_released())
             || gamepads
                 .iter()
                 .any(|pad| pad.get_just_pressed().next().is_some()),

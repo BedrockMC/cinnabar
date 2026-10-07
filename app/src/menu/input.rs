@@ -313,14 +313,18 @@ fn max_bytes(field: MenuField) -> usize {
     }
 }
 
+/// Groups the session and desktop authority read before menu actions.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct MenuInputContext<'w, 's> {
+    player_runtime: Res<'w, crate::player_runtime::PlayerRuntime>,
+    keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
+    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
-    (player_runtime, mut keyboard_messages, focus, driven): (
-        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
-        MessageReader<KeyboardInput>,
-        Option<Res<client_presentation::camera::CursorFocus>>,
-        Option<Res<crate::camera::DrivenInput>>,
-    ),
+    context: MenuInputContext,
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     window: Single<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -337,6 +341,12 @@ pub(crate) fn drive_menu_input(
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut gui_scale_drag: Local<GuiScaleDrag>,
 ) {
+    let MenuInputContext {
+        player_runtime,
+        mut keyboard_messages,
+        focus,
+        driven,
+    } = context;
     if consent.is_some_and(|consent| consent.0) {
         keyboard_messages.clear();
         menu.pressed = None;
