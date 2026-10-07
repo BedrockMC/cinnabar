@@ -25,7 +25,9 @@ impl NativeFocus {
 #[cfg(all(windows, not(test)))]
 mod windows;
 #[cfg(all(windows, not(test)))]
-pub(super) use windows::{NativeCaptureReady, install};
+pub(crate) use windows::NativeCaptureReady;
+#[cfg(all(windows, not(test)))]
+pub(super) use windows::install;
 
 #[cfg(test)]
 mod tests {
