@@ -332,10 +332,8 @@ pub(crate) fn produce_item_use(
         runtime.cancel_pending_input();
     }
     runtime.observe_press(admitted && use_phase.pressed);
-    runtime.send_held_release(&movement, |packets| {
-        context.network.send_inventory_packets(packets)
-    });
-    if runtime.has_held_release() {
+    movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
+    if movement.has_held_release() {
         return;
     }
     let held = admitted && use_phase.held;
@@ -436,7 +434,7 @@ fn admit_with_action_aim(
     );
     if let (Some(rotation), Some(packets)) = (aim_rotation, assisted) {
         crate::camera::aim_assist::apply_action_rotation(rotation, view, movement, frame.tick);
-        runtime.hold_release_until_sent(frame.tick, packets);
+        movement.hold_release_after_tick(frame.tick, packets);
     }
 }
 

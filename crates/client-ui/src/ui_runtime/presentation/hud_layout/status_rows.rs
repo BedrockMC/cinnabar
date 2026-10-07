@@ -79,7 +79,9 @@ pub(in super::super) fn capture(
     runtime: &UiRuntime,
     frame: &HudFrame,
     sheet: Option<&HudTexturePages>,
+    options: &crate::menu::settings_options::SettingsOptions,
 ) -> HudPaint {
+    use crate::menu::settings_options::{INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION};
     let now_tick = runtime.estimated_server_tick(frame.now_millis);
     let mode_allows_hotbar = player_runtime
         .facts
@@ -87,10 +89,18 @@ pub(in super::super) fn capture(
         .is_none_or(|mode| mode.shows_hotbar());
     let mut paint = HudPaint {
         effects: effects(runtime, now_tick),
-        // First person only, and never in spectator (no interaction targeting).
+        // The third-person preference never overrides the spectator gate.
         crosshair: sheet
-            .filter(|_| frame.first_person && mode_allows_hotbar)
+            .filter(|_| {
+                (frame.first_person || options.value(THIRD_PERSON_CROSSHAIR_OPTION.name) != 0)
+                    && mode_allows_hotbar
+            })
             .map(|sheet| sheet_sprite(sheet, HudTextureRole::Crosshair)),
+        crosshair_blend: if options.value(INVERT_CROSSHAIR_OPTION.name) != 0 {
+            ui::UiBlendMode::Invert
+        } else {
+            ui::UiBlendMode::Alpha
+        },
         ..HudPaint::default()
     };
     if !player_runtime.facts.survival_stats_visible() {

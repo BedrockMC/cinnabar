@@ -78,6 +78,7 @@ pub struct HudPaint {
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
     pub crosshair: Option<SheetSprite>,
+    pub crosshair_blend: ui::UiBlendMode,
 }
 
 impl HudPaint {
@@ -156,7 +157,7 @@ pub(super) fn paint(
         }
         "cursor_renderer" => {
             if let Some(sprite) = hud.crosshair {
-                crosshair(painter, sprite, dest);
+                crosshair(painter, sprite, dest, hud.crosshair_blend);
             }
             return true;
         }
@@ -234,8 +235,13 @@ fn sheet(
     let _ = painter.push(visual, bounds);
 }
 
-/// The pack crosshair, or built-in HUD art, centred with the inverting material.
-fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
+/// Centers the pack crosshair or built-in art with the selected color blending.
+fn crosshair(
+    painter: &mut Painter<'_>,
+    sprite: SheetSprite,
+    dest: [f32; 4],
+    blend: ui::UiBlendMode,
+) {
     let (sprite, gui_side) = painter.textures.sprite(CROSSHAIR_TEXTURE).map_or_else(
         || {
             (
@@ -256,9 +262,16 @@ fn crosshair(painter: &mut Painter<'_>, sprite: SheetSprite, dest: [f32; 4]) {
     let side = gui_side * painter.px;
     let x = (dest[0] + dest[2] - side) * 0.5;
     let y = (dest[1] + dest[3] - side) * 0.5;
-    let visual = UiVisual::InvertedSprite {
-        texture_page: sprite.page,
-        uv: sprite.uv,
+    let visual = match blend {
+        ui::UiBlendMode::Invert => UiVisual::InvertedSprite {
+            texture_page: sprite.page,
+            uv: sprite.uv,
+        },
+        ui::UiBlendMode::Alpha => UiVisual::Sprite {
+            texture_page: sprite.page,
+            uv: sprite.uv,
+            color: [255; 4],
+        },
     };
     let _ = painter.push(visual, [x, y, x + side, y + side]);
 }
@@ -274,6 +287,7 @@ pub(super) fn with_java_hud(vanilla: &json_ui::Catalog) -> json_ui::Catalog {
     super::super::vsync_setting::install(&mut catalog);
     super::super::java_animations_setting::install(&mut catalog);
     super::super::discord_presence_setting::install(&mut catalog);
+    super::super::crosshair_settings::install(&mut catalog);
     catalog.apply_pack(hud_files);
     catalog.apply_pack(
         [(
