@@ -2,6 +2,74 @@
 
 Agent cross-reference index: for each file, the vanilla symbols and addresses its behaviour was matched against, removed from source comments by #126. Use it to locate the matching vanilla code; keep source comments free of these references. Entries go stale as code moves.
 
+## Movement and input audit repairs (2026-10-07)
+
+Primary reference: Lens artifact 6, reconstructed client 1.26.50.26. The local
+26.30 sources under `~/Coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30`
+identify systems; current implementations corroborate the rules below. This
+preview build is not an exact retail/platform capture for every supported client.
+
+- `crates/gameplay/src/movement/correction_shape.rs` and
+  `physics/prediction_corrections.rs`: `_isValidCorrection` `0x04ae62d0`
+  requires a nonzero tick at or above the retained floor, without an upper bound;
+  `_onCorrectPlayerMovePredictionPacket` `0x04ae6670` and `_applyCorrectionToTick`
+  `0x04ae6100` pass it into frame correction. `ReplayStateComponent::applyFrameCorrection`
+  `0x02c2a1f0` and `_applyCorrection` `0x02c29db0` have no distance cutoff.
+  Missing ticks attach to the current replay frame; `ActorHistory::addCorrectionToFrame`
+  `0x02fadc90` sets history correction bits without initiating a frame rewind.
+  `RewindSimulation::handleAdvanceAndRewind` `0x038db020` applies corrections
+  before each captured input, and clears dirty bits after replay. A later
+  same-frame spatial correction wins. The 26.30 `ClientRewind::_advanceRewindFrameSystem`
+  `0x058f3850` identifies current-frame capture; current replay logic corroborates
+  the pre-input correction order. MovePlayer's separate teleport distance rule
+  remains unchanged.
+- `crates/sim/src/simulator/environment.rs`, `collision.rs` and `travel.rs`:
+  horizontal travel `0x099cc8b0`, walking `0x099ccb00`, flying `0x099cce30`
+  sample material at AABB minimum Y minus `0.1f` (`0x14ffab670`). Landing
+  response `0x099c4920` selects collision provenance through `0x0208c6f0`:
+  highest qualifying shape center below feet minus `0.2f`, then squared distance
+  to the feet-plane center, retaining the first exact tie. Restitution minimum
+  downward speed at `0x150344840` is `0.08000011742115021f`.
+- `crates/sim/src/simulator/effects.rs`: levitation `0x03233fc0` computes
+  `v * 0.8f + (amplifier + 1) * 0.01f`, then vertical drag `0x032150c0`
+  multiplies by `0.98f`. Horizontal friction `0x03203a50` clears each component
+  at or below float epsilon (`0x14ffab690`) before drag.
+- Auto-climb `0x09003d90`, registration `0x09004100`: fresh horizontal collision,
+  climbable and non-water/non-gliding admission; the resulting travel flag
+  excludes later gravity and vertical drag. Ground/air adapters require their
+  respective travel tags; travel sensing `0x09fefcb0` selects lava travel
+  separately. Lava adapter `0x0904f160` and body `0x09003f40` additionally
+  require navigation capability, excluding ordinary player lava auto-climb.
+- `crates/input`, `app/src/semantic_controls`, and gameplay input encoding:
+  packet fill `0x070fcfd0` and input update `0x07108cc0` retain independent
+  digital, raw button, request and actor transition lanes. Raw jump/sneak edges
+  accumulate until packet fill clears their bits with `0xfc3fffff`.
+  Sprint predicate `0x0c5b6310` uses `0.70710677f` direction/magnitude admission
+  (`0x14feff2ac`) and absolute horizontal displacement components against
+  `0.0000499999987f` (`0x1503dcba0`), including the swimming exception.
+  Pre-move capture `0x0dc09dc0` copies requested motion from `MoveRequest + 0x3c`
+  and pre-move position from `StateVector` into gameplay state `+0x1c` and `+0x28`.
+  `TravelMoveRequest` `0x09feefb0` supplies velocity to those request fields;
+  `SneakMovement` `0x0c597a70` clips them before the resolver in pipeline
+  `0x072b3190`. Sprint pipeline registration `0x072b6020` places the seven-tick
+  timer (constructor `0x0c5b0650`, callback `0x0c5b0900`) before sprint request
+  and intent processing in stage 6.
+  Request setup `0x0c5b1b60` supplies vehicle eligibility at `+0xf` and hunger
+  admission at `+0x10`; intent processing checks hunger again on the stop path.
+  `StorePreviousClientInput` `0x09fda3f0` captures processed forward input and
+  the independent sneak request for the following tick. Sneak intent
+  `0x0c581310` does not cancel sprint, and sprint action `0x0c5b8810` plus
+  setter `0x0c587750` impose no extra sneak veto.
+  Item slowdown callback `0x0dc2b3c0` multiplies the intent axes before the
+  sprint stage; `SetMoveCommon` `0x099bf880` and `SetMoveClient` `0x099c0590`
+  do not overwrite them. Sneak/crawl slowdown follows intent processing.
+- Swift Sneak: equipment `0x037597c0`, enchantment registration `0x0373a940`
+  (ID 37), and `SneakingSystem` adapter `0x0c59f5a0` corroborate leggings
+  lookup and `min(level * 0.15f + 0.3f, 1.0f)`. Constants are at
+  `0x150056088`, `0x14ffab6c8`, and `0x14fea4060`.
+  Blindness registration `0x0347a4d0` identifies effect 15; sprint intent
+  `0x0c5b6310` applies it only when starting sprint.
+
 
 ## app/src/block_entities/describe.rs
 - // Current renderSkull selects the model from the backing block type;
