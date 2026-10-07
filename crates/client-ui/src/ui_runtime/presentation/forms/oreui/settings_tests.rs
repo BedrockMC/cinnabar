@@ -46,6 +46,44 @@ fn settings_view(section: &str) -> MenuView {
     view
 }
 
+#[test]
+fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
+    use crate::menu::settings_options::{
+        ANIMATIONS_OPTION, INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION,
+    };
+
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = settings_view("video_forced_index");
+    let index = |name| {
+        SETTINGS_OPTIONS
+            .iter()
+            .position(|option| option.name == name)
+            .unwrap()
+    };
+    let animation = index(ANIMATIONS_OPTION.name);
+    for value in [0, 1] {
+        Arc::make_mut(&mut view.settings_options).set(animation, value);
+        for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+            Arc::make_mut(&mut view.settings_options).set(index(option.name), value);
+        }
+        present(&mut presentation, &view, [1280.0, 720.0]);
+        let actions: Vec<_> = presentation.visible_menu_actions().collect();
+        for choice in ANIMATIONS_OPTION.min..=ANIMATIONS_OPTION.max {
+            assert!(actions.contains(&MenuAction::SettingsOption(animation as u16, choice)));
+        }
+        for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+            assert!(
+                actions.contains(&MenuAction::SettingsOption(
+                    index(option.name) as u16,
+                    1 - value
+                )),
+                "{} must remain reachable in both saved states",
+                option.name,
+            );
+        }
+    }
+}
+
 fn centre(bounds: UiRect) -> UiPoint {
     let (min, max) = (bounds.min(), bounds.max());
     UiPoint::new((min.x() + max.x()) * 0.5, (min.y() + max.y()) * 0.5).unwrap()

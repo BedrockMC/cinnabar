@@ -63,7 +63,27 @@ pub const UI_STYLE_GLINT: u32 = 1 << 1;
 /// Reject sampled texture alpha below one half before multiplying vertex alpha.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 /// Texture alpha weights dye color; every surviving sampled texel is opaque.
-pub const UI_STYLE_COLOR_MASK: u32 = 1 << 5;
+pub const UI_STYLE_COLOR_MASK: u32 = 1 << 7;
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+
+    #[test]
+    fn font_coverage_never_enables_opaque_model_color_masks() {
+        for rendering in [
+            assets::FontRendering::Coverage,
+            assets::FontRendering::NativeCoverage,
+            assets::FontRendering::NativeSdf,
+        ] {
+            assert_eq!(
+                u32::from(rendering.style_flags()) & UI_STYLE_COLOR_MASK,
+                0,
+                "text coverage must remain transparent outside glyphs"
+            );
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UiRenderBatch {

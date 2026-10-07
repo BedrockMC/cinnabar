@@ -112,8 +112,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
-	if firstWorld && cfg.generator == "normal" {
-		srv.World().SetSpawn(generators[world.Overworld].DefaultSpawn(world.Overworld))
+	if generator, ok := generators[world.Overworld]; firstWorld && ok {
+		srv.World().SetSpawn(generator.DefaultSpawn(world.Overworld))
 	}
 	cmds := commands{pause: func(paused bool) { setPaused(worlds, paused) }}
 	var host *experience.Host

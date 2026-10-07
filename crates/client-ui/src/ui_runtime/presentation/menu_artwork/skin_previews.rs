@@ -160,7 +160,6 @@ mod tests {
 
     #[test]
     fn unchanged_gallery_artwork_sync_allocates_nothing() {
-        use super::super::request_cache::allocation_count::thread_allocations;
         use launcher::dressing_room::{DressingRoomCape, DressingRoomSection};
         let mut presentation =
             UiPresentationRuntime::new(super::super::super::tests::fixture_font())
@@ -213,11 +212,12 @@ mod tests {
             std::sync::Arc::make_mut(&mut view.dressing_room).section = section;
             presentation.sync_menu_artwork_view(&view);
             presentation.finish_menu_artwork();
-            let before = thread_allocations();
-            for _ in 0..8 {
-                presentation.sync_menu_artwork_view(&view);
-            }
-            assert_eq!(thread_allocations().wrapping_sub(before), 0);
+            let (_, allocations) = crate::allocation_count::count(|| {
+                for _ in 0..8 {
+                    presentation.sync_menu_artwork_view(&view);
+                }
+            });
+            assert_eq!(allocations, 0);
         }
     }
 

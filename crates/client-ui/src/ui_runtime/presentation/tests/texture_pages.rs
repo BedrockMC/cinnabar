@@ -159,7 +159,10 @@ fn mixed_native_font_pages_fit_ui_without_max_side_padding() {
     let page_bytes = |side: u32| side as usize * side as usize * 4;
     let small_page_bytes = page_bytes(render_model::UI_DYNAMIC_PAGE_SIDE);
     let dynamic_bytes = render_model::UI_LOCAL_FONT_PAGE_OFFSET * small_page_bytes
-        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE);
+        + page_bytes(render_model::UI_LOCAL_FONT_PAGE_SIDE)
+        + render_model::MAX_UI_FALLBACK_FONT_PAGES
+            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize
+            * render_model::UI_FALLBACK_FONT_PAGE_SIDE as usize;
     assert_eq!(
         presentation.textures.plan().bytes(),
         font_bytes
@@ -799,11 +802,15 @@ fn coverage_font_pages_fit_the_bucket_budget_with_every_reserved_slot() {
     let plan = presentation.textures.plan();
     assert!(plan.buckets().len() <= render_model::MAX_UI_TEXTURE_BUCKETS);
     for (index, page) in presentation.textures.pages().iter().enumerate() {
-        let expected = if index < font.pages().len() {
-            render_model::UiTextureFormat::Coverage
-        } else {
-            render_model::UiTextureFormat::Rgba8
-        };
+        let fallback_start =
+            presentation.textures.dynamic_start() + render_model::UI_FALLBACK_FONT_PAGE_OFFSET;
+        let fallback_end = fallback_start + render_model::MAX_UI_FALLBACK_FONT_PAGES;
+        let expected =
+            if index < font.pages().len() || (fallback_start..fallback_end).contains(&index) {
+                render_model::UiTextureFormat::Coverage
+            } else {
+                render_model::UiTextureFormat::Rgba8
+            };
         assert_eq!(page.format(), expected, "page {index}");
     }
     let local = presentation.textures.dynamic_start() + render_model::UI_LOCAL_FONT_PAGE_OFFSET;

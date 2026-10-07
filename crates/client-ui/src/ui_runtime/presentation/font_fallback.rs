@@ -145,7 +145,7 @@ mod tests {
             .unwrap();
         let mut runtime = UiPresentationRuntime::new(Arc::new(source)).unwrap();
         let static_identity = runtime.textures.static_identity();
-        let default_glyph = *runtime.font.glyph('A').unwrap();
+        let default_glyph = *runtime.font.glyph('0').unwrap();
         requests.publish(Arc::new(fallback('한')));
         runtime.set_menu_view(None);
         let (_, glyph) = runtime.font.font_named("body").glyph_source('한').unwrap();
@@ -158,7 +158,7 @@ mod tests {
             render_model::UiTextureFormat::Coverage
         );
         assert_eq!(runtime.textures.static_identity(), static_identity);
-        assert_eq!(runtime.font.glyph('A'), Some(&default_glyph));
+        assert_eq!(runtime.font.glyph('0'), Some(&default_glyph));
         let textures = Arc::clone(&runtime.textures);
         requests.publish(Arc::clone(runtime.fallback_font.as_ref().unwrap()));
         runtime.set_menu_view(None);

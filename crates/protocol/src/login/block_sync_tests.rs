@@ -28,4 +28,3 @@ fn synced_block_update_is_admitted_from_the_raw_world_lane() {
             .is_some()
     );
 }
-use bytes::Buf;

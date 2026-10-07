@@ -425,6 +425,7 @@ mod tests {
         view.feeds.pings.insert(
             address.clone(),
             PingInfo {
+                motd: String::new(),
                 online: true,
                 players: 2,
                 max_players: 10,
@@ -468,6 +469,7 @@ mod tests {
         view.feeds.pings.insert(
             address.to_owned(),
             PingInfo {
+                motd: String::new(),
                 online: true,
                 players: 3,
                 max_players: 20,

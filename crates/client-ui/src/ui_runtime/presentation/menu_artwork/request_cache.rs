@@ -46,6 +46,3 @@ impl GalleryRequest {
             )
     }
 }
-
-#[cfg(test)]
-pub(super) mod allocation_count;

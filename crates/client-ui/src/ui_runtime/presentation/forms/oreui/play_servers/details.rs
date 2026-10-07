@@ -45,6 +45,13 @@ pub(super) fn details_content(
             view.feeds.pings.get(&server.address),
             view.settings_options.exact_server_ping(),
         )?;
+    } else if let Some(count) = details
+        .and_then(|details| details.player_count)
+        .filter(|count| *count > 0)
+    {
+        let overlay = status_overlay(canvas, banner)?;
+        let x = overlay[0] + canvas.r(2.4);
+        player_count(canvas, overlay, x, &count.to_string())?;
     }
     let pad = canvas.r(2.4);
     let play_height = canvas.r(4.4);
@@ -208,8 +215,7 @@ fn ping_strip(
     ping: Option<&PingInfo>,
     exact: bool,
 ) -> Result<(), UiPresentationError> {
-    let overlay = [banner[0], banner[3] - canvas.r(6.0), banner[2], banner[3]];
-    canvas.fill(overlay, [0, 0, 0, 179])?;
+    let overlay = status_overlay(canvas, banner)?;
     let icon_side = 20.0 * super::super::icons::native_scale(canvas);
     let x = overlay[0] + canvas.r(2.4);
     let line = overlay[1] + (canvas.r(6.0) - canvas.r(BODY.line)) * 0.5;
@@ -247,6 +253,25 @@ fn ping_strip(
         TEXT_DIMMER,
     )?;
     let players_x = label_x + canvas.measure(&label, BODY)? + canvas.r(2.4);
+    let count = ping
+        .filter(|p| p.online)
+        .map_or(0, |p| p.players)
+        .to_string();
+    player_count(canvas, overlay, players_x, &count)
+}
+
+fn status_overlay(canvas: &mut Canvas<'_>, banner: Bounds) -> Result<Bounds, UiPresentationError> {
+    let overlay = [banner[0], banner[3] - canvas.r(6.0), banner[2], banner[3]];
+    canvas.fill(overlay, [0, 0, 0, 179])?;
+    Ok(overlay)
+}
+
+fn player_count(
+    canvas: &mut Canvas<'_>,
+    overlay: Bounds,
+    players_x: f32,
+    count: &str,
+) -> Result<(), UiPresentationError> {
     let player_side = canvas.r(2.4);
     let player_top = overlay[1] + (canvas.r(6.0) - player_side) * 0.5;
     canvas.sprite(
@@ -260,11 +285,9 @@ fn ping_strip(
         [255; 4],
     )?;
     let count_x = players_x + player_side + canvas.r(0.4);
+    let line = overlay[1] + (canvas.r(6.0) - canvas.r(BODY.line)) * 0.5;
     canvas.text_line(
-        &ping
-            .filter(|p| p.online)
-            .map_or(0, |p| p.players)
-            .to_string(),
+        count,
         [count_x, line],
         (overlay[2] - count_x).max(1.0),
         BODY,

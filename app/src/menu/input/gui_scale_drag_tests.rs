@@ -18,12 +18,12 @@ fn frame(app: &mut App, action: MenuAction) -> UiRect {
         .resource_scope(|world, mut presentation: Mut<UiPresentationRuntime>| {
             presentation.set_menu_view(Some(view));
             let pane = UiPoint::new(PHYSICAL[0] as f32 * 0.75, PHYSICAL[1] as f32 * 0.6).unwrap();
-            for _ in 0..32 {
+            for tick in 0..32_u64 {
                 presentation
                     .build(
                         world.resource::<crate::player_runtime::PlayerRuntime>(),
                         &UiRuntime::new(1),
-                        0,
+                        tick * 250,
                         PHYSICAL,
                         DpiScale::new(1.0).unwrap(),
                     )

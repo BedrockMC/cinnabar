@@ -7,8 +7,9 @@ use super::{Content, button};
 use crate::menu::{
     MenuAction,
     settings_options::{
-        EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, SettingsGroup,
-        SettingsOptions, VOLUME_SETTINGS, key_name,
+        ANIMATIONS_OPTION, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET,
+        INVERT_CROSSHAIR_OPTION, KEY_BINDINGS, SettingsGroup, SettingsOptions,
+        THIRD_PERSON_CROSSHAIR_OPTION, VOLUME_SETTINGS, key_name,
     },
     settings_support::{SupportAction, SupportDialog, SupportLink},
 };
@@ -146,6 +147,8 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
             "hide_hand",
             "hide_paperdoll",
             "hide_hud",
+            THIRD_PERSON_CROSSHAIR_OPTION.name,
+            INVERT_CROSSHAIR_OPTION.name,
             "classic_box_selection",
             "ingame_player_names",
             "interface_opacity",
@@ -166,6 +169,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), UiPresentationError> {
             "screen_animations",
             "panorama_speed",
             "view_bobbing",
+            ANIMATIONS_OPTION.name,
             "damage_bob",
             "camera_shake",
             "field_of_view_toggle",

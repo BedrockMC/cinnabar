@@ -12,6 +12,108 @@ fn card(name: &str, address: &str) -> MenuServerCard {
     }
 }
 
+fn detail_labels(view: &MenuView) -> Vec<String> {
+    let font = fixture_font();
+    let (mut nodes, mut next, mut layouts) =
+        (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
+    let metrics = super::super::super::super::TextMetrics::for_viewport(
+        [1280, 720],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+    details::details_content(
+        &mut canvas,
+        view,
+        &view.featured[0],
+        0,
+        [400.0, 100.0, 1200.0],
+        &HashMap::new(),
+    )
+    .unwrap();
+    canvas
+        .nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn experience_details_show_positive_service_counts_without_ping_status() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    let address = format!("{}fixture", crate::menu::EXPERIENCE_ADDRESS_PREFIX);
+    view.featured = vec![card("Experience", &address)];
+    view.feeds.pings.insert(
+        address.clone(),
+        PingInfo {
+            online: true,
+            players: 2,
+            ..Default::default()
+        },
+    );
+    for count in [None, Some(0), Some(-1), Some(12_345), Some(i64::MAX)] {
+        view.feeds.details.insert(
+            address.clone(),
+            ServerDetails {
+                player_count: count,
+                ..Default::default()
+            },
+        );
+        let labels = detail_labels(&view);
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label.contains("ping") || label == "Offline")
+        );
+        let numbers: Vec<_> = labels
+            .iter()
+            .filter(|label| label.chars().all(|ch| ch.is_ascii_digit()))
+            .collect();
+        let expected: Vec<_> = count
+            .filter(|count| *count > 0)
+            .map(|count| count.to_string())
+            .into_iter()
+            .collect();
+        assert_eq!(numbers.into_iter().cloned().collect::<Vec<_>>(), expected);
+    }
+}
+
+#[test]
+fn creator_server_details_keep_pong_counts_instead_of_service_counts() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    let address = "creator.test:19132";
+    view.featured = vec![card("Creator", address)];
+    view.feeds.details.insert(
+        address.into(),
+        ServerDetails {
+            player_count: Some(12_345),
+            ..Default::default()
+        },
+    );
+    view.feeds.pings.insert(
+        address.into(),
+        PingInfo {
+            online: true,
+            players: 7,
+            ping_ms: 40,
+            ..Default::default()
+        },
+    );
+    let labels = detail_labels(&view);
+    assert!(labels.iter().any(|label| label == "Low ping"));
+    assert!(labels.iter().any(|label| label == "7"));
+    assert!(!labels.iter().any(|label| label == "12345"));
+}
+
 #[test]
 fn groups_preserve_catalog_action_indices_and_use_real_motds() {
     let mut view = MenuView::new(true, "Fixture".into());

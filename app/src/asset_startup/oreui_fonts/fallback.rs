@@ -5,6 +5,8 @@ use pack_compiler::compile_native_fallback_fonts;
 use render_model::{MAX_UI_FALLBACK_FONT_PAGES, UI_FALLBACK_FONT_PAGE_SIDE};
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
+mod cache;
+
 const SOURCES: &[(&str, &str)] = &[
     ("NotoSansMerged-Regular-", ".ttf"),
     ("NotoSansSC-Regular-", ".otf"),
@@ -98,39 +100,40 @@ pub(super) fn install(
             .chain(0x2600..=0x26ff)
             .filter_map(char::from_u32),
     );
-    let mut characters: Vec<_> = warm.into_iter().take(MAX_CACHED_GLYPHS / 2).collect();
-    let pinned = characters.len();
+    let characters: Vec<_> = warm.into_iter().take(MAX_CACHED_GLYPHS / 2).collect();
     let initial = compile(&sources, &characters, "")?;
     let requests = Arc::new(FontGlyphRequests::default());
     requests.seed(characters.iter().copied());
+    let mut cache = cache::GlyphCache::new(
+        initial
+            .glyphs()
+            .iter()
+            .map(|glyph| glyph.codepoint)
+            .collect(),
+        MAX_CACHED_GLYPHS,
+    );
     let combined = base
         .with_shared_fallback(&initial, Arc::clone(&requests))
         .map_err(|e| e.to_string())?;
     std::thread::Builder::new()
         .name("oreui-font-fallback".into())
         .spawn(move || {
-            let mut known: BTreeSet<_> = characters.iter().copied().collect();
             while Arc::strong_count(&requests) > 1 {
                 let Some((locale, pending)) = requests.wait() else {
                     continue;
                 };
-                for ch in pending {
-                    if known.insert(ch) {
-                        characters.push(ch);
-                    }
+                let update = cache.update(pending, |characters| {
+                    compile(&sources, characters, &locale).map(|font| {
+                        let supported = font.glyphs().iter().map(|glyph| glyph.codepoint).collect();
+                        (font, supported)
+                    })
+                });
+                requests.forget(update.evicted);
+                if let Some(font) = update.font {
+                    requests.publish(Arc::new(font));
                 }
-                if characters.len() > MAX_CACHED_GLYPHS {
-                    let evicted: Vec<_> = characters
-                        .drain(pinned..pinned + characters.len() - MAX_CACHED_GLYPHS)
-                        .collect();
-                    for ch in &evicted {
-                        known.remove(ch);
-                    }
-                    requests.forget(evicted);
-                }
-                match compile(&sources, &characters, &locale) {
-                    Ok(font) => requests.publish(Arc::new(font)),
-                    Err(reason) => eprintln!("OreUI fallback unavailable ({reason})"),
+                if let Some(reason) = update.error {
+                    eprintln!("OreUI fallback unavailable ({reason})");
                 }
             }
         })

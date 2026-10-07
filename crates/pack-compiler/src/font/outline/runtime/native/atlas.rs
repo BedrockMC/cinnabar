@@ -9,10 +9,22 @@ pub(super) struct Atlas {
 }
 
 pub(super) fn pack_pages(
-    mut source: Vec<RasterizedGlyph>,
+    source: Vec<RasterizedGlyph>,
     maximum_side: u32,
     adaptive: bool,
 ) -> Result<Atlas, FontCompileError> {
+    pack_pages_bounded(source, maximum_side, adaptive, MAX_FONT_PAGES)
+}
+
+pub(super) fn pack_pages_bounded(
+    mut source: Vec<RasterizedGlyph>,
+    maximum_side: u32,
+    adaptive: bool,
+    maximum_pages: usize,
+) -> Result<Atlas, FontCompileError> {
+    if maximum_pages == 0 || maximum_pages > MAX_FONT_PAGES {
+        return Err(invalid("native glyph page budget exceeds bounds"));
+    }
     for glyph in &mut source {
         if glyph.width == 0 || glyph.height == 0 {
             glyph.width = 1;
@@ -24,18 +36,25 @@ pub(super) fn pack_pages(
     while side < maximum_side && admitted(&source, side) != source.len() {
         side *= 2;
     }
-    let mut glyphs = Vec::with_capacity(source.len());
-    let mut pages = Vec::new();
+    let mut ranges = Vec::new();
     let mut first = 0;
     while first < source.len() {
+        if ranges.len() == maximum_pages {
+            return Err(invalid("native glyph pages exceed their page budget"));
+        }
         let count = admitted(&source[first..], side);
         if count == 0 {
             return Err(FontCompileError::OutlineAtlasFull { side });
         }
-        if pages.len() == MAX_FONT_PAGES {
-            return Err(invalid("native glyph pages exceed bounds"));
-        }
-        let (mut part, mut pixels) = super::pack(&source[first..first + count], side)?;
+        ranges.push(first..first + count);
+        first += count;
+    }
+    let mut glyphs = Vec::with_capacity(source.len());
+    let mut pages = Vec::with_capacity(ranges.len());
+    for range in ranges {
+        #[cfg(test)]
+        PACKED_PAGES.with(|count| count.set(count.get() + 1));
+        let (mut part, mut pixels) = super::pack(&source[range], side)?;
         for glyph in &mut part {
             glyph.page = pages.len() as u16;
         }
@@ -44,7 +63,6 @@ pub(super) fn pack_pages(
         }
         glyphs.extend(part);
         pages.push(pixels);
-        first += count;
     }
     Ok(Atlas {
         glyphs,
@@ -74,6 +92,11 @@ fn admitted(glyphs: &[RasterizedGlyph], side: u32) -> usize {
         row_height = row_height.max(glyph.height);
     }
     glyphs.len()
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static PACKED_PAGES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -110,6 +133,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn exceeded_page_budget_rejects_before_allocating_any_page() {
+        let source = || {
+            ['A', 'B', 'C']
+                .into_iter()
+                .map(|ch| glyph(ch, 254, 254, 255))
+                .collect()
+        };
+        PACKED_PAGES.with(|count| count.set(0));
+        assert!(pack_pages_bounded(source(), 256, false, 2).is_err());
+        assert_eq!(PACKED_PAGES.with(std::cell::Cell::get), 0);
+        let admitted = pack_pages_bounded(source(), 256, false, 3).unwrap();
+        assert_eq!(admitted.pages.len(), 3);
+        assert_eq!(PACKED_PAGES.with(std::cell::Cell::get), 3);
     }
 
     #[test]

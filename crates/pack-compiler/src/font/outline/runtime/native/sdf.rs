@@ -10,12 +10,21 @@ struct EdgeDistance {
     seed: bool,
 }
 
+pub(super) fn extent(width: u32, height: u32) -> Option<[u32; 2]> {
+    if width == 0 || height == 0 {
+        return Some([0, 0]);
+    }
+    let padding = (SPREAD * 2) as u32;
+    Some([width.checked_add(padding)?, height.checked_add(padding)?])
+}
+
 pub(super) fn glyph(mut glyph: RasterizedGlyph) -> Result<RasterizedGlyph, FontCompileError> {
     if glyph.width == 0 || glyph.height == 0 {
         return Ok(glyph);
     }
-    let width = glyph.width as usize + SPREAD * 2;
-    let height = glyph.height as usize + SPREAD * 2;
+    let [width, height] = extent(glyph.width, glyph.height)
+        .ok_or_else(|| invalid("distance-field extent exceeds bounds"))?;
+    let (width, height) = (width as usize, height as usize);
     let mut coverage = vec![0; width * height];
     for row in 0..glyph.height as usize {
         let start = (row + SPREAD) * width + SPREAD;
@@ -39,6 +48,8 @@ fn distance_field(source: &[u8], width: usize, height: usize) -> Result<Vec<u8>,
     if width == 0 || height == 0 || source.len() != width * height {
         return Err(invalid("distance-field coverage dimensions differ"));
     }
+    #[cfg(test)]
+    FIELD_ALLOCATIONS.with(|count| count.set(count.get() + 1));
     let stride = width + 2;
     let rows = height + 2;
     let mut coverage = vec![0; stride * rows];
@@ -187,6 +198,11 @@ fn relax(
             };
         }
     }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    pub(super) static FIELD_ALLOCATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
