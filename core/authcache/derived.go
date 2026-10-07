@@ -84,6 +84,7 @@ type Account struct {
 	diagnosticsMu   sync.Mutex // diagnostics are written outside the gate
 	oauth           oauth2.TokenSource
 	binding         string
+	resets          uint64 // counts resetLocked, so a derivation can tell its own OAuth rotation from a replaced account state
 	client          string
 	device          xasd.TokenSource
 	deviceToken     *xasd.Token
@@ -275,8 +276,9 @@ func (s *Account) XSTSToken(ctx context.Context, relyingParty string) (*xsts.Tok
 		return nil, err
 	}
 	token := s.xstsTokens[relyingParty]
+	cached := token.Valid() && !s.rejectedLocked(relyingParty, token)
 	s.unlock()
-	if token.Valid() {
+	if cached {
 		s.diagnostic("reuse", "xsts", "valid")
 		return token, nil
 	}
@@ -351,6 +353,9 @@ func (s *Account) InvalidateXSTSToken(relyingParty string, rejected *xsts.Token)
 		s.rejected = make(map[string]*xsts.Token)
 	}
 	s.rejected[relyingParty] = rejected
+	if s.rejectedLocked(relyingParty, s.xstsTokens[relyingParty]) {
+		delete(s.xstsTokens, relyingParty)
+	}
 	s.unlock()
 	if err := s.reload(ctx); err != nil {
 		return
@@ -359,9 +364,6 @@ func (s *Account) InvalidateXSTSToken(relyingParty string, rejected *xsts.Token)
 		return
 	}
 	session := s.session
-	if current := s.xstsTokens[relyingParty]; current != nil && current.Token == rejected.Token {
-		delete(s.xstsTokens, relyingParty)
-	}
 	s.unlock()
 	session.InvalidateXSTSToken(relyingParty, rejected)
 	s.diagnostic("invalidate", "xsts", "rejected")
@@ -433,7 +435,7 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 	if err := s.lock(ctx); err != nil {
 		return nil, err
 	}
-	env, source, seed, binding := s.environment, s.services, s.service, s.binding
+	env, source, seed, resets := s.environment, s.services, s.service, s.resets
 	if seed != nil && seed.Valid() {
 		s.unlock()
 		return seed, nil
@@ -455,7 +457,7 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 	if err := s.lock(ctx); err != nil {
 		return nil, err
 	}
-	install := s.binding == binding && s.environment == env && token != s.service
+	install := s.resets == resets && s.environment == env && token != s.service
 	if install {
 		s.service, s.services = token, source
 	}
@@ -755,6 +757,7 @@ func (s *Account) prepare(ctx context.Context) error {
 }
 
 func (s *Account) resetLocked(binding string) {
+	s.resets++
 	var proofKey *ecdsa.PrivateKey
 	if s.device != nil {
 		proofKey = s.device.ProofKey()

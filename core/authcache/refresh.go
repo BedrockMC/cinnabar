@@ -113,7 +113,7 @@ func (s *Account) refreshServiceAhead(ctx context.Context, lead time.Duration) (
 	if err := s.lock(ctx); err != nil {
 		return remaining, err
 	}
-	binding, deviceID := s.binding, s.serviceDeviceIDLocked()
+	resets, deviceID := s.resets, s.serviceDeviceIDLocked()
 	s.unlock()
 	source := s.deps.services(env, sessionTickets{s}, nil, deviceID, s.sessionID)
 	token, err := source.ServiceToken(ctx)
@@ -123,13 +123,13 @@ func (s *Account) refreshServiceAhead(ctx context.Context, lead time.Duration) (
 		}
 		return remaining, errors.New("authentication: refresh service credential")
 	}
-	return s.installServiceRefresh(ctx, binding, env, before, source, token)
+	return s.installServiceRefresh(ctx, resets, env, before, source, token)
 }
 
 // installServiceRefresh swaps in an exchanged token unless the account changed or a newer token won.
 func (s *Account) installServiceRefresh(
 	ctx context.Context,
-	binding string,
+	resets uint64,
 	env *service.AuthorizationEnvironment,
 	before *service.Token,
 	source service.TokenSource,
@@ -139,7 +139,7 @@ func (s *Account) installServiceRefresh(
 		return 0, err
 	}
 	current := s.service
-	if s.binding != binding || s.environment != env ||
+	if s.resets != resets || s.environment != env ||
 		(current != nil && current != before && current.ValidUntil.After(token.ValidUntil)) {
 		s.unlock()
 		if current != nil && current.Valid() {
