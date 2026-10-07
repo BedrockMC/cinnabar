@@ -233,6 +233,7 @@ pub struct LocalPhysicsController {
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
     motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
+    motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     history_capacity: usize,
@@ -270,6 +271,7 @@ impl Default for LocalPhysicsController {
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
+            motion_anchor: None,
             server_motions: VecDeque::new(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
@@ -320,6 +322,10 @@ impl LocalPhysicsController {
         self.sample_history.clear();
         self.controller_history.clear();
         self.motion_ticks.clear();
+        self.motion_anchor = self
+            .state
+            .as_ref()
+            .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
         self.server_control_flags = None;
         self.modes.reset();
@@ -374,6 +380,10 @@ impl LocalPhysicsController {
         self.sample_history.clear();
         self.controller_history.clear();
         self.motion_ticks.clear();
+        self.motion_anchor = self
+            .state
+            .as_ref()
+            .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -691,6 +701,7 @@ impl LocalPhysicsController {
                     );
                     motion_ticks::retain(
                         &mut self.motion_ticks,
+                        &mut self.motion_anchor,
                         self.sample_history
                             .back()
                             .expect("completed sample retained"),

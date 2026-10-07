@@ -714,7 +714,7 @@ fn completed_motion_ticks_keep_pre_travel_velocity_across_catch_up_and_replay() 
     assert_eq!(observed[2].1, physics.sample_at(102).unwrap().velocity);
     let mut priming = Vec::new();
     physics.visit_completed_ticks(None, &mut |sample, _, _| priming.push(sample.tick));
-    assert_eq!(priming, [103]);
+    assert_eq!(priming, [100, 101, 102, 103]);
     physics.queue_server_motion([0.0, -2.0, 0.0], 101);
     physics.replay_retained_from(101, &Floor).unwrap();
     observed.clear();
@@ -752,5 +752,23 @@ fn completed_motion_ticks_survive_minimum_rewind_window() {
     assert!(ticks.is_empty());
     physics.reanchor_network_position([0.0, protocol::PLAYER_NETWORK_OFFSET + 20.0, 0.0], 48, false);
     physics.visit_completed_ticks(Some(40), &mut |sample, _, _| ticks.push(sample.tick));
-    assert!(ticks.is_empty());
+    assert_eq!(ticks, [48]);
+}
+
+#[test]
+fn completed_motion_ticks_prime_from_anchor_before_initial_jump() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, protocol::PLAYER_NETWORK_OFFSET + 1.0, 0.0], 0, true);
+    let mut anchor = Vec::new();
+    physics.visit_completed_ticks(None, &mut |sample, _, _| {
+        anchor.push((sample.tick, sample.grounded_after_tick));
+    });
+    assert_eq!(anchor, [(0, true)]);
+    let frame = physics.advance(Duration::from_millis(100), MovementInput { jumping: true, ..Default::default() }, &Floor);
+    assert_eq!(frame.completed_ticks, 2);
+    let mut first_frame = Vec::new();
+    physics.visit_completed_ticks(None, &mut |sample, _, _| {
+        first_frame.push((sample.tick, sample.grounded_after_tick));
+    });
+    assert_eq!(first_frame, [(0, true), (1, false), (2, false)]);
 }
