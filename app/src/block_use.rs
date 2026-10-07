@@ -114,18 +114,18 @@ pub(crate) fn produce_block_use(
     {
         return;
     }
-    let clock = RepeatClock {
-        now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
-        sneaking: sample.sneaking,
-        speed: sample
+    let clock = RepeatClock::for_game_mode(
+        u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
+        sample.sneaking,
+        sample
             .displacement
             .map(|axis| axis * sim::TICKS_PER_SECOND as f32)
             .into_iter()
             .map(|axis| axis * axis)
             .sum::<f32>()
             .sqrt(),
-        survival: game_mode == Some(PlayerGameMode::Survival),
-    };
+        game_mode,
+    );
     let Some((trigger, due)) = runtime.due(use_phase.held, sample.tick, clock) else {
         return;
     };

@@ -2641,3 +2641,12 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   `by-owner/l/LocalPlayer.cpp:10292–10413`. Lens named function
   `0x10a0dc360` corroborates transaction construction. The current callback above
   corroborates the first-success action and transaction fields for the target build.
+
+- Current Lens artifact 6, `handleItemStackResponse` at `0x28d10d0`, rejects IDs
+  unless `(~request_id & 0x80000001) == 0`: only negative odd client request IDs.
+  Canonical current `02.cpp:1476783–1476901` confirms this validation. Legacy
+  even placement scopes do not register in that response queue.
+  The local server pin `hashimthearab/dragonfly@58003c1d2ced`,
+  `server/session/handler_inventory_transaction.go:18–74`, processes
+  `LegacySetItemSlots` through `sendItem`/`sendInv`; `server/session/player.go:258–277`
+  sends `InventorySlot`/`InventoryContent`, not `ItemStackResponse`.

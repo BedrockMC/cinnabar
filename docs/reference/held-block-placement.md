@@ -10,7 +10,7 @@ remain subject to each item's placement rules.
 | First press | Attempt the fresh clicked block and face immediately. Start a new hold with no previous success or line. |
 | Repeats | Refresh the world pick each simulation tick. An attempt is due only when elapsed time is strictly greater than the repeat delay; this is not a fixed tick count. |
 | Slow delay | 300 ms while sneaking, interacting with a block, or placing before a line has been established. At 20 Hz and an exactly aligned timestamp, the first due opportunity is tick 7. |
-| Ordinary delay | 200 ms while still. While moving, truncate `min(900 / speed, 180)` milliseconds, where speed is the length of the actual post-tick movement delta multiplied by 20. Survival has a 100 ms minimum. |
+| Ordinary delay | 200 ms while still. While moving, truncate `min(900 / speed, 180)` milliseconds, where speed is the length of the actual post-tick movement delta multiplied by 20. Every noncreative mode has a 100 ms minimum. |
 | Timing after attempts | Failed attempts retain the previous success time and may retry next tick. Successful moving repeats advance the scheduled time, limited to 180 ms of catch-up; stationary success records the current time. |
 | Direction before a line | After a successful placement, actor velocity with squared length greater than 0.01 chooses the largest absolute movement axis; ties choose Z. Without sneaking, use the last successful destination as the support and this axis as the face. |
 | Qualifying blocks | The held block must allow the placement intention. Ordinary cubes, stairs, slabs, fences, thin fences/panes, walls and carpet qualify, as do soul sand, mud, barriers and chiseled bookshelves through inherited cube properties; a nonzero block runtime ID alone is insufficient. Custom block placers also control whether this intention is enabled. |
@@ -37,6 +37,7 @@ and a 200 ms threshold on the fifth. Actual opportunities depend on simulation t
 | First successful use | Send `StartItemUseOn` with the support, calculated destination and face before the swing and transaction. Held repeats do not send another start action. |
 | Stopping | Send `StopItemUseOn` with the last successful destination, zero result position and face zero. |
 | Survival inventory | Include the selected inventory-slot delta. A nonempty decremented stack receives the predicted negative legacy request ID and matching legacy slot record. An emptied stack has request ID zero and no legacy slot record. |
+| Server corrections | Nonempty legacy placement uses negative even IDs and authoritative slot/content restatements. `ItemStackResponse` acceptance/rejection applies to registered negative odd item-stack requests; unknown IDs do not alter inventory. |
 | Initial air fallback | After a plain block-use press, attempt air use with the remaining selected stack. There is no air fallback when the stack emptied, and block-item holds do not repeat this air use. |
 | Creative inventory | Do not decrement the held count or include a count-change delta. |
 

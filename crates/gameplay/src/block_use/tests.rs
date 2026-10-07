@@ -544,3 +544,25 @@ fn orientation_sensitive_states_preserve_the_original_world_hit() {
     );
     assert_eq!(intention.first_world_hit(), Some([0.75, 64.0, 0.25]));
 }
+
+#[test]
+fn adventure_held_repeats_keep_the_noncreative_floor() {
+    let mut runtime = BlockUseRuntime::default();
+    let mut clock = RepeatClock::for_game_mode(1_000, false, 20.0, Some(PlayerGameMode::Adventure));
+    runtime.record(
+        ItemUseTrigger::PlayerInput,
+        1_000,
+        1,
+        LocalUse::Place,
+        clock,
+    );
+    clock.now_millis = 1_050;
+    assert_eq!(runtime.due(true, 2, clock), None);
+    clock.now_millis = 1_100;
+    assert_eq!(runtime.due(true, 3, clock), None);
+    clock.now_millis = 1_150;
+    assert_eq!(
+        runtime.due(true, 4, clock),
+        Some((ItemUseTrigger::SimulationTick, 1_100))
+    );
+}
