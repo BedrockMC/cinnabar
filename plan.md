@@ -1,3 +1,16 @@
+## Held block placement
+
+- Ordinary block holds now retain successful destinations, establish an adjacent
+  placement line, and use fresh ray segments to continue beyond ledges or upward.
+- Repeats use resolved movement and stance; transactions carry their trigger,
+  start/stop actions, local outcome, click position and survival inventory delta.
+- Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
+  backward sneak bridging, failed attempts and refused transport.
+- Incomplete: complete runtime block-property and custom block-placer admission,
+  item-specific replacement/state rules and live vanilla/server acceptance remain open. No
+  complete placement parity or performance gate is closed by these tests.
+- Vanilla rules: [held block placement](docs/reference/held-block-placement.md).
+
 ## Frame attribution and unchanged GPU uploads
 
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
@@ -53,6 +66,10 @@
   frames; rods), the empty-hand arm, view bob, sneak eye height, hurt/death roll and arm sway. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Every hurt event immediately resets the limb boost, including consecutive hits; movement
+  still contributes to the phase, and death alone does not trigger a flail.
+  Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
+  verify single and repeated hits, walking while hurt, and recovery to idle.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
