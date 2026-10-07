@@ -212,7 +212,12 @@ impl SwingTracker {
         let start = self
             .completed_tick
             .and_then(|tick| tick.checked_add(1))
-            .or(self.attempted_tick);
+            .or(self.attempted_tick)
+            .or_else(|| {
+                self.history_end
+                    .filter(|_| self.history_len > 0)
+                    .map(|tick| tick.saturating_sub(self.history_len as u64 - 1))
+            });
         let Some(mut next) = start else {
             let fallback = self
                 .deferred_attempt
@@ -249,7 +254,11 @@ impl SwingTracker {
                     let durations = self.history[distance];
                     self.advance_states(1, [durations.0, durations.1]);
                     self.record_progress(tick);
-                    next = tick.saturating_add(1);
+                    if tick == target {
+                        self.completed_tick = Some(target);
+                        return;
+                    }
+                    next = tick + 1;
                 }
             }
         }

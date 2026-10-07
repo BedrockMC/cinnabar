@@ -575,3 +575,51 @@ fn a_backpressured_conduit_restart_preserves_each_modes_admission() {
     assert_eq!(next.bedrock, [0.0, 1.0 / 6.0]);
     assert_eq!(next.java, [0.5, 4.0 / 6.0]);
 }
+
+/// Initial idle publication retains every committed tick before the first attack or after reset.
+#[test]
+fn committed_swing_samples_preserve_initial_idle_catchup_after_authority_reset() {
+    use crate::melee::SwingTracker;
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    let mut swings = SwingTracker::default();
+    for (authority, first) in [(1, 101), (2, 201)] {
+        effects.begin_frame();
+        for _ in 0..3 {
+            effects.commit_successful_tick();
+        }
+        swings.sync_ticks((1, authority), first + 2, &effects);
+        swings.published_progress(first + 2);
+        let samples = swings.committed_samples().collect::<Vec<_>>();
+        assert_eq!(
+            samples.iter().map(|(tick, _)| *tick).collect::<Vec<_>>(),
+            vec![first, first + 1, first + 2]
+        );
+        assert!(
+            samples
+                .iter()
+                .all(|(_, progress)| *progress == client_world::LocalSwingProgress::default())
+        );
+    }
+}
+
+/// The largest retained tick still increments its admitted swing exactly once.
+#[test]
+fn committed_swing_samples_advance_the_maximum_tick_once() {
+    use crate::melee::SwingTracker;
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    effects.begin_frame();
+    effects.commit_successful_tick();
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), u64::MAX, &effects);
+    assert!(swings.try_swing(u64::MAX, 6));
+    let progress = swings.published_progress(u64::MAX);
+    assert_eq!(progress.bedrock, [0.0; 2]);
+    assert_eq!(progress.java, [0.0; 2]);
+    assert_eq!(
+        swings.committed_samples().last(),
+        Some((u64::MAX, progress))
+    );
+    assert_eq!(swings.published_progress(u64::MAX), progress);
+}

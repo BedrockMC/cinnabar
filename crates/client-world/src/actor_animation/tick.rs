@@ -284,11 +284,18 @@ pub(super) fn evaluate_state(
     advance_clocks: bool,
     inheritance: Option<EvaluationInheritance<'_>>,
 ) -> Result<EvaluatedState, EvalError> {
-    let reset = state.reset_pending;
+    let replay = (!advance_clocks).then(|| state.replay_at(tick)).flatten();
+    let topology = replay.filter(|replay| replay.geometry == state.geometry_binding);
+    let reset = topology.map_or(state.reset_pending, |replay| replay.reset);
+    let replay_context = replay.map(|replay| ActorTickContext {
+        animation_elapsed_ticks: replay.elapsed,
+        ..context.clone()
+    });
+    let context = replay_context.as_ref().unwrap_or(context);
     let anim_tick = if reset {
         0
     } else {
-        tick.saturating_sub(state.animation_epoch)
+        tick.saturating_sub(topology.map_or(state.animation_epoch, |replay| replay.epoch))
     };
     let life_tick = tick.saturating_sub(state.lifetime_epoch);
     let observed = state.history.back().copied().ok_or(EvalError::Invalid)?;
@@ -323,9 +330,11 @@ pub(super) fn evaluate_state(
         .rig_bindings()
         .get(state.rig_binding)
         .ok_or(EvalError::Invalid)?;
-    let mut variables = state.variables.clone();
+    let mut variables = replay
+        .map_or(&state.variables, |replay| &replay.variables)
+        .clone();
     let engine = &layout.engine;
-    if !state.initialized {
+    if !replay.map_or(state.initialized, |replay| replay.initialized) {
         for &(slot, value) in &engine.seeded {
             variables.set(Some(slot), value);
         }
@@ -386,7 +395,9 @@ pub(super) fn evaluate_state(
         }
     };
     set_item_rotation_factor(engine, &mut variables);
-    let mut controllers = state.controllers.clone();
+    let mut controllers = topology
+        .map_or(&state.controllers, |replay| &replay.controllers)
+        .clone();
     for controller in &mut controllers {
         controller.active = false;
     }
@@ -413,7 +424,7 @@ pub(super) fn evaluate_state(
     let previous_clocks = if reset {
         &empty_clocks
     } else {
-        &state.clip_clocks
+        replay.map_or(&state.clip_clocks, |replay| &replay.clocks)
     };
     let mut weighted_clips = selection::select(
         &evaluator,
@@ -424,11 +435,11 @@ pub(super) fn evaluate_state(
         blink_controller,
         budget,
     )?;
-    let clip_clocks = if advance_clocks {
+    let clip_clocks = if advance_clocks || replay.is_some() {
         super::clock::prepare(
             &evaluator,
             &mut variables,
-            (!reset).then_some(&state.clip_clocks),
+            (!reset).then_some(previous_clocks),
             &controllers,
             &mut weighted_clips,
             budget,

@@ -446,7 +446,19 @@ fn evaluate_job(
         stack: STACK.with_borrow_mut(std::mem::take),
     };
     render::cache_layer_skeletons(assets, state);
-    geometry::reselect_geometry(assets, layout, state, actor, context, &mut budget);
+    if job.refresh_view {
+        geometry::reselect_geometry_replay(
+            assets,
+            layout,
+            state,
+            actor,
+            context,
+            &mut budget,
+            catalogs.tick,
+        );
+    } else {
+        geometry::reselect_geometry(assets, layout, state, actor, context, &mut budget);
+    }
     state.refresh_skin_drivers();
     let result = evaluate_state(
         assets,
@@ -569,10 +581,15 @@ impl Ledger<'_> {
         let view_changed = job.view_changed;
         // A rig back in view starts from its new pose, not the one it held.
         let resumed = std::mem::take(&mut state.culled);
-        state.controllers = evaluated.controllers;
-        state.clip_clocks = evaluated.clip_clocks;
+        replay::Replay::commit(
+            state,
+            &mut evaluated,
+            &job.context,
+            self.tick,
+            job.refresh_view,
+            job.context.is_local,
+        );
         state.scale = evaluated.scale;
-        state.variables = evaluated.variables;
         state.render_frame = evaluated.render_frame;
         let restart = state.reset_pending || resumed || view_changed;
         skin_layers::carry(

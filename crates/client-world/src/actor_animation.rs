@@ -257,6 +257,7 @@ struct ActorRigState {
     skin: Option<skin::SkinModel>,
     skin_layers: Vec<SkinRenderLayer>,
     variables: MolangVariables,
+    replay: Option<replay::Replay>,
     samples_render_frames: bool,
     samples_camera_poses: bool,
     samples_swing_poses: bool,
@@ -805,6 +806,7 @@ mod query;
 mod render;
 mod render_frame;
 pub use render_frame::ActorRenderFrame;
+mod replay;
 mod schedule;
 mod skin;
 mod skin_layers;
