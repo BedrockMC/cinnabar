@@ -1,5 +1,5 @@
 // Command bedrock-local-server hosts one saved superflat world on dragonfly's default generators for
-// the core, or an opt-in synthetic terrain fixture; vanilla terrain runs on BDS instead.
+// the core, or an opt-in synthetic terrain or opaque-overdraw fixture; vanilla terrain runs on BDS instead.
 // It prints "ready" once listening and reads "pause", "resume" and "stop" lines on stdin, and
 // "experience reload <id>" lines when it hosts Experiences; stdin EOF and SIGINT/SIGTERM also stop
 // it. docs/experience-runtime.md describes the Experiences of -experiences and the client parts of
@@ -98,6 +98,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 	}
 	cfg.configureTerrainFixture(&conf)
+	cfg.configureOpaqueOverdraw(&conf)
 	srv := conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
