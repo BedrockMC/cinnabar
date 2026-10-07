@@ -115,7 +115,9 @@ func (s *Account) adoptLocked(state *derivedState, fingerprint string, synced sy
 	s.persisted, s.synced = fingerprint, synced
 	for relyingParty, token := range s.rejected {
 		s.session.InvalidateXSTSToken(relyingParty, token)
-		delete(s.xstsTokens, relyingParty)
+		if s.rejectedLocked(relyingParty, s.xstsTokens[relyingParty]) {
+			delete(s.xstsTokens, relyingParty)
+		}
 	}
 	if s.rejectedServiceLocked(s.service) {
 		s.service = nil
@@ -123,13 +125,37 @@ func (s *Account) adoptLocked(state *derivedState, fingerprint string, synced sy
 	return true
 }
 
-// publish writes the account's derived state for other processes. A bundle another process published
-// since this account last read or wrote one is adopted first, so only this account's evictions override it.
+// publish writes the account's derived state for other processes, waiting at most publishGrace or until
+// ctx ends: SISU snapshots and the cache lease can wait on unrelated work, so the rest completes in the
+// background, where Close still waits for it.
 func (s *Account) publish(ctx context.Context) {
-	if s.path == "" {
+	if s.path == "" || s.begin() != nil {
 		return
 	}
-	s.ensureDeviceToken(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer s.end()
+		defer close(done)
+		device, cancel := context.WithTimeout(s.ctx, derivationTimeout)
+		s.ensureDeviceToken(device)
+		cancel()
+		// Detached from the account so the last publication still lands while Close waits for it.
+		write, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), publishTimeout)
+		defer cancel()
+		s.publishNow(write)
+	}()
+	timer := time.NewTimer(publishGrace)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+}
+
+// publishNow writes the account's derived state. A bundle another process published since this account
+// last read or wrote one is adopted first, so only this account's evictions override it.
+func (s *Account) publishNow(ctx context.Context) {
 	// One publish at a time, each snapshotting after the last, so an older snapshot never lands last.
 	select {
 	case s.publishGate <- struct{}{}:
@@ -202,6 +228,11 @@ func (s *Account) ensureDeviceToken(ctx context.Context) {
 	}
 	s.unlock()
 }
+
+const (
+	publishGrace   = 500 * time.Millisecond // longest a credential's caller waits for its publication
+	publishTimeout = 10 * time.Second       // bounds one background publication's lease and lock waits
+)
 
 // syncedTokens names the service and XSTS tokens of the bundle last read or written.
 type syncedTokens struct {
