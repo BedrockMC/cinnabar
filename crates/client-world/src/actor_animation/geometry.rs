@@ -166,6 +166,7 @@ pub(super) fn resolve_binding(
         skin: None,
         skin_layers: Vec::new(),
         variables,
+        replay: None,
         samples_render_frames: samples_camera_poses
             || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,
@@ -366,7 +367,9 @@ pub(super) fn reselect_geometry(
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
 ) {
-    let _ = reselect_geometry_with_checkpoint(assets, layout, state, actor, context, budget, false);
+    let _ = reselect_geometry_with_checkpoint(
+        assets, layout, state, actor, context, budget, false, None,
+    );
 }
 
 /// Retains replaced geometry buffers only when a provisional attachable selects another model.
@@ -378,7 +381,29 @@ pub(super) fn reselect_geometry_preview(
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
 ) -> Option<GeometryCheckpoint> {
-    reselect_geometry_with_checkpoint(assets, layout, state, actor, context, budget, true)
+    reselect_geometry_with_checkpoint(assets, layout, state, actor, context, budget, true, None)
+}
+
+/// Reselects late local geometry from the original authored variables of this completed tick.
+pub(super) fn reselect_geometry_replay(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    state: &mut ActorRigState,
+    actor: &ActorSnapshot,
+    context: &ActorTickContext,
+    budget: &mut EvalBudget<'_>,
+    tick: u64,
+) {
+    let _ = reselect_geometry_with_checkpoint(
+        assets,
+        layout,
+        state,
+        actor,
+        context,
+        budget,
+        false,
+        Some(tick),
+    );
 }
 
 /// Shares normal geometry selection while optionally preserving its replaced state.
@@ -390,6 +415,7 @@ fn reselect_geometry_with_checkpoint(
     context: &ActorTickContext,
     budget: &mut EvalBudget<'_>,
     preview: bool,
+    replay_tick: Option<u64>,
 ) -> Option<GeometryCheckpoint> {
     let Some(rig) = assets.rig_bindings().get(state.rig_binding) else {
         return None;
@@ -420,7 +446,10 @@ fn reselect_geometry_with_checkpoint(
         bones: &state.bones,
         bone_names: &state.bone_names,
     };
-    let mut variables = state.variables.clone();
+    let mut variables = replay_tick
+        .and_then(|tick| state.replay_at(tick))
+        .map_or(&state.variables, |replay| &replay.variables)
+        .clone();
     let mut selected = first;
     for (offset, candidate) in candidates.iter().enumerate().skip(1) {
         let Some(condition) = candidate.condition else {

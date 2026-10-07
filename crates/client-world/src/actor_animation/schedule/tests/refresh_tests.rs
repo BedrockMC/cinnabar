@@ -3,6 +3,23 @@ use assets::{CompiledMolangExpression, EntityGeometryScalar, MolangSymbol, Molan
 
 /// A valid local player has separate clock-driven and swing-driven translation channels.
 fn local_fixture(authored_clock: bool) -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
+    local_fixture_scripts(authored_clock, false)
+}
+
+/// Adds retained script and authored-clock counters to the normal local player fixture.
+fn local_fixture_scripts(
+    authored_clock: bool,
+    stateful: bool,
+) -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
+    local_fixture_with(authored_clock, stateful, |_| {})
+}
+
+/// Applies an authored controller or geometry policy before creating the local rig.
+fn local_fixture_with(
+    authored_clock: bool,
+    stateful: bool,
+    configure: impl FnOnce(&mut assets::CompiledEntityAssets),
+) -> (HashMap<u64, ActorSnapshot>, ActorAnimationStore) {
     let mut compiled = crate::actor_animation::attachable::tests::compiled_fixture();
     compiled.sources[1].path = "entity/player.json".into();
     compiled.symbols[4].kind = assets::EntityAssetKind::Entity;
@@ -78,6 +95,63 @@ fn local_fixture(authored_clock: bool) -> (HashMap<u64, ActorSnapshot>, ActorAni
         geometry: 1,
     }]
     .into();
+    if stateful {
+        let mut symbols = compiled.molang_symbols.into_vec();
+        for identifier in ["variable.refresh_clock", "variable.refresh_count"] {
+            symbols.push(MolangSymbol {
+                kind: MolangSymbolKind::Variable,
+                identifier: identifier.into(),
+            });
+        }
+        compiled.molang_symbols = symbols.into();
+        let mut expressions = compiled.molang_expressions.into_vec();
+        let mut ops = compiled.molang_ops.into_vec();
+        let script = expressions.len() as u32;
+        expressions.push(CompiledMolangExpression {
+            first_op: ops.len() as u32,
+            op_count: 5,
+            max_stack: 2,
+        });
+        ops.extend([
+            MolangOp::LoadVariable(4),
+            MolangOp::Push(scalar(1.0)),
+            MolangOp::Add,
+            MolangOp::StoreVariable(4),
+            MolangOp::Push(scalar(0.0)),
+        ]);
+        let clock = expressions.len() as u32;
+        expressions.push(CompiledMolangExpression {
+            first_op: ops.len() as u32,
+            op_count: 7,
+            max_stack: 2,
+        });
+        ops.extend([
+            MolangOp::LoadVariable(3),
+            MolangOp::Push(scalar(1.0)),
+            MolangOp::Add,
+            MolangOp::StoreVariable(3),
+            MolangOp::LoadQuery(1),
+            MolangOp::Push(scalar(0.05)),
+            MolangOp::Add,
+        ]);
+        let counter = expressions.len() as u32;
+        expressions.push(CompiledMolangExpression {
+            first_op: ops.len() as u32,
+            op_count: 1,
+            max_stack: 1,
+        });
+        ops.push(MolangOp::LoadVariable(4));
+        compiled.molang_expressions = expressions.into();
+        compiled.molang_ops = ops.into();
+        compiled.rig_bindings[0].pre_animation = Some(script);
+        for clip in &mut compiled.animation_clips {
+            clip.anim_time_update = Some(clock);
+        }
+        for keyframe in &mut compiled.animation_keyframes {
+            keyframe.expressions[2] = Some(counter);
+        }
+    }
+    configure(&mut compiled);
     let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
     let mut actor = crate::actor_animation::tests::actor_with_metadata(HashMap::new());
     actor.kind = ActorKind::Player {
@@ -211,3 +285,34 @@ fn a_starved_local_refresh_keeps_both_interpolation_endpoints() {
     assert_eq!(rig.previous, previous);
     assert_eq!(rig.current, current);
 }
+
+#[test]
+fn local_swing_refresh_replaces_retained_script_and_clock_assignments_once() {
+    let (actors, mut store) = local_fixture_scripts(true, true);
+    let count = store
+        .layout
+        .named_slot(store.assets.as_ref().unwrap(), "variable.refresh_count");
+    let clock = store
+        .layout
+        .named_slot(store.assets.as_ref().unwrap(), "variable.refresh_clock");
+    refresh_swing(&actors, &mut store);
+    for _ in 0..2 {
+        refresh_again(&actors, &mut store);
+        let state = store.rigs.values().next().unwrap();
+        assert_eq!(state.variables.get(count), Some(3.0));
+        assert_eq!(state.variables.get(clock), Some(3.0));
+        assert_eq!(state.current[0].translation_scale[2], 3.0);
+        assert_eq!(state.ui_pose.as_ref().unwrap()[0].translation_scale[2], 3.0);
+    }
+}
+
+/// Replaces an already refreshed tick without changing its swing observation again.
+fn refresh_again(actors: &HashMap<u64, ActorSnapshot>, store: &mut ActorAnimationStore) {
+    store.refresh_local_view(actors, LOCAL, |_| ActorTickContext {
+        is_local: true,
+        animation_elapsed_ticks: Some(0),
+        ..Default::default()
+    });
+}
+
+mod retained;
