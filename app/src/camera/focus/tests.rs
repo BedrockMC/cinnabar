@@ -635,3 +635,16 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         CursorGrabMode::Locked
     );
 }
+
+#[test]
+fn native_release_includes_held_buttons_without_cursor_clipping() {
+    let cursor = CursorOptions {
+        grab_mode: CursorGrabMode::None,
+        ..default()
+    };
+    let mut buttons = ButtonInput::default();
+    buttons.press(MouseButton::Back);
+    assert!(native_release_needed(&cursor, &buttons));
+    buttons.reset_all();
+    assert!(!native_release_needed(&cursor, &buttons));
+}

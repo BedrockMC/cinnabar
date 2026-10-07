@@ -35,6 +35,7 @@ fn track_focus(
     mut motion: ResMut<AccumulatedMouseMotion>,
     gamepads: Query<&Gamepad>,
     touches: Option<Res<Touches>>,
+    #[cfg(windows)] _window_thread: bevy::ecs::system::NonSendMarker,
 ) {
     let (entity, window, mut cursor) = window.into_inner();
     focus.begin_frame(window.focused);
@@ -63,8 +64,8 @@ fn track_focus(
         return;
     }
     if !focus.available() {
-        if cursor.grab_mode != CursorGrabMode::None {
-            release_native_clip();
+        if native_release_needed(&cursor, &buttons) {
+            release_native_capture();
         }
         super::release_cursor(&mut cursor);
         keys.reset_all();
@@ -149,15 +150,33 @@ fn enforce_cursor_ownership(
     }
 }
 
-/// Windows may retain a global clip after input moves to an injected overlay.
-fn release_native_clip() {
+/// Clipping and held buttons can retain native mouse ownership after focus loss.
+fn native_release_needed(cursor: &CursorOptions, buttons: &ButtonInput<MouseButton>) -> bool {
+    cursor.grab_mode != CursorGrabMode::None || buttons.get_pressed().next().is_some()
+}
+
+/// Windows retains clipping and button capture independently of keyboard focus.
+fn release_native_capture() {
     #[cfg(all(windows, not(test)))]
-    // No rectangle releases the clip; this call does not move or inject the pointer.
-    if unsafe { windows_sys::Win32::UI::WindowsAndMessaging::ClipCursor(std::ptr::null()) } == 0 {
-        warn!(
-            "could not release cursor clip: {}",
-            std::io::Error::last_os_error()
-        );
+    {
+        use windows_sys::Win32::UI::{
+            Input::KeyboardAndMouse::{GetCapture, ReleaseCapture},
+            WindowsAndMessaging::ClipCursor,
+        };
+        // A null rectangle releases the clip without moving the pointer.
+        if unsafe { ClipCursor(std::ptr::null()) } == 0 {
+            warn!(
+                "could not release cursor clip: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+        // Capture belongs to the window thread, enforced by the focus system.
+        if !unsafe { GetCapture() }.is_null() && unsafe { ReleaseCapture() } == 0 {
+            warn!(
+                "could not release mouse capture: {}",
+                std::io::Error::last_os_error()
+            );
+        }
     }
 }
 
