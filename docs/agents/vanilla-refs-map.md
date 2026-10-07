@@ -2290,7 +2290,6 @@ preview build is not an exact retail/platform capture for every supported client
 ## crates/sim/src/simulator/water.rs
 - `sample_liquid_submersion`: `ActorMobilityUtils::isUnderLiquid` with MaterialType Any.
 
-<<<<<<< ours
 ## Experience player counts
 
 - `crates/client-ui/src/ui_runtime/presentation/forms/play_screen.rs`, `crates/launcher/src/menu/view.rs`,
@@ -2311,7 +2310,6 @@ preview build is not an exact retail/platform capture for every supported client
 - Typed gophertunnel userstats batch: current 1.26.50.26 `src/__unmapped/01.cpp:970426` imports `XblUserStatisticsGetMultipleUserStatisticsForMultipleServiceConfigurationsAsync`; `00.cpp:1129438` builds the four-stat request for every configuration, `1192663` selects names, and `1192739` sums doubles across configurations.
 - Retail configuration order: `reference/26.30/src/__unmapped/03.cpp:27900-27971` initializes `BEDROCK_XBOXLIVE_ALL_SCIDS` as Kindle, Google, iOS, Xbox, Windows, Switch, Berwick. Installed release 1.26.50.04 binary strings corroborate the seven IDs; its bundled XboxServicesAPI framework identifies `XboxServicesAPI/2025.10.20251000.0`.
 - The batch wire schema and headers also match Microsoft's Xbox Live SDK `Source/Services/Stats/user_statistics_service.cpp` and `Source/Services/Common/http_call.cpp`; successful authenticated live requests were not captured.
-=======
 ## crates/protocol/src/ui/commands.rs
 - Command-name suggestions use substring matching, as shown by the vanilla command-completion recording attached to issue 220: https://github.com/user-attachments/assets/8fc14920-47a1-4b4e-a57a-99f31e84ef83. Current `CommandRegistry::autoComplete` owns command-name candidate selection.
 
@@ -2619,7 +2617,6 @@ was not used as version evidence.
 
 ## crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs
 - Current 1.26.50.26 banner held path: humanoid additional rendering `0x05e2b300` calls banner item rendering `0x06c592a0`, sharing setup `0x06c57b00` with GUI `0x06c581a0`. The held renderer draws pole, crossbar and cloth with base/pattern materials. The existing sprite fallback preserves availability only; exact held geometry remains an open parity item.
->>>>>>> theirs
 
 ## Crosshair presentation preferences
 
