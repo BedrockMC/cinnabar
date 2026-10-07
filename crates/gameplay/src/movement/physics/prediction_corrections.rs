@@ -88,6 +88,9 @@ impl LocalPhysicsController {
         &self,
         anchor: PhysicsAnchor,
     ) -> PhysicsAnchor {
+        if !self.retains_tick(anchor.tick) {
+            return anchor;
+        }
         let Some(superseded_boundary) = anchor.tick.checked_add(1) else {
             return anchor;
         };
