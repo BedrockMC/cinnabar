@@ -101,6 +101,7 @@ type Account struct {
 	refreshing      atomic.Bool            // one KeepFresh per account
 	exchanging      atomic.Bool            // one early service exchange per account
 	persisted       string                 // fingerprint of the bundle bytes last read or written
+	synced          syncedTokens           // credentials of the bundle last read or written
 	rejected        map[string]*xsts.Token // XSTS tokens a relying party refused; re-evicted after every reload
 	rejectedService *service.Token         // service token a service refused; dropped after every reload
 	deps            derivedDeps
@@ -167,7 +168,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 		if err := source.restore(state); err != nil {
 			source.diagnostic("miss", "bundle", "invalid")
 		} else {
-			source.persisted = fingerprint
+			source.persisted, source.synced = fingerprint, syncedFrom(state)
 			source.diagnostic("hit", "bundle", "bound")
 		}
 	case err == nil:
@@ -457,7 +458,12 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 	if err := s.lock(ctx); err != nil {
 		return nil, err
 	}
-	install := s.resets == resets && s.environment == env && token != s.service
+	current := s.service
+	if current != nil && current != seed && current.Valid() && current.ValidUntil.After(token.ValidUntil) {
+		s.unlock()
+		return current, nil // another refresh won with a fresher token
+	}
+	install := s.resets == resets && s.environment == env && token != current
 	if install {
 		s.service, s.services = token, source
 	}
@@ -770,6 +776,7 @@ func (s *Account) resetLocked(binding string) {
 	s.deviceToken = nil
 	s.rejected = nil
 	s.rejectedService = nil
+	s.synced = syncedTokens{}
 	s.xstsTokens = make(map[string]*xsts.Token)
 	s.device = xasd.ReuseTokenSource(auth.AndroidConfig.Config.Config, nil, proofKey)
 	s.session = newAccountSession(s, &sisu.SessionConfig{DeviceTokenSource: s.device})

@@ -106,10 +106,11 @@ func (s *Account) reloadLocked() {
 
 // adoptLocked restores a published bundle, re-applying this account's evictions to it.
 func (s *Account) adoptLocked(state *derivedState, fingerprint string) bool {
+	synced := syncedFrom(state)
 	if s.restore(state) != nil {
 		return false
 	}
-	s.persisted = fingerprint
+	s.persisted, s.synced = fingerprint, synced
 	for relyingParty, token := range s.rejected {
 		s.session.InvalidateXSTSToken(relyingParty, token)
 		delete(s.xstsTokens, relyingParty)
@@ -165,12 +166,34 @@ func (s *Account) publish(ctx context.Context) {
 	s.persistLocked(snapshot)
 }
 
+// syncedTokens names the service and XSTS tokens of the bundle last read or written.
+type syncedTokens struct {
+	service string
+	xsts    map[string]string
+}
+
+func syncedFrom(state *derivedState) syncedTokens {
+	synced := syncedTokens{xsts: make(map[string]string)}
+	if state.ServiceToken != nil {
+		synced.service = state.ServiceToken.AuthorizationHeader
+	}
+	if state.SISU != nil {
+		for relyingParty, token := range state.SISU.XSTSTokens {
+			if token != nil {
+				synced.xsts[relyingParty] = token.Token
+			}
+		}
+	}
+	return synced
+}
+
 // mergeLocalLocked keeps, per credential, whichever of the published and local copies lasts longer.
 func (s *Account) mergeLocalLocked(state *derivedState, local *sisu.Snapshot) {
 	if s.deviceToken.Valid() && (state.DeviceToken == nil || s.deviceToken.NotAfter.After(state.DeviceToken.NotAfter)) {
 		state.DeviceToken = s.deviceToken
 	}
-	if s.service != nil && s.service.Valid() && sameEnvironment(state.Environment, snapshotEnvironment(s.environment)) &&
+	if s.service != nil && s.service.Valid() && s.service.AuthorizationHeader != s.synced.service &&
+		sameEnvironment(state.Environment, snapshotEnvironment(s.environment)) &&
 		(state.ServiceToken == nil || s.service.ValidUntil.After(state.ServiceToken.ValidUntil)) {
 		state.ServiceToken = s.service
 	}
@@ -188,7 +211,9 @@ func (s *Account) mergeLocalLocked(state *derivedState, local *sisu.Snapshot) {
 		merged.XSTSTokens = make(map[string]*xsts.Token)
 	}
 	for relyingParty, token := range local.XSTSTokens {
-		if published := merged.XSTSTokens[relyingParty]; token.Valid() && (published == nil || token.NotAfter.After(published.NotAfter)) {
+		// Only a token derived since the last sync counts; a synced one missing from the bundle was evicted.
+		if published := merged.XSTSTokens[relyingParty]; token.Valid() && token.Token != s.synced.xsts[relyingParty] &&
+			(published == nil || token.NotAfter.After(published.NotAfter)) {
 			merged.XSTSTokens[relyingParty] = token
 		}
 	}
@@ -239,7 +264,7 @@ func (s *Account) persistLocked(snapshot *sisu.Snapshot) {
 		s.diagnostic("miss", "write", "contended")
 		return
 	}
-	s.persisted = fingerprint
+	s.persisted, s.synced = fingerprint, syncedFrom(&state)
 }
 
 func (s *Account) restore(state *derivedState) error {
