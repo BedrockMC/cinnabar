@@ -91,8 +91,8 @@ pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
     click_block_packet, click_block_transaction_packet, destroy_block_packet,
-    is_aim_assist_rotation_action, release_item_packet, stop_sleeping_packet, swing_arm_packet,
-    use_actor_packet,
+    is_aim_assist_rotation_action, release_item_packet, start_item_use_on_packet,
+    stop_item_use_on_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
