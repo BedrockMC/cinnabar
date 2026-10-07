@@ -295,6 +295,7 @@ impl BlockUseRuntime {
             .selected_item
             .is_some_and(|previous| previous != identity);
         self.selected_item = Some(identity);
+        self.stop_repress |= changed && self.latched_press;
         changed
     }
 
@@ -342,13 +343,24 @@ impl BlockUseRuntime {
         admitted
     }
 
-    /// A session or position-authority change drops the press and the schedule.
+    /// Position corrections reset targeting; admitted inventory changes survive within the session.
     pub fn synchronize(&mut self, authority: (u64, u64)) {
         if self
             .position_authority
             .is_some_and(|previous| previous != authority)
         {
-            *self = Self::default();
+            let inventory = if self
+                .position_authority
+                .is_some_and(|previous| previous.0 == authority.0)
+            {
+                std::mem::take(&mut self.inventory)
+            } else {
+                HeldPlacementInventory::default()
+            };
+            *self = Self {
+                inventory,
+                ..Self::default()
+            };
         }
         self.position_authority = Some(authority);
     }
