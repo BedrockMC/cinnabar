@@ -70,7 +70,7 @@ pub struct MeleeRuntime {
     actor_in_front: bool,
     last_attack_millis: Option<u64>,
     position_authority: Option<(u64, u64)>,
-    /// Input frame at which a latched press first waited on block evidence.
+    /// Input frame at which a latched press first waited for admission.
     deferred_since: Option<u64>,
     rejected_tick: Option<u64>,
 }
@@ -119,7 +119,7 @@ impl MeleeRuntime {
         self.rejected_tick = None;
     }
 
-    /// Holds a latched press while block evidence is unavailable, for a bounded number of frames.
+    /// Bounds waiting on unavailable interaction evidence or simulation ticks.
     pub fn defer(&mut self, input_frame: u64) {
         if !self.latched_press {
             return;
@@ -131,13 +131,15 @@ impl MeleeRuntime {
     }
 
     /// Prioritizes current-frame block ticks, then this authority's exact rejected tick.
+    /// Bounds a latched press while no eligible simulation sample exists.
     pub fn press_sample(
-        &self,
+        &mut self,
         crosshair: Crosshair,
         movement: &crate::movement::MovementTicker,
         recent_ticks: usize,
+        input_frame: u64,
     ) -> Option<crate::movement::UnsentSampleView> {
-        if crosshair == Crosshair::Block {
+        let sample = if crosshair == Crosshair::Block {
             movement
                 .first_unsent_sample_in_frame(recent_ticks)
                 .or_else(|| {
@@ -152,7 +154,11 @@ impl MeleeRuntime {
                 })
         } else {
             movement.newest_unsent_sample()
+        };
+        if sample.is_none() {
+            self.defer(input_frame);
         }
+        sample
     }
 
     /// Resolves at most one latched press into packets; a held button never re-attacks.
