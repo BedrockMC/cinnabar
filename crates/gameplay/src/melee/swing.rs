@@ -16,6 +16,7 @@ pub struct SwingTracker {
     guard_history: [i32; MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
     history_end: Option<u64>,
     history_len: usize,
+    progress_history: [Option<(u64, LocalSwingProgress)>; MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +139,7 @@ impl SwingTracker {
         self.deferred_attempt = None;
         if replay {
             self.advance_states(1, published_durations);
+            self.record_progress(tick);
         }
         if bedrock {
             self.started = Some(duration);
@@ -171,11 +173,17 @@ impl SwingTracker {
     pub fn published_progress(&mut self, completed_tick: u64) -> LocalSwingProgress {
         self.advance_to(completed_tick);
         self.started = None;
-        LocalSwingProgress {
-            bedrock: self.states[0].progress,
-            java: self.states[1].progress,
-            frame_alpha: None,
-        }
+        self.progress()
+    }
+
+    /// Retains each recent completed tick's samples for local motion on the same physics clock.
+    pub fn committed_samples(&self) -> impl Iterator<Item = (u64, LocalSwingProgress)> + '_ {
+        let last = self.completed_tick.unwrap_or(0);
+        let first = last.saturating_sub(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64 - 1);
+        (first..=last).filter_map(move |tick| {
+            self.progress_history[(tick % MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize]
+                .filter(|(stored, _)| *stored == tick)
+        })
     }
 
     /// Finds both post-expiry denominators for a tick retained in this frame's effect history.
@@ -195,6 +203,12 @@ impl SwingTracker {
 
     /// Advances only unconsumed local ticks, with bounded work even after a large tick jump.
     fn advance_to(&mut self, target: u64) {
+        if self
+            .completed_tick
+            .is_some_and(|completed| target <= completed)
+        {
+            return;
+        }
         let start = self
             .completed_tick
             .and_then(|tick| tick.checked_add(1))
@@ -208,6 +222,7 @@ impl SwingTracker {
                     |(_, durations)| durations,
                 );
             self.advance_states(1, self.post_tick_durations(target).unwrap_or(fallback));
+            self.record_progress(target);
             self.completed_tick = Some(target);
             return;
         };
@@ -221,8 +236,9 @@ impl SwingTracker {
         if let Some(first) = first {
             if next < first {
                 let last = target.min(first - 1);
-                self.advance_states(
-                    last - next + 1,
+                self.advance_recorded(
+                    next,
+                    last,
                     self.states.each_ref().map(|state| state.duration),
                 );
                 next = last.saturating_add(1);
@@ -232,17 +248,47 @@ impl SwingTracker {
                     let distance = (self.history_end.unwrap() - tick) as usize;
                     let durations = self.history[distance];
                     self.advance_states(1, [durations.0, durations.1]);
+                    self.record_progress(tick);
                     next = tick.saturating_add(1);
                 }
             }
         }
         if next <= target {
-            self.advance_states(
-                target - next + 1,
+            self.advance_recorded(
+                next,
+                target,
                 self.states.each_ref().map(|state| state.duration),
             );
         }
         self.completed_tick = Some(target);
+    }
+
+    /// Publishes the same committed counters to interpolation and per-tick motion consumers.
+    fn progress(&self) -> LocalSwingProgress {
+        LocalSwingProgress {
+            bedrock: self.states[0].progress,
+            java: self.states[1].progress,
+            frame_alpha: None,
+        }
+    }
+
+    /// Replaces a completed tick in the bounded history, including an admitted same-tick retry.
+    fn record_progress(&mut self, tick: u64) {
+        let index = (tick % MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64) as usize;
+        self.progress_history[index] = Some((tick, self.progress()));
+    }
+
+    /// Skips an old interval in constant work and retains its newest bounded motion samples.
+    fn advance_recorded(&mut self, first: u64, last: u64, durations: [i32; 2]) {
+        let tail = (last - first).min(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME as u64 - 1);
+        let start = last - tail;
+        if start > first {
+            self.advance_states(start - first, durations);
+        }
+        for tick in start..=last {
+            self.advance_states(1, durations);
+            self.record_progress(tick);
+        }
     }
 
     /// Advances a nonempty interval, retaining its last tick's pre-increment counters for a retry.

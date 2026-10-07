@@ -517,3 +517,6 @@ fn production_early_ui_readiness_matches_the_current_hand_source() {
         assert_eq!(world.resource::<render::HandRigScene>().is_active(), active);
     }
 }
+
+#[path = "custom_emotes/local_torso.rs"]
+mod local_torso;

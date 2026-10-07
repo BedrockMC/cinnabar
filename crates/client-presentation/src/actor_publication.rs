@@ -394,6 +394,7 @@ pub fn prepare_actor_render_frame(
     {
         java_hand.remember(&rig, input.local_equipment.main.as_ref());
     }
+    let mut reused_hand = false;
     let hand_source: Option<HandSource> = if first_person && input.renders_game {
         canonical_local.clone().and_then(|presentation| {
             let stream = client_world.stream.as_ref()?;
@@ -405,6 +406,7 @@ pub fn prepare_actor_render_frame(
                 .map_or(Mat4::IDENTITY, hand_motion_matrix);
             let key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
             if key == *ready_hand_key {
+                reused_hand = true;
                 return ready_hand_source.take();
             }
             hand::source(
@@ -428,6 +430,9 @@ pub fn prepare_actor_render_frame(
     } else {
         None
     };
+    if let Some(equipment) = equipment.as_deref_mut() {
+        equipment.finish_hand_readiness(reused_hand);
+    }
     let local_emote_pose = (!first_person)
         .then(|| {
             let stream = client_world.stream.as_ref()?;

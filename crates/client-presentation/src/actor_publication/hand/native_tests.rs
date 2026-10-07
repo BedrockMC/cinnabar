@@ -12,6 +12,22 @@ fn fixture(
     ActorArtworkPages,
     ActorEquipmentInput,
 ) {
+    fixture_with_clock(main, false).0
+}
+
+/// Adds an authored incremental item clock to the original player/attachable fixture.
+fn fixture_with_clock(
+    main: Option<&str>,
+    clock: bool,
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -47,6 +63,18 @@ fn fixture(
             .replace("minecraft:shield", "minecraft:bow")
             .into_bytes(),
     ));
+    if clock {
+        let shield = files
+            .iter_mut()
+            .find(|(path, _)| &**path == "attachables/shield.json")
+            .unwrap();
+        let mut json: serde_json::Value = serde_json::from_slice(&shield.1).unwrap();
+        let description = &mut json["minecraft:attachable"]["description"];
+        description["animations"] = serde_json::json!({"clock":"animation.item_clock"});
+        description["scripts"] = serde_json::json!({"animate":["clock"]});
+        shield.1 = serde_json::to_vec(&json).unwrap();
+        files.push(("animations/item_clock.json".into(), br#"{"format_version":"1.8.0","animations":{"animation.item_clock":{"loop":true,"animation_length":100,"anim_time_update":"query.anim_time + 0.25","bones":{"item":{"rotation":["query.anim_time * 40.0",0,0]}}}}}"#.to_vec()));
+    }
     let compiled = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
     let catalog = Arc::new(
         assets::RuntimeEquipmentCatalog::from_parts(
@@ -101,7 +129,7 @@ fn fixture(
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),
-        entities,
+        entities.clone(),
         [0.0, 64.0, 0.0],
         None,
     );
@@ -131,6 +159,15 @@ fn fixture(
         sprinting: false,
         item_use: client_world::LocalItemUse::Unpredicted,
     };
+    if clock {
+        feed.skin = protocol::PlayerSkin::Standard(protocol::StandardSkin {
+            width: 64,
+            height: 64,
+            rgba8: vec![255; 64 * 64 * 4].into(),
+            cape: None,
+            geometry: None,
+        });
+    }
     feed.first_person = true;
     feed.main_hand = main.map(Arc::from);
     stream.sync_local_player_pose(&feed);
@@ -146,7 +183,7 @@ fn fixture(
         }),
         ..Default::default()
     };
-    (stream, equipment, artwork, input)
+    ((stream, equipment, artwork, input), entities)
 }
 
 /// Uses the production selector with independent actor and physics fractions.
@@ -427,4 +464,154 @@ fn native_hand_java_offhand_attachables_keep_the_sampled_parent() {
 #[test]
 fn native_hand_java_bow_raster_fallback_keeps_the_sampled_parent() {
     assert_java_native_parent(Some("minecraft:bow"), false, 80.0);
+}
+
+/// Runs the production early-readiness and late-publication owners with an admitted swing.
+fn assert_attachable_readiness_clock(changed: bool) {
+    use bevy::ecs::system::SystemState;
+    use bevy::prelude::{PerspectiveProjection, Projection, Time, Transform, World};
+    use bevy::time::Real;
+    let ((mut stream, equipment, artwork, input), entities) =
+        fixture_with_clock(Some("minecraft:shield"), true);
+    let mut world = World::new();
+    let mut time = Time::<Real>::default();
+    time.advance_by(std::time::Duration::from_millis(50));
+    world.insert_resource(time);
+    world.insert_resource(equipment);
+    world.insert_resource(artwork);
+    world.insert_resource(render::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap());
+    world.insert_resource(super::super::HandRigBuilder::from_runtime_assets(&entities).unwrap());
+    world.init_resource::<super::super::ActorFrameState>();
+    world.init_resource::<super::super::PreparedActorPublication>();
+    world.init_resource::<super::super::ActorFramePartialTick>();
+    world.init_resource::<render::HandRigScene>();
+    let mut avatar = crate::local_player::LocalAvatarPresentation::default();
+    avatar.begin_session(stream.authority().actor_session_id(), 1);
+    world.insert_resource(avatar);
+    world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
+    let mut settings = crate::camera::CameraSettingsAuthority::default();
+    let mut user = ui::UserSettings::default();
+    user.gameplay.default_perspective = semantic_input::PerspectiveMode::FirstPerson;
+    user.video.java_animations = false;
+    settings.replace(1, &user).unwrap();
+    world.insert_resource(settings);
+    world.insert_resource(crate::local_player::LocalViewPose::default());
+    world.spawn((
+        Transform::default(),
+        Projection::Perspective(PerspectiveProjection::default()),
+        crate::camera::FlyCamera::default(),
+    ));
+    let mut params = SystemState::<super::super::ActorFramePublication>::new(&mut world);
+    let mut prepared_artwork = None;
+    super::super::advance_actor_frame(
+        super::super::ActorWorld {
+            stream: Some(&mut stream),
+            collisions: None,
+            entity_assets: Some(&entities),
+            pack_entities: None,
+            session_items: None,
+            prepared_actor_artwork: &mut prepared_artwork,
+        },
+        super::super::ActorFrameInput {
+            local_feed: None,
+            predicted_eye: Some([0.0, 65.62, 0.0]),
+            predicted_feet: Some([0.0, 64.0, 0.0]),
+            local_equipment: input.clone(),
+            swing_progress: None,
+            renders_game: true,
+            hide_hand: false,
+            custom_emote: None,
+        },
+        |_| {},
+        |_, _| {
+            (
+                None,
+                Some(client_world::AttachableAnimationInput {
+                    first_person: true,
+                    ..Default::default()
+                }),
+            )
+        },
+        params.get_mut(&mut world),
+    );
+    let state = world.resource::<super::super::ActorFrameState>();
+    assert!(
+        state.hand_is_active(),
+        "authored readiness remains drawable before interaction admission"
+    );
+    let early = state.hand_source.as_ref().unwrap().items[0]
+        .as_ref()
+        .unwrap()
+        .0
+        .presentation
+        .submission
+        .input
+        .current_bones[0];
+    assert!(
+        Quat::from_array(early.rotation)
+            .abs_diff_eq(Quat::from_rotation_x(-10f32.to_radians()), 1e-5)
+    );
+    let swing = changed.then_some(client_world::LocalSwingProgress {
+        bedrock: [0.25, 0.5],
+        java: [0.25, 0.5],
+        frame_alpha: Some(1.0),
+    });
+    super::super::prepare_actor_render_frame(
+        super::super::ActorWorld {
+            stream: Some(&mut stream),
+            collisions: None,
+            entity_assets: Some(&entities),
+            pack_entities: None,
+            session_items: None,
+            prepared_actor_artwork: &mut prepared_artwork,
+        },
+        swing,
+        |_, _, _| false,
+        params.get_mut(&mut world),
+    );
+    let scene = world.resource::<render::HandRigScene>();
+    assert!(scene.is_active());
+    // A rest-parent draw exposes only the authored clock the production frame committed.
+    stream.sync_local_swing(client_world::LocalSwingProgress {
+        bedrock: [0.0; 2],
+        java: [0.0; 2],
+        frame_alpha: Some(1.0),
+    });
+    stream.advance_actor_interpolation_frame(0);
+    let mut cache = java::HandCache::default();
+    let artwork = world.resource::<ActorArtworkPages>().clone();
+    let result = hand_source_for_mode(
+        &stream,
+        &mut world.resource_mut::<EquipmentRuntime>(),
+        &artwork,
+        &input,
+        &mut cache,
+        0.0,
+        false,
+    );
+    let final_pose = &result.items[0]
+        .as_ref()
+        .unwrap()
+        .0
+        .presentation
+        .submission
+        .input
+        .current_bones;
+    let degrees: f32 = 20.0;
+    assert!(
+        Quat::from_array(final_pose[0].rotation)
+            .abs_diff_eq(Quat::from_rotation_x(-degrees.to_radians()), 1e-5),
+        "readiness must not commit the authored clock before final hand publication: {:?}",
+        final_pose[0].rotation
+    );
+}
+
+#[test]
+fn native_hand_readiness_does_not_advance_the_authored_clock_before_changed_final_source() {
+    assert_attachable_readiness_clock(true);
+}
+
+#[test]
+fn native_hand_readiness_reused_source_commits_the_authored_clock_once() {
+    assert_attachable_readiness_clock(false);
 }

@@ -6136,3 +6136,9 @@ heart renderer. Incomplete: the retained HUD stat supports at most 65,535 curren
 points and health containers remain capped at six rows. Larger valid values are
 skipped or bounded; this change does not close an unrestricted custom-health or
 visual-comparison parity gate. See `docs/reference/absorption-hearts.md` for the rules.
+
+Local swing publication: duration and progress tests cover both animation modes,
+and Java torso turning uses matching committed local ticks. Incomplete: native
+player body-turn timing remains on the provisional actor motion model. This work
+does not close the broader native body-motion or live visual parity gate. See
+`docs/reference/swing-duration.md` and `docs/reference/actor-animation-clocks.md`.

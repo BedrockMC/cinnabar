@@ -304,7 +304,8 @@ pub fn advance_actor_frame(
             let (consume_ticks, item_animation) = hand_use(stream, step.partial_tick);
             *captured_hand_use = (consume_ticks, item_animation);
             *hand_key = hand::source_key(stream, consume_ticks, item_animation, step.partial_tick);
-            hand::source(
+            equipment.begin_hand_readiness();
+            let source = hand::source(
                 hand::HandInputs {
                     stream,
                     presentation,
@@ -322,7 +323,9 @@ pub fn advance_actor_frame(
                 java_mode,
                 equipment,
                 java_hand,
-            )
+            );
+            equipment.end_hand_readiness();
+            source
         })
     } else {
         *hand_key = None;

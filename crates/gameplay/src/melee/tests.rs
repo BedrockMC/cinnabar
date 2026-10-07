@@ -755,3 +755,78 @@ fn only_the_current_unadmitted_tick_can_replay() {
         "new authority resets both counters and permission"
     );
 }
+
+/// Catch-up publication retains the progress each body-motion tick must consume.
+#[test]
+fn committed_swing_samples_preserve_each_catchup_tick_for_both_modes() {
+    for duration in [6, 4, 8] {
+        let mut batched = SwingTracker::default();
+        let mut sequential = SwingTracker::default();
+        let mut expected = Vec::new();
+        for tick in 1..=8 {
+            batched.try_swing(tick, duration);
+            sequential.try_swing(tick, duration);
+            expected.push((tick, sequential.published_progress(tick)));
+        }
+        batched.published_progress(8);
+        assert_eq!(batched.committed_samples().collect::<Vec<_>>(), expected);
+    }
+}
+
+/// A same-tick retry replaces that tick's motion sample instead of appending a duplicate.
+#[test]
+fn committed_swing_samples_replace_a_recovered_published_restart() {
+    let mut swings = SwingTracker::default();
+    assert!(swings.try_swing(100, 6));
+    swings.published_progress(103);
+    let mut candidate = swings.clone();
+    assert!(candidate.try_swing(104, 6));
+    swings.defer_unadmitted_attempt(&candidate);
+    swings.published_progress(104);
+    assert!(swings.try_swing(104, 6));
+    let recovered = swings.published_progress(104);
+    let samples = swings.committed_samples().collect::<Vec<_>>();
+    assert_eq!(samples.last(), Some(&(104, recovered)));
+    assert_eq!(samples.iter().filter(|(tick, _)| *tick == 104).count(), 1);
+    assert_eq!(
+        samples
+            .iter()
+            .find(|(tick, _)| *tick == 103)
+            .unwrap()
+            .1
+            .java[1],
+        0.5
+    );
+}
+
+/// Old progress is bounded and cannot survive a movement authority reset.
+#[test]
+fn committed_swing_samples_are_bounded_across_large_tick_jumps_and_authority_resets() {
+    use crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
+    use client_world::LocalSwingProgress;
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 1, &effects);
+    assert!(swings.try_swing(1, 6));
+    swings.published_progress(1);
+    swings.published_progress(u64::MAX);
+    let samples = swings.committed_samples().collect::<Vec<_>>();
+    assert_eq!(samples.len(), MAX_LOCAL_PHYSICS_TICKS_PER_FRAME);
+    assert_eq!(samples.last().unwrap().0, u64::MAX);
+    assert!(
+        samples
+            .iter()
+            .all(|(_, sample)| *sample == LocalSwingProgress::default())
+    );
+    swings.published_progress(u64::MAX);
+    assert_eq!(swings.committed_samples().collect::<Vec<_>>(), samples);
+    effects.begin_session(1);
+    swings.sync_ticks((1, 2), 2, &effects);
+    assert_eq!(swings.committed_samples().count(), 0);
+    swings.published_progress(2);
+    assert_eq!(
+        swings.committed_samples().collect::<Vec<_>>(),
+        vec![(2, LocalSwingProgress::default())]
+    );
+}

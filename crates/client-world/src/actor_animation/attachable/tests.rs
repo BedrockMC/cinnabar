@@ -219,7 +219,7 @@ fn fixture() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(compiled_fixture()).unwrap())
 }
 
-fn owner_rig() -> ActorRigSnapshot<'static> {
+pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
     ActorRigSnapshot {
         actor: ActorLifetimeId {
             session_id: 1,
