@@ -12,4 +12,4 @@ Vanilla rules for Bedrock 1.26.50:
 | Damage flash | All heart containers use `textures/ui/heart_blink` during the flash phase; absorption foreground keeps its ordinary full and half sprites. |
 | Hardcore | Select the corresponding sprites under `textures/ui/hardcore/`. |
 
-The HUD retains absorption as display points rather than an attribute maximum. Invalid or unsupported current values are counted and skipped without ending the session.
+The HUD retains absorption as display points rather than an attribute maximum. Cells fully outside the viewport or inherited clip do not create draw nodes. Invalid or unsupported current values are counted and skipped without ending the session.
