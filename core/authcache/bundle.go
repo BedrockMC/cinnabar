@@ -154,13 +154,45 @@ func (s *Account) publish(ctx context.Context) {
 	}
 	state, fingerprint, err := loadDerivedBundle(s.path)
 	if err == nil && fingerprint != s.persisted && state.OAuthBinding == s.binding && state.ClientBinding == s.client {
-		// Another process published since this account last synced: adopt it, keeping this account's evictions.
+		// Another process published since this account last synced: adopt it merged with this account's
+		// fresher credentials, keeping this account's evictions.
+		s.mergeLocalLocked(state, snapshot)
 		if !s.adoptLocked(state, fingerprint) {
 			return
 		}
 		snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
 	}
 	s.persistLocked(snapshot)
+}
+
+// mergeLocalLocked keeps, per credential, whichever of the published and local copies lasts longer.
+func (s *Account) mergeLocalLocked(state *derivedState, local *sisu.Snapshot) {
+	if s.deviceToken.Valid() && (state.DeviceToken == nil || s.deviceToken.NotAfter.After(state.DeviceToken.NotAfter)) {
+		state.DeviceToken = s.deviceToken
+	}
+	if s.service != nil && s.service.Valid() && sameEnvironment(state.Environment, snapshotEnvironment(s.environment)) &&
+		(state.ServiceToken == nil || s.service.ValidUntil.After(state.ServiceToken.ValidUntil)) {
+		state.ServiceToken = s.service
+	}
+	if local == nil || state.SISU == nil {
+		return
+	}
+	merged := &sisu.Snapshot{TitleToken: state.SISU.TitleToken, UserToken: state.SISU.UserToken, XSTSTokens: maps.Clone(state.SISU.XSTSTokens)}
+	if local.TitleToken.Valid() && (merged.TitleToken == nil || local.TitleToken.NotAfter.After(merged.TitleToken.NotAfter)) {
+		merged.TitleToken = local.TitleToken
+	}
+	if local.UserToken.Valid() && (merged.UserToken == nil || local.UserToken.NotAfter.After(merged.UserToken.NotAfter)) {
+		merged.UserToken = local.UserToken
+	}
+	if merged.XSTSTokens == nil {
+		merged.XSTSTokens = make(map[string]*xsts.Token)
+	}
+	for relyingParty, token := range local.XSTSTokens {
+		if published := merged.XSTSTokens[relyingParty]; token.Valid() && (published == nil || token.NotAfter.After(published.NotAfter)) {
+			merged.XSTSTokens[relyingParty] = token
+		}
+	}
+	state.SISU = merged
 }
 
 func (s *Account) persistLocked(snapshot *sisu.Snapshot) {
