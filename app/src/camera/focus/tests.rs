@@ -153,3 +153,97 @@ fn late_screen_capture_cannot_override_loss_or_driven_control() {
     app.update();
     assert_released(&app, window);
 }
+
+#[test]
+fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
+    use crate::ui_runtime::{
+        drive_server_form_input,
+        presentation::forms::{pack_harness, tests::mini_engine_presentation},
+    };
+    use bevy::input::{ButtonState, InputPlugin, mouse::MouseButtonInput};
+    use client_ui::ui_runtime::flush_form_response;
+
+    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = pack_harness::action_form(&mut player, "Menu", &["A", "B"]);
+    let mut presentation = mini_engine_presentation();
+    let (physical, dpi) = ([1280, 720], ui::DpiScale::new(1.0).unwrap());
+    presentation
+        .build(&player, &runtime, 0, physical, dpi)
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.collection_index == Some(1))
+        .unwrap();
+    let centre = Vec2::new(
+        frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+    );
+    let mut app = App::new();
+    app.add_plugins(InputPlugin)
+        .insert_resource(AutoFly::new(false))
+        .insert_resource(player)
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .add_systems(
+            Update,
+            (drive_server_form_input, update_cursor_capture).chain(),
+        );
+    install(&mut app);
+    let mut window = Window {
+        focused: false,
+        ..default()
+    };
+    window
+        .resolution
+        .set_physical_resolution(physical[0], physical[1]);
+    window.set_cursor_position(Some(centre));
+    let window = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    assert_released(&app, window);
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Pressed,
+        window,
+    });
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .server_forms()
+            .active()
+            .is_some()
+    );
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Released,
+        window,
+    });
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .server_forms()
+            .active()
+            .is_none()
+    );
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .server_forms()
+            .owns_input()
+    );
+    assert_released(&app, window);
+    flush_form_response(&mut app.world_mut().resource_mut::<UiRuntime>(), |_| Ok(())).unwrap();
+    app.update();
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
+    assert!(!cursor.visible);
+}
