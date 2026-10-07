@@ -1,6 +1,9 @@
 //! Desktop focus arbitration before input sampling and before OS cursor updates.
 use bevy::{
-    input::{InputSystems, mouse::AccumulatedMouseMotion},
+    input::{
+        InputSystems,
+        mouse::{AccumulatedMouseMotion, MouseButtonInput},
+    },
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
@@ -13,6 +16,7 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<CursorFocus>()
         .add_message::<WindowFocused>()
         .add_message::<WindowOccluded>()
+        .add_message::<MouseButtonInput>()
         .add_systems(PreUpdate, track_focus.after(InputSystems))
         .add_systems(PostUpdate, enforce_cursor_ownership);
 }
@@ -23,6 +27,7 @@ fn track_focus(
     mut focus: ResMut<CursorFocus>,
     mut focused: MessageReader<WindowFocused>,
     mut occluded: MessageReader<WindowOccluded>,
+    mut pointer_edges: MessageReader<MouseButtonInput>,
     window: Single<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
     driven: Option<Res<DrivenInput>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -38,9 +43,14 @@ fn track_focus(
     for event in occluded.read().filter(|event| event.window == entity) {
         focus.occlusion_changed(event.occluded);
     }
+    let pointer_activated = pointer_edges
+        .read()
+        .any(|event| event.window == entity && event.button == MouseButton::Left);
     focus.record_activation(
         keys.get_just_pressed().next().is_some()
+            || pointer_activated
             || buttons.just_pressed(MouseButton::Left)
+            || buttons.just_released(MouseButton::Left)
             || gamepads
                 .iter()
                 .any(|pad| pad.get_just_pressed().next().is_some()),
