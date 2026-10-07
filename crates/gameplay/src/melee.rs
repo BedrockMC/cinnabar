@@ -72,6 +72,7 @@ pub struct MeleeRuntime {
     position_authority: Option<(u64, u64)>,
     /// Input frame at which a latched press first waited on block evidence.
     deferred_since: Option<u64>,
+    rejected_tick: Option<u64>,
 }
 
 impl MeleeRuntime {
@@ -94,6 +95,8 @@ impl MeleeRuntime {
         {
             self.latched_press = false;
             self.last_attack_millis = None;
+            self.deferred_since = None;
+            self.rejected_tick = None;
         }
         self.position_authority = Some(authority);
     }
@@ -113,6 +116,7 @@ impl MeleeRuntime {
         self.latched_press = false;
         self.actor_in_front = false;
         self.deferred_since = None;
+        self.rejected_tick = None;
     }
 
     /// Holds a latched press while block evidence is unavailable, for a bounded number of frames.
@@ -139,6 +143,7 @@ impl MeleeRuntime {
         if !std::mem::take(&mut self.latched_press) {
             return outcome;
         }
+        self.rejected_tick = None;
         let mut swing = |outcome: &mut MeleeOutcome, source| {
             if swings.try_swing(press.tick, press.swing_duration) {
                 outcome
@@ -194,12 +199,23 @@ pub fn resolve_and_send(
     input_frame: u64,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
+    if runtime.latched_press
+        && swings.tick_is_published(press.tick)
+        && runtime.rejected_tick != Some(press.tick)
+    {
+        runtime.observe_crosshair(crosshair);
+        runtime.defer(input_frame);
+        return false;
+    }
     let (saved_runtime, saved_swings) = (runtime.clone(), swings.clone());
     let outcome = runtime.resolve(crosshair, press, swings);
     match send(outcome.packets) {
         Ok(()) | Err(BatchSendError::Closed) => outcome.missed_swing,
         Err(BatchSendError::Full) => {
             *runtime = saved_runtime;
+            if runtime.latched_press {
+                runtime.rejected_tick = Some(press.tick);
+            }
             let candidate_swings = std::mem::replace(swings, saved_swings);
             swings.defer_unadmitted_attempt(&candidate_swings);
             runtime.defer(input_frame);

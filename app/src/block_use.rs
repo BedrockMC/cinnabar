@@ -182,6 +182,9 @@ pub(crate) fn produce_block_use(
         &surroundings,
         &caps,
     );
+    if !runtime.may_attempt(sample.tick, local_use, &swings) {
+        return;
+    }
     let (destination, _) = surroundings.destination(observed.target.position, observed.target.face);
     let predicted = (local_use == LocalUse::Place)
         .then(|| {
@@ -239,7 +242,8 @@ pub(crate) fn produce_block_use(
         |tick| swings.try_swing(tick, duration),
         sample.tick,
     );
-    let sent = !packets.is_empty() && context.network.send_inventory_packets(packets).is_ok();
+    let result = (!packets.is_empty()).then(|| context.network.send_inventory_packets(packets));
+    let sent = matches!(result, Some(Ok(())));
     if sent {
         runtime.intention.record(
             trigger == ItemUseTrigger::SimulationTick,
@@ -259,6 +263,11 @@ pub(crate) fn produce_block_use(
         );
     }
     if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+        runtime.refuse_transport(
+            sample.tick,
+            local_use,
+            matches!(result, Some(Err(client_session::BatchSendError::Full))),
+        );
         before_swing.defer_unadmitted_attempt(&swings);
         *swings = before_swing;
         return;
@@ -465,3 +474,7 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
     let admitted = packets.is_empty() || context.network.send_inventory_packets(packets).is_ok();
     runtime.admit_stop(admitted)
 }
+
+#[cfg(test)]
+#[path = "block_use/published_tests.rs"]
+mod published_tests;

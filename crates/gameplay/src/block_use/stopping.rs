@@ -8,6 +8,7 @@ impl BlockUseRuntime {
 
     /// Retains the stop destination and any new press until transport accepts the stop.
     pub fn stop_packets(&mut self, local_runtime_id: u64, repress: bool) -> Vec<protocol::Packet> {
+        self.rejected_tick = None;
         self.stop_repress |= repress;
         let Some(destination) = self.last_success_destination() else {
             return Vec::new();
