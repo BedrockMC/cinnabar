@@ -7,16 +7,19 @@
   seven-tick double-tap checks retained through replay;
   forced crouching does not invent a held sneak button. Blindness participates
   in sprint admission; Swift Sneak scales crouch input from equipped leggings.
+  Consumed controller taps do not steal fresh keyboard movement on the next frame.
 - Physics uses the selected collision support for landing responses and the
   near-feet material for travel friction. Auto-climb, levitation, restitution
   thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
 - Prediction corrections replay regardless of distance. Nonzero future ticks
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
-  separate distance rule. Focused regressions cover these distinctions.
-- Validation: 267 simulator tests, 69 semantic-input tests and 336 movement
-  tests pass. The touched-crate compile check includes tests and the client app.
-  Independent review covered input replay and the integrated movement history.
+  separate distance rule. Deferred corrections clear old collision flags before
+  replay so a relocation cannot invent a ladder climb.
+- Validation: 267 simulator tests, 69 semantic-input tests, 339 movement tests
+  and 16 focused client tests pass. The touched-crate compile check includes
+  tests and the client app. The architecture check passes. Regression tests
+  reproduced the stale collision and controller handoff bugs before their fixes.
 - Full parity remains incomplete: vehicle prediction, special-block and glide
   coverage, equipment-dependent powder snow, dynamic actor sizes,
   touch layouts, independent orientation, prediction-sync metadata and exact
