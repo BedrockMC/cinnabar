@@ -278,6 +278,23 @@ pub struct RepeatClock {
     pub survival: bool,
 }
 
+impl RepeatClock {
+    /// Noncreative modes share the survival repeat floor and pick reach.
+    pub fn for_game_mode(
+        now_millis: u64,
+        sneaking: bool,
+        speed: f32,
+        game_mode: Option<protocol::PlayerGameMode>,
+    ) -> Self {
+        Self {
+            now_millis,
+            sneaking,
+            speed,
+            survival: game_mode != Some(protocol::PlayerGameMode::Creative),
+        }
+    }
+}
+
 impl BlockUseRuntime {
     /// Returns the successful destination retained until the held action stops.
     pub fn last_success_destination(&self) -> Option<[i32; 3]> {
