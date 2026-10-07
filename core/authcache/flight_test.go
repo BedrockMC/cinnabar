@@ -231,7 +231,7 @@ func TestQueuedPublishSnapshotsWhenItRuns(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		account.publish(context.Background())
+		account.publishNow(context.Background())
 	}()
 	time.Sleep(50 * time.Millisecond)
 	extra := *state.SISU.XSTSTokens[cachedRelyingParty]
@@ -301,6 +301,7 @@ func TestServiceTokenPublishesWithoutAPriorDeviceRequest(t *testing.T) {
 	if _, err := account.ServiceToken(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	settle(t, account)
 	if state, err := loadDerived(path); err != nil || state.ServiceToken == nil {
 		t.Fatalf("exchanged service token was not persisted: err=%v", err)
 	}
@@ -346,5 +347,65 @@ func TestFinishedFlightIsNeverReportedCancelled(t *testing.T) {
 		if _, err := awaitFlight(account, context.Background(), "instant", func(context.Context) (int, error) { return 1, nil }); err != nil {
 			t.Fatalf("finished flight = %v", err)
 		}
+	}
+}
+
+// settle waits for publications still finishing in the background after the calls under test returned.
+func settle(t *testing.T, account *Account) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		account.activeMu.Lock()
+		active := account.active
+		account.activeMu.Unlock()
+		if active == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("background publication never finished")
+}
+
+// blockingDevice holds SISU's token lock by never answering until released.
+type blockingDevice struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (d blockingDevice) DeviceToken(ctx context.Context) (*xasd.Token, error) {
+	close(d.entered)
+	select {
+	case <-d.release:
+	case <-ctx.Done():
+	}
+	return nil, errors.New("offline test")
+}
+
+func (d blockingDevice) ProofKey() *ecdsa.PrivateKey { return nil }
+
+// A credential reaches its caller even while publication waits on an unrelated SISU request.
+func TestCredentialIsNotHeldByABusyPublication(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			return testServiceToken(time.Now().Add(time.Hour)), nil
+		}),
+	}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	device := blockingDevice{entered: make(chan struct{}), release: make(chan struct{})}
+	defer func() { close(device.release); _ = account.Close() }()
+	account.gate <- struct{}{}
+	account.session = newAccountSession(account, &sisu.SessionConfig{DeviceTokenSource: device})
+	session := account.session
+	account.unlock()
+	go func() { _, _ = session.session.TitleToken(context.Background()) }() // an unrelated SISU refresh
+	<-device.entered
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := account.ServiceToken(ctx); err != nil {
+		t.Fatalf("service token while SISU is busy: %v", err)
 	}
 }

@@ -99,6 +99,7 @@ func TestRefreshAheadReplacesServiceTokenBeforeExpiry(t *testing.T) {
 	if err != nil || exchanges.Load() != 1 || remaining <= serviceRefreshLead {
 		t.Fatalf("refresh: err=%v exchanges=%d remaining=%v", err, exchanges.Load(), remaining)
 	}
+	settle(t, account)
 	if _, err := account.refreshServiceAhead(context.Background(), serviceRefreshLead); err != nil || exchanges.Load() != 1 {
 		t.Fatalf("fresh token was refreshed again: err=%v exchanges=%d", err, exchanges.Load())
 	}

@@ -127,6 +127,7 @@ func TestPersistentSourceExpiredServiceRefreshesOnlyServiceLayer(t *testing.T) {
 	if discoveryCalls != 1 || serviceCalls != 1 {
 		t.Fatalf("calls = (discovery=%d service=%d), want (1,1)", discoveryCalls, serviceCalls)
 	}
+	settle(t, source.(*Account))
 	second := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
 	secondKey, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if _, err := second.(minecraft.MultiplayerTokenSource).MultiplayerToken(context.Background(), &secondKey.PublicKey); err != nil {
@@ -365,6 +366,7 @@ func TestPersistentSourceInvalidatedServiceTokenIsReplaced(t *testing.T) {
 	}
 	var invalidator service.TokenInvalidator = account
 	invalidator.InvalidateServiceToken(rejected)
+	settle(t, account)
 	if state, err := loadDerived(path); err != nil || state.ServiceToken != nil {
 		t.Fatalf("persisted bundle kept the rejected token: err=%v", err)
 	}
@@ -574,6 +576,7 @@ func TestPersistentSourceLeaseTimeoutCannotOverwriteOwnerState(t *testing.T) {
 		mint: mintFromService,
 	}
 	source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	t.Cleanup(func() { _ = source.(*Account).Close() })
 	done := make(chan error, 1)
 	go func() {
 		key, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -712,6 +715,7 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 		t.Fatal("fixture did not restore the XSTS token")
 	}
 	invalidator.InvalidateXSTSToken(cachedRelyingParty, rejected)
+	settle(t, source)
 	if source.session.Snapshot().XSTSTokens[cachedRelyingParty] != nil {
 		t.Fatal("in-memory session kept the rejected token")
 	}
@@ -956,7 +960,7 @@ func TestStaleSnapshotNeverPublishesTheRejectedToken(t *testing.T) {
 	defer account.Close()
 	rejected := account.xstsTokens[cachedRelyingParty]
 	account.rejected = map[string]*xsts.Token{cachedRelyingParty: rejected}
-	account.publish(context.Background())
+	account.publishNow(context.Background())
 	state, err := loadDerived(path)
 	if err != nil {
 		t.Fatal(err)
@@ -1010,7 +1014,7 @@ func TestServiceEvictionSurvivesAConcurrentPublication(t *testing.T) {
 	if err := savePrivate(path, append(b, '\n')); err != nil {
 		t.Fatal(err)
 	}
-	account.publish(context.Background())
+	account.publishNow(context.Background())
 	if state, err := loadDerived(path); err != nil || state.ServiceToken != nil {
 		t.Fatalf("publish kept the refused service token on disk: err=%v", err)
 	}
@@ -1062,7 +1066,7 @@ func TestPublishMergesFresherLocalCredentialsIntoAnotherBundle(t *testing.T) {
 	if err := savePrivate(path, append(b, '\n')); err != nil {
 		t.Fatal(err)
 	}
-	account.publish(context.Background())
+	account.publishNow(context.Background())
 	published, err := loadDerived(path)
 	if err != nil {
 		t.Fatal(err)
@@ -1099,6 +1103,7 @@ func TestServiceExchangeSurvivesItsOwnOAuthRotation(t *testing.T) {
 	if _, err := account.ServiceToken(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	settle(t, account)
 	if state, err := loadDerived(path); err != nil || state.ServiceToken == nil || state.ServiceToken.AuthorizationHeader != "MCToken exchanged" {
 		t.Fatalf("exchanged token was not persisted after its own OAuth rotation: err=%v", err)
 	}
@@ -1147,7 +1152,7 @@ func TestPublishMergeKeepsAnotherProcessEviction(t *testing.T) {
 	if err := savePrivate(path, append(b, '\n')); err != nil {
 		t.Fatal(err)
 	}
-	account.publish(context.Background())
+	account.publishNow(context.Background())
 	published, err := loadDerived(path)
 	if err != nil {
 		t.Fatal(err)
@@ -1236,7 +1241,7 @@ func TestReloadKeepsUnpublishedLocalCredentials(t *testing.T) {
 	if err := savePrivate(path, append(b, '\n')); err != nil {
 		t.Fatal(err)
 	}
-	account.publish(context.Background())
+	account.publishNow(context.Background())
 	published, err := loadDerived(path)
 	if err != nil {
 		t.Fatal(err)
