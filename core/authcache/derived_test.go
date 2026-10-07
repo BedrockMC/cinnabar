@@ -1251,3 +1251,38 @@ func TestReloadKeepsUnpublishedLocalCredentials(t *testing.T) {
 		t.Fatal("unpublished credentials were treated as synced and dropped")
 	}
 }
+
+// Adopting another bundle during publication keeps an XSTS token derived after the snapshot was taken.
+func TestPublishKeepsXSTSDerivedAfterItsSnapshot(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := *state.SISU.XSTSTokens[cachedRelyingParty]
+	fresh.Token, fresh.NotAfter = "fresh-xsts", time.Now().Add(2*time.Hour)
+	account.gate <- struct{}{}
+	account.xstsTokens["https://fresh.example.test/"] = &fresh // in the mirror, not yet in any SISU snapshot
+	account.unlock()
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publishNow(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token := published.SISU.XSTSTokens["https://fresh.example.test/"]; token == nil || token.Token != "fresh-xsts" {
+		t.Fatal("adoption during publication lost an XSTS token derived after the snapshot")
+	}
+}

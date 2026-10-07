@@ -102,7 +102,7 @@ func (s *Account) reloadLocked() {
 		return
 	}
 	synced := syncedFrom(state)
-	s.mergeLocalLocked(state, &sisu.Snapshot{XSTSTokens: s.xstsTokens})
+	s.mergeLocalLocked(state, nil)
 	s.adoptLocked(state, fingerprint, synced)
 }
 
@@ -265,8 +265,11 @@ func (s *Account) mergeLocalLocked(state *derivedState, local *sisu.Snapshot) {
 		(state.ServiceToken == nil || s.service.ValidUntil.After(state.ServiceToken.ValidUntil)) {
 		state.ServiceToken = s.service
 	}
-	if local == nil || state.SISU == nil {
+	if state.SISU == nil {
 		return
+	}
+	if local == nil {
+		local = &sisu.Snapshot{}
 	}
 	merged := &sisu.Snapshot{TitleToken: state.SISU.TitleToken, UserToken: state.SISU.UserToken, XSTSTokens: maps.Clone(state.SISU.XSTSTokens)}
 	if local.TitleToken.Valid() && (merged.TitleToken == nil || local.TitleToken.NotAfter.After(merged.TitleToken.NotAfter)) {
@@ -278,11 +281,14 @@ func (s *Account) mergeLocalLocked(state *derivedState, local *sisu.Snapshot) {
 	if merged.XSTSTokens == nil {
 		merged.XSTSTokens = make(map[string]*xsts.Token)
 	}
-	for relyingParty, token := range local.XSTSTokens {
-		// Only a token derived since the last sync counts; a synced one missing from the bundle was evicted.
-		if published := merged.XSTSTokens[relyingParty]; token.Valid() && token.Token != s.synced.xsts[relyingParty] &&
-			(published == nil || token.NotAfter.After(published.NotAfter)) {
-			merged.XSTSTokens[relyingParty] = token
+	// The gate-protected mirror also holds tokens derived after local was snapshotted.
+	for _, tokens := range []map[string]*xsts.Token{local.XSTSTokens, s.xstsTokens} {
+		for relyingParty, token := range tokens {
+			// Only a token derived since the last sync counts; a synced one missing from the bundle was evicted.
+			if published := merged.XSTSTokens[relyingParty]; token.Valid() && token.Token != s.synced.xsts[relyingParty] &&
+				(published == nil || token.NotAfter.After(published.NotAfter)) {
+				merged.XSTSTokens[relyingParty] = token
+			}
 		}
 	}
 	state.SISU = merged
