@@ -2577,3 +2577,16 @@ was not used as version evidence.
 - Cursor release clears logical capture and shows the pointer (R:MinecraftGame:124942–125235). macOS periodic centering requires captured state (R:__unmapped/00:1690783–1690824).
 
 - Version-matched Windows focus handlers: `current/1.26.50.26/src/__unmapped/00.cpp`: loss 1606419–1606753, gain 1606898–1607108; pause-screen dispatch 825180–825251 and 876546 onward; factory constructs `pause.pause_screen` at 1021123. Windows capture/release use hide/show, clip/unclip, and capture/release at 152158–152249. Focus-pause option is mapped in `__unmapped/04.cpp`:1635569–1635571.
+
+## Absorption hearts
+
+- `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
+  `crates/client-ui/src/ui_runtime/presentation/hud_layout/status_rows.rs`:
+  1.26.50.26 artifact 6 `FUN_149c64c10` (RVA `0x9c64c10`) reads absorption
+  current independently of its maximum, rounds upward, appends after health,
+  wraps at ten with fixed 10-pixel rows, blinks all container backgrounds, and selects wither sprites for absorption
+  only when wither wins the effect precedence. `FUN_149c65980` (RVA `0x9c65980`)
+  loads absorption full/half textures and hardcore variants.
+- `crates/json-ui/src/hud/tests.rs`: vanilla pack 1.26.50.4
+  `resource_pack/ui/hud_screen.json`, `heart_renderer`, binds only
+  `#show_survival_ui` to `#visible`; absorption is native renderer state.
