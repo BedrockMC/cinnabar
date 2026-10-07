@@ -118,6 +118,12 @@ pub(super) fn resolve_binding(
         geometry_binding,
         &controllers,
     );
+    let samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
+        assets,
+        rig_binding,
+        geometry_binding,
+        &controllers,
+    );
     Some(ActorRigState {
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
@@ -158,13 +164,15 @@ pub(super) fn resolve_binding(
         skin_layers: Vec::new(),
         variables,
         samples_render_frames: samples_camera_poses
-            || super::render_frame::needs_frame_sampling(assets, rig_binding),
+            || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,
+        samples_swing_poses,
         render_frame: None,
         clip_clocks: BTreeMap::new(),
         initialized: false,
         culled: false,
         java: super::java::JavaMotionState::spawn(actor.body_yaw),
+        local_swing: None,
         motion,
     })
 }
@@ -442,8 +450,14 @@ pub(super) fn reselect_geometry(
         selected,
         &controllers,
     );
+    state.samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
+        assets,
+        state.rig_binding,
+        selected,
+        &controllers,
+    );
     state.samples_render_frames = state.samples_camera_poses
-        || super::render_frame::needs_frame_sampling(assets, state.rig_binding);
+        || super::render_frame::sampling::needs_frame_sampling(assets, state.rig_binding);
     state.geometry_binding = selected;
     state.bones = bones;
     state.bone_names = bone_names;

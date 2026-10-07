@@ -95,6 +95,12 @@ pub(crate) fn produce_melee(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<crate::local_player::LocalViewPose>,
 ) {
+    swings.sync_ticks(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+    );
+
     runtime.synchronize(movement.interaction_authority_identity());
     let attack = context.input.phase(Action::Attack);
     let drop = |reason| {
@@ -149,7 +155,12 @@ pub(crate) fn produce_melee(
     };
     runtime.observe_crosshair(crosshair);
     // Frames between physics ticks have no unsent tick; the press waits for one.
-    let Some(sample) = movement.newest_unsent_sample() else {
+    let sample = if crosshair == Crosshair::Block {
+        movement.first_unsent_sample_in_frame(context.effects.recent_tick_count())
+    } else {
+        movement.newest_unsent_sample()
+    };
+    let Some(sample) = sample else {
         return;
     };
     let press = PressContext {
@@ -158,7 +169,12 @@ pub(crate) fn produce_melee(
         input_mode,
         local_runtime_id: stream.local_player_runtime_id(),
         selection: hand_interaction_selection(&player_runtime),
-        swing_duration: swing_duration(context.effects.mining_effects()),
+        swing_duration: swing_duration(
+            context
+                .effects
+                .mining_tick(sample.tick, movement.completed_tick())
+                .0,
+        ),
         now_millis: u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX),
     };
     let mut rotate_action = false;
@@ -212,13 +228,6 @@ pub(crate) fn produce_melee(
 
 #[cfg(test)]
 mod session_tests;
-
-impl SwingTracker {
-    /// Supplies the existing actor-publication adapter with the accepted swing duration.
-    pub(crate) fn take_started(&mut self) -> Option<i32> {
-        self.0.take_started()
-    }
-}
 
 #[cfg(test)]
 pub(crate) use gameplay::melee::ActorHit;

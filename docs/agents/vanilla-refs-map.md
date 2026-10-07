@@ -2569,3 +2569,10 @@ was not used as version evidence.
 - Third-person visibility and disabling inversion are owner-requested options;
   defaults retain first-person visibility and inverted colors. The Java HUD's
   built-in fallback remains 15×15; a pack crosshair remains 16×16.
+
+## Swing duration publication
+
+- `crates/gameplay/src/melee.rs` and `melee/swing.rs`: Bedrock 1.26.50 `Mob::getModifiedSwingDuration`, `Mob::swing` and `Mob::aiStep`; Java 1.7.10 `EntityLivingBase.getArmSwingAnimationEnd`, `swingItem` and `updateArmSwingProgress`.
+- `crates/client-world/src/actor_animation/motion.rs` and `tick.rs`: Bedrock 1.26.50 `Mob::aiStep` and `Mob::swing`; Java swing publication follows `EntityLivingBase.updateArmSwingProgress`.
+- `crates/client-world/src/actor_animation/render_frame.rs`, `render_frame/clips.rs` and `tick/selection.rs`: vanilla pack `animation_controllers/player.animation_controllers.json` first-person attack weights and `animations/player.animation.json` attack channels.
+- Rules: `docs/reference/swing-duration.md`.

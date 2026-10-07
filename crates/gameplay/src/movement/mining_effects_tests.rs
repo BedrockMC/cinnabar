@@ -392,3 +392,77 @@ fn passive_retention_preserves_frames_at_success_failure_drop_replay_and_reancho
     );
     pair.remaining(None);
 }
+
+/// Effect expiry within a catch-up frame uses that tick's denominator rather than the final one.
+#[test]
+fn batched_swing_progress_preserves_pre_and_post_expiry_effects() {
+    use crate::melee::{SwingTracker, java_swing_duration};
+    let mut effects = LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    effects.apply(
+        1,
+        1,
+        protocol::ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 1,
+            action: protocol::ActorEffectAction::Add,
+            effect_id: 3,
+            amplifier: 1,
+            particles: false,
+            ambient: false,
+            duration_ticks: 6,
+            tick: 0,
+        },
+    );
+    effects.begin_frame();
+    for _ in 1..=8 {
+        effects.commit_successful_tick();
+    }
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 8, &effects);
+    assert!(swings.try_swing(1, 4));
+    assert_eq!(swings.published_progress(8).java, [0.0; 2]);
+    assert!(
+        swings.try_swing(9, 6),
+        "the swing completed before Haste expired"
+    );
+    let (before, after) = effects.mining_tick(6, 8);
+    assert_eq!(java_swing_duration(before), 4);
+    assert_eq!(java_swing_duration(after), 6);
+}
+
+/// Conduit modifies Bedrock wire admission while Java receives independently guarded attempts.
+#[test]
+fn conduit_swing_attempts_keep_java_and_bedrock_counters_independent() {
+    use crate::melee::SwingTracker;
+    let mut effects = LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    effects.apply(
+        1,
+        1,
+        protocol::ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 1,
+            action: protocol::ActorEffectAction::Add,
+            effect_id: 26,
+            amplifier: 1,
+            particles: false,
+            ambient: false,
+            duration_ticks: -1,
+            tick: 0,
+        },
+    );
+    effects.begin_frame();
+    for _ in 1..=8 {
+        effects.commit_successful_tick();
+    }
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 8, &effects);
+    let accepted = (1..=8)
+        .filter(|tick| swings.try_swing(*tick, 4))
+        .collect::<Vec<_>>();
+    assert_eq!(accepted, [1, 4, 7]);
+    let progress = swings.published_progress(8);
+    assert_eq!(progress.bedrock, [0.0, 0.25]);
+    assert_eq!(progress.java, [2.0 / 6.0, 0.5]);
+}

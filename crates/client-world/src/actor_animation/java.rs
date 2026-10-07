@@ -20,6 +20,8 @@ pub struct JavaMotion {
     pub equip: [f32; 2],
     /// Attack progress, advanced using the effects active on each tick.
     pub swing: [f32; 2],
+    /// The local physics frame fraction; remote swings retain the actor clock.
+    pub local_swing_alpha: Option<f32>,
     pub riding: bool,
     /// Swimming, crawling, gliding, sleeping or emoting: postures Java has no pose for.
     pub vanilla_posture: bool,
@@ -44,11 +46,7 @@ impl JavaMotion {
     /// The final attack frame wraps forward before the next tick returns to rest.
     #[must_use]
     pub fn swing_progress(self, alpha: f32) -> f32 {
-        let mut delta = self.swing[1] - self.swing[0];
-        if delta < 0.0 {
-            delta += 1.0;
-        }
-        self.swing[0] + delta * alpha
+        super::LocalSwingProgress::interpolate(self.swing, self.local_swing_alpha.unwrap_or(alpha))
     }
 }
 
@@ -69,6 +67,7 @@ pub(super) struct JavaTick<'a> {
     pub(super) delta: [f32; 3],
     pub(super) yaw: f32,
     pub(super) swing_ticks: i32,
+    pub(super) local_swing: Option<[f32; 2]>,
     pub(super) hurt_time: u8,
     pub(super) held: &'a Option<JavaHeldItem>,
     pub(super) held_slot: u8,
@@ -132,6 +131,7 @@ impl JavaMotionState {
                 body_yaw: [body_yaw; 2],
                 equip: [1.0; 2],
                 swing: [0.0; 2],
+                local_swing_alpha: None,
                 riding: false,
                 vanilla_posture: false,
                 cape: [[0.0; 3]; 2],
@@ -150,16 +150,20 @@ impl JavaMotionState {
 
     pub(super) fn advance(&mut self, tick: &JavaTick<'_>) {
         let motion = &mut self.motion;
-        let duration = tick.swing_ticks.max(1);
-        self.swing = self
-            .swing
-            .map(|counter| counter + 1)
-            .filter(|counter| *counter < duration);
-        motion.swing = [
-            motion.swing[1],
-            self.swing
-                .map_or(0.0, |counter| counter as f32 / duration as f32),
-        ];
+        if let Some(progress) = tick.local_swing {
+            motion.swing = progress;
+        } else {
+            let duration = tick.swing_ticks.max(1);
+            self.swing = self
+                .swing
+                .map(|counter| counter + 1)
+                .filter(|counter| *counter < duration);
+            motion.swing = [
+                motion.swing[1],
+                self.swing
+                    .map_or(0.0, |counter| counter as f32 / duration as f32),
+            ];
+        }
         motion.riding = tick.riding;
         motion.vanilla_posture = tick.vanilla_posture;
         let [dx, _, dz] = tick.delta;
@@ -436,6 +440,7 @@ mod tests {
             delta,
             yaw,
             swing_ticks: super::super::ACTOR_SWING_TICKS,
+            local_swing: None,
             hurt_time: 0,
             held: &None,
             held_slot: 0,
