@@ -31,10 +31,10 @@ impl Canvas<'_> {
             [0.0, 0.0, size[0], size[1]],
             self.appearance.backdrop(color),
         )?;
-        if let Some(node) = self.nodes.get(first) {
-            if let Some(transitions) = self.transitions.as_deref_mut() {
-                transitions.effects.mark_overlay(node.id());
-            }
+        if let Some(node) = self.nodes.get(first)
+            && let Some(transitions) = self.transitions.as_deref_mut()
+        {
+            transitions.effects.mark_overlay(node.id());
         }
         Ok(())
     }
@@ -86,12 +86,12 @@ impl Canvas<'_> {
         self.surface = scope.previous;
         self.entrance_active = scope.previous_active;
         apply_entrance(self.nodes, scope, self.rem, size)?;
-        if matches!(surface, Surface::Dialog(_)) {
-            if let Some(transitions) = self.transitions.as_deref_mut() {
-                transitions
-                    .effects
-                    .capture(surface, &self.nodes[scope.first..], self.rem, size);
-            }
+        if matches!(surface, Surface::Dialog(_))
+            && let Some(transitions) = self.transitions.as_deref_mut()
+        {
+            transitions
+                .effects
+                .capture(surface, &self.nodes[scope.first..], self.rem, size);
         }
         Ok(())
     }

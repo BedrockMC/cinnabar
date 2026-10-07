@@ -199,17 +199,19 @@ impl Transitions {
         seconds: f64,
     ) {
         self.seconds = seconds;
-        if self.mounted && navigation && activation != self.last_activation {
-            if let Some((action, _)) = activation {
-                if let Some(press) = self.presses.iter_mut().find(|press| press.action == action) {
-                    press.started = seconds;
-                } else {
-                    self.presses.push(Press {
-                        action,
-                        started: seconds,
-                        touched: false,
-                    });
-                }
+        if self.mounted
+            && navigation
+            && activation != self.last_activation
+            && let Some((action, _)) = activation
+        {
+            if let Some(press) = self.presses.iter_mut().find(|press| press.action == action) {
+                press.started = seconds;
+            } else {
+                self.presses.push(Press {
+                    action,
+                    started: seconds,
+                    touched: false,
+                });
             }
         }
         self.last_activation = activation;

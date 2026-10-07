@@ -628,12 +628,9 @@ pub(super) fn draw_picker(
 }
 
 fn variant_picker(snapshot: &Snapshot) -> Option<picker::Picker> {
-    let Some((index, pack)) = snapshot
+    let (index, pack) = snapshot
         .settings
-        .and_then(|index| snapshot.active.get(index).map(|pack| (index, pack)))
-    else {
-        return None;
-    };
+        .and_then(|index| snapshot.active.get(index).map(|pack| (index, pack)))?;
     let selected = snapshot
         .selection
         .get(index)

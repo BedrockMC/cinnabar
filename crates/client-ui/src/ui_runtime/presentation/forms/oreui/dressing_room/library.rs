@@ -209,9 +209,7 @@ pub(super) fn collection(
         }
         let columns = if width < canvas.r(32.0) {
             1
-        } else if !imported && !cape_tab {
-            2
-        } else if width < canvas.r(55.0) {
+        } else if (!imported && !cape_tab) || width < canvas.r(55.0) {
             2
         } else {
             3

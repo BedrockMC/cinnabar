@@ -36,26 +36,24 @@ pub(super) fn draw(
     let x = left + pad;
     let right = action_right - pad;
     let mut y = top + vertical_pad;
-    if !compact {
-        if let Some(icon) = canvas.title_artwork {
-            y += canvas.r(0.8);
-            let box_height = canvas.r(8.8);
-            let ratio =
-                f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1));
-            let art_width = (box_height * ratio).min(right - x);
-            let art_height = art_width / ratio;
-            let art_left = (x + right - art_width) * 0.5;
-            canvas.icon_ref(
-                icon,
-                [
-                    art_left,
-                    y + (box_height - art_height) * 0.5,
-                    art_left + art_width,
-                    y + (box_height + art_height) * 0.5,
-                ],
-            )?;
-            y += box_height + canvas.r(2.0);
-        }
+    if !compact && let Some(icon) = canvas.title_artwork {
+        y += canvas.r(0.8);
+        let box_height = canvas.r(8.8);
+        let ratio =
+            f32::from(icon.uv[2] - icon.uv[0]) / f32::from((icon.uv[3] - icon.uv[1]).max(1));
+        let art_width = (box_height * ratio).min(right - x);
+        let art_height = art_width / ratio;
+        let art_left = (x + right - art_width) * 0.5;
+        canvas.icon_ref(
+            icon,
+            [
+                art_left,
+                y + (box_height - art_height) * 0.5,
+                art_left + art_width,
+                y + (box_height + art_height) * 0.5,
+            ],
+        )?;
+        y += box_height + canvas.r(2.0);
     }
     let count = if compact { 4.0 } else { 3.0 };
     let heading_height = canvas.r(HEADER5.line + 0.8);
