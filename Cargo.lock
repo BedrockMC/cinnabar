@@ -664,6 +664,7 @@ dependencies = [
  "particles",
  "player-state",
  "protocol",
+ "raw-window-handle",
  "rayon",
  "render",
  "render-model",

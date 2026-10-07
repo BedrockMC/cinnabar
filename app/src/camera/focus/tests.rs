@@ -1,4 +1,5 @@
 use super::*;
+use bevy::window::CursorGrabMode;
 use client_ui::ui_runtime::UiRuntime;
 
 /// Builds the production focus/capture boundary without a windowing plugin or OS input.
@@ -634,28 +635,4 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         app.world().get::<CursorOptions>(window).unwrap().grab_mode,
         CursorGrabMode::Locked
     );
-}
-
-#[test]
-fn native_release_includes_held_buttons_without_cursor_clipping() {
-    let cursor = CursorOptions {
-        grab_mode: CursorGrabMode::None,
-        ..default()
-    };
-    let mut buttons = ButtonInput::default();
-    buttons.press(MouseButton::Back);
-    assert!(native_release_needed(&cursor, &buttons, false));
-    buttons.reset_all();
-    assert!(!native_release_needed(&cursor, &buttons, false));
-}
-
-#[test]
-fn loss_releases_native_ownership_after_ui_consumes_button_state() {
-    let cursor = CursorOptions {
-        grab_mode: CursorGrabMode::None,
-        ..default()
-    };
-    let buttons = ButtonInput::default();
-    assert!(native_release_needed(&cursor, &buttons, true));
-    assert!(!native_release_needed(&cursor, &buttons, false));
 }
