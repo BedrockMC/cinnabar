@@ -101,13 +101,14 @@ func (s *Account) reloadLocked() {
 	if err != nil || fingerprint == s.persisted || state.OAuthBinding != s.binding || state.ClientBinding != s.client {
 		return
 	}
+	synced := syncedFrom(state)
 	s.mergeLocalLocked(state, &sisu.Snapshot{XSTSTokens: s.xstsTokens})
-	s.adoptLocked(state, fingerprint)
+	s.adoptLocked(state, fingerprint, synced)
 }
 
-// adoptLocked restores a published bundle, re-applying this account's evictions to it.
-func (s *Account) adoptLocked(state *derivedState, fingerprint string) bool {
-	synced := syncedFrom(state)
+// adoptLocked restores a bundle merged from the published one, whose own tokens synced names, and
+// re-applies this account's evictions to it.
+func (s *Account) adoptLocked(state *derivedState, fingerprint string, synced syncedTokens) bool {
 	if s.restore(state) != nil {
 		return false
 	}
@@ -116,7 +117,7 @@ func (s *Account) adoptLocked(state *derivedState, fingerprint string) bool {
 		s.session.InvalidateXSTSToken(relyingParty, token)
 		delete(s.xstsTokens, relyingParty)
 	}
-	if s.service != nil && s.rejectedService != nil && s.service.AuthorizationHeader == s.rejectedService.AuthorizationHeader {
+	if s.rejectedServiceLocked(s.service) {
 		s.service = nil
 	}
 	return true
@@ -168,8 +169,9 @@ func (s *Account) publishOnce(ctx context.Context) (retry bool) {
 	if err == nil && fingerprint != s.persisted && state.OAuthBinding == s.binding && state.ClientBinding == s.client {
 		// Another process published since this account last synced: adopt it merged with this account's
 		// fresher credentials, keeping this account's evictions.
+		synced := syncedFrom(state)
 		s.mergeLocalLocked(state, snapshot)
-		if !s.adoptLocked(state, fingerprint) {
+		if !s.adoptLocked(state, fingerprint, synced) {
 			return false
 		}
 		snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
