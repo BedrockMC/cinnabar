@@ -151,6 +151,17 @@ impl WorldAuthority {
     pub fn actor(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(runtime_id)
     }
+
+    /// Publishes the session's level mode before remote players are admitted.
+    pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
+        self.actors.apply_world_game_mode(mode);
+    }
+
+    /// Uses the native class or the server-advertised constructor for custom actor targets.
+    #[must_use]
+    pub fn camera_aim_assist_eligible(&self, actor: &ActorSnapshot) -> Option<bool> {
+        self.actors.camera_aim_assist_eligible(actor)
+    }
     /// Unique id of the local player's actor.
     pub fn local_player_unique_id(&self) -> i64 {
         self.local_player_unique_id

@@ -1,6 +1,11 @@
 use super::*;
 
 impl WorldStream {
+    /// Retains StartGame's level mode for remote-player target admission.
+    pub fn set_world_default_game_mode(&mut self, mode: client_world::ingestion::GameModeUpdate) {
+        self.authority.set_world_default_game_mode(mode);
+    }
+
     /// Read-only view of the admitted world; mutation stays behind ordered admission.
     #[must_use]
     pub const fn authority(&self) -> &client_world::WorldAuthority {

@@ -17,17 +17,18 @@ pub(super) fn resolve_chat_line<'a>(
     translate: impl Fn(&str) -> Option<Arc<str>>,
 ) -> Cow<'a, str> {
     match node.kind {
-        ChatMessageKind::Translation => match translate(&node.message) {
-            Some(template) => {
-                let arguments = node
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.as_ref().to_owned())
-                    .collect::<Vec<_>>();
-                Cow::Owned(protocol::format_translation(&template, &arguments))
-            }
-            None => Cow::Borrowed(node.message.as_ref()),
-        },
+        ChatMessageKind::Translation => {
+            let template = json_ui::localize_text(&node.message, &translate);
+            let arguments = node
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    json_ui::localize_parameter_prefix(parameter, &translate, usize::MAX)
+                        .into_owned()
+                })
+                .collect::<Vec<_>>();
+            Cow::Owned(protocol::format_translation(&template, &arguments))
+        }
         ChatMessageKind::Chat => match node.source.as_deref() {
             Some(source) if !source.is_empty() => {
                 let template = translate("chat.type.text").unwrap_or_else(|| Arc::from("<%s> %s"));
@@ -98,6 +99,70 @@ mod tests {
             (key == "death.attack.player").then(|| Arc::from("%1$s was slain by %2$s"))
         });
         assert_eq!(resolved, "Legolas was slain by Gimli");
+    }
+
+    #[test]
+    fn marked_translation_keys_and_arguments_resolve() {
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "§e%multiplayer.player.joined",
+            &["Alex"],
+        );
+        let resolved = resolve_chat_line(&node, |key| {
+            (key == "multiplayer.player.joined").then(|| Arc::from("%s joined the game"))
+        });
+        assert_eq!(resolved, "§eAlex joined the game");
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "test.key",
+            &["%menu.play"],
+        );
+        let resolved = resolve_chat_line(&node, |key| match key {
+            "test.key" => Some(Arc::from("Selected %s")),
+            "menu.play" => Some(Arc::from("Play")),
+            _ => None,
+        });
+        assert_eq!(resolved, "Selected Play");
+    }
+
+    #[test]
+    fn translation_arguments_keep_unmarked_names_and_literal_percent_text() {
+        let node = message(
+            ChatMessageKind::Translation,
+            None,
+            "wrap",
+            &[
+                "menu.play",
+                "100% literal %menu.play",
+                "%missing",
+                "%menu.play",
+            ],
+        );
+        assert_eq!(
+            resolve_chat_line(&node, |key| match key {
+                "wrap" => Some(Arc::from("%s | %s | %s | %s")),
+                "menu.play" => Some(Arc::from("Play")),
+                _ => None,
+            }),
+            "menu.play | 100% literal %menu.play | %missing | Play"
+        );
+    }
+
+    #[test]
+    fn zero_argument_translations_format_percent_escapes_while_literal_rows_stay_literal() {
+        let translated = message(ChatMessageKind::Translation, None, "progress", &[]);
+        assert_eq!(
+            resolve_chat_line(&translated, |key| {
+                (key == "progress").then(|| Arc::from("100%% complete"))
+            }),
+            "100% complete"
+        );
+        for kind in [ChatMessageKind::Chat, ChatMessageKind::System] {
+            let literal = message(kind, None, "100%% complete", &[]);
+            assert_eq!(resolve_chat_line(&literal, |_| None), "100%% complete");
+        }
     }
 
     #[test]

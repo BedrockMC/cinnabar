@@ -276,14 +276,15 @@ impl WorldStream {
             .phase2_stages
             .light_jobs_dispatched
             .saturating_add(dispatched as u64);
+        let mut dispatch = workers::WORKERS.batch(workers::Lane::Light);
         for batch in prepared_batches {
             let tx = self.lighting.tx.clone();
             let running = RunningLightJob::start(&self.lighting.running_jobs);
-            workers::WORKERS.spawn(workers::Lane::Light, move || {
+            dispatch.spawn_with_scratch(move |scratch| {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("light.solve", sections = batch.len()).entered();
                 let started = Instant::now();
-                let solved = solve_prepared_light_batch(batch);
+                let solved = solve_prepared_light_batch_with_scratch(batch, scratch);
                 let duration = started.elapsed();
                 #[cfg(feature = "tracy")]
                 drop(_zone);
@@ -304,6 +305,7 @@ impl WorldStream {
                 }
             });
         }
+        drop(dispatch);
         dispatched
     }
     fn take_prepared_light_job(

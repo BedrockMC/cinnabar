@@ -44,11 +44,12 @@ pub use dimension::{LoadingScreenPhase, dimension_change_done_packet, loading_sc
 
 pub use actor::{
     ActorAttribute, ActorAttributeModifier, ActorAttributesUpdateEvent, ActorEffectAction,
-    ActorEffectEvent, ActorEvent, ActorInterpolation, ActorKind, ActorLinkEvent, ActorLinkType,
-    ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue, ActorMoveEvent, ActorPacketError,
-    ActorPositionOrigin, ActorProperty, ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent,
-    ActorStatusKind, ActorTakeItemEvent, CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET,
-    MAX_ACTOR_ATTRIBUTE_MODIFIERS, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES,
+    ActorEffectEvent, ActorEvent, ActorIdentifier, ActorIdentifierRegistry, ActorInterpolation,
+    ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadata, ActorMetadataUpdateEvent,
+    ActorMetadataValue, ActorMoveEvent, ActorPacketError, ActorPositionOrigin, ActorProperty,
+    ActorRemoveEvent, ActorSpawnEvent, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent,
+    CLASSIC_SKIN_SIDE, CapeImage, ITEM_ACTOR_NETWORK_OFFSET, MAX_ACTOR_ATTRIBUTE_MODIFIERS,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_IDENTIFIER_BYTES, MAX_ACTOR_IDENTIFIERS,
     MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_METADATA_NBT_BYTES,
     MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES, MAX_ACTOR_PROPERTIES,
     MAX_CLASSIC_SKIN_SIDE, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
@@ -72,18 +73,25 @@ pub use blob_cache::{
 pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use boss::boss_registration_response;
 pub use camera::{
-    CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
-    CameraFovInstruction, CameraInstructionEvent, CameraPreset, CameraSetInstruction,
-    CameraShakeAction, CameraShakeEvent, CameraShakeType, CameraSwitchEvent,
-    CameraTargetInstruction, MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS,
+    CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
+    CameraAimAssistExclusions, CameraAimAssistItemSetting, CameraAimAssistPreset,
+    CameraAimAssistPresetSettings, CameraAimAssistPriorities, CameraAimAssistPriority,
+    CameraAimAssistRegistry, CameraAimAssistSettings, CameraAimAssistTargetMode, CameraEase,
+    CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes, CameraFovInstruction,
+    CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
+    CameraShakeEvent, CameraShakeType, CameraSpline, CameraSplineInstruction, CameraSplineKind,
+    CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame, CameraSwitchEvent,
+    CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
+    MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
 };
 pub use codec::{ProtocolError, decode_batch, encode};
 pub use disconnect::ServerDisconnectEvent;
 pub use interaction::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
     HeldItemRequest, ItemUseTrigger, PredictedSlotChange, SwingSource, click_air_packet,
-    click_block_packet, click_block_transaction_packet, destroy_block_packet, release_item_packet,
-    stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    click_block_packet, click_block_transaction_packet, destroy_block_packet,
+    is_aim_assist_rotation_action, release_item_packet, stop_sleeping_packet, swing_arm_packet,
+    use_actor_packet,
 };
 pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,

@@ -12,6 +12,7 @@ fn parse_definition(bytes: &[u8]) -> Option<Definition> {
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
         name: "ns:b".into(),
+        tags: Default::default(),
         state_count: 6,
         collides: true,
         collision_box: None,
@@ -60,6 +61,33 @@ fn named(tag: u8, name: &str) -> Vec<u8> {
     let mut bytes = vec![tag];
     bytes.extend(string(name));
     bytes
+}
+
+#[test]
+fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
+    let mut nbt = named(10, "");
+    nbt.extend(named(9, "blockTags"));
+    nbt.extend([8, 6]);
+    nbt.extend(string("test:target"));
+    nbt.extend(string(""));
+    nbt.extend(string("test:target"));
+    nbt.push(0);
+    let blocks = super::CustomBlocks::from_definitions([("test:block", nbt.as_slice())]);
+    assert_eq!(blocks.blocks.len(), 1);
+    assert_eq!(
+        blocks.blocks[0].tags.as_ref(),
+        [std::sync::Arc::from("test:target")]
+    );
+    assert_eq!(blocks.skipped, 1);
+
+    let mut nbt = named(10, "");
+    nbt.extend(named(8, "blockTags"));
+    nbt.extend(string("not a list"));
+    nbt.push(0);
+    let blocks = super::CustomBlocks::from_definitions([("test:block", nbt.as_slice())]);
+    assert_eq!(blocks.blocks.len(), 1);
+    assert!(blocks.blocks[0].tags.is_empty());
+    assert_eq!(blocks.skipped, 1);
 }
 
 #[test]
@@ -150,6 +178,7 @@ fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
         name: name.into(),
+        tags: definition.tags,
         state_count: definition.state_count,
         collides: definition.collides,
         collision_box: definition.collision_box,
