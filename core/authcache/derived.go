@@ -468,8 +468,8 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 		if err := s.lock(ctx); err != nil {
 			return nil, err
 		}
-		if s.resets != resets || s.environment != env {
-			s.unlock() // superseded by a reset or a new environment: derive against the current state
+		if s.resets != resets || s.environment != env || s.rejectedServiceLocked(token) {
+			s.unlock() // superseded or refused meanwhile: derive against the current state
 			continue
 		}
 		current := s.service
@@ -488,6 +488,10 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 		return token, nil
 	}
 	return nil, errors.New("authentication: account changed during service refresh")
+}
+
+func (s *Account) rejectedServiceLocked(token *service.Token) bool {
+	return s.rejectedService != nil && token != nil && token.AuthorizationHeader == s.rejectedService.AuthorizationHeader
 }
 
 // InvalidateServiceToken drops a service token a service refused and persists the eviction.

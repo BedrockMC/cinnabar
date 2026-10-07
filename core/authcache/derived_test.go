@@ -1227,4 +1227,22 @@ func TestReloadKeepsUnpublishedLocalCredentials(t *testing.T) {
 	if service != local || xstsToken == nil || xstsToken.Token != "local-xsts" {
 		t.Fatal("reload discarded credentials this account had not yet published")
 	}
+	// A further unrelated publication must not make the still-unpublished credentials look synced.
+	third := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://third.example.test/"] = &third
+	if b, err = json.Marshal(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	account.publish(context.Background())
+	published, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.ServiceToken == nil || published.ServiceToken.AuthorizationHeader != local.AuthorizationHeader ||
+		published.SISU.XSTSTokens[cachedRelyingParty].Token != "local-xsts" {
+		t.Fatal("unpublished credentials were treated as synced and dropped")
+	}
 }

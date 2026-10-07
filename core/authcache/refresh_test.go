@@ -389,3 +389,44 @@ func TestSupersededServiceExchangeDerivesAgain(t *testing.T) {
 		t.Fatalf("superseded exchange returned %v, err=%v", token, err)
 	}
 }
+
+// resumingSource hands back its seed after onResume runs, as a native source resuming a restored token.
+type resumingSource struct {
+	seed     *service.Token
+	onResume func()
+	exchange func() *service.Token
+}
+
+func (r *resumingSource) ServiceToken(context.Context) (*service.Token, error) {
+	if r.seed != nil && r.seed.Valid() {
+		r.onResume()
+		return r.seed, nil
+	}
+	return r.exchange(), nil
+}
+
+// A restored token refused while its source resumes it is never installed; a fresh one is exchanged.
+func TestServiceTokenRefusedWhileResumingIsNotInstalled(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: func(_ *service.AuthorizationEnvironment, _ service.SessionTicketSource, seed *service.Token, _, _ string) service.TokenSource {
+			return &resumingSource{
+				seed:     seed,
+				onResume: func() { account.InvalidateServiceToken(seed) },
+				exchange: func() *service.Token {
+					return &service.Token{AuthorizationHeader: "MCToken replacement", ValidUntil: time.Now().Add(time.Hour)}
+				},
+			}
+		},
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token.AuthorizationHeader != "MCToken replacement" {
+		t.Fatalf("service token after a refusal during resume = %v, err=%v", token, err)
+	}
+}
