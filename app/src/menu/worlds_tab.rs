@@ -36,6 +36,32 @@ impl Default for LocalWorldsUi {
 }
 
 impl MenuRuntime {
+    /// Includes deliberate joins whose local-world preparation completes on a later frame.
+    pub(super) fn gameplay_return_pending(&self) -> bool {
+        self.intents.join.is_some()
+            || self.local_world_requested.is_some()
+            || self.local_ui.actions.iter().any(|action| {
+                matches!(
+                    action,
+                    LocalWorldAction::Create
+                        | LocalWorldAction::PlayFromEdit
+                        | LocalWorldAction::AcceptEula
+                ) || (matches!(
+                    action,
+                    LocalWorldAction::Prompt(
+                        crate::local_worlds::PromptButton::CreateFlat
+                            | crate::local_worlds::PromptButton::Retry
+                    )
+                ) && self.local_ui.view.prompt.is_some_and(|prompt| {
+                    matches!(
+                        prompt.blocking,
+                        crate::local_worlds::PromptFor::Play
+                            | crate::local_worlds::PromptFor::CreateDefault
+                    )
+                }))
+            })
+    }
+
     /// Mirror the module's worlds and screens, forward presses and typed text, join a world
     /// that finished opening, and track whether a local-world session is live.
     pub(crate) fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
