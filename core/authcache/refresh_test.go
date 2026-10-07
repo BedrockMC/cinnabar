@@ -327,3 +327,65 @@ func TestEarlyRefreshDoesNotBlockForegroundServiceToken(t *testing.T) {
 		t.Fatalf("replacement was not installed: err=%v", err)
 	}
 }
+
+// A service token restored from disk carries its JWT claims, which messaging reads directly.
+func TestRestoredServiceTokenCarriesItsClaims(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	state.ServiceToken = &service.Token{AuthorizationHeader: skewedServiceJWT(t, now, now.Add(time.Hour)), ValidUntil: now.Add(time.Hour)}
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	deps := defaultDerivedDeps()
+	deps.discover = func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil }
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.Claims.PlayerMessagingID.String() != "6a1c9a1e-0000-4000-8000-000000000000" {
+		t.Fatalf("restored service token messaging ID = %v", token.Claims.PlayerMessagingID)
+	}
+}
+
+// An exchange superseded by an account reset derives again instead of returning the stale token.
+func TestSupersededServiceExchangeDerivesAgain(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	var account *Account
+	var exchanges atomic.Int32
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			if exchanges.Add(1) == 1 {
+				account.gate <- struct{}{}
+				account.resetLocked(oauthBinding(testOAuthToken("account-a-rotated")))
+				account.unlock()
+				return &service.Token{AuthorizationHeader: "MCToken superseded", ValidUntil: time.Now().Add(time.Hour)}, nil
+			}
+			return &service.Token{AuthorizationHeader: "MCToken current", ValidUntil: time.Now().Add(time.Hour)}, nil
+		}),
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	account.gate <- struct{}{}
+	account.oauth = oauthSourceFunc(func() (*oauth2.Token, error) { return testOAuthToken("account-a-rotated"), nil })
+	account.binding = oauthBinding(testOAuthToken("account-a-rotated"))
+	account.unlock()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token.AuthorizationHeader != "MCToken current" {
+		t.Fatalf("superseded exchange returned %v, err=%v", token, err)
+	}
+}

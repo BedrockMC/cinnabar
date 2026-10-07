@@ -337,3 +337,14 @@ func TestFlightCompletesAtItsDeadline(t *testing.T) {
 		t.Fatal("stuck flight held its caller past the derivation deadline")
 	}
 }
+
+// A run that finishes at once is never reported as cancelled.
+func TestFinishedFlightIsNeverReportedCancelled(t *testing.T) {
+	account := newAccount(context.Background(), "", oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, derivedDeps{})
+	defer account.Close()
+	for range 2000 {
+		if _, err := awaitFlight(account, context.Background(), "instant", func(context.Context) (int, error) { return 1, nil }); err != nil {
+			t.Fatalf("finished flight = %v", err)
+		}
+	}
+}

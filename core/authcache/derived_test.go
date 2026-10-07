@@ -1030,6 +1030,9 @@ func TestPublishMergesFresherLocalCredentialsIntoAnotherBundle(t *testing.T) {
 	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
 	deps := derivedDeps{
 		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: fakeServices(func(context.Context, *service.AuthorizationEnvironment, xsapi.TokenAndSignaturer) (*service.Token, error) {
+			return nil, errors.New("offline test")
+		}),
 	}
 	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
 	defer account.Close()
