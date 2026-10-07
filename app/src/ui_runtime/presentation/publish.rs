@@ -40,7 +40,7 @@ fn hand_first_person(
 type PublishExtras<'w> = (
     Res<'w, WorldStreamFramePoll>,
     Res<'w, crate::menu::MenuRuntime>,
-    Res<'w, render::HandRigScene>,
+    Res<'w, client_presentation::actor_publication::ActorFrameState>,
     Option<Res<'w, crate::movement::PhysicsCollisionRegistries>>,
     Option<Res<'w, render::RuntimeStageProfiler>>,
     Option<Res<'w, render::ActorPipelineReadiness>>,
@@ -237,7 +237,7 @@ pub(crate) fn prepare_ui_runtime(
             || menu_runtime.is_visible()
             || hud_doll
             || runtime.emotes().is_open(),
-        hands: first_person && !hide_hand && !hand_rig.is_active() && !java_held_item,
+        hands: first_person && !hide_hand && !hand_rig.hand_is_active() && !java_held_item,
     };
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
@@ -290,8 +290,8 @@ pub(crate) fn prepare_ui_runtime(
     // static empty-hand scene and the HUD's CPU hand/item carriers are retired so nothing
     // double-draws.
     presentation.hud_frame_mut().first_person = first_person && !hide_hand;
-    presentation.hud_frame_mut().hand_rig_active = hand_rig.is_active();
-    if hand_rig.is_active() {
+    presentation.hud_frame_mut().hand_rig_active = hand_rig.hand_is_active();
+    if hand_rig.hand_is_active() {
         hand.use_animated_rig();
     } else {
         hand.observe(

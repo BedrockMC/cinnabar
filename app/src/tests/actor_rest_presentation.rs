@@ -420,6 +420,9 @@ fn replaced_base_artwork_without_a_session_pack_keeps_actors_drawn() {
                 .resource_mut::<bevy::time::Time<Real>>()
                 .update_with_instant(clock);
             world
+                .run_system_cached(crate::runtime::network::advance_actor_frame)
+                .unwrap();
+            world
                 .run_system_cached(crate::runtime::network::prepare_actor_render_frame)
                 .unwrap();
             world

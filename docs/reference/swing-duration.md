@@ -11,6 +11,7 @@
 | Effect changes | Recompute duration each tick without resetting the counter | Recompute duration each tick without resetting the counter |
 | Start | Counter starts at -1, then advances once per simulation tick | Counter starts at -1, then advances once per simulation tick |
 | Repeat | Read the pre-increment counter and accept at half the current duration | Read the pre-increment counter and accept at half the current duration |
+| Admission | Admit this tick’s actions before advancing and publishing its counter | Admit this tick’s actions before advancing and publishing its counter |
 | Publication | Counter divided by current duration; return to zero at completion | Counter divided by current duration; return to zero at completion |
 | Frames | Interpolate tick progress forward across the final wrap to rest, using the local simulation fraction | Interpolate tick progress forward across the final wrap to rest, using the local simulation fraction |
 
@@ -23,3 +24,5 @@ A pressed block swing uses the first eligible tick committed in the current fram
 Authored attack weights, pre-animation variables, arm channels and held-item channels read the same sampled local swing progress. Frame sampling leaves completed animation state and clip clocks unchanged.
 
 Native player and held-item animation sample the interpolated attack progress. First-person attack weights remain active while the final wrap has nonzero progress; frame sampling preserves committed controller state and clip clocks.
+
+The actor presentation clock advances before interaction picking. Final local swing publication follows interaction admission and refreshes local poses without advancing remote actors again. Inventory, screen, view and item-use observations remain captured before outbound actions.
