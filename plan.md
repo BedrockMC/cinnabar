@@ -14,6 +14,9 @@
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
   separate distance rule. Focused regressions cover these distinctions.
+- Validation: 267 simulator tests, 69 semantic-input tests and 336 movement
+  tests pass. The touched-crate compile check includes tests and the client app.
+  Independent review covered input replay and the integrated movement history.
 - Full parity remains incomplete: vehicle prediction, special-block and glide
   coverage, equipment-dependent powder snow, dynamic actor sizes,
   touch layouts, independent orientation, prediction-sync metadata and exact
