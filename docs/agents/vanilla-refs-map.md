@@ -2579,6 +2579,87 @@ was not used as version evidence.
 - `app/src/runtime/network/actor_publication.rs` and `crates/client-presentation/src/actor_publication/preparation.rs`: local tick admission precedes swing-counter publication; actor picking retains the actor interpolation boundary.
 - Rules: `docs/reference/swing-duration.md`.
 
+## Held block placement (1.26.50)
+
+Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.rs`,
+`crates/gameplay/src/block_use/intention.rs`, `crates/gameplay/src/block_use/packets.rs`,
+`crates/gameplay/src/block_use/stopping.rs`, `app/src/block_use.rs`,
+`app/src/block_use/target.rs`, `crates/protocol/src/interaction.rs`.
+
+- Primary current evidence: Lens artifact 6, normalized build `1.26.50.26`,
+  source-backed `artifact_function` reads at RVAs `0x28b63a0`
+  (`continueBuildBlockAction`), `0x28b66b0` (`continueBuildBlock`),
+  `0x28b6f00` (`stopBuildBlock`), and `0x28d3ed0` (build callback).
+  Local canonical counterparts are
+  `~/coding/go/lunar/refs/mcsrc-1.26.50/current/1.26.50.26/src/__unmapped/02.cpp`.
+  These confirm the hold flags, fresh-pick targeting, strict due-time comparison,
+  movement direction, line-cell intersection, cached orientation intercept,
+  clicked runtime ID before prediction, start/swing/transaction order and miss click zero.
+- Current Lens artifact 6, `_tickBuildAction` at `0x67883a0`, refreshes picks before
+  held continuation. The target-type early returns in `0x28b63a0` retain hold flags;
+  `useItemOn` at `0x28b74d0` disables intention after interaction while retaining the line.
+- Lens `read_data` on artifact 6 confirms float data addresses:
+  `0x150132700` = 300 ms, `0x14ff9cdc8` = 200 ms,
+  `0x15005ea40` = 900 speed divisor, `0x14feff2c8` = 180 ms,
+  `0x14ffa2648` = 100 ms survival floor, `0x14ffa90dc` = 20 Hz movement scale,
+  `0x1500c2b70` = 0.01 squared movement threshold.
+- Named-owner reference root:
+  `~/coding/go/lunar/refs/mcsrc-1.26.50/reference/26.30/src`.
+  `by-owner/g/GameMode.cpp`: `startBuildBlock` RVA `0xa0bd770`,
+  `buildBlock` `0xa0bd790`, `continueBuildBlockAction` `0xa0bdd30`,
+  `continueBuildBlock` `0xa0bdfe0`, `_calculatePlacePos` `0xa0be670`,
+  `stopBuildBlock` `0xa0be750`, and `getPickRange` `0xa0c1450`.
+  The GameMode hold stores prior success, interactive-use and placement-intention flags,
+  successful destination, locked direction/face, next destination and first world intercept.
+- `by-owner/c/ClientInstance.cpp`: `_tickBuildAction` RVA `0x2334cd0`,
+  refreshes main and liquid HitResults before held continuation; `resetBai`,
+  `clearInProgressBAI` and `getInProgressBAI` own input intention.
+  `by-owner/h/HitResultUtils.cpp`: `refreshHitResult` refreshes world pick evidence.
+  `by-owner/c/ClientInputCallbacks.cpp`: `handleBuildAction` RVA `0x23178c0`
+  owns first press; selected-slot and gameplay-input routing own stopping boundaries.
+- `by-owner/b/BlockItem.cpp`: `_calculatePlacePos` RVA `0xa5f6dc0`,
+  replace the clicked cell when admitted, otherwise offset by face.
+  `by-owner/p/PlanterItemComponent.cpp`: `getBlockPlacementContext` RVA `0xa2e0430`
+  supplies the qualifying intention bit, which is not equivalent to any nonzero block ID.
+  Current Lens artifact 6, source-backed raw RVA `0x3bd0ef0`, confirms
+  property mask `0x40003`, three virtual bool predicates, and carpet bit `0x80`
+  at BlockType offset `0x130`; custom block_placer component offset `0x42` enables
+  intention. The named reference uses mask `0x200003` and carpet bit `0x100` at
+  offset `0x108`. Lens vtable pointer read at `0x110ff1998` maps slots
+  `0xe8/0xf8/0x100` to `isFenceBlock/isThinFenceBlock/isWallBlock`;
+  `isFenceGateBlock` at `0xf0` is omitted. Stair and slab constructors set bits
+  1 and 2; the ordinary BlockType constructor supplies cube `0x200000`.
+  Runtime block-property admission in Cinnabar remains incomplete.
+  `crates/gameplay/src/movement/collision_registries.rs` and its `tags.rs`
+  admit conservative model families; `by-owner/l/LeavesBlock.cpp:130–145`
+  ORs leaf properties into the inherited ordinary cube properties, confirming
+  leaves retain placement intention. Chest, Bed, FenceGate and TrapDoor constructors
+  replace the default property mask and do not qualify merely from collision shape.
+  `by-owner/s/SoulSandBlock.cpp:38`, `by-owner/m/MudBlock.cpp:95`,
+  `by-owner/b/BarrierBlock.cpp:38`, and `by-owner/c/ChiseledBookShelfBlock.cpp:146`
+  call the ordinary BlockType constructor without replacing its cube property;
+  the identifier exceptions and their two-ID-space regressions cover these cases.
+- `by-owner/b/BlockStateHelper.cpp`: `isAnyDirection` RVA `0xb4b8560`,
+  initial world-intercept caching for cardinal direction, facing direction, vertical half,
+  direction, weirdo direction, orientation, upside-down/top-slot, standing rotation,
+  hanging, rotation, torch facing, vine bits and coral direction; pillar axis is absent.
+- Packet reference owners: `support/std/__func--bc8d9908b204/9.cpp:130567–131030`
+  (build callback), `support/std/__func--bc8d9908b204/1.cpp:135810–135897`
+  (use callback), `by-owner/c/CommonGameModeMessenger.cpp:101–229`,
+  `by-owner/i/ItemUseInventoryTransaction.cpp:3529–3556`,
+  `by-owner/l/LocalPlayer.cpp:10292–10413`. Lens named function
+  `0x10a0dc360` corroborates transaction construction. The current callback above
+  corroborates the first-success action and transaction fields for the target build.
+
+- Current Lens artifact 6, `handleItemStackResponse` at `0x28d10d0`, rejects IDs
+  unless `(~request_id & 0x80000001) == 0`: only negative odd client request IDs.
+  Canonical current `02.cpp:1476783–1476901` confirms this validation. Legacy
+  even placement scopes do not register in that response queue.
+  The local server pin `hashimthearab/dragonfly@58003c1d2ced`,
+  `server/session/handler_inventory_transaction.go:18–74`, processes
+  `LegacySetItemSlots` through `sendItem`/`sendInv`; `server/session/player.go:258–277`
+  sends `InventorySlot`/`InventoryContent`, not `ItemStackResponse`.
+
 ## Absorption hearts
 
 - `crates/client-ui/src/ui_runtime/hud_adapter.rs`, `crates/ui/src/hud.rs`, and
