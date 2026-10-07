@@ -313,7 +313,7 @@ fn visible_color(draw: &ui::UiDrawList, point: [f32; 2]) -> Option<[u8; 4]> {
             draw.indices[batch.index_range.start as usize..batch.index_range.end as usize]
                 .chunks_exact(6)
         })
-        .filter(|quad| {
+        .rfind(|quad| {
             let min = std::array::from_fn::<_, 2, _>(|axis| {
                 quad.iter()
                     .map(|index| draw.vertices[*index as usize].position[axis])
@@ -326,7 +326,6 @@ fn visible_color(draw: &ui::UiDrawList, point: [f32; 2]) -> Option<[u8; 4]> {
             });
             point[0] >= min[0] && point[0] < max[0] && point[1] >= min[1] && point[1] < max[1]
         })
-        .next_back()
         .map(|quad| draw.vertices[quad[0] as usize].color)
 }
 
