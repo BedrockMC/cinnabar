@@ -7,7 +7,7 @@ rules; this document does not close the cross-platform visual parity gate.
 | Area | Vanilla rules | Evidence limit |
 | --- | --- | --- |
 | Anti-aliasing control | Video names the slider **Anti-Aliasing**. Values represent positive power-of-two sample counts; `1` is single sampling. Stops come from renderer capabilities. | A universal fixed maximum is incorrect. The inspected capability path can restrict values above four samples. |
-| Default sample count | The shared default is `2`; platform class `1` and an Education-specific operating-system branch use `1`. | The inspected desktop path resolves to `2`. Class `1` has not been mapped to Android, iOS or a handheld console; current platform defaults remain unverified. |
+| Default sample count | The inspected Windows raster settings request `2` samples and retain that value when supported; otherwise they select the nearest supported count. The shared default uses `1` for platform class `1` and an Education-specific operating-system branch. | These are physical sample counts, not slider exponents. Class `1` has not been mapped to Android, iOS or a handheld console; their current defaults remain unverified. |
 | World AA | Gameplay color has an explicit MSAA resolve before post-processing. The inspected raster path provides no evidence for a full-screen FXAA pass. | Matching captures are still required for every platform and for exact terrain/entity/hand/UI coverage boundaries. |
 | UI AA | UI composition has its own rendering stage. World sample count alone does not establish the sample count of every UI material. | Exact version-matched UI geometry coverage remains open; see [inventory rendering](inventory-gui-geometry.md). |
 | Enhanced graphics | A gameplay color resolve precedes post-processing. | Cinnabar's Enhanced mode is a custom path; it does not claim Vibrant Visuals or ray-tracing parity. Their temporal/upscaling AA policies remain unverified. |
@@ -23,16 +23,16 @@ rules; this document does not close the cross-platform visual parity gate.
 | Platform | Default AA evidence | Remaining limit |
 | --- | --- | --- |
 | macOS Education, inspected 26.30 desktop path | `2` samples. | Nearby-version evidence; this is not a current macOS retail Bedrock default. |
-| Windows 1.26.50 | The power-of-two setting and gameplay resolve are established. | The current default sample count is unverified. |
+| Windows 1.26.50.26 raster | `2` samples, adjusted to the nearest supported count when unavailable. | This is the inspected preview build; retail and temporal/upscaling modes require separate confirmation. An unavailable capability list falls back to `1`. |
 | Android and iOS | No platform-specific default established. | Shared platform-class branches do not identify these operating systems. |
 | Xbox, PlayStation and Switch | No platform-specific default established. | Console and handheld-console defaults require separate confirmation. |
 
-Cinnabar's desktop default of two samples is provisional until its current-version platform
-default is verified. It does not define a mobile or console default.
+Cinnabar's desktop default of two samples follows the inspected Windows raster setting.
+It does not define a mobile or console default.
 
 Cinnabar removes FXAA, keeps nearest terrain texels within each mip, and selects MSAA from the
-intersection supported by its color, depth and shadow-stencil attachments. The Video slider shows only usable
-sample counts and retains the saved preference across changes in device capabilities. Its
+intersection supported by its color, depth and shadow-stencil attachments. The Video slider
+shows only usable sample counts and retains the saved preference across changes in device capabilities. Its
 numeric label and keyboard/pointer stops use the same sample list. Sampling changes reach the
 camera before that frame publishes hand geometry.
 

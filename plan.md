@@ -6116,9 +6116,9 @@ the fallback availability regression is fixed, but it does not close that parity
 
 ## Image clarity and multisampling
 
-Desktop rendering removes FXAA and provisionally defaults to two MSAA coverage samples when
-supported; the current-version platform default remains unverified. Video's Anti-Aliasing
-slider exposes only supported sample counts.
+Desktop rendering removes FXAA and defaults to two MSAA coverage samples when supported,
+matching the inspected Windows raster setting. Retail, mobile and console defaults remain
+unverified. Video's Anti-Aliasing slider exposes only supported sample counts.
 Terrain uses point-filtered texels, linear mip interpolation and byte-space atlas mips.
 See [the Vanilla rules](docs/reference/rendering.md) for established behavior and evidence
 limits. These changes do not close the cross-platform rendering parity gate.
