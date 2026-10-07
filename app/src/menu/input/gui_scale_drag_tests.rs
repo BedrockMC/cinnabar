@@ -65,11 +65,13 @@ fn installed_audio_slider_drag_keeps_capture_outside_track_and_releases() {
 }
 
 fn check_option_slider_drag(presentation: UiPresentationRuntime) {
-    use client_ui::test_support::menu_hit_targets;
+    use client_ui::test_support::{menu_hit_targets, settings_section_index};
 
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
-    menu.activate(MenuAction::SettingsSection(23));
+    menu.activate(MenuAction::SettingsSection(
+        settings_section_index("sound_forced_index").unwrap(),
+    ));
     let index = super::super::settings_options::SETTINGS_OPTIONS
         .iter()
         .position(|option| option.name == "main_volume")
