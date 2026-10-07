@@ -315,9 +315,11 @@ fn max_bytes(field: MenuField) -> usize {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
-    (player_runtime, mut keyboard_messages): (
+    (player_runtime, mut keyboard_messages, focus, driven): (
         bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
         MessageReader<KeyboardInput>,
+        Option<Res<client_presentation::camera::CursorFocus>>,
+        Option<Res<crate::camera::DrivenInput>>,
     ),
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
@@ -334,8 +336,6 @@ pub(crate) fn drive_menu_input(
     consent: Option<Res<crate::server_experiences::input::ConsentInput>>,
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut gui_scale_drag: Local<GuiScaleDrag>,
-    focus: Option<Res<client_presentation::camera::CursorFocus>>,
-    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     if consent.is_some_and(|consent| consent.0) {
         keyboard_messages.clear();
