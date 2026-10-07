@@ -233,7 +233,9 @@ impl SemanticInputRuntime {
         frame
             .controllers
             .sort_by_key(|controller| controller.device_id);
-        let known_controller_activity_changed = {
+        let known_controller_activity_changed = frame.controllers.iter().any(|current| {
+            !current.button_edges.pressed.is_empty() || !current.button_edges.released.is_empty()
+        }) || {
             let previous = &self.previous.controllers;
             self.router.controller_activity_changed(
                 previous.iter().filter(|previous| {
@@ -285,6 +287,10 @@ fn keyboard_physical_eq(left: &KeyboardMouseFrame, right: &KeyboardMouseFrame) -
         && left.mouse_buttons == right.mouse_buttons
         && left.mouse_motion == right.mouse_motion
         && left.modifiers == right.modifiers
+        && right.key_edges.pressed.is_empty()
+        && right.key_edges.released.is_empty()
+        && right.mouse_edges.pressed.is_empty()
+        && right.mouse_edges.released.is_empty()
 }
 
 fn touch_physical_eq(left: &TouchContact, right: &TouchContact) -> bool {
@@ -402,6 +408,7 @@ mod tests {
             movement,
             raw_movement,
             analogue_movement,
+            movement_buttons: Default::default(),
             look_delta: [0.0; 2],
             input_mode: InputMode::GamePad,
             phases: [ActionPhase::default(); Action::COUNT],
