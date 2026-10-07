@@ -18,7 +18,7 @@ rules; this document does not close the cross-platform visual parity gate.
 | Held items | The inspected ordinary item-in-hand color binding uses point filtering, including mip selection. | Specialized item materials, entity skins and their texture-loading mip policies require separate confirmation. |
 | Item icons | `textures/item_texture.json` does not declare terrain's mip count. Flat icons retain their authored texels. | Exact target-version icon/model material sampling and coverage remain open; nearby-version point-sampling evidence is documented in [inventory rendering](inventory-gui-geometry.md). |
 | Filtering settings | The inspected Video UI has no anisotropy or mip-bias control. | This does not prove every platform or graphics mode lacks additional controls. |
-| Texel anti-aliasing | The UI includes a **Texel Anti-Aliasing** toggle gated by a capability. The inspected desktop capability disables it. | The shared default also contains a console-class condition; the exact shader algorithm and platform exposure are not yet established. |
+| Texel anti-aliasing | The UI includes a **Texel Anti-Aliasing** toggle gated by a capability. The inspected desktop capability disables it. Material configuration gates texel AA separately from MSAA and alpha-to-coverage. | The shared default also contains a console-class condition; the exact shader algorithm and platform exposure are not yet established. Enabling MSAA alone does not establish either texel AA or alpha-to-coverage. |
 
 Cinnabar removes FXAA, keeps nearest terrain texels within each mip, and selects MSAA from the
 intersection supported by its color and depth attachments. The Video slider shows only usable
@@ -37,5 +37,6 @@ overlap transparent geometry. Shadow and enhanced post-process writeback also op
 resolved color. Exact per-sample composition remains an incomplete parity gate.
 
 The Mac capture validates Cinnabar's Metal path, not a native macOS retail Bedrock release.
+Enhanced remains hard-disabled; its attachment changes are not live-rendering acceptance.
 No matching vanilla comparison or console/mobile hardware capture is implied by those results.
 See `plan.md` for remaining platform, image and performance gates.

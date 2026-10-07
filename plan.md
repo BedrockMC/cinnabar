@@ -6090,6 +6090,10 @@ renderer does not expose its multisampled color attachment for shader reads. Sha
 enhanced post-process writeback also use resolved scene color. These paths retain depth
 coverage but do not preserve every original color sample through composition.
 
+Enhanced remains disabled by its existing GPU-fault kill switch. Its MSAA attachment and
+post-chain changes receive compile and shader checks only; no live Enhanced acceptance is
+claimed, and this work does not remove that switch.
+
 Matched native screenshots, material-specific actor/item mip policies, custom-pack mip-level
 limits, console/mobile defaults and texel anti-aliasing remain unverified. Mac headless
 captures and focused GPU tests cannot qualify Intel-integrated performance, other native
