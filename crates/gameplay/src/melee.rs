@@ -200,7 +200,8 @@ pub fn resolve_and_send(
         Ok(()) | Err(BatchSendError::Closed) => outcome.missed_swing,
         Err(BatchSendError::Full) => {
             *runtime = saved_runtime;
-            *swings = saved_swings;
+            let candidate_swings = std::mem::replace(swings, saved_swings);
+            swings.defer_unadmitted_attempt(&candidate_swings);
             runtime.defer(input_frame);
             false
         }

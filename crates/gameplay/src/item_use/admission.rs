@@ -50,6 +50,7 @@ pub fn step_and_send(
             outcome.started
         }
         Err(BatchSendError::Full) => {
+            swings.defer_unadmitted_attempt(&candidate_swings);
             if outcome.used {
                 runtime.latched_press = true;
                 runtime.deferred_selection = frame.selection.clone();

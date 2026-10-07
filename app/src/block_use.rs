@@ -180,7 +180,7 @@ pub(crate) fn produce_block_use(
     let Some(block_network_id) = stream.block_network_id(observed.target.runtime_id) else {
         return;
     };
-    let before_swing = swings.clone();
+    let mut before_swing = swings.clone();
     let packets = use_packets(
         (&observed, block_network_id),
         sample.position,
@@ -192,6 +192,7 @@ pub(crate) fn produce_block_use(
     );
     let sent = !packets.is_empty() && context.network.send_inventory_packets(packets).is_ok();
     if !runtime.admit(trigger, due, sample.tick, local_use, clock, sent) {
+        before_swing.defer_unadmitted_attempt(&swings);
         *swings = before_swing;
         return;
     }

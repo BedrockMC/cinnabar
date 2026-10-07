@@ -466,3 +466,112 @@ fn conduit_swing_attempts_keep_java_and_bedrock_counters_independent() {
     assert_eq!(progress.bedrock, [0.0, 0.25]);
     assert_eq!(progress.java, [2.0 / 6.0, 0.5]);
 }
+
+/// Publication keeps the expired tick's denominator even after a zero-tick frame clears history.
+#[test]
+fn a_backpressured_expiry_tick_retains_its_post_expiry_denominator() {
+    use crate::melee::{SwingTracker, swing_duration};
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    for (sequence, effect_id, amplifier, duration_ticks) in [(1, 3, 1, 1), (2, 4, 0, -1)] {
+        effects.apply(
+            1,
+            sequence,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: protocol::ActorEffectAction::Add,
+                effect_id,
+                amplifier,
+                particles: false,
+                ambient: false,
+                duration_ticks,
+                tick: 0,
+            },
+        );
+    }
+    effects.begin_frame();
+    effects.commit_successful_tick();
+    let (before, after) = effects.mining_tick(100, 100);
+    let before_duration = swing_duration(before);
+    let after_duration = swing_duration(after);
+    assert_eq!((before_duration, after_duration), (4, 8));
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 100, &effects);
+    let mut candidate = swings.clone();
+    assert!(candidate.try_swing(100, before_duration));
+    swings.defer_unadmitted_attempt(&candidate);
+    let idle = swings.published_progress(100);
+    assert_eq!(idle.java, [0.0; 2]);
+    let mut rejected_again = swings.clone();
+    assert!(rejected_again.try_swing(100, before_duration));
+    swings.defer_unadmitted_attempt(&rejected_again);
+    assert_eq!(swings.published_progress(100), idle);
+    effects.begin_frame();
+    swings.sync_ticks((1, 1), 100, &effects);
+    assert!(swings.try_swing(100, before_duration));
+    assert_eq!(swings.take_started(), Some(before_duration));
+    let admitted = swings.published_progress(100);
+    assert_eq!(swings.published_progress(100), admitted);
+    let next = swings.published_progress(101);
+    let expected = [0.0, 1.0 / after_duration as f32];
+    assert_eq!(next.bedrock, expected);
+    assert_eq!(next.java, expected);
+}
+
+/// Retried Conduit admission keeps Java's independent guard after the effect has expired.
+#[test]
+fn a_backpressured_conduit_restart_preserves_each_modes_admission() {
+    use crate::melee::SwingTracker;
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    effects.apply(
+        1,
+        1,
+        protocol::ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 1,
+            action: protocol::ActorEffectAction::Add,
+            effect_id: 26,
+            amplifier: 1,
+            particles: false,
+            ambient: false,
+            duration_ticks: 4,
+            tick: 0,
+        },
+    );
+    effects.begin_frame();
+    effects.commit_successful_tick();
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 100, &effects);
+    assert!(swings.try_swing(100, 4));
+    swings.published_progress(100);
+    effects.begin_frame();
+    for _ in 101..=103 {
+        effects.commit_successful_tick();
+    }
+    swings.sync_ticks((1, 1), 103, &effects);
+    swings.published_progress(102);
+    let mut candidate = swings.clone();
+    assert!(candidate.try_swing(103, 4));
+    swings.defer_unadmitted_attempt(&candidate);
+    swings.published_progress(103);
+    let mut rejected_again = swings.clone();
+    assert!(rejected_again.try_swing(103, 4));
+    swings.defer_unadmitted_attempt(&rejected_again);
+    effects.begin_frame();
+    swings.sync_ticks((1, 1), 103, &effects);
+    assert!(swings.try_swing(103, 4));
+    assert_eq!(swings.take_started(), Some(4));
+    let recovered = swings.published_progress(103);
+    assert_eq!(recovered.bedrock, [0.5, 0.0]);
+    assert_eq!(
+        recovered.java,
+        [2.0 / 6.0, 0.5],
+        "Java did not admit this native restart"
+    );
+    assert_eq!(swings.published_progress(103), recovered);
+    let next = swings.published_progress(104);
+    assert_eq!(next.bedrock, [0.0, 1.0 / 6.0]);
+    assert_eq!(next.java, [0.5, 4.0 / 6.0]);
+}

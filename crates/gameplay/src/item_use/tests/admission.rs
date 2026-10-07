@@ -429,3 +429,35 @@ fn accepted_use_updates_only_its_exact_tick_before_the_movement_flush() {
         }
     }
 }
+
+/// A throw retry preserves its swing when render publication occurred between sends.
+#[test]
+fn a_backpressured_throw_retries_after_its_tick_was_published() {
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    let effects = crate::movement::LocalMovementEffectTimeline::default();
+    let throw = item_frame(100, true, stack(4, SNOWBALL, 16), "minecraft:snowball");
+    swings.sync_ticks((1, 1), throw.tick, &effects);
+    runtime.observe_press(true);
+    step_and_send(&mut runtime, &mut swings, &throw, 7, 6, |packets| {
+        assert_eq!(packets.len(), 2);
+        Err(BatchSendError::Full)
+    });
+    assert_eq!(swings.take_started(), None);
+    assert_eq!(swings.published_progress(throw.tick).java, [0.0; 2]);
+    step_and_send(&mut runtime, &mut swings, &throw, 7, 6, |packets| {
+        assert_eq!(packets.len(), 2, "the throw retry retains its swing");
+        assert_eq!(format!("{:?}", packets[0].header.id), "AnimatePacket");
+        assert_eq!(
+            format!("{:?}", packets[1].header.id),
+            "InventoryTransactionPacket"
+        );
+        Ok(())
+    });
+    assert_eq!(swings.take_started(), Some(6));
+    assert!(!swings.try_swing(throw.tick, 6));
+    assert_eq!(
+        swings.published_progress(throw.tick + 1).java,
+        [0.0, 1.0 / 6.0]
+    );
+}
