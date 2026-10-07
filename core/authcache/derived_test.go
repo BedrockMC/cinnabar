@@ -1183,3 +1183,45 @@ func TestDelayedServiceExchangeKeepsAFresherToken(t *testing.T) {
 		t.Fatal("delayed exchange replaced the fresher token")
 	}
 }
+
+// Reloading another process's bundle keeps credentials this account derived but has not yet published.
+func TestReloadKeepsUnpublishedLocalCredentials(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(-time.Minute))
+	deps := derivedDeps{discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil }}
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	if _, err := account.Environment(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := &service.Token{AuthorizationHeader: "MCToken local", ValidUntil: time.Now().Add(time.Hour)}
+	localXSTS := *state.SISU.XSTSTokens[cachedRelyingParty]
+	localXSTS.Token, localXSTS.NotAfter = "local-xsts", time.Now().Add(2*time.Hour)
+	account.gate <- struct{}{}
+	account.service = local
+	account.xstsTokens[cachedRelyingParty] = &localXSTS
+	account.unlock()
+	other := *state.SISU.XSTSTokens[cachedRelyingParty]
+	state.SISU.XSTSTokens["https://other.example.test/"] = &other
+	b, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := savePrivate(path, append(b, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := account.Environment(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	account.gate <- struct{}{}
+	service, xstsToken := account.service, account.xstsTokens[cachedRelyingParty]
+	account.unlock()
+	if service != local || xstsToken == nil || xstsToken.Token != "local-xsts" {
+		t.Fatal("reload discarded credentials this account had not yet published")
+	}
+}

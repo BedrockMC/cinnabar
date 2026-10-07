@@ -101,6 +101,7 @@ func (s *Account) reloadLocked() {
 	if err != nil || fingerprint == s.persisted || state.OAuthBinding != s.binding || state.ClientBinding != s.client {
 		return
 	}
+	s.mergeLocalLocked(state, &sisu.Snapshot{XSTSTokens: s.xstsTokens})
 	s.adoptLocked(state, fingerprint)
 }
 
@@ -135,8 +136,17 @@ func (s *Account) publish(ctx context.Context) {
 	case <-ctx.Done():
 		return
 	}
+	for range 3 {
+		if !s.publishOnce(ctx) {
+			return
+		}
+	}
+}
+
+// publishOnce writes one snapshot; it reports a retry when a reload replaced the session meanwhile.
+func (s *Account) publishOnce(ctx context.Context) (retry bool) {
 	if err := s.lock(ctx); err != nil {
-		return
+		return false
 	}
 	session := s.session
 	s.unlock()
@@ -144,15 +154,15 @@ func (s *Account) publish(ctx context.Context) {
 	snapshot := session.Snapshot()
 	lease, err := s.acquireLease(ctx)
 	if err != nil || lease == nil {
-		return
+		return false
 	}
 	defer lease.Close()
 	if err := s.lock(ctx); err != nil {
-		return
+		return false
 	}
 	defer s.unlock()
 	if s.session != session {
-		return
+		return true
 	}
 	state, fingerprint, err := loadDerivedBundle(s.path)
 	if err == nil && fingerprint != s.persisted && state.OAuthBinding == s.binding && state.ClientBinding == s.client {
@@ -160,11 +170,12 @@ func (s *Account) publish(ctx context.Context) {
 		// fresher credentials, keeping this account's evictions.
 		s.mergeLocalLocked(state, snapshot)
 		if !s.adoptLocked(state, fingerprint) {
-			return
+			return false
 		}
 		snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
 	}
 	s.persistLocked(snapshot)
+	return false
 }
 
 // ensureDeviceToken fills a device token a reset cleared, since a bundle is never written without one.
