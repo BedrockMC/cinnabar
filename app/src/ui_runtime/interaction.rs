@@ -133,7 +133,11 @@ pub(crate) fn drive_inventory_ui_actions(
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     presentation: Res<UiPresentationRuntime>,
     mut runtime: ResMut<UiRuntime>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
+    let input_available = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     let notches: Vec<(f32, MouseScrollUnit)> = wheel_messages
         .as_deref()
         .map(|messages| {
@@ -164,7 +168,7 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
-        || !window.focused
+        || !input_available
     {
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
@@ -276,7 +280,14 @@ pub(crate) fn drive_inventory_ui_actions(
     };
     let actions = runtime.screen_state_mut().pointer.step(frame);
     for action in actions {
+        let was_open = runtime.inventory_open();
         runtime.perform_pointer_action(&mut player_runtime, action);
+        if was_open
+            && !runtime.inventory_open()
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
+        }
     }
     if hit.is_none() {
         // A held stack released outside the panel is dropped: all of it on a
@@ -504,12 +515,14 @@ pub(crate) fn drive_chat_keyboard_input(
     // system later in the production chain.
     let inventory_owned_pointer = runtime.inventory_open();
     let mut inventory_ownership_changed = false;
+    let mut dismissed = false;
     let mut consumed_gameplay = runtime.ui_focused(&player_runtime);
     if !runtime.chat_focused() && !runtime.screen_state().text_focused() {
         if binding_mouse(menu.as_deref(), "key.inventory", &mouse_buttons)
             || binding_gamepad(menu.as_deref(), "key.inventory", &gamepads)
         {
             runtime.toggle_inventory(&mut player_runtime);
+            dismissed |= !runtime.inventory_open();
             inventory_ownership_changed = true;
             consumed_gameplay = true;
         } else if !runtime.inventory_open()
@@ -571,6 +584,7 @@ pub(crate) fn drive_chat_keyboard_input(
                         }
                     }
                 }
+                dismissed |= !runtime.inventory_open();
                 continue;
             }
             match input.key_code {
@@ -584,6 +598,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 }
                 key => runtime.inventory_keys_mut().press(key),
             }
+            dismissed |= !runtime.inventory_open();
             continue;
         }
         if runtime.local_sleeping() && !runtime.chat_focused() {
@@ -726,8 +741,12 @@ pub(crate) fn drive_chat_keyboard_input(
                 }
             }
         }
+        dismissed |= !runtime.chat_focused();
     }
 
+    if dismissed && let Some(focus) = focus.as_deref_mut() {
+        focus.authorize_screen_return();
+    }
     if consumed_gameplay {
         if inventory_owned_pointer && !inventory_ownership_changed && runtime.inventory_open() {
             suppress_gameplay_input_for_inventory(

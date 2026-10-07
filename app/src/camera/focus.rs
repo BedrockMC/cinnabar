@@ -46,13 +46,13 @@ fn track_focus(
     }
     let mut pointer_activated = false;
     for event in pointer_edges.read() {
-        pointer_activated |= event.window == entity && event.button == MouseButton::Left;
+        pointer_activated |= event.window == entity;
     }
     focus.record_activation(
         keys.get_just_pressed().next().is_some()
             || pointer_activated
-            || buttons.just_pressed(MouseButton::Left)
-            || buttons.just_released(MouseButton::Left)
+            || buttons.get_just_pressed().next().is_some()
+            || buttons.get_just_released().next().is_some()
             || touches
                 .is_some_and(|touches| touches.any_just_pressed() || touches.any_just_released())
             || gamepads

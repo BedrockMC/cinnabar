@@ -318,7 +318,7 @@ fn max_bytes(field: MenuField) -> usize {
 pub(crate) struct MenuInputContext<'w, 's> {
     player_runtime: Res<'w, crate::player_runtime::PlayerRuntime>,
     keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
-    focus: Option<Res<'w, client_presentation::camera::CursorFocus>>,
+    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
     driven: Option<Res<'w, crate::camera::DrivenInput>>,
 }
 
@@ -344,7 +344,7 @@ pub(crate) fn drive_menu_input(
     let MenuInputContext {
         player_runtime,
         mut keyboard_messages,
-        focus,
+        mut focus,
         driven,
     } = context;
     if consent.is_some_and(|consent| consent.0) {
@@ -644,6 +644,12 @@ pub(crate) fn drive_menu_input(
             }
             _ => {}
         }
+    }
+    if !menu.is_visible()
+        && !menu.intents.disconnect
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
     }
     // The menu owns the pointer and keyboard for this frame. This also keeps
     // the camera's recapture-on-click path from turning a menu click into a

@@ -161,4 +161,9 @@ pub(crate) fn drive_chat_ui_actions(
             }
         }
     }
+    if !runtime.chat_focused()
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
+    }
 }
