@@ -11,6 +11,7 @@ mod aim_pose;
 mod controller_frame;
 mod correction;
 mod dimension_wait;
+mod prediction_corrections;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
@@ -62,10 +63,8 @@ pub fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
 
 /// Converts app right/forward axes into bedsim's left-positive strafe input.
 ///
-/// The held sprint request is narrowed into processed sprint state here so the
-/// simulator and the outbound `PlayerAuthInput` flags always agree: vanilla
-/// sprints only while moving forward, so a request held during backward,
-/// strafe-only, or stationary input is not an active sprint.
+/// Actor sprint requests require forward movement; physical packet buttons
+/// remain independent in the accompanying sample context.
 #[must_use]
 pub fn physics_movement_input(
     right_forward: [f32; 2],
@@ -111,8 +110,7 @@ pub struct PhysicsSampleContext {
     /// Analog-axis sample of the controlling device.
     pub analogue_move_vector: [f32; 2],
     pub mode_intent: ModeIntent,
-    /// Physical sneak button, carried to the raw sneak flags.
-    pub sneak_button: bool,
+    pub input: super::TickInput,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,8 +132,7 @@ pub struct PhysicsMovementSample {
     pub camera_orientation: [f32; 3],
     pub jumping: bool,
     pub sneaking: bool,
-    /// Physical sneak button, unlike toggle/forced/processed `sneaking`.
-    pub sneak_button: bool,
+    pub input: super::TickInput,
     pub sprinting: bool,
     pub input_mode: PlayerInputMode,
     pub grounded_before_tick: bool,
@@ -222,6 +219,7 @@ pub struct LocalPhysicsController {
     discard_next_elapsed: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
+    input_edges: super::input_state::PendingInputEdges,
     fly_toggle_pending: bool,
     /// Open processed-jump-arc fold state carried across ticks. Reset with the
     /// rest of prediction state; rebuilt across correction replays.
@@ -232,6 +230,7 @@ pub struct LocalPhysicsController {
     controller_history: VecDeque<ControllerFrame>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
+    deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
@@ -260,6 +259,7 @@ impl Default for LocalPhysicsController {
             discard_next_elapsed: false,
             previous_jump_held: false,
             jump_edge_pending: false,
+            input_edges: Default::default(),
             fly_toggle_pending: false,
             processed_jump_arc_active: false,
             dropped_tick_count: 0,
@@ -267,6 +267,7 @@ impl Default for LocalPhysicsController {
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             server_motions: VecDeque::new(),
+            deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
@@ -310,12 +311,14 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.input_edges = Default::default();
         self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
         self.controller_history.clear();
         self.server_motions.clear();
+        self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
@@ -362,6 +365,7 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
+        self.input_edges = Default::default();
         self.fly_toggle_pending = false;
         self.processed_jump_arc_active = false;
         self.dropped_tick_count = 0;
@@ -369,6 +373,7 @@ impl LocalPhysicsController {
         self.sample_history.clear();
         self.controller_history.clear();
         self.server_motions.clear();
+        self.deferred_corrections = Default::default();
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
@@ -435,7 +440,8 @@ impl LocalPhysicsController {
         let Some(state) = self.state.as_mut() else {
             return LocalPhysicsFrame::default();
         };
-        if input.jumping && !self.previous_jump_held {
+        self.input_edges.observe(context.input);
+        if context.input.jump.pressed || (input.jumping && !self.previous_jump_held) {
             self.jump_edge_pending = true;
         }
         self.previous_jump_held = input.jumping;
@@ -460,6 +466,7 @@ impl LocalPhysicsController {
         input.creative_flight = context.mode_intent.creative_flight;
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
+        input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
             // Before the first simulated tick of a freshly anchored epoch,
             // probe the anchor out of any solid overlap (provisional
@@ -492,6 +499,7 @@ impl LocalPhysicsController {
             let mut forced_sneak = false;
             let mut mode_error = None;
             let previous_modes = self.modes;
+            let [move_sideways, move_forward] = ModeObservation::input_vector(input);
             match self.modes.select(
                 context.mode_intent,
                 self.fly_toggle_pending,
@@ -502,8 +510,12 @@ impl LocalPhysicsController {
                     in_water: self.last_environment.in_water,
                     in_lava: self.last_environment.in_lava,
                     sprinting: sprint_request,
-                    move_sideways: input.strafe as f32,
-                    move_forward: input.forward as f32,
+                    sprint_blinded: input.effects.blindness,
+                    sprint_down: context.input.sprint_down,
+                    input_mode: context.input_mode,
+                    requested_movement: state.requested_movement,
+                    move_sideways,
+                    move_forward,
                     sneaking: sneak_request,
                     pitch: context.pitch,
                     yaw: input.yaw_degrees as f32,
@@ -527,6 +539,7 @@ impl LocalPhysicsController {
                 }
                 Err(error) => mode_error = Some(error),
             }
+            self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
             let mut ride_delta = None;
             if input.mode == sim::MovementMode::Riding
@@ -585,6 +598,8 @@ impl LocalPhysicsController {
                         fly_toggle: self.fly_toggle_pending,
                         requested_sneak: sneak_request,
                         requested_sprint: sprint_request,
+                        sprint_down: context.input.sprint_down,
+                        input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
                         sprint_override: None,
@@ -614,10 +629,6 @@ impl LocalPhysicsController {
                     processed.mode = input.mode;
                     processed.ride = context.mode_intent.ride;
                     processed.forced_sneak = forced_sneak;
-                    processed.direction_flags = Some(super::encoding::direction_flags([
-                        -input.strafe as f32,
-                        input.forward as f32,
-                    ]));
                     if input.immobile || input.mode == sim::MovementMode::Riding {
                         // Frozen travel and mount-owned jumping cannot continue a local jump arc.
                         processed.jump_initiated = false;
@@ -653,7 +664,7 @@ impl LocalPhysicsController {
                         camera_orientation: context.camera_orientation,
                         jumping: input.jumping,
                         sneaking: input.sneaking,
-                        sneak_button: context.sneak_button,
+                        input: self.input_edges.sample(context.input),
                         sprinting: input.sprinting,
                         input_mode: context.input_mode,
                         grounded_before_tick,
@@ -678,6 +689,7 @@ impl LocalPhysicsController {
                             .clone(),
                     );
                     self.jump_edge_pending = false;
+                    self.input_edges = Default::default();
                     self.fly_toggle_pending = false;
                     input.jump_pressed = false;
                 }

@@ -1,3 +1,27 @@
+## Movement and input audit fixes
+
+- Input packets retain digital buttons and raw jump/sneak events separately from
+  requested controls and resulting actor state. Opposing keys remain visible,
+  brief taps survive tickless frames, and retries and rewinds preserve the input
+  captured for each tick. Sprint admission includes direction, stall and
+  seven-tick double-tap checks retained through replay;
+  forced crouching does not invent a held sneak button. Blindness participates
+  in sprint admission; Swift Sneak scales crouch input from equipped leggings.
+- Physics uses the selected collision support for landing responses and the
+  near-feet material for travel friction. Auto-climb, levitation, restitution
+  thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+- Prediction corrections replay regardless of distance. Nonzero future ticks
+  attach to the current captured frame for a later rewind; zero ticks and ticks
+  older than retained history are discarded. MovePlayer teleports keep their
+  separate distance rule. Focused regressions cover these distinctions.
+- Full parity remains incomplete: vehicle prediction, special-block and glide
+  coverage, equipment-dependent powder snow, dynamic actor sizes,
+  touch layouts, independent orientation, prediction-sync metadata and exact
+  loading/stall timing still require matched fixtures. Paired retail-client
+  packet captures and live server verification have not been completed, so this
+  work does not establish universal vanilla parity or identify a specific ban's
+  cause. Existing provisional behavior below stays provisional.
+
 ## Camera packets and aim assist
 
 - Packet admission covers spline registries/instructions, aim presets, commands
