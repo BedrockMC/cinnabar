@@ -69,14 +69,14 @@ func terrainCave(x, y, z, top int) bool {
 
 // GenerateChunk fills one independent terrain column and clips nearby trees into it.
 func (g terrainFixture) GenerateChunk(pos world.ChunkPos, c *chunk.Chunk) {
-	minY := c.Range().Min()
+	minY, maxY := c.Range().Min(), c.Range().Max()
 	bi := uint32(biome.Plains{}.EncodeBiome())
 	ox, oz := int(pos[0])*16, int(pos[1])*16
 	for x := 0; x < 16; x++ {
 		for z := 0; z < 16; z++ {
 			wx, wz := ox+x, oz+z
 			top := terrainHeight(wx, wz)
-			for y := minY; y <= max(top, terrainSea); y++ {
+			for y := minY; y <= min(max(top, terrainSea), maxY); y++ {
 				id := g.stone
 				switch {
 				case y == minY:
@@ -94,7 +94,7 @@ func (g terrainFixture) GenerateChunk(pos world.ChunkPos, c *chunk.Chunk) {
 				}
 				c.SetBlock(uint8(x), int16(y), uint8(z), 0, id)
 			}
-			for y := minY; y <= c.Range().Max(); y++ {
+			for y := minY; y <= maxY; y++ {
 				c.SetBiome(uint8(x), int16(y), uint8(z), bi)
 			}
 		}
@@ -112,7 +112,7 @@ func (g terrainFixture) GenerateChunk(pos world.ChunkPos, c *chunk.Chunk) {
 			}
 			height := 5 + int((h>>24)%3)
 			put := func(wx, wy, wz int, id uint32) {
-				if wx >= ox && wx < ox+16 && wz >= oz && wz < oz+16 {
+				if wx >= ox && wx < ox+16 && wz >= oz && wz < oz+16 && wy <= maxY {
 					c.SetBlock(uint8(wx-ox), int16(wy), uint8(wz-oz), 0, id)
 				}
 			}

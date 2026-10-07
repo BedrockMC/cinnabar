@@ -147,3 +147,8 @@ func TestTerrainFixtureDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestTerrainFixtureClipsToDimensionHeight guards the Nether chunk whose hills and trees exceed Y=127.
+func TestTerrainFixtureClipsToDimensionHeight(t *testing.T) {
+	newTerrainFixture().GenerateChunk(world.ChunkPos{-64, -61}, chunk.New(world.DefaultBlockRegistry, world.Nether.Range()))
+}
