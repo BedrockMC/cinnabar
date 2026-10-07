@@ -8,7 +8,6 @@ pub struct CursorFocus {
     occluded: bool,
     lost_this_frame: bool,
     waiting_for_return: bool,
-    ui_owned_input: bool,
     activated: bool,
 }
 
@@ -19,7 +18,6 @@ impl Default for CursorFocus {
             occluded: false,
             lost_this_frame: false,
             waiting_for_return: false,
-            ui_owned_input: false,
             activated: false,
         }
     }
@@ -68,13 +66,9 @@ impl CursorFocus {
 
     /// Permits capture after a focused click or an explicit return from a screen.
     pub fn allow_capture(&mut self, ui_owned_input: bool, clicked: bool) -> bool {
-        if self.available()
-            && !ui_owned_input
-            && (clicked || (self.ui_owned_input && self.activated))
-        {
+        if self.available() && !ui_owned_input && clicked {
             self.waiting_for_return = false;
         }
-        self.ui_owned_input = ui_owned_input;
         self.capture_allowed()
     }
 

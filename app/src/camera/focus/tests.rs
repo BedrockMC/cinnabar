@@ -565,3 +565,73 @@ fn sign_finish_retains_return_until_transport_accepts_edit() {
         CursorGrabMode::Locked
     );
 }
+
+#[test]
+fn remapped_side_button_inventory_dismissal_returns_capture() {
+    use crate::{
+        menu::{
+            MenuAction, MenuClipboard, MenuRuntime, drive_menu_input,
+            settings_options::{EXTRA_KEYS, KEY_BINDINGS},
+        },
+        ui_runtime::interaction::drive_chat_keyboard_input,
+    };
+    use bevy::{input::keyboard::KeyboardInput, time::Real};
+    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    let (mut app, window) = focus_app();
+    let mut menu = MenuRuntime::new(false, 2, "test".into());
+    menu.set_visible(true);
+    let row = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.inventory")
+            .unwrap();
+    menu.activate(MenuAction::SettingsKey(row as u16));
+    app.init_resource::<Time<Real>>()
+        .init_resource::<Touches>()
+        .add_message::<KeyboardInput>()
+        .insert_resource(menu)
+        .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+        .insert_resource(UiPresentationRuntime::new(fixture_font()).unwrap())
+        .add_systems(Update, drive_chat_keyboard_input.before(drive_menu_input))
+        .add_systems(Update, drive_menu_input.before(update_cursor_capture));
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Back);
+    app.update();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        assert_eq!(
+            menu.settings_snapshot()
+                .0
+                .named_key_control("key.inventory"),
+            Some(semantic_input::PhysicalControl::MouseButton(
+                crate::semantic_controls::physical::mouse_button_code(MouseButton::Back).unwrap()
+            ))
+        );
+        menu.set_visible(false);
+    }
+    app.world_mut().resource_scope(
+        |world, mut player: Mut<crate::player_runtime::PlayerRuntime>| {
+            let mut runtime = world.resource_mut::<UiRuntime>();
+            runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
+            runtime
+                .publish_local_runtime_id(&mut player, 1, 42)
+                .unwrap();
+            runtime.toggle_inventory(&mut player);
+        },
+    );
+    assert!(app.world().resource::<UiRuntime>().inventory_open());
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Back);
+    app.update();
+    assert!(!app.world().resource::<UiRuntime>().inventory_open());
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}

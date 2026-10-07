@@ -34,6 +34,7 @@ fn pause_screen_return_authorizes_capture_but_focus_regain_does_not() {
     focus.begin_frame(true);
     assert!(!focus.allow_capture(true, false));
     focus.record_activation(true);
+    focus.authorize_screen_return();
     assert!(focus.allow_capture(false, false));
 }
 
@@ -44,6 +45,7 @@ fn programmatic_screen_close_after_focus_return_does_not_rearm_capture() {
     assert!(!focus.allow_capture(true, false));
     focus.begin_frame(true);
     assert!(!focus.allow_capture(true, false));
+    focus.record_activation(true);
     assert!(!focus.allow_capture(false, false));
     assert!(focus.allow_capture(false, true));
 }
