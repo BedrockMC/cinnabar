@@ -585,6 +585,7 @@ impl ViewNode for TerrainPassNode {
     type ViewQuery = (
         &'static ExtractedCamera,
         &'static ViewTarget,
+        &'static crate::scene_target::SceneTarget,
         &'static ViewDepthTexture,
         Option<&'static MainPassResolutionOverride>,
     );
@@ -593,9 +594,10 @@ impl ViewNode for TerrainPassNode {
         &self,
         graph: &mut RenderGraphContext,
         render_context: &mut RenderContext<'w>,
-        (camera, target, depth, resolution_override): (
+        (camera, target, scene_target, depth, resolution_override): (
             &'w ExtractedCamera,
             &'w ViewTarget,
+            &'w crate::scene_target::SceneTarget,
             &'w ViewDepthTexture,
             Option<&'w MainPassResolutionOverride>,
         ),
@@ -613,7 +615,7 @@ impl ViewNode for TerrainPassNode {
         {
             let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
                 label: Some("terrain solid pass"),
-                color_attachments: &[Some(target.get_color_attachment())],
+                color_attachments: &[Some(scene_target.color_attachment(target, false))],
                 depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
                 timestamp_writes: crate::gpu_timing::render_pass_timestamps(
                     world,

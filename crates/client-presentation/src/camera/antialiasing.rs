@@ -63,13 +63,15 @@ pub fn device_support(adapter: &RenderAdapter, device: &RenderDevice) -> CameraA
     ]
     .map(format_features);
     let depth = format_features(CORE_3D_DEPTH_FORMAT);
-    CameraAntiAliasingSupport(attachment_support(&colors, depth))
+    let stencil = format_features(TextureFormat::Stencil8);
+    CameraAntiAliasingSupport(attachment_support(&colors, depth, stencil))
 }
 
 /// Accepts only counts that can resolve color and expose multisampled depth to the shaders.
 fn attachment_support(
     colors: &[TextureFormatFeatures],
     depth: TextureFormatFeatures,
+    stencil: TextureFormatFeatures,
 ) -> ui::AntiAliasingSupport {
     ui::AntiAliasingSupport::from_counts(ui::ANTI_ALIASING_SAMPLE_COUNTS.into_iter().filter(
         |samples| {
@@ -88,6 +90,10 @@ fn attachment_support(
                     .allowed_usages
                     .contains(TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING)
                 && depth.flags.sample_count_supported(*samples)
+                && stencil
+                    .allowed_usages
+                    .contains(TextureUsages::RENDER_ATTACHMENT)
+                && stencil.flags.sample_count_supported(*samples)
         },
     ))
 }
@@ -129,7 +135,7 @@ mod tests {
             TextureFormatFeatureFlags::MULTISAMPLE_X4 | TextureFormatFeatureFlags::MULTISAMPLE_X8,
         );
         assert_eq!(
-            attachment_support(&[color], depth)
+            attachment_support(&[color], depth, depth)
                 .counts()
                 .collect::<Vec<_>>(),
             [1, 4]
@@ -137,11 +143,28 @@ mod tests {
         assert_eq!(
             attachment_support(
                 &[features(TextureFormatFeatureFlags::MULTISAMPLE_X4)],
+                depth,
                 depth
             )
             .counts()
             .collect::<Vec<_>>(),
             [1]
+        );
+    }
+
+    #[test]
+    fn antialiasing_excludes_counts_without_shadow_stencil_coverage() {
+        let all = features(
+            TextureFormatFeatureFlags::MULTISAMPLE_X2
+                | TextureFormatFeatureFlags::MULTISAMPLE_X4
+                | TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE,
+        );
+        let stencil = features(TextureFormatFeatureFlags::MULTISAMPLE_X4);
+        assert_eq!(
+            attachment_support(&[all], all, stencil)
+                .counts()
+                .collect::<Vec<_>>(),
+            [1, 4]
         );
     }
 

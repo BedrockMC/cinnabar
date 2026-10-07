@@ -33,8 +33,7 @@ use super::{
     materials::material_classes,
 };
 use crate::{
-    AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    scene_sampling::{ResolvedDepth, SceneCopy},
+    AtmosphereFrame, ChunkTextureAssetIdentity, ChunkTextureAssets, scene_sampling::ResolvedDepth,
 };
 
 pub(crate) const CASTER_SLOT_BYTES: u64 = 256;
@@ -387,8 +386,8 @@ pub(crate) struct EnhancedViewGpu {
     pub(crate) scene_colour: Option<CachedTexture>,
     pub(crate) scene_depth: Option<CachedTexture>,
     pub(crate) resolved_depth: Option<ResolvedDepth>,
-    pub(crate) copy: Option<SceneCopy>,
     pub(crate) shafts: Option<CachedTexture>,
+    pub(crate) hand_layer: Option<super::hand_layer::HandLayer>,
     pub(crate) view_bind_group: Option<BindGroup>,
     pub(crate) caster_bind_group: Option<BindGroup>,
 }
@@ -416,8 +415,8 @@ impl EnhancedViewGpu {
             scene_colour: None,
             scene_depth: None,
             resolved_depth: None,
-            copy: None,
             shafts: None,
+            hand_layer: None,
             view_bind_group: None,
             caster_bind_group: None,
         }
@@ -518,20 +517,12 @@ pub(crate) fn prepare_enhanced_views(
                 crate::RuntimeStage::GpuPost,
             ));
         }
-        let samples = depth.texture.sample_count();
-        if samples == 1 {
-            state.copy = None;
-        } else if state
-            .copy
+        if state
+            .hand_layer
             .as_ref()
-            .is_none_or(|copy| !copy.matches(target, samples))
+            .is_none_or(|layer| !layer.matches(target))
         {
-            state.copy = Some(SceneCopy::new(
-                &device,
-                target,
-                samples,
-                crate::RuntimeStage::GpuPost,
-            ));
+            state.hand_layer = Some(super::hand_layer::HandLayer::new(&device, target));
         }
         state.settings = *settings;
         state.cascades = fits.iter().map(|fit| fit.bounds).collect();
@@ -584,7 +575,7 @@ pub(crate) fn prepare_enhanced_views(
                 scene_size,
                 1,
                 target.main_texture_format(),
-                snapshot,
+                snapshot | TextureUsages::RENDER_ATTACHMENT,
             )
         });
         state.scene_depth = settings.water_reflections.then(|| {

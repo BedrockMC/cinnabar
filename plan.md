@@ -6116,17 +6116,20 @@ the fallback availability regression is fixed, but it does not close that parity
 
 ## Image clarity and multisampling
 
-Desktop rendering removes FXAA, defaults to two MSAA coverage samples when the device
-supports them, and exposes supported sample counts through Video's Anti-Aliasing slider.
+Desktop rendering removes FXAA and provisionally defaults to two MSAA coverage samples when
+supported; the current-version platform default remains unverified. Video's Anti-Aliasing
+slider exposes only supported sample counts.
 Terrain uses point-filtered texels, linear mip interpolation and byte-space atlas mips.
 See [the Vanilla rules](docs/reference/rendering.md) for established behavior and evidence
 limits. These changes do not close the cross-platform rendering parity gate.
 
-Exact per-sample color at overlapping opaque and transparent silhouettes remains incomplete:
-the gamma-compositing path seeds its multisampled target from resolved opaque color. The
-renderer does not expose its multisampled color attachment for shader reads. Shadow and
-enhanced post-process writeback also use resolved scene color. These paths retain depth
-coverage but do not preserve every original color sample through composition.
+Opaque, cutout, transparent, sky, world text and hand geometry now retain their original color
+samples in one shared attachment. Compatible views preserve encoded blending without scene
+copies. The last ordinary hand-rig draw resolves and discards the samples; an end-of-main-pass
+resolve covers views without that draw. Shadows use per-sample depth and an overlap stencil,
+and Hi-Z directly reduces the original depth samples. Single-sample post consumers resolve
+only when needed. Real GPU coverage fixtures distinguish this path from resolved-color
+reconstruction, including partially covered silhouettes and overlapping shadows.
 
 Enhanced remains disabled by its existing GPU-fault kill switch. Its MSAA attachment and
 post-chain changes receive compile and shader checks only; no live Enhanced acceptance is

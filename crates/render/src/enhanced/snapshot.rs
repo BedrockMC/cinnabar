@@ -22,6 +22,7 @@ impl ViewNode for EnhancedSnapshotNode {
         Entity,
         &'static EnhancedRendering,
         &'static ViewTarget,
+        &'static crate::scene_target::SceneTarget,
         &'static ViewDepthTexture,
     );
 
@@ -29,7 +30,7 @@ impl ViewNode for EnhancedSnapshotNode {
         &self,
         _graph: &mut RenderGraphContext,
         context: &mut RenderContext,
-        (entity, settings, target, _depth): QueryItem<Self::ViewQuery>,
+        (entity, settings, _target, scene, _depth): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         if !super::ENHANCED_RENDERING_ENABLED || !settings.water_reflections {
@@ -48,11 +49,25 @@ impl ViewNode for EnhancedSnapshotNode {
         depth.draw(context, world, None);
         let diagnostics = context.diagnostic_recorder();
         let span = diagnostics.time_span(context.command_encoder(), "enhanced opaque snapshot");
-        context.command_encoder().copy_texture_to_texture(
-            target.main_texture().as_image_copy(),
-            colour.texture.as_image_copy(),
-            colour.texture.size(),
-        );
+        if scene.texture.sample_count() > 1 {
+            let _pass = context
+                .command_encoder()
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("enhanced opaque colour resolve"),
+                    color_attachments: &[Some(
+                        scene.resolve_attachment(&colour.default_view, wgpu::StoreOp::Store),
+                    )],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+        } else {
+            context.command_encoder().copy_texture_to_texture(
+                scene.texture.as_image_copy(),
+                colour.texture.as_image_copy(),
+                colour.texture.size(),
+            );
+        }
         context.command_encoder().copy_texture_to_texture(
             TexelCopyTextureInfo {
                 aspect: TextureAspect::DepthOnly,

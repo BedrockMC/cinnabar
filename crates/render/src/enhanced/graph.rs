@@ -5,6 +5,7 @@ use bevy::{
 };
 
 use super::{
+    hand_layer::{EnhancedHandCompositeLabel, EnhancedHandCompositeNode},
     post::{EnhancedPostLabel, EnhancedPostNode},
     shadows::{EnhancedShadowLabel, EnhancedShadowNode},
     snapshot::{EnhancedSnapshotLabel, EnhancedSnapshotNode},
@@ -15,6 +16,7 @@ pub(super) fn install_graph(world: &mut World) {
     let snapshot = ViewNodeRunner::<EnhancedSnapshotNode>::new(EnhancedSnapshotNode, world);
     let shadow = ViewNodeRunner::<EnhancedShadowNode>::new(EnhancedShadowNode, world);
     let post = ViewNodeRunner::<EnhancedPostNode>::new(EnhancedPostNode, world);
+    let composite = ViewNodeRunner::new(EnhancedHandCompositeNode, world);
     let hand = crate::viewmodel_render::enhanced_post_node(world);
     let rig = crate::hand_rig_render::enhanced_post_node(world);
     let Some(mut graphs) = world.get_resource_mut::<RenderGraph>() else {
@@ -60,10 +62,25 @@ pub(super) fn install_graph(world: &mut World) {
         EnhancedHandRigLabel,
         rig,
     );
+    if hand && rig {
+        graph.add_node_edge(EnhancedHandLabel, EnhancedHandRigLabel);
+    }
+    graph.add_node(EnhancedHandCompositeLabel, composite);
+    graph.add_node_edges((
+        EnhancedPostLabel,
+        EnhancedHandCompositeLabel,
+        Node3d::Tonemapping,
+    ));
+    if hand {
+        graph.add_node_edge(EnhancedHandLabel, EnhancedHandCompositeLabel);
+    }
+    if rig {
+        graph.add_node_edge(EnhancedHandRigLabel, EnhancedHandCompositeLabel);
+    }
     let overlay = crate::ui_render::overlay::UiOverlayPostLabel.intern();
     if graph.get_node_state(overlay).is_ok() {
         // The overlay graph places the HUD after post-processing; it still follows the grade.
-        graph.add_node_edge(EnhancedPostLabel, overlay);
+        graph.add_node_edge(EnhancedHandCompositeLabel, overlay);
         if hand {
             graph.add_node_edge(EnhancedHandLabel, overlay);
         }
@@ -74,7 +91,7 @@ pub(super) fn install_graph(world: &mut World) {
 }
 
 /// Enhanced nodes timed by GPU timestamps.
-pub(crate) fn timed_nodes() -> [(InternedRenderLabel, crate::RuntimeStage); 5] {
+pub(crate) fn timed_nodes() -> [(InternedRenderLabel, crate::RuntimeStage); 6] {
     use crate::RuntimeStage;
     [
         (EnhancedShadowLabel.intern(), RuntimeStage::GpuShadows),
@@ -82,6 +99,7 @@ pub(crate) fn timed_nodes() -> [(InternedRenderLabel, crate::RuntimeStage); 5] {
         (EnhancedPostLabel.intern(), RuntimeStage::GpuPost),
         (EnhancedHandLabel.intern(), RuntimeStage::GpuHand),
         (EnhancedHandRigLabel.intern(), RuntimeStage::GpuHand),
+        (EnhancedHandCompositeLabel.intern(), RuntimeStage::GpuHand),
     ]
 }
 

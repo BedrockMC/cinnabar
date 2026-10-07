@@ -1,5 +1,5 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
-//! Metal times owned passes only; whole-frame, stock opaque/FXAA and shared draw categories stay absent.
+//! Metal times owned passes only; whole-frame and shared draw categories stay absent.
 
 #[cfg(all(test, target_os = "macos"))]
 mod metal_tests;
@@ -86,6 +86,7 @@ fn timed_nodes() -> Vec<(InternedRenderLabel, RuntimeStage)> {
     use crate::ui_render::{UiOverlayLabel, UiWorldLabel, overlay::UiOverlayPostLabel};
     let mut nodes = vec![
         (Node3d::MainOpaquePass.intern(), RuntimeStage::GpuOpaque),
+        (Node3d::EndMainPass.intern(), RuntimeStage::GpuBlit),
         (
             crate::chunk::TerrainPassLabel.intern(),
             RuntimeStage::GpuOpaque,

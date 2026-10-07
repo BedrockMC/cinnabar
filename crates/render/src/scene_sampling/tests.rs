@@ -2,7 +2,8 @@ use super::*;
 use bevy::render::texture::CachedTexture;
 
 /// Requests the format capabilities used by the live renderer without opening a window.
-fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
+pub(crate) fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
@@ -22,7 +23,7 @@ fn fixture() -> Option<(RenderDevice, wgpu::Queue, wgpu::Adapter)> {
 }
 
 /// Creates the bounded fixture attachments with exactly their required usages.
-fn texture(
+pub(crate) fn texture(
     device: &RenderDevice,
     format: wgpu::TextureFormat,
     samples: u32,
@@ -45,7 +46,7 @@ fn texture(
 }
 
 /// Reads one pixel after submitting the production commands.
-fn pixel(
+pub(crate) fn pixel(
     device: &RenderDevice,
     queue: &wgpu::Queue,
     mut context: RenderContext,
@@ -88,86 +89,6 @@ fn pixel(
     readback.slice(..).get_mapped_range()[..4]
         .try_into()
         .unwrap()
-}
-
-#[test]
-fn resolved_scene_copy_preserves_texels_for_each_supported_sample_count() {
-    let Some((device, queue, adapter)) = fixture() else {
-        return;
-    };
-    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let source = texture(
-        &device,
-        format,
-        1,
-        wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-    );
-    let colours = [
-        255, 0, 0, 255, 0, 0, 255, 255, 0, 255, 0, 255, 255, 255, 255, 255,
-    ];
-    queue.write_texture(
-        source.as_image_copy(),
-        &colours,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(8),
-            rows_per_image: Some(2),
-        },
-        source.size(),
-    );
-    let source_view = source.create_view(&Default::default());
-    for samples in [1, 2, 4, 8] {
-        if !adapter
-            .get_texture_format_features(format)
-            .flags
-            .sample_count_supported(samples)
-        {
-            eprintln!("skipping scene copy {samples} samples: missing format support");
-            continue;
-        }
-        let destination = texture(
-            &device,
-            format,
-            samples,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-        );
-        let destination_view = destination.create_view(&Default::default());
-        let resolved = texture(
-            &device,
-            format,
-            1,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        );
-        let resolved_view = resolved.create_view(&Default::default());
-        let copy = SceneCopy::from_views(
-            &device,
-            [&source_view, &source_view],
-            format,
-            samples,
-            RuntimeStage::GpuTransparent,
-        );
-        let mut context = RenderContext::new(device.clone(), None);
-        if samples == 1 {
-            copy.draw(
-                &mut context,
-                &World::new(),
-                &source_view,
-                &resolved_view,
-                None,
-                None,
-            );
-        } else {
-            copy.draw(
-                &mut context,
-                &World::new(),
-                &source_view,
-                &destination_view,
-                Some(&resolved_view),
-                None,
-            );
-        }
-        assert_eq!(pixel(&device, &queue, context, &resolved), [255, 0, 0, 255]);
-    }
 }
 
 /// Writes distinct sample depths; one uncovered sample is the reverse-Z clear value.
@@ -336,205 +257,12 @@ fn scene_depth_and_hiz_preserve_nearest_and_conservative_sample_coverage() {
 }
 
 #[test]
-fn scene_copy_and_depth_shaders_validate() {
-    for source in [
-        include_str!("../scene_copy.wgsl"),
-        include_str!("../scene_depth.wgsl"),
-    ] {
-        let module = naga::front::wgsl::parse_str(source).unwrap();
-        naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .unwrap();
-    }
-}
-
-#[test]
-fn gamma_msaa_resolve_and_writeback_preserve_encoded_blending() {
-    let Some((device, queue, adapter)) = fixture() else {
-        return;
-    };
-    let linear = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let encoded = linear.remove_srgb_suffix();
-    let source = texture(
-        &device,
-        linear,
-        1,
-        wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-    );
-    queue.write_texture(
-        source.as_image_copy(),
-        &[0, 0, 255, 255].repeat(4),
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(8),
-            rows_per_image: Some(2),
-        },
-        source.size(),
-    );
-    let source_view = source.create_view(&Default::default());
-    let shader = device
-        .wgpu_device()
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("encoded transparency fixture"),
-            source: wgpu::ShaderSource::Wgsl(
-                "\
-@vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
-    return vec4(vec2(f32((i << 1u) & 2u), f32(i & 2u)) * 2.0 - vec2(1.0), 0.0, 1.0);
-}
-@fragment fn fragment() -> @location(0) vec4<f32> { return vec4(0.0, 1.0, 0.0, 0.25); }"
-                    .into(),
-            ),
-        });
-    for samples in [1, 2, 4, 8] {
-        if !adapter
-            .get_texture_format_features(encoded)
-            .flags
-            .sample_count_supported(samples)
-        {
-            eprintln!("skipping encoded resolve {samples} samples: missing format support");
-            continue;
-        }
-        let descriptor = wgpu::TextureDescriptor {
-            label: Some("encoded transparency fixture"),
-            size: source.size(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: encoded,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[linear],
-        };
-        let resolved = device.create_texture(&descriptor);
-        let resolved_encoded = resolved.create_view(&Default::default());
-        let resolved_linear = resolved.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(linear),
-            ..Default::default()
-        });
-        let sampled = device.create_texture(&wgpu::TextureDescriptor {
-            sample_count: samples,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            ..descriptor
-        });
-        let sampled_encoded = sampled.create_view(&Default::default());
-        let sampled_linear = sampled.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(linear),
-            ..Default::default()
-        });
-        let copy = SceneCopy::from_views(
-            &device,
-            [&source_view, &source_view],
-            linear,
-            samples,
-            RuntimeStage::GpuTransparent,
-        );
-        let mut context = RenderContext::new(device.clone(), None);
-        let colour = if samples == 1 {
-            &resolved_encoded
-        } else {
-            &sampled_encoded
-        };
-        let resolve = (samples > 1).then_some(&resolved_encoded);
-        copy.draw(
-            &mut context,
-            &World::new(),
-            &source_view,
-            if samples == 1 {
-                &resolved_linear
-            } else {
-                &sampled_linear
-            },
-            None,
-            None,
-        );
-        let pipeline =
-            device
-                .wgpu_device()
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("encoded transparency fixture"),
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vertex"),
-                        compilation_options: Default::default(),
-                        buffers: &[],
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fragment"),
-                        compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: encoded,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::COLOR,
-                        })],
-                    }),
-                    primitive: Default::default(),
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState {
-                        count: samples,
-                        ..Default::default()
-                    },
-                    multiview: None,
-                    cache: None,
-                });
-        {
-            let mut pass =
-                context
-                    .command_encoder()
-                    .begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("encoded transparency fixture"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: colour,
-                            depth_slice: None,
-                            resolve_target: resolve.map(|view| &**view),
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-            pass.set_pipeline(&pipeline);
-            pass.draw(0..3, 0..1);
-        }
-        assert_eq!(
-            pixel(&device, &queue, context, &resolved),
-            [0, 64, 191, 255]
-        );
-        let copied = texture(
-            &device,
-            linear,
-            1,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        );
-        let copied_view = copied.create_view(&Default::default());
-        let writeback = SceneCopy::from_views(
-            &device,
-            [&resolved_linear, &resolved_linear],
-            linear,
-            samples,
-            RuntimeStage::GpuTransparent,
-        );
-        let mut context = RenderContext::new(device.clone(), None);
-        writeback.draw(
-            &mut context,
-            &World::new(),
-            &resolved_linear,
-            if samples == 1 {
-                &copied_view
-            } else {
-                &sampled_linear
-            },
-            (samples > 1).then_some(&copied_view),
-            None,
-        );
-        assert_eq!(pixel(&device, &queue, context, &copied), [0, 64, 191, 255]);
-    }
+fn scene_depth_shader_validates() {
+    let module = naga::front::wgsl::parse_str(include_str!("../scene_depth.wgsl")).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
 }
