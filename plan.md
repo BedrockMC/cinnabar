@@ -1,3 +1,24 @@
+## Frame attribution and unchanged GPU uploads
+
+- Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
+  durations are delayed plots. macOS zones alone cannot separate preemption from waits.
+- Per-packet ingress admission preserves queued events when consumer fan-out fills
+  headroom; regression tests cover resumption and zero steady-state drain allocations.
+- Named schedule traces and bounded frame recordings separate main work, render
+  handoff, drawable acquisition, command submission and presentation. Metal
+  timestamp queries use owned render passes and leave uncovered stages absent.
+- Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
+  redundant staging work. Regression tests assert allocations, writes and retained
+  buffers; hardware captures measure elapsed time separately.
+- Incomplete: the large synthetic local terrain fixture is a diagnostic workload,
+  not vanilla terrain generation or the populated-lobby/flight release replay.
+  Hidden-window measurements do not establish displayed FPS. Shared-pass GPU
+  categories, exact per-item costs and complete long-stall attribution remain open.
+  Earlier captures reach 87 ms; later Tracy captures reproduce 100–187 ms stalls
+  with waiting observed at main/render handoff. Exact CPU/wait time and a short
+  native GPU regression remain unresolved. See [frame breakdown evidence](docs/evidence/frame-breakdown.md)
+  and [Tracy attribution](docs/evidence/frame-breakdown-tracy.md).
+
 ## Camera packets and aim assist
 
 - Packet admission covers spline registries/instructions, aim presets, commands
