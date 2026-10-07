@@ -155,7 +155,36 @@ mod tests {
             );
             return;
         }
-        let combined = install(client_ui::test_support::fixture_font(), &resource_root);
+        let combined = install(
+            client_ui::test_support::pack_harness::font(),
+            &resource_root,
+        );
+        let world = resource_root.join("assets/compiled/fixture");
+        if super::super::hud_asset_path(&world).exists()
+            && super::super::icon_asset_path(&world).exists()
+            && let Some(carrier) = client_ui::test_support::pack_harness::carrier()
+        {
+            let hud = super::super::require_hud_assets(&world).unwrap();
+            let icons = super::super::require_icon_assets(
+                &world,
+                super::super::vanilla_source_manifest_json(),
+            )
+            .unwrap();
+            let mut presentation =
+                client_ui::ui_runtime::presentation::UiPresentationRuntime::with_hud_and_icons(
+                    Arc::clone(&combined),
+                    hud.into_runtime(),
+                    icons.into_runtime(),
+                )
+                .unwrap();
+            presentation.enable_json_ui(carrier).unwrap();
+            let images = client_ui::ui_runtime::oreui_assets::load_optional_oreui_images().unwrap();
+            presentation.enable_oreui_originals(images).unwrap();
+        } else {
+            eprintln!(
+                "skipping installed native-art texture admission: HUD, icon or JSON-UI carrier fixture missing"
+            );
+        }
         let font = combined.font_named(OreUiFont::Seven.name());
         let text = "日本語 한국어 中文(简体) 中文(繁體) ʙᴇᴅᴡᴀʀѕ ★";
         let mut cache = ui::TextLayoutCache::new(4, 65536);
