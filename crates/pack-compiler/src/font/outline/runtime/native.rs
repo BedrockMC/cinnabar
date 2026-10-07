@@ -18,6 +18,11 @@ pub const NATIVE_SDF_EM_PIXELS: u32 = 52;
 /// Auto text switches to nearest coverage below this physical pixel height.
 pub const NATIVE_SDF_MIN_PIXELS: u32 = 10;
 
+struct Positioning<'a> {
+    pairs: &'a BTreeMap<(char, char), i32>,
+    units: u32,
+}
+
 /// Compiles runtime-only native text pages; the ordinary HUD carrier retains its profile.
 pub fn compile_native_outline_font(
     source_path: &Path,
@@ -70,7 +75,10 @@ pub fn compile_native_outline_font_sizes(
                 ..config
             },
             FontRendering::NativeCoverage,
-            Some((&pairs, units)),
+            Some(Positioning {
+                pairs: &pairs,
+                units,
+            }),
         )?;
         sizes.insert(pixel_height, font);
     }
@@ -83,7 +91,7 @@ fn compile(
     source_manifest_sha256: [u8; 32],
     config: OutlineFontConfig,
     rendering: FontRendering,
-    positioning: Option<(&BTreeMap<(char, char), i32>, u32)>,
+    positioning: Option<Positioning<'_>>,
 ) -> Result<RuntimeFontCatalog, FontCompileError> {
     validate_config_minimum(source_bytes, source_manifest_sha256, config, 1)?;
     if config.advances != GlyphAdvances::Source
@@ -143,7 +151,7 @@ fn compile(
         .collect();
     let bytes = encode_font_catalog(source_manifest_sha256, &atlas.glyphs, &pages)?;
     let font = RuntimeFontCatalog::decode(&bytes, source_manifest_sha256)?;
-    let pairs = if let Some((pairs, units)) = positioning {
+    let pairs = if let Some(Positioning { pairs, units }) = positioning {
         pairs
             .iter()
             .map(|(&key, &value)| {

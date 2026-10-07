@@ -261,7 +261,6 @@ pub struct DesktopGuiScaleChoice {
 }
 
 impl DesktopGuiScale {
-    #[must_use]
     pub fn choices(self) -> impl Iterator<Item = DesktopGuiScaleChoice> {
         self.offsets().map(move |offset| DesktopGuiScaleChoice {
             offset,
