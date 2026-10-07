@@ -431,3 +431,44 @@ func TestServiceTokenRefusedWhileResumingIsNotInstalled(t *testing.T) {
 		t.Fatalf("service token after a refusal during resume = %v, err=%v", token, err)
 	}
 }
+
+// A restored token another process evicted while its source resumed it is never reinstalled.
+func TestServiceTokenEvictedByAReloadMidExchangeIsNotInstalled(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	var account *Account
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		services: func(_ *service.AuthorizationEnvironment, _ service.SessionTicketSource, seed *service.Token, _, _ string) service.TokenSource {
+			return &resumingSource{
+				seed: seed,
+				onResume: func() {
+					// Another process evicts the token, and a concurrent call reloads that eviction.
+					state, err := loadDerived(path)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					state.ServiceToken = nil
+					b, _ := json.Marshal(state)
+					if err := savePrivate(path, append(b, '\n')); err != nil {
+						t.Error(err)
+					}
+					if _, err := account.Environment(context.Background()); err != nil {
+						t.Error(err)
+					}
+				},
+				exchange: func() *service.Token {
+					return &service.Token{AuthorizationHeader: "MCToken replacement", ValidUntil: time.Now().Add(time.Hour)}
+				},
+			}
+		},
+	}
+	account = newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, deps)
+	defer account.Close()
+	token, err := account.ServiceToken(context.Background())
+	if err != nil || token.AuthorizationHeader != "MCToken replacement" {
+		t.Fatalf("service token after an eviction mid-exchange = %v, err=%v", token, err)
+	}
+}

@@ -109,9 +109,15 @@ func (s *Account) reloadLocked() {
 // adoptLocked restores a bundle merged from the published one, whose own tokens synced names, and
 // re-applies this account's evictions to it.
 func (s *Account) adoptLocked(state *derivedState, fingerprint string, synced syncedTokens) bool {
+	before := s.service
 	if s.restore(state) != nil {
 		return false
 	}
+	defer func() {
+		if s.service != before {
+			s.serviceGen++
+		}
+	}()
 	s.persisted, s.synced = fingerprint, synced
 	for relyingParty, token := range s.rejected {
 		s.session.InvalidateXSTSToken(relyingParty, token)
@@ -197,10 +203,11 @@ func (s *Account) publishOnce(ctx context.Context) (retry bool) {
 		// fresher credentials, keeping this account's evictions.
 		synced := syncedFrom(state)
 		s.mergeLocalLocked(state, snapshot)
-		if !s.adoptLocked(state, fingerprint, synced) {
-			return false
+		if s.adoptLocked(state, fingerprint, synced) {
+			snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
+		} else {
+			s.persisted = fingerprint // unusable here, such as another cold start's proof key: replace it
 		}
-		snapshot = s.session.Snapshot() // just restored, so no SISU request holds it
 	}
 	s.persistLocked(snapshot)
 	return false

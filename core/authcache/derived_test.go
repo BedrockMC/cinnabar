@@ -1286,3 +1286,22 @@ func TestPublishKeepsXSTSDerivedAfterItsSnapshot(t *testing.T) {
 		t.Fatal("adoption during publication lost an XSTS token derived after the snapshot")
 	}
 }
+
+// A bundle this account cannot restore, such as another cold start's proof key, is replaced on publish.
+func TestPublishReplacesAnUnrestorableBundle(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	want := account.ProofKey()
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour)) // same account, another proof key
+	account.publishNow(context.Background())
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeProofKey(t, state.ProofKey); got.D.Cmp(want.D) != 0 {
+		t.Fatal("publication left an unrestorable bundle in place")
+	}
+}
