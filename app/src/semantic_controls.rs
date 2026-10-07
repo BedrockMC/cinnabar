@@ -19,7 +19,8 @@ use client_ui::ui_runtime::UiRuntime;
 pub struct SemanticInputSnapshot(Option<ActionSnapshot>);
 
 impl SemanticInputSnapshot {
-    #[cfg(all(test, feature = "local-mods"))]
+    /// Supplies a real router result to isolated production-system tests.
+    #[cfg(test)]
     pub(crate) fn from_finalized(snapshot: ActionSnapshot) -> Self {
         Self(Some(snapshot))
     }

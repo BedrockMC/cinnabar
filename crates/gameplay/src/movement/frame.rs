@@ -66,6 +66,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        movement_effects.begin_frame();
         let PhysicsFrameInput {
             now,
             active,

@@ -267,6 +267,7 @@ pub struct BlockUseRuntime {
     position_authority: Option<(u64, u64)>,
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
+    rejected_tick: Option<u64>,
 }
 
 /// One held-use repeat's timing inputs.
@@ -313,17 +314,22 @@ impl BlockUseRuntime {
             .selected_item
             .is_some_and(|previous| previous != identity);
         self.selected_item = Some(identity);
+        if changed {
+            self.rejected_tick = None;
+        }
         self.stop_repress |= changed && self.latched_press;
         changed
     }
 
     /// Cancels pending presses without dropping the repeat schedule or a stop destination.
     pub fn clear_press(&mut self) {
+        self.rejected_tick = None;
         self.latched_press = false;
         self.stop_repress = false;
     }
 
     pub fn clear(&mut self) {
+        self.rejected_tick = None;
         self.stopping = false;
         self.stop_repress = false;
         self.latched_press = false;
@@ -374,6 +380,7 @@ impl BlockUseRuntime {
         if let Some(previous) = self.position_authority
             && previous != authority
         {
+            self.rejected_tick = None;
             if previous.0 == authority.0 {
                 self.latched_press = false;
             } else {
@@ -421,6 +428,7 @@ impl BlockUseRuntime {
         local_use: LocalUse,
         clock: RepeatClock,
     ) {
+        self.rejected_tick = None;
         self.latched_press = false;
         self.last_attempt_tick = Some(tick);
         if trigger == ItemUseTrigger::PlayerInput && local_use == LocalUse::Interact {
@@ -585,6 +593,7 @@ mod tests;
 
 mod respawn_anchor;
 
+mod admission;
 mod intention;
 pub use intention::{BuildIntention, PlacementTarget, orientation_sensitive};
 

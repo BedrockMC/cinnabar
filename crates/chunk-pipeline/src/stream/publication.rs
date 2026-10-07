@@ -198,6 +198,22 @@ impl WorldStream {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.authority.start_local_player_swing(ticks)
     }
+    /// Uses committed local swing samples without re-admitting them on the remote actor clock.
+    pub fn sync_local_swing(&mut self, progress: client_world::LocalSwingProgress) {
+        self.authority.sync_local_swing(progress);
+    }
+    /// Selects the local motion authority before the actor clock advances unrelated animation.
+    pub fn set_local_motion_authority(&mut self, authority: Option<(u64, u64)>) {
+        self.authority.set_local_motion_authority(authority);
+    }
+    /// Advances local torso motion with each admitted physical tick's matching swing samples.
+    pub fn sync_local_swing_motion(
+        &mut self,
+        authority: (u64, u64),
+        samples: impl IntoIterator<Item = client_world::LocalSwingMotionSample>,
+    ) {
+        self.authority.sync_local_swing_motion(authority, samples);
+    }
     /// Drops the local player's Java equip progress to zero, as a block placement does.
     pub fn reset_local_java_equip(&mut self) {
         self.authority.reset_local_java_equip()

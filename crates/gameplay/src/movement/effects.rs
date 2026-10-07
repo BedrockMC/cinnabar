@@ -99,6 +99,8 @@ pub struct LocalMovementEffectTimeline {
     last_sequence: Option<u64>,
     active: [Option<ActiveEffect>; TRACKED_EFFECT_COUNT],
     diagnostics: MovementEffectDiagnostics,
+    recent_mining: [(MiningEffects, MiningEffects); super::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
+    recent_tick_count: usize,
 }
 
 impl LocalMovementEffectTimeline {
@@ -107,6 +109,7 @@ impl LocalMovementEffectTimeline {
         self.last_sequence = None;
         self.active = [None; TRACKED_EFFECT_COUNT];
         self.diagnostics = MovementEffectDiagnostics::default();
+        self.recent_tick_count = 0;
     }
 
     pub fn apply(&mut self, session_generation: u64, sequence: u64, event: ActorEffectEvent) {
@@ -170,6 +173,27 @@ impl LocalMovementEffectTimeline {
         }
     }
 
+    /// Starts a render frame's bounded history of successfully committed effects.
+    pub fn begin_frame(&mut self) {
+        self.recent_tick_count = 0;
+    }
+
+    /// Number of successful ticks recorded since the latest frame began.
+    pub fn recent_tick_count(&self) -> usize {
+        self.recent_tick_count
+    }
+
+    /// Effects before admission and after expiry on an identified committed local tick.
+    pub fn mining_tick(&self, tick: u64, completed_tick: u64) -> (MiningEffects, MiningEffects) {
+        let distance = completed_tick.saturating_sub(tick) as usize;
+        if tick <= completed_tick && distance < self.recent_tick_count {
+            self.recent_mining[self.recent_tick_count - distance - 1]
+        } else {
+            let current = self.mining_effects();
+            (current, current)
+        }
+    }
+
     fn current_snapshot(&self) -> MovementEffects {
         MovementEffects {
             jump_boost: self.active[TrackedEffect::JumpBoost.index()]
@@ -183,6 +207,7 @@ impl LocalMovementEffectTimeline {
     }
 
     fn consume_successful_tick(&mut self) {
+        let before = self.mining_effects();
         for active in &mut self.active {
             let Some(effect) = active else {
                 continue;
@@ -195,6 +220,12 @@ impl LocalMovementEffectTimeline {
                 *active = None;
             }
         }
+        if self.recent_tick_count == self.recent_mining.len() {
+            self.recent_mining.rotate_left(1);
+            self.recent_tick_count -= 1;
+        }
+        self.recent_mining[self.recent_tick_count] = (before, self.mining_effects());
+        self.recent_tick_count += 1;
     }
 
     #[cfg(test)]

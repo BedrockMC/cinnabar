@@ -79,6 +79,8 @@ pub struct ItemUseRuntime {
     repeat_armed: bool,
     /// A rejected click retries only while its verified selection remains current.
     deferred_selection: Option<FrozenMiningSelection>,
+    /// Only this owner's rejected batch may retry a published tick.
+    rejected_swing_tick: Option<(u64, Option<(u64, u64)>)>,
     /// A rejected release still precedes the next use, even if Use is pressed again.
     release_pending: bool,
     /// Vanilla's process-wide legacy item-stack request id counter.
@@ -124,6 +126,7 @@ impl ItemUseRuntime {
     pub fn observe_press(&mut self, pressed: bool) {
         if pressed {
             self.deferred_selection = None;
+            self.rejected_swing_tick = None;
             self.latched_press = true;
         }
     }
@@ -133,6 +136,7 @@ impl ItemUseRuntime {
         self.latched_press = false;
         self.repeat_armed = false;
         self.deferred_selection = None;
+        self.rejected_swing_tick = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
