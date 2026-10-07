@@ -2586,6 +2586,9 @@ Files: `docs/reference/held-block-placement.md`, `crates/gameplay/src/block_use.
   These confirm the hold flags, fresh-pick targeting, strict due-time comparison,
   movement direction, line-cell intersection, cached orientation intercept,
   clicked runtime ID before prediction, start/swing/transaction order and miss click zero.
+- Current Lens artifact 6, `_tickBuildAction` at `0x67883a0`, refreshes picks before
+  held continuation. The target-type early returns in `0x28b63a0` retain hold flags;
+  `useItemOn` at `0x28b74d0` disables intention after interaction while retaining the line.
 - Lens `read_data` on artifact 6 confirms float data addresses:
   `0x150132700` = 300 ms, `0x14ff9cdc8` = 200 ms,
   `0x15005ea40` = 900 speed divisor, `0x14feff2c8` = 180 ms,
