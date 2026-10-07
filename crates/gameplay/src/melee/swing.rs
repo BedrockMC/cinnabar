@@ -265,7 +265,8 @@ impl SwingTracker {
                 next = last.saturating_add(1);
             }
             if next <= target {
-                for tick in next..=target.min(self.history_end.unwrap()) {
+                let recorded_ticks = next..=target.min(self.history_end.unwrap());
+                for tick in recorded_ticks {
                     let distance = (self.history_end.unwrap() - tick) as usize;
                     let durations = self.history[distance];
                     self.advance_states(1, [durations.0, durations.1]);

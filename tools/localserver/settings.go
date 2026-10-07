@@ -23,6 +23,8 @@ type settings struct {
 	terrainFixtureRadius                   int
 	opaqueOverdraw                         bool
 	dir, addr, name, gameMode, diff        string
+	generator                              string
+	seed                                   int64
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -47,6 +49,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.name, "name", "World", "world display name")
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
+	flags.StringVar(&s.generator, "generator", "flat", "normal or flat terrain")
+	flags.Int64Var(&s.seed, "seed", 0, "world seed")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
@@ -58,6 +62,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
+	}
+	if s.generator != "normal" && s.generator != "flat" {
+		return settings{}, fmt.Errorf("unknown generator %q", s.generator)
 	}
 	if s.dir == "" || (s.addr == "" && !s.terrainFixtureGenerate) {
 		return settings{}, errors.New("-dir and -addr are required; generation needs only -dir")

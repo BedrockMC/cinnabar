@@ -1,3 +1,61 @@
+## OreUI menus, appearance and motion
+
+- Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
+  panels and controls. Home keeps the shipped title above Play and character cards, with compact
+  utility actions and versions from their canonical sources. Commerce actions remain quiet.
+- Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
+  screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
+  segmented choices remain lowered; hit targets remain stable and input applies immediately.
+- Server views preserve service catalog groups, artwork, descriptions, activities and available
+  counts. Exact ping is optional. Collapse state and drag-reordered sections persist; custom servers
+  use the owner's requested label. Resource-pack controls and loading stages retain surrounding UI.
+- Dimension travel names the destination, uses its block icon and the owner's private runtime
+  background beneath a strong tint. Ordinary terrain loading retains its approved neutral treatment.
+- Create New World uses native panels, installed preview/category artwork and independent scrolling.
+  General/Advanced changes animate their contents. Unsupported categories, Hardcore and Realm
+  creation remain disabled. Backend defaults to Dragonfly or offers BDS with Docker detection;
+  generator selection independently offers Normal (Vanilla) and Flat. Template navigation works.
+- Dragonfly Normal uses the pinned owner-requested vanilla-gen dependency with the saved signed
+  seed for all three dimensions. New worlds use its spawn; reopening retains saved spawn/chunks.
+- Dressing Room persists classic/slim skins and independent capes, imports and item edits. Home
+  and Pause previews support rotation and pointer tracking. Cape attachment uses its own shoulders.
+- These layouts, appearance and custom motion are owner-authorized extensions. Matching-version
+  native UI parity remains open for responsive controls, rich Inbox templates and unsupported world
+  settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
+  terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
+
+## OreUI Unicode fallback
+
+- Native language labels and server text resolve missing glyphs from installed locale-specific Noto
+  faces. Primary Latin glyph metrics and the HUD font remain unchanged. Mixed runs retain their
+  own sampling and em scale. Language names and common server symbols are warmed at startup.
+- Additional characters compile off-thread into shared bounded pages; requests deduplicate,
+  unsupported characters do not displace valid glyphs and failed updates preserve the valid cache.
+  Locale changes invalidate the fallback. Unchanged publications retain texture payload ownership.
+- Atlas bounds reject oversized glyphs and aggregate raster overflow before allocation. Multi-page
+  glyph/page order stays consistent. Reserved fallback storage leaves the ordinary UI budget available
+  for native controls and icons. Text coverage and opaque model color masks use independent flags.
+- Full script substitution, bidirectional shaping and low-size fallback raster parity remain open.
+
+## OreUI verification
+
+- The original Japanese-label failure, texture-budget rejection and colliding rendering flags were
+  reproduced before their fixes. Regression checks cover language names, small-cap MOTDs, uncached
+  glyph publication, cache recovery, bounds, texture ownership, control input, focus and navigation.
+- Touched Rust crates compile with tests and developer-control enabled. Focused UI, font, input,
+  loading, carrier and world checks pass. Core and local-server Go suites pass, including generator
+  selection and saved-world reopening. Incoming cursor-return behavior is preserved.
+- Owner reviews accepted Home, Pause, Inbox, world creation, server layouts and animation direction.
+  Prior macOS/Metal captures verify menu previews at 2048×1152 and Retina 2560×1440.
+- Final macOS/Metal pass at 2560×1440 physical, 1280×720 logical, DPI 2: primary and CJK language
+  labels, styled server MOTDs, dark Home and Quit legibility, geometry, clipping, layering and colors
+  were inspected. Mouse Cancel, Escape and keyboard Cancel work; focus remains inside the modal.
+  The final build also verifies restored native Play/settings/status icons, server symbols and the
+  latest merged input. User language, appearance and section preferences were preserved.
+- The final integrated rebuild repeats the native language/Home/Quit review with readable Japanese,
+  Korean and Chinese labels, intact artwork, working modal Cancel and confirmed shutdown.
+
 ## Movement and input audit fixes
 
 - Input packets retain digital buttons and raw jump/sneak events separately from
@@ -216,6 +274,33 @@
   acceptance remains pending. Regressions are
   authored but unrun at the owner's request. The inspection build is running
   after the requested relaunch. Changes are local and uncommitted; nothing is pushed.
+## OreUI Settings
+
+- Global Resources is an owner-requested design exception using expandable OreUI pack cards,
+  imported thumbnails, priority actions and a native variant picker. Vanilla Textures is always
+  the immutable base of the displayed stack. Apply tracks staged edits against the acknowledged
+  running stack; finished work clears its transient status. Rendered verification is pending.
+- Controller uses its native category image; category selection plays the 500ms highlight.
+  Account uses the authenticated gamerpic or the signed-out silhouette. Sidebar bevels and
+  detail-row top/bottom edges now retain their native state roles and group boundaries.
+  The integrated Settings regressions and installed-font tests pass. The visible macOS client
+  runs with rebuilt block assets; fresh local-world frames confirm textured terrain. These
+  follow-up changes remain uncommitted, and matched Settings visual acceptance remains open.
+- Settings now uses the native OreUI shell, category sidebar, grouped descriptions, right-side
+  switches, filled sliders, inline choices, and independent panel scrollbars.
+- Shared launcher options, key remapping, language, accounts, packs and storage retain their
+  existing actions. Keyboard focus includes rows below the viewport and reveals them; resize
+  clamps scroll positions before painting. Always Sprint and VSync remain user extensions.
+- Regression tests reproduce legacy routing and unreachable offscreen focus. Rendered macOS
+  acceptance is pending; this does not close the Settings parity gate.
+- Incomplete: native options without a host model, controller binding glyphs, account management
+  actions/confirmations, Touch/Party/subscription services, and native storage subroutes.
+  Runtime vanilla artwork and core font faces are integrated, with native metrics, tracking,
+  kerning, CPU distance-field rasterization, coverage shading, control states and
+  pointer/navigation timelines. Locale shaping and hidden-tab animation resumption still
+  need native witnesses; disabled narration focus awaits a UI narration host. Matched visual
+  acceptance remains open. Reference facts are tracked in
+  [OreUI](docs/oreui.md).
 
 ## Distant grass sides
 
@@ -6098,6 +6183,16 @@ all task background processes, skipping the remaining verification and pushing
 directly to remote dev; the affected gate and new unit regressions were not run.
 Native hat geometry, other block-entity materials and full version-matched
 rendering parity remain open gates.
+
+## Servers catalogue and classic OreUI view
+
+The classic Servers feed now retains ranked featured and creator groups, localized descriptions,
+tagged logos/banners/activity artwork and real pong MOTDs. The detail pane renders its populated
+sections with independent scrolling and quick optional selection/glimmer motion. Regression
+checks cover grouping, rank zero, image roles, selection across catalogue reorder, detail content
+and bounded artwork packing. Integrated visible macOS review is in progress. Version-matched
+native acceptance, narrow metadata layout, full-capacity badges and server notification panels
+remain incomplete; this work does not close those parity gates.
 
 ## Freelook extension
 
