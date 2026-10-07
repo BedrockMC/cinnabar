@@ -21,6 +21,7 @@ type settings struct {
 	primitiveShapes                 bool
 	dir, addr, name, gameMode, diff string
 	cameraTest                      bool
+	opaqueOverdraw                  bool
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -43,6 +44,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest spline, inline, aim and clear fixtures")
+	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
 	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
@@ -141,6 +143,10 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.Folder = filepath.Join(s.dir, "players")
 	uc.Players.MaxCount = maxPlayers
 	uc.Resources.Folder = s.resourcesDir()
+	if s.opaqueOverdraw {
+		uc.World.SaveData = false
+		uc.Players.SaveData = false
+	}
 	return uc
 }
 
@@ -156,5 +162,8 @@ func (s settings) applyTo(worlds ...*world.World) {
 	for _, w := range worlds {
 		w.SetDefaultGameMode(mode)
 		w.SetDifficulty(difficulty)
+		if s.opaqueOverdraw {
+			freezeOpaqueOverdrawWorld(w)
+		}
 	}
 }
