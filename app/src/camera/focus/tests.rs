@@ -247,3 +247,227 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
     assert!(!cursor.visible);
 }
+
+#[test]
+fn discarded_pointer_batch_cannot_authorize_a_later_programmatic_close() {
+    use bevy::input::{ButtonState, mouse::MouseButtonInput};
+    let (mut app, window) = focus_app();
+    let mut player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.open_chat(&mut player);
+    app.insert_resource(player).insert_resource(runtime);
+    app.add_systems(
+        PreUpdate,
+        (move |mut focused: MessageWriter<WindowFocused>,
+               mut pointer: MessageWriter<MouseButtonInput>,
+               mut emitted: Local<bool>| {
+            if !*emitted {
+                *emitted = true;
+                for focused_value in [false, true] {
+                    focused.write(WindowFocused {
+                        window,
+                        focused: focused_value,
+                    });
+                }
+                for state in [ButtonState::Pressed, ButtonState::Released] {
+                    pointer.write(MouseButtonInput {
+                        button: MouseButton::Left,
+                        state,
+                        window,
+                    });
+                }
+            }
+        })
+        .before(track_focus),
+    );
+    app.update();
+    assert_released(&app, window);
+    app.world_mut().resource_mut::<UiRuntime>().close_chat();
+    app.update();
+    assert_released(&app, window);
+}
+
+#[test]
+fn credits_keyboard_skip_retains_return_until_completion_delivery() {
+    use crate::ui_runtime::interaction::drive_chat_keyboard_input;
+    use bevy::{input::keyboard::KeyboardInput, time::Real};
+    let (mut app, window) = focus_app();
+    app.init_resource::<Time<Real>>()
+        .add_message::<KeyboardInput>()
+        .add_systems(
+            Update,
+            drive_chat_keyboard_input.before(update_cursor_capture),
+        );
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntime>();
+        assert!(runtime.credits_mut().open(7, 1, 0));
+        runtime.credits_mut().select(0, false);
+    }
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntime>()
+            .credits()
+            .active()
+            .is_none()
+    );
+    assert_released(&app, window);
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .credits_mut()
+        .flush(Some(7), |_| Ok(()))
+        .unwrap();
+    app.update();
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}
+
+#[test]
+fn leave_bed_retains_return_until_server_wakes_player() {
+    use crate::ui_runtime::interaction::drive_chat_ui_actions;
+    use bevy::time::Real;
+    use client_ui::{
+        test_support::{fixture_font, fixture_hud},
+        ui_runtime::presentation::UiPresentationRuntime,
+    };
+    let (mut app, window) = focus_app();
+    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_local_sleeping(true);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    presentation.hud_frame_mut().sleep.observe(true, 1_000);
+    presentation
+        .build(
+            &player,
+            &runtime,
+            3_000,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let point = (0..720)
+        .step_by(8)
+        .flat_map(|y| {
+            (0..1280)
+                .step_by(8)
+                .map(move |x| ui::UiPoint::new(x as f32, y as f32).unwrap())
+        })
+        .find(|point| {
+            presentation.hit_test_bed(*point)
+                == Some(client_ui::ui_runtime::presentation::BedHit::LeaveBed)
+        })
+        .unwrap();
+    let centre = Vec2::new(point.x(), point.y());
+    app.insert_resource(player)
+        .insert_resource(runtime)
+        .insert_resource(presentation)
+        .init_resource::<Time<Real>>()
+        .init_resource::<Touches>()
+        .init_resource::<crate::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<crate::local_player::InteractionOriginSnapshot>()
+        .init_resource::<crate::semantic_controls::SemanticInputSnapshot>()
+        .init_resource::<crate::runtime::world::ClientWorld>()
+        .add_systems(Update, drive_chat_ui_actions.before(update_cursor_capture));
+    {
+        let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
+        win.resolution.set_physical_resolution(1280, 720);
+        win.set_cursor_position(Some(centre));
+        win.focused = false;
+    }
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+    assert_released(&app, window);
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .reset_all();
+    assert!(
+        app.world_mut()
+            .resource_mut::<UiRuntime>()
+            .flush_wake_request(Some(1), |_| Ok::<_, ()>(()))
+    );
+    app.world_mut()
+        .resource_mut::<UiRuntime>()
+        .set_local_sleeping(false);
+    app.update();
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}
+
+#[test]
+fn touch_resume_returns_capture_after_focus_loss() {
+    use crate::menu::{MenuAction, MenuClipboard, MenuRuntime, drive_menu_input};
+    use bevy::input::{
+        InputPlugin,
+        touch::{TouchInput, TouchPhase},
+    };
+    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    let (mut app, window) = focus_app();
+    app.add_plugins(InputPlugin);
+    let player = crate::player_runtime::PlayerRuntime::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut menu = MenuRuntime::new(false, 2, "test".into());
+    menu.open_pause();
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    presentation.set_menu_view(Some(menu.view()));
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let point = (0..720)
+        .step_by(8)
+        .flat_map(|y| {
+            (0..1280)
+                .step_by(8)
+                .map(move |x| ui::UiPoint::new(x as f32, y as f32).unwrap())
+        })
+        .find(|point| presentation.hit_test_menu(*point) == Some(MenuAction::PauseResume))
+        .unwrap();
+    app.insert_resource(player)
+        .insert_resource(runtime)
+        .insert_resource(menu)
+        .insert_resource(presentation)
+        .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+        .add_systems(Update, drive_menu_input.before(update_cursor_capture));
+    {
+        let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
+        win.resolution.set_physical_resolution(1280, 720);
+        win.focused = false;
+    }
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    app.world_mut().write_message(TouchInput {
+        phase: TouchPhase::Started,
+        position: Vec2::new(point.x(), point.y()),
+        window,
+        force: None,
+        id: 1,
+    });
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().is_visible());
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}

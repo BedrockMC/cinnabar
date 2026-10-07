@@ -405,8 +405,12 @@ pub(crate) fn drive_chat_keyboard_input(
     mut clipboard: Option<ResMut<crate::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
     emote_input: Option<Res<super::emotes::EmoteInputConsumed>>,
+    mut focus: Option<ResMut<client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<crate::camera::DrivenInput>>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let input_available = driven.is_some()
+        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     if runtime.credits().owns_input() {
         let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
         let finished = runtime.credits().active().is_some_and(|active| {
@@ -415,7 +419,8 @@ pub(crate) fn drive_chat_keyboard_input(
                 .is_some_and(|view| view.credits_finished(runtime.session_id(), active.sequence))
         });
         runtime.credits_mut().observe(now, finished);
-        if window.focused {
+        let had_active_credits = runtime.credits().active().is_some();
+        if input_available {
             let cancel = keys.just_pressed(KeyCode::Escape)
                 || gamepads
                     .iter()
@@ -447,6 +452,12 @@ pub(crate) fn drive_chat_keyboard_input(
                 runtime.credits_mut().select(now, cancel);
             }
         }
+        if had_active_credits
+            && runtime.credits().active().is_none()
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
+        }
         modifiers.reset_all();
         keyboard_messages.clear();
         keys.reset_all();
@@ -456,7 +467,7 @@ pub(crate) fn drive_chat_keyboard_input(
         cursor.visible = true;
         return;
     }
-    if !window.focused {
+    if !input_available {
         modifiers.reset_all();
         keyboard_messages.clear();
         keys.reset_all();
