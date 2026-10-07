@@ -176,10 +176,12 @@ pub(super) struct HandInputs<'a> {
 
 /// Builds vanilla arms and attachables with the displayed stack and its actual owner.
 pub(super) fn vanilla_hand_source(
-    inputs: HandInputs<'_>,
+    mut inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
     hand: FirstPersonHand,
+    native_pose: &mut NativePoseCache,
 ) -> Option<HandSource> {
+    native_pose.apply(&mut inputs);
     let HandInputs {
         stream,
         presentation,
@@ -309,22 +311,11 @@ pub(super) fn java_light_matrix(
 
 /// Selects the same arm and item layers for readiness and final first-person publication.
 pub(super) fn source(
-    mut inputs: HandInputs<'_>,
+    inputs: HandInputs<'_>,
     java_mode: bool,
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
-    if let Some([previous, current]) = cache.native_pose.sample(
-        inputs.stream,
-        &inputs.presentation,
-        inputs.consume_ticks,
-        inputs.item_animation,
-        inputs.alpha,
-        inputs.sampling_camera,
-    ) {
-        inputs.presentation.submission.input.previous_bones = previous;
-        inputs.presentation.submission.input.current_bones = current;
-    }
     if java_mode {
         if let Some(source) = java::hand_source(
             HandInputs {
@@ -351,7 +342,7 @@ pub(super) fn source(
             hand
         },
     );
-    vanilla_hand_source(inputs, equipment, hand)
+    vanilla_hand_source(inputs, equipment, hand, &mut cache.native_pose)
 }
 
 /// Local hand source inputs whose changes require reselection after interaction admission.

@@ -18,9 +18,26 @@ struct PoseKey {
 pub(in super::super) struct NativePoseCache {
     key: Option<PoseKey>,
     pose: Option<[RenderPose; 2]>,
+    #[cfg(test)]
+    pub(super) sample_work: (u64, u64),
 }
 
 impl NativePoseCache {
+    /// Applies the sampled parent only when a native arm or attachable consumes its bones.
+    pub(in super::super) fn apply(&mut self, inputs: &mut HandInputs<'_>) {
+        if let Some([previous, current]) = self.sample(
+            inputs.stream,
+            &inputs.presentation,
+            inputs.consume_ticks,
+            inputs.item_animation,
+            inputs.alpha,
+            inputs.sampling_camera,
+        ) {
+            inputs.presentation.submission.input.previous_bones = previous;
+            inputs.presentation.submission.input.current_bones = current;
+        }
+    }
+
     /// Samples the complete native parent pose without changing variables or committed clocks.
     pub(super) fn sample(
         &mut self,
@@ -43,6 +60,8 @@ impl NativePoseCache {
         if camera.is_some() && self.key.as_ref() == Some(&key) {
             return self.pose.clone();
         }
+        #[cfg(test)]
+        let allocated = crate::test_allocations::count();
         let mut frame = stream.authority().actor_render_frame(alpha);
         let pose = frame.layers(runtime_id).and_then(|layers| {
             let Cow::Owned(layers) = layers else {
@@ -63,6 +82,11 @@ impl NativePoseCache {
             };
             Some([previous, current])
         });
+        #[cfg(test)]
+        {
+            self.sample_work.0 += 1;
+            self.sample_work.1 += crate::test_allocations::count() - allocated;
+        }
         self.key = Some(key);
         self.pose = pose.clone();
         pose

@@ -281,6 +281,7 @@ pub(super) fn evaluate_state(
     context: &ActorTickContext,
     tick: u64,
     budget: &mut EvalBudget<'_>,
+    advance_clocks: bool,
     inheritance: Option<EvaluationInheritance<'_>>,
 ) -> Result<EvaluatedState, EvalError> {
     let reset = state.reset_pending;
@@ -423,18 +424,19 @@ pub(super) fn evaluate_state(
         blink_controller,
         budget,
     )?;
-    let clip_clocks = super::clock::prepare(
-        &evaluator,
-        &mut variables,
-        if reset {
-            None
-        } else {
-            Some(&state.clip_clocks)
-        },
-        &controllers,
-        &mut weighted_clips,
-        budget,
-    )?;
+    let clip_clocks = if advance_clocks {
+        super::clock::prepare(
+            &evaluator,
+            &mut variables,
+            (!reset).then_some(&state.clip_clocks),
+            &controllers,
+            &mut weighted_clips,
+            budget,
+        )?
+    } else {
+        super::clock::sample(&evaluator, previous_clocks, &mut weighted_clips, budget)?;
+        previous_clocks.clone()
+    };
     if (state.samples_camera_poses || (state.samples_swing_poses && state.local_swing.is_some()))
         && let Some(frame) = render_frame.as_mut()
     {
