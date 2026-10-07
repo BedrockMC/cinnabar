@@ -599,3 +599,159 @@ fn local_published_swing_matches_native_tick_samples() {
         }
     }
 }
+
+/// A failed batch retries against its original tick after that tick was published.
+fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
+    let effects = crate::movement::LocalMovementEffectTimeline::default();
+    let mut runtime = MeleeRuntime::default();
+    let mut swings = SwingTracker::default();
+    let mut press = press(PlayerInputMode::Mouse);
+    press.swing_duration = duration;
+    runtime.observe_input(true, true);
+    swings.sync_ticks((1, 1), press.tick, &effects);
+    let mut initial_packets = Vec::new();
+    assert!(!resolve_and_send(
+        &mut runtime,
+        &mut swings,
+        crosshair,
+        &press,
+        1,
+        |packets| {
+            initial_packets = kinds(&packets);
+            Err(BatchSendError::Full)
+        },
+    ));
+    assert_eq!(swings.take_started(), None);
+    assert_eq!(swings.published_progress(press.tick).bedrock, [0.0; 2]);
+    swings.sync_ticks((1, 1), press.tick, &effects);
+    let mut admitted_packets = Vec::new();
+    let missed = resolve_and_send(&mut runtime, &mut swings, crosshair, &press, 2, |packets| {
+        admitted_packets = kinds(&packets);
+        assert_eq!(
+            admitted_packets, initial_packets,
+            "a recovered send retains its original packet order"
+        );
+        if let Crosshair::Actor(hit) = crosshair {
+            let McpePacketData::InventoryTransactionPacket(packet) = &packets[1].data else {
+                panic!("the swing precedes the original actor transaction");
+            };
+            let InventoryTransactionPacketTransaction::ItemUseOnActorInventoryTransaction(
+                transaction,
+            ) = &packet.transaction
+            else {
+                panic!("the original actor attack survives backpressure");
+            };
+            assert_eq!(transaction.runtime_id.actor_runtime_id, hit.runtime_id);
+            assert_eq!(
+                [
+                    transaction.from_position.x,
+                    transaction.from_position.y,
+                    transaction.from_position.z
+                ],
+                press.player_position
+            );
+        }
+        Ok(())
+    });
+    assert_eq!(
+        admitted_packets, initial_packets,
+        "the retry keeps its admitted swing and packet order"
+    );
+    assert_eq!(missed, crosshair == Crosshair::Miss);
+    assert_eq!(swings.take_started(), Some(press.swing_duration));
+    assert!(
+        !swings.try_swing(press.tick, press.swing_duration),
+        "one tick cannot admit twice"
+    );
+    assert_eq!(swings.published_progress(press.tick).java, [0.0; 2]);
+    let next = swings.published_progress(press.tick + 1);
+    let expected = [0.0, 1.0 / press.swing_duration as f32];
+    assert_eq!(
+        next.bedrock, expected,
+        "the original tick starts the recovered swing"
+    );
+    assert_eq!(next.java, expected);
+    let held = runtime.resolve(crosshair, &press, &mut swings);
+    assert!(
+        held.packets.is_empty(),
+        "the recovered press is consumed exactly once"
+    );
+}
+
+#[test]
+fn a_backpressured_miss_retries_after_its_tick_was_published() {
+    for duration in [6, 4, 8] {
+        assert_published_press_retry(Crosshair::Miss, duration);
+    }
+}
+
+#[test]
+fn a_backpressured_actor_press_retries_after_its_tick_was_published() {
+    for duration in [6, 4, 8] {
+        assert_published_press_retry(ZOMBIE, duration);
+    }
+}
+
+/// A recovered restart replaces only the final tick, preserving its interpolation predecessor.
+#[test]
+fn a_backpressured_restart_keeps_the_published_tick_and_previous_sample() {
+    let mut swings = SwingTracker::default();
+    assert!(swings.try_swing(100, 6));
+    assert_eq!(swings.published_progress(103).java, [2.0 / 6.0, 0.5]);
+    let mut candidate = swings.clone();
+    assert!(candidate.try_swing(104, 6));
+    swings.defer_unadmitted_attempt(&candidate);
+    assert_eq!(swings.published_progress(104).java, [0.5, 4.0 / 6.0]);
+    assert!(swings.try_swing(104, 6));
+    let recovered = swings.published_progress(104);
+    assert_eq!(recovered.bedrock, [0.5, 0.0]);
+    assert_eq!(recovered.java, [0.5, 0.0]);
+    assert!(!swings.try_swing(104, 6));
+    assert_eq!(swings.published_progress(104), recovered);
+    assert_eq!(swings.published_progress(105).java, [0.0, 1.0 / 6.0]);
+}
+
+/// Retry permission never admits a duplicate, an older tick, or a different movement authority.
+#[test]
+fn only_the_current_unadmitted_tick_can_replay() {
+    let effects = crate::movement::LocalMovementEffectTimeline::default();
+    let mut swings = SwingTracker::default();
+    swings.sync_ticks((1, 1), 100, &effects);
+    let mut candidate = swings.clone();
+    assert!(candidate.try_swing(100, 6));
+    swings.defer_unadmitted_attempt(&candidate);
+    swings.published_progress(101);
+    assert!(
+        !swings.try_swing(100, 6),
+        "an older tick cannot rewrite published history"
+    );
+    assert!(
+        !swings.try_swing(101, 6),
+        "permission belongs only to the rejected attempt"
+    );
+    assert!(
+        swings.try_swing(102, 6),
+        "the caller can use its newest unsent tick"
+    );
+    swings.defer_unadmitted_attempt(&swings.clone());
+    swings.published_progress(102);
+    assert!(
+        !swings.try_swing(102, 6),
+        "an admitted attempt cannot acquire retry permission"
+    );
+
+    let mut other = SwingTracker::default();
+    other.sync_ticks((1, 2), 103, &effects);
+    assert!(other.try_swing(103, 6));
+    swings.defer_unadmitted_attempt(&other);
+    swings.published_progress(103);
+    assert!(
+        !swings.try_swing(103, 6),
+        "a different authority cannot reopen a tick"
+    );
+    swings.sync_ticks((1, 2), 103, &effects);
+    assert!(
+        swings.try_swing(103, 6),
+        "new authority resets both counters and permission"
+    );
+}

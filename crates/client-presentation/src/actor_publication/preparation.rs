@@ -23,6 +23,7 @@ pub struct ActorFrameState {
     pub(super) hand_key: Option<hand::SourceKey>,
     hand_ready: bool,
     pub(super) captured_view: LocalViewPose,
+    pub(super) captured_sampling_camera: Option<([f32; 2], [f32; 3])>,
     pub(super) first_person: bool,
     pub(super) java_mode: bool,
     pub(super) hand_use: (
@@ -83,6 +84,7 @@ pub fn advance_actor_frame(
         input: captured_input,
         step: captured_step,
         captured_view,
+        captured_sampling_camera,
         first_person: captured_first_person,
         java_mode: captured_java_mode,
         hand_use: captured_hand_use,
@@ -253,6 +255,12 @@ pub fn advance_actor_frame(
         &mut local_visibility,
     );
 
+    let sampling_camera = camera.single().ok().map(|(transform, _)| {
+        (
+            actor_camera_rotation(view.camera_rotation()),
+            transform.translation.to_array(),
+        )
+    });
     input.local_feed = local_feed;
     let mut geometries = Vec::new();
     let hand_visible = first_person && input.renders_game && !input.hide_hand;
@@ -306,6 +314,7 @@ pub fn advance_actor_frame(
                     item_animation,
                     alpha: step.partial_tick,
                     artwork,
+                    sampling_camera,
                     motion: hand_motion
                         .as_deref()
                         .map_or(Mat4::IDENTITY, hand_motion_matrix),
@@ -329,6 +338,7 @@ pub fn advance_actor_frame(
         .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection));
     *hand_ready = hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov);
     *captured_view = *view;
+    *captured_sampling_camera = sampling_camera;
     *captured_first_person = first_person;
     *captured_java_mode = java_mode;
     *captured_step = Some(step);

@@ -8,6 +8,8 @@ pub struct SwingTracker {
     authority: Option<(u64, u64)>,
     completed_tick: Option<u64>,
     attempted_tick: Option<u64>,
+    deferred_attempt: Option<(u64, [i32; 2])>,
+    prior_tick_states: [Counter; 2],
     started: Option<i32>,
     states: [Counter; 2],
     history: [(i32, i32); MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
@@ -104,26 +106,60 @@ impl SwingTracker {
         if self.authority.is_none() && self.attempted_tick.is_some_and(|previous| tick < previous) {
             *self = Self::default();
         }
+        let deferred = self
+            .deferred_attempt
+            .filter(|(attempt, _)| *attempt == tick);
+        let replay = self.completed_tick == Some(tick) && deferred.is_some();
         if self.attempted_tick == Some(tick)
             || self
                 .completed_tick
-                .is_some_and(|completed| tick <= completed)
+                .is_some_and(|completed| tick < completed || (tick == completed && !replay))
         {
             return false;
         }
-        if tick > 0 {
+        let published_durations = self.states.each_ref().map(|state| state.duration);
+        if replay {
+            self.states = self.prior_tick_states.clone();
+        } else if tick > 0 {
             self.advance_to(tick - 1);
         }
-        let java_duration = self.guard_java_duration(tick).unwrap_or(duration);
+        let duration = deferred
+            .filter(|_| replay)
+            .map_or(duration, |(_, values)| values[0]);
+        let java_duration = deferred.filter(|_| replay).map_or_else(
+            || self.guard_java_duration(tick).unwrap_or(duration),
+            |(_, values)| values[1],
+        );
         let bedrock = self.states[0].try_start(duration);
         self.states[1].try_start(java_duration);
         self.states[0].duration = duration.max(1);
         self.states[1].duration = java_duration.max(1);
         self.attempted_tick = Some(tick);
+        self.deferred_attempt = None;
+        if replay {
+            self.advance_states(1, published_durations);
+        }
         if bedrock {
             self.started = Some(duration);
         }
         bedrock
+    }
+
+    /// Retains only an attempted admission that was rolled back by a rejected packet batch.
+    pub fn defer_unadmitted_attempt(&mut self, candidate: &Self) {
+        if self.authority == candidate.authority
+            && candidate.attempted_tick != self.attempted_tick
+            && let Some(tick) = candidate.attempted_tick
+        {
+            let durations = self
+                .deferred_attempt
+                .filter(|(attempt, _)| *attempt == tick)
+                .map_or_else(
+                    || candidate.states.each_ref().map(|state| state.duration),
+                    |(_, durations)| durations,
+                );
+            self.deferred_attempt = Some((tick, durations));
+        }
     }
 
     /// Returns the latest accepted wire duration for callers that use the scalar start API.
@@ -142,6 +178,15 @@ impl SwingTracker {
         }
     }
 
+    /// Finds both post-expiry denominators for a tick retained in this frame's effect history.
+    fn post_tick_durations(&self, tick: u64) -> Option<[i32; 2]> {
+        let distance = self.history_end?.checked_sub(tick)? as usize;
+        (distance < self.history_len).then(|| {
+            let durations = self.history[distance];
+            [durations.0, durations.1]
+        })
+    }
+
     /// The pre-expiry Java duration is retained alongside the post-expiry animation history.
     fn guard_java_duration(&self, tick: u64) -> Option<i32> {
         let distance = self.history_end?.checked_sub(tick)? as usize;
@@ -155,6 +200,14 @@ impl SwingTracker {
             .and_then(|tick| tick.checked_add(1))
             .or(self.attempted_tick);
         let Some(mut next) = start else {
+            let fallback = self
+                .deferred_attempt
+                .filter(|(tick, _)| *tick == target)
+                .map_or_else(
+                    || self.states.each_ref().map(|state| state.duration),
+                    |(_, durations)| durations,
+                );
+            self.advance_states(1, self.post_tick_durations(target).unwrap_or(fallback));
             self.completed_tick = Some(target);
             return;
         };
@@ -168,26 +221,38 @@ impl SwingTracker {
         if let Some(first) = first {
             if next < first {
                 let last = target.min(first - 1);
-                for state in &mut self.states {
-                    state.advance(last - next + 1, state.duration);
-                }
+                self.advance_states(
+                    last - next + 1,
+                    self.states.each_ref().map(|state| state.duration),
+                );
                 next = last.saturating_add(1);
             }
             if next <= target {
                 for tick in next..=target.min(self.history_end.unwrap()) {
                     let distance = (self.history_end.unwrap() - tick) as usize;
                     let durations = self.history[distance];
-                    self.states[0].advance(1, durations.0);
-                    self.states[1].advance(1, durations.1);
+                    self.advance_states(1, [durations.0, durations.1]);
                     next = tick.saturating_add(1);
                 }
             }
         }
         if next <= target {
-            for state in &mut self.states {
-                state.advance(target - next + 1, state.duration);
-            }
+            self.advance_states(
+                target - next + 1,
+                self.states.each_ref().map(|state| state.duration),
+            );
         }
         self.completed_tick = Some(target);
+    }
+
+    /// Advances a nonempty interval, retaining its last tick's pre-increment counters for a retry.
+    fn advance_states(&mut self, count: u64, durations: [i32; 2]) {
+        for (state, duration) in self.states.iter_mut().zip(durations) {
+            state.advance(count - 1, duration);
+        }
+        self.prior_tick_states = self.states.clone();
+        for (state, duration) in self.states.iter_mut().zip(durations) {
+            state.advance(1, duration);
+        }
     }
 }

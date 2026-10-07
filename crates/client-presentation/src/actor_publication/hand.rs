@@ -5,6 +5,10 @@ use crate::presentation::equipment::ActorEquipmentInput;
 
 #[cfg(test)]
 mod lighting_tests;
+mod native_pose;
+#[cfg(test)]
+mod native_tests;
+pub(super) use native_pose::NativePoseCache;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
 /// below the camera; the pack's first-person arm offsets are authored for that facing.
@@ -167,6 +171,7 @@ pub(super) struct HandInputs<'a> {
     pub(super) alpha: f32,
     pub(super) artwork: &'a render::ActorArtworkPages,
     pub(super) motion: Mat4,
+    pub(super) sampling_camera: Option<([f32; 2], [f32; 3])>,
 }
 
 /// Builds vanilla arms and attachables with the displayed stack and its actual owner.
@@ -304,11 +309,22 @@ pub(super) fn java_light_matrix(
 
 /// Selects the same arm and item layers for readiness and final first-person publication.
 pub(super) fn source(
-    inputs: HandInputs<'_>,
+    mut inputs: HandInputs<'_>,
     java_mode: bool,
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
+    if let Some([previous, current]) = cache.native_pose.sample(
+        inputs.stream,
+        &inputs.presentation,
+        inputs.consume_ticks,
+        inputs.item_animation,
+        inputs.alpha,
+        inputs.sampling_camera,
+    ) {
+        inputs.presentation.submission.input.previous_bones = previous;
+        inputs.presentation.submission.input.current_bones = current;
+    }
     if java_mode {
         if let Some(source) = java::hand_source(
             HandInputs {

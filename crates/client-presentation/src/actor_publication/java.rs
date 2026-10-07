@@ -351,6 +351,7 @@ type ArmKey = (client_world::ActorLifetimeId, u32, u64);
 pub(super) struct HandCache {
     /// The main-hand item still drawn through an equip dip.
     shown: Option<WornItem>,
+    pub(super) native_pose: super::hand::NativePoseCache,
     /// The empty hand's rest pose, by actor lifetime, rig and rest generation.
     arm: Option<(ArmKey, Arc<[RenderBoneTransform]>)>,
 }
@@ -418,6 +419,7 @@ pub(super) fn hand_source(
         alpha,
         artwork,
         motion,
+        sampling_camera,
         ..
     } = inputs;
     let runtime_id = presentation.submission.input.identity.runtime_id;
@@ -461,6 +463,7 @@ pub(super) fn hand_source(
                 alpha,
                 artwork,
                 motion,
+                sampling_camera,
             },
             equipment,
             progress,
