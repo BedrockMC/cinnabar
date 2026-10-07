@@ -313,12 +313,18 @@ fn max_bytes(field: MenuField) -> usize {
     }
 }
 
+/// Groups the session and desktop authority read before menu actions.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct MenuInputContext<'w, 's> {
+    player_runtime: Res<'w, crate::player_runtime::PlayerRuntime>,
+    keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
+    focus: Option<ResMut<'w, client_presentation::camera::CursorFocus>>,
+    driven: Option<Res<'w, crate::camera::DrivenInput>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_input(
-    (player_runtime, mut keyboard_messages): (
-        bevy::prelude::Res<crate::player_runtime::PlayerRuntime>,
-        MessageReader<KeyboardInput>,
-    ),
+    context: MenuInputContext,
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
     mut wheel_cursor: Local<MessageCursor<MouseWheel>>,
     window: Single<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -335,6 +341,12 @@ pub(crate) fn drive_menu_input(
     mouse_messages: Option<Res<Messages<MouseButtonInput>>>,
     mut gui_scale_drag: Local<GuiScaleDrag>,
 ) {
+    let MenuInputContext {
+        player_runtime,
+        mut keyboard_messages,
+        mut focus,
+        driven,
+    } = context;
     if consent.is_some_and(|consent| consent.0) {
         keyboard_messages.clear();
         menu.pressed = None;
@@ -385,7 +397,9 @@ pub(crate) fn drive_menu_input(
         return;
     }
     menu.pressed = None;
-    if !window.focused {
+    if driven.is_none()
+        && (!window.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
+    {
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
         if !menu.is_visible()
@@ -458,6 +472,7 @@ pub(crate) fn drive_menu_input(
         return;
     }
 
+    let gameplay_pending = menu.gameplay_return_pending();
     modifiers.capture_pressed(&keys);
     crate::camera::release_cursor(&mut cursor);
     let pointer = window
@@ -630,6 +645,14 @@ pub(crate) fn drive_menu_input(
             }
             _ => {}
         }
+    }
+    if (!menu.is_visible()
+        || (!gameplay_pending && menu.gameplay_return_pending())
+        || menu.pressed == Some(super::MenuAction::ServerTrust(true)))
+        && !menu.intents.disconnect
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
     }
     // The menu owns the pointer and keyboard for this frame. This also keeps
     // the camera's recapture-on-click path from turning a menu click into a
