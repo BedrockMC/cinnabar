@@ -89,6 +89,7 @@ pub enum MovementSource {
 struct QueuedPhysicsSample {
     session_generation: u64,
     snapshot: PlayerAuthInputSnapshot,
+    displacement: [f32; 3],
     world_identity: WorldCollisionIdentity,
     evidence: PhysicsTickSampleEvidence,
     mining: Option<crate::mining::QueuedMiningInteraction>,
@@ -354,6 +355,7 @@ impl MovementTicker {
         self.outbox.push_back(QueuedPhysicsSample {
             session_generation: self.session_generation,
             snapshot,
+            displacement: completed.movement,
             world_identity: completed.world_identity,
             evidence,
             mining: None,
@@ -837,6 +839,7 @@ impl MovementTicker {
                     }
                     pending.snapshot.position = replayed.position;
                     pending.snapshot.delta = replayed.velocity;
+                    pending.displacement = replayed.movement;
                     pending.snapshot.move_vector = encoding::wire_move_vector(replayed.move_vector);
                     // Tick-bound actions survive; all movement flags come from replay.
                     pending.snapshot.flags = [
