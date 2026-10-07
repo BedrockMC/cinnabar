@@ -636,3 +636,127 @@ fn remapped_side_button_inventory_dismissal_returns_capture() {
         CursorGrabMode::Locked
     );
 }
+
+#[test]
+fn explicit_join_keeps_return_authorization_across_loading() {
+    use crate::menu::{MenuAction, MenuClipboard, MenuRuntime, MenuScreen, drive_menu_input};
+    use bevy::input::keyboard::KeyboardInput;
+    use client_ui::{test_support::fixture_font, ui_runtime::presentation::UiPresentationRuntime};
+    for local in [false, true] {
+        let (mut app, window) = focus_app();
+        let mut menu = MenuRuntime::new(true, 2, "test".into());
+        let action = if local {
+            menu.set_local_worlds(vec![Default::default()]);
+            menu.activate(MenuAction::Navigate(MenuScreen::Play));
+            menu.activate(MenuAction::PlayLocalWorld(0));
+            assert_eq!(menu.take_local_world_request(), Some(0));
+            MenuAction::PlayLocalWorld(0)
+        } else {
+            crate::menu::servers::save_servers(
+                &menu.layout().server_file(),
+                &[crate::menu::SavedServer {
+                    name: "local fixture".into(),
+                    address: "127.0.0.1".into(),
+                    favorite: false,
+                    last_joined_unix: 0,
+                }],
+            )
+            .unwrap();
+            menu = MenuRuntime::new_with_layout(
+                true,
+                Some(2),
+                "test".into(),
+                menu.layout().clone(),
+                menu.player_skin().clone(),
+            );
+            menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+            menu.activate(MenuAction::SelectServerTab(
+                crate::menu::MenuServerTab::Saved,
+            ));
+            MenuAction::PlaySaved(0)
+        };
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.set_menu_view(Some(menu.view()));
+        presentation
+            .build(
+                app.world()
+                    .resource::<crate::player_runtime::PlayerRuntime>(),
+                app.world().resource::<UiRuntime>(),
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let point = if local {
+            ui::UiPoint::new(0.0, 0.0).unwrap()
+        } else {
+            (0..720)
+                .step_by(4)
+                .flat_map(|y| {
+                    (0..1280)
+                        .step_by(4)
+                        .map(move |x| ui::UiPoint::new(x as f32, y as f32).unwrap())
+                })
+                .find(|point| presentation.hit_test_menu(*point) == Some(action))
+                .unwrap()
+        };
+        app.init_resource::<Touches>()
+            .add_message::<KeyboardInput>()
+            .insert_resource(menu)
+            .insert_resource(presentation)
+            .insert_resource(MenuClipboard::with_access(|_| None, |_| {}))
+            .add_systems(Update, drive_menu_input.before(update_cursor_capture));
+        {
+            let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
+            win.resolution.set_physical_resolution(1280, 720);
+            win.set_cursor_position(Some(Vec2::new(point.x(), point.y())));
+            win.focused = false;
+        }
+        app.update();
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+        app.update();
+        assert_released(&app, window);
+        if local {
+            use bevy::input::{
+                ButtonState,
+                keyboard::{Key, NativeKey},
+            };
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Enter);
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::Enter,
+                logical_key: Key::Unidentified(NativeKey::Unidentified),
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+        } else {
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
+        }
+        app.update();
+        assert_released(&app, window);
+        {
+            let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+            assert!(menu.is_visible());
+            if local {
+                assert_eq!(menu.take_local_world_request(), Some(0));
+            } else {
+                assert!(menu.take_join_intent().is_some());
+            }
+        }
+        // Loading still owns input after the original pointer edge is consumed.
+        app.update();
+        assert_released(&app, window);
+        app.world_mut().resource_mut::<MenuRuntime>().show_world();
+        app.update();
+        assert_eq!(
+            app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+            CursorGrabMode::Locked,
+            "join capture for local={local}"
+        );
+    }
+}

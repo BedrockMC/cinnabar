@@ -472,6 +472,7 @@ pub(crate) fn drive_menu_input(
         return;
     }
 
+    let gameplay_pending = menu.gameplay_return_pending();
     modifiers.capture_pressed(&keys);
     crate::camera::release_cursor(&mut cursor);
     let pointer = window
@@ -645,7 +646,9 @@ pub(crate) fn drive_menu_input(
             _ => {}
         }
     }
-    if !menu.is_visible()
+    if (!menu.is_visible()
+        || (!gameplay_pending && menu.gameplay_return_pending())
+        || menu.pressed == Some(super::MenuAction::ServerTrust(true)))
         && !menu.intents.disconnect
         && let Some(focus) = focus.as_deref_mut()
     {

@@ -17,7 +17,7 @@ use windows_sys::Win32::{
 };
 
 #[derive(Resource, Default)]
-pub(in crate::camera::focus) struct NativeCaptureReady(pub bool);
+pub(crate) struct NativeCaptureReady(pub bool);
 
 #[derive(Default)]
 struct NativeBinding(Option<(HWND, RawHandleWrapper)>);
