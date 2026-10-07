@@ -1,4 +1,4 @@
-//! Captures gameplay observations at the existing pre-send presentation boundary.
+//! Captures pre-send observations and finalizes poses after local interaction admission.
 use crate::{
     movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
     player_runtime::PlayerRuntime,
@@ -22,7 +22,6 @@ pub(crate) struct ActorObservations<'w> {
     skin: Res<'w, crate::player_skin::LocalPlayerSkin>,
     settings: Res<'w, crate::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
-    swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
     ui: Option<Res<'w, UiRuntime>>,
     menu: Option<Res<'w, crate::menu::MenuRuntime>>,
     ui_presentation: Option<Res<'w, UiPresentationRuntime>>,
@@ -31,12 +30,11 @@ pub(crate) struct ActorObservations<'w> {
     input: Option<Res<'w, crate::semantic_controls::SemanticInputSnapshot>>,
     movement: Option<Res<'w, MovementTicker>>,
     time: Res<'w, Time<Real>>,
-    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
 
-/// Samples live owners without changing the established prepare/send/publish order.
-pub(crate) fn prepare_actor_render_frame(
+/// Captures live owners and advances actors before UI and interaction picking.
+pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
     mut java_blocking: Local<bool>,
@@ -48,7 +46,6 @@ pub(crate) fn prepare_actor_render_frame(
         view,
         skin,
         settings,
-        mut swings,
         effects,
         ui,
         menu,
@@ -57,7 +54,6 @@ pub(crate) fn prepare_actor_render_frame(
         item_use,
         input,
         movement,
-        cave,
         time,
         profiler,
     } = observations;
@@ -129,21 +125,7 @@ pub(crate) fn prepare_actor_render_frame(
         predicted_eye: physics.render_eye_position(),
         predicted_feet: physics.render_feet_position(),
         local_equipment,
-        // Consume only while a stream exists, as the prior publisher did.
-        swing_progress: stream.and_then(|_| {
-            let movement = movement.as_deref()?;
-            let swings = swings.as_deref_mut()?;
-            if let Some(effects) = effects.as_deref() {
-                swings.sync_ticks(
-                    movement.interaction_authority_identity(),
-                    movement.completed_tick(),
-                    effects,
-                );
-            }
-            let mut progress = swings.published_progress(movement.completed_tick());
-            progress.frame_alpha = Some(physics.tick_alpha());
-            Some(progress)
-        }),
+        swing_progress: None,
         renders_game: crate::screen_policy::renders_game(
             &player,
             ui.as_deref(),
@@ -174,7 +156,7 @@ pub(crate) fn prepare_actor_render_frame(
         prepared_actor_artwork,
         ..
     } = &mut *world;
-    client_presentation::actor_publication::prepare_actor_render_frame(
+    client_presentation::actor_publication::advance_actor_frame(
         ActorWorld {
             stream: stream.as_mut(),
             collisions: collisions
@@ -211,6 +193,71 @@ pub(crate) fn prepare_actor_render_frame(
                 });
             (consume, animation)
         },
+        params,
+    );
+}
+
+/// Gameplay clocks borrowed only after the interaction owners have admitted this frame's actions.
+#[derive(SystemParam)]
+pub(crate) struct ActorFinalObservations<'w> {
+    world: ResMut<'w, ClientWorld>,
+    physics: Res<'w, LocalPhysicsController>,
+    effects: Option<Res<'w, crate::movement::LocalMovementEffectTimeline>>,
+    swings: Option<ResMut<'w, crate::melee::SwingTracker>>,
+    movement: Option<Res<'w, MovementTicker>>,
+    collisions: Option<Res<'w, PhysicsCollisionRegistries>>,
+    cave: Option<Res<'w, crate::runtime::visibility::CaveVisibilityCache>>,
+}
+
+/// Consumes admitted local ticks and builds their final poses with the pre-send capture.
+pub(crate) fn prepare_actor_render_frame(
+    observations: ActorFinalObservations,
+    params: client_presentation::actor_publication::ActorFramePublication,
+) {
+    let ActorFinalObservations {
+        mut world,
+        physics,
+        effects,
+        mut swings,
+        movement,
+        collisions,
+        cave,
+    } = observations;
+    let stream = world.stream.as_ref();
+    let swing_progress = stream.and_then(|_| {
+        let movement = movement.as_deref()?;
+        let swings = swings.as_deref_mut()?;
+        if let Some(effects) = effects.as_deref() {
+            swings.sync_ticks(
+                movement.interaction_authority_identity(),
+                movement.completed_tick(),
+                effects,
+            );
+        }
+        let mut progress = swings.published_progress(movement.completed_tick());
+        progress.frame_alpha = Some(physics.tick_alpha());
+        Some(progress)
+    });
+    let ClientWorld {
+        stream,
+        entity_assets,
+        pack_entities,
+        session_items,
+        prepared_actor_artwork,
+        ..
+    } = &mut *world;
+    client_presentation::actor_publication::prepare_actor_render_frame(
+        ActorWorld {
+            stream: stream.as_mut(),
+            collisions: collisions
+                .as_deref()
+                .map(|value| value as &dyn client_presentation::observations::CollisionLookup),
+            entity_assets: entity_assets.as_deref(),
+            pack_entities: pack_entities.clone(),
+            session_items: session_items.clone(),
+            prepared_actor_artwork,
+        },
+        swing_progress,
         |stream, low, high| {
             cave.as_deref().is_some_and(|cave| {
                 cave.hides_box(
