@@ -253,6 +253,7 @@ impl MenuRuntime {
     }
 
     /// Uses the same importer as the native PNG picker.
+    #[cfg(any(test, feature = "developer-control"))]
     pub(crate) fn import_skin_path(&mut self, path: PathBuf) {
         if self.dressing_room.editor.is_some() {
             return;
@@ -260,6 +261,7 @@ impl MenuRuntime {
         self.queue_skin_job(Job::Import(Some(path)));
     }
 
+    #[cfg(any(test, feature = "developer-control"))]
     pub(crate) fn import_cape_path(&mut self, path: PathBuf) {
         if self.dressing_room.editor.is_none() {
             self.queue_skin_job(Job::ImportCape(Some(path)));

@@ -311,17 +311,19 @@ fn busy_cancel_dismisses_editor_without_cancelling_pending_work() {
 fn dressing_room_focus_excludes_selected_section_and_model_tabs() {
     use launcher::dressing_room::DressingRoomSection;
     let mut menu = MenuRuntime::new(false, 2, "focus tabs".to_owned());
-    let mut view = launcher::dressing_room::DressingRoomView::default();
-    view.skins = vec![launcher::dressing_room::DressingRoomSkin {
-        id: "fixture".to_owned(),
-        name: "Custom".to_owned(),
-        path: "private.png".to_owned(),
-        imported: true,
-        model: SkinModel::Classic,
-        skin: menu.player_skin.standard_skin(),
-    }]
-    .into();
-    view.selected = Some(0);
+    let view = launcher::dressing_room::DressingRoomView {
+        skins: vec![launcher::dressing_room::DressingRoomSkin {
+            id: "fixture".to_owned(),
+            name: "Custom".to_owned(),
+            path: "private.png".to_owned(),
+            imported: true,
+            model: SkinModel::Classic,
+            skin: menu.player_skin.standard_skin(),
+        }]
+        .into(),
+        selected: Some(0),
+        ..Default::default()
+    };
     menu.dressing_room = Arc::new(view);
     let actions = menu.dressing_room_focus();
     assert!(

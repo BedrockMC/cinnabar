@@ -507,7 +507,7 @@ mod tests {
                 Event::Snapshot(snapshot) => Some(snapshot),
                 Event::Apply(..) => None,
             })
-            .last()
+            .next_back()
             .unwrap();
         assert!(!completed.busy);
         assert!(
@@ -575,7 +575,7 @@ mod tests {
                 Event::Snapshot(snapshot) => Some(snapshot),
                 Event::Apply(..) => None,
             })
-            .last()
+            .next_back()
             .unwrap();
         assert!(!completed.busy);
         assert_eq!(completed.message, "Preparing resource packs…");
@@ -593,7 +593,7 @@ mod tests {
                 Event::Snapshot(snapshot) => Some(snapshot),
                 Event::Apply(..) => None,
             })
-            .last()
+            .next_back()
             .unwrap();
         assert!(!completed.busy);
         assert!(!completed.message.is_empty());
@@ -625,7 +625,7 @@ mod tests {
                 Event::Snapshot(snapshot) => Some(snapshot),
                 Event::Apply(..) => None,
             })
-            .last()
+            .next_back()
             .unwrap();
         assert_eq!(completed.message, "Preparing resource packs…");
         assert!(completed.applied_selection.is_none());
@@ -680,7 +680,7 @@ mod tests {
                 Event::Snapshot(snapshot) => Some(snapshot),
                 Event::Apply(..) => None,
             })
-            .last()
+            .next_back()
             .unwrap();
         assert_eq!(completed.applied_selection.as_ref(), Some(&acknowledged));
         assert!(

@@ -326,7 +326,7 @@ fn visible_color(draw: &ui::UiDrawList, point: [f32; 2]) -> Option<[u8; 4]> {
             });
             point[0] >= min[0] && point[0] < max[0] && point[1] >= min[1] && point[1] < max[1]
         })
-        .last()
+        .next_back()
         .map(|quad| draw.vertices[quad[0] as usize].color)
 }
 

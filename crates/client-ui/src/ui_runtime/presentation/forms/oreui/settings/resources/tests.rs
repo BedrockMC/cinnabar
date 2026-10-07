@@ -239,9 +239,21 @@ fn expanded_pack_details_leave_equal_gutters_for_text_and_controls() {
         for active in [false, true] {
             let pack = pack();
             let snapshot = Snapshot {
-                active: active.then(|| vec![pack.clone()]).unwrap_or_default(),
-                available: (!active).then(|| vec![pack.clone()]).unwrap_or_default(),
-                selection: active.then(|| vec![selection(&pack)]).unwrap_or_default(),
+                active: if active {
+                    vec![pack.clone()]
+                } else {
+                    Vec::new()
+                },
+                available: if active {
+                    Vec::new()
+                } else {
+                    vec![pack.clone()]
+                },
+                selection: if active {
+                    vec![selection(&pack)]
+                } else {
+                    Vec::new()
+                },
                 details_expanded: Some((active, 0)),
                 ..Snapshot::default()
             };

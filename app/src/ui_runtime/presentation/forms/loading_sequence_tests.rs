@@ -113,9 +113,9 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
                     }
                 });
                 let expected = snapshot::loading_backdrop_texel(&presentation, source, [x, y]);
-                for channel in 0..3 {
+                for (channel, expected) in expected.iter().enumerate().take(3) {
                     assert!(
-                        pixels.get_pixel(x, y)[channel].abs_diff(expected[channel]) <= 1,
+                        pixels.get_pixel(x, y)[channel].abs_diff(*expected) <= 1,
                         "phase {phase} frame {index} dirt sampled another page at {x},{y}"
                     );
                 }
@@ -184,9 +184,9 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
         }
     });
     let expected = snapshot::loading_backdrop_texel(&presentation, source, [0, 0]);
-    for channel in 0..3 {
+    for (channel, expected) in expected.iter().enumerate().take(3) {
         assert!(
-            pixels.get_pixel(0, 0)[channel].abs_diff(expected[channel]) <= 1,
+            pixels.get_pixel(0, 0)[channel].abs_diff(*expected) <= 1,
             "before the server pack arrives, dirt must not address the preceding glyph page"
         );
     }

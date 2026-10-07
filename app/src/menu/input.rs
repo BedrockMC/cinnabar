@@ -622,10 +622,10 @@ pub(crate) fn drive_menu_input(
     if pointer_switch || pointer_just_pressed || !wheel.is_empty() {
         menu.input_mode = MenuInputMode::Mouse;
     }
-    if pointer_moved || pointer_just_pressed {
-        if let Some(action) = menu.hovered.filter(|action| pointer_can_focus(*action)) {
-            menu.focus_pointer(action);
-        }
+    if (pointer_moved || pointer_just_pressed)
+        && let Some(action) = menu.hovered.filter(|action| pointer_can_focus(*action))
+    {
+        menu.focus_pointer(action);
     }
     if native_settings
         && let Some(point) = pointer

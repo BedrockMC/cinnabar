@@ -239,7 +239,7 @@ fn retained_world_form_draws_controls_above_their_panel_backgrounds() {
                     && quad[0].color[3] == 255)
                     .then_some(quad[0].color)
             })
-            .last();
+            .next_back();
         assert_eq!(
             visible,
             Some(expected),
