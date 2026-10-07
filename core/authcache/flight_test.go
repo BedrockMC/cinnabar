@@ -2,6 +2,7 @@ package authcache
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,9 @@ import (
 	"github.com/df-mc/go-playfab/v2"
 	"github.com/df-mc/go-xsapi/v2"
 	"github.com/df-mc/go-xsapi/v2/xal"
+	"github.com/df-mc/go-xsapi/v2/xal/sisu"
+	"github.com/df-mc/go-xsapi/v2/xal/xasd"
+	"github.com/df-mc/go-xsapi/v2/xal/xsts"
 	"github.com/sandertv/gophertunnel/minecraft/service"
 	"golang.org/x/oauth2"
 )
@@ -159,5 +163,106 @@ func TestConcurrentPlayFabCallersShareOneLogin(t *testing.T) {
 	}
 	if logins.Load() != 1 {
 		t.Fatalf("logins = %d, want 1", logins.Load())
+	}
+}
+
+// hookDevice runs hook on its first device-token read.
+type hookDevice struct {
+	token *xasd.Token
+	once  sync.Once
+	hook  func()
+}
+
+func (d *hookDevice) DeviceToken(context.Context) (*xasd.Token, error) {
+	d.once.Do(d.hook)
+	return d.token, nil
+}
+
+func (d *hookDevice) ProofKey() *ecdsa.PrivateKey { return nil }
+
+// An XSTS result from a session replaced mid-request is retried against the current session.
+func TestXSTSFromAReplacedSessionIsRetried(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := *state.SISU.XSTSTokens[cachedRelyingParty]
+	replacement.Token = "replacement-xsts"
+	device := &hookDevice{token: state.DeviceToken}
+	device.hook = func() {
+		account.gate <- struct{}{}
+		account.session = newAccountSession(account, &sisu.SessionConfig{
+			Snapshot:          &sisu.Snapshot{XSTSTokens: map[string]*xsts.Token{cachedRelyingParty: &replacement}},
+			DeviceTokenSource: device,
+		})
+		account.unlock()
+	}
+	account.gate <- struct{}{}
+	account.device = device
+	account.session = newAccountSession(account, &sisu.SessionConfig{Snapshot: state.SISU, DeviceTokenSource: device})
+	delete(account.xstsTokens, cachedRelyingParty)
+	account.unlock()
+	token, err := account.XSTSToken(context.Background(), cachedRelyingParty)
+	if err != nil || token.Token != "replacement-xsts" {
+		t.Fatalf("XSTS after a mid-request session replacement: token=%v err=%v", token, err)
+	}
+}
+
+// A publish queued behind another snapshots the state current when its turn comes.
+func TestQueuedPublishSnapshotsWhenItRuns(t *testing.T) {
+	path := filepath.Join(derivedTestDir(t), "derived")
+	oauthToken := testOAuthToken("account-a")
+	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), nil, derivedDeps{})
+	defer account.Close()
+	state, err := loadDerived(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.publishGate <- struct{}{} // another publication is in progress
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		account.publish(context.Background())
+	}()
+	time.Sleep(50 * time.Millisecond)
+	extra := *state.SISU.XSTSTokens[cachedRelyingParty]
+	tokens := map[string]*xsts.Token{cachedRelyingParty: state.SISU.XSTSTokens[cachedRelyingParty], "https://other.example.test/": &extra}
+	account.gate <- struct{}{}
+	account.session = newAccountSession(account, &sisu.SessionConfig{Snapshot: &sisu.Snapshot{XSTSTokens: tokens}, DeviceTokenSource: account.device})
+	account.unlock()
+	<-account.publishGate
+	<-done
+	published, err := loadDerived(path)
+	if err != nil || published.SISU.XSTSTokens["https://other.example.test/"] == nil {
+		t.Fatalf("queued publish wrote a snapshot older than its turn: err=%v", err)
+	}
+}
+
+// A login flight that starts after another installed the PlayFab session reuses it.
+func TestPlayFabFlightReusesAnInstalledSession(t *testing.T) {
+	var logins atomic.Int32
+	deps := derivedDeps{
+		discover: func(context.Context) (*service.AuthorizationEnvironment, error) { return testEnvironment(), nil },
+		login: func(ctx context.Context, env *service.AuthorizationEnvironment, _ xsapi.TokenAndSignaturer) (*playfab.Client, error) {
+			return playfab.Login(ctx, env.PlayFabTitleID, fakeIdentityProvider{&logins}, playfab.ClientConfig{
+				HTTPClient: &http.Client{Transport: refusingTransport{}}, Logger: slog.New(slog.DiscardHandler),
+			})
+		},
+	}
+	account := newAccount(context.Background(), "", oauth2.StaticTokenSource(testOAuthToken("account-a")), nil, deps)
+	defer account.Close()
+	installed, err := account.PlayFab(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := account.loginPlayFab(context.Background(), testEnvironment())
+	if err != nil || client != installed || logins.Load() != 1 {
+		t.Fatalf("late login flight: same=%v logins=%d err=%v", client == installed, logins.Load(), err)
 	}
 }
