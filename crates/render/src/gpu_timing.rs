@@ -7,6 +7,8 @@ mod pass;
 pub(crate) mod readback;
 #[cfg(test)]
 mod tests;
+#[cfg(feature = "tracy")]
+mod tracy;
 
 use crate::{RuntimeStage, RuntimeStageProfiler};
 use bevy::{
@@ -74,6 +76,8 @@ impl Plugin for GpuTimingPlugin {
                         .after(render_system),
                 ),
             );
+        #[cfg(feature = "tracy")]
+        tracy::install(render_app);
     }
 }
 
@@ -276,6 +280,8 @@ impl GpuTimestamps {
         if !features.contains(wgpu::Features::TIMESTAMP_QUERY) {
             return None;
         }
+        #[cfg(feature = "tracy")]
+        tracy::initialize();
         let device = device.wgpu_device();
         let buffer = |label, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -353,6 +359,8 @@ impl GpuTimestamps {
 
     /// Hands mapped frames to `sink` oldest first, then claims a slot for this frame.
     fn begin(&mut self, mut sink: impl FnMut(&GpuFrameTimes)) {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("gpu.timestamps.readback").entered();
         while let Some(index) = self.ring.oldest_in_flight() {
             let slot = &self.slots[index];
             match slot.state.load(Ordering::Acquire) {
@@ -379,6 +387,8 @@ impl GpuTimestamps {
                     );
                     drop(bytes);
                     slot.buffer.unmap();
+                    #[cfg(feature = "tracy")]
+                    tracy::record(&frame);
                     sink(&frame);
                 }
                 _ => {}
@@ -394,6 +404,8 @@ impl GpuTimestamps {
 
     /// Resolves this frame's spans and maps them asynchronously; nothing waits on the GPU.
     fn submit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("gpu.timestamps.resolve_submit").entered();
         let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
         if slot == NO_SLOT {
             return;
@@ -424,7 +436,12 @@ impl GpuTimestamps {
         }
         let target = &mut self.slots[index];
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &target.buffer, 0, SLOT_BYTES);
-        queue.submit([encoder.finish()]);
+        let command = encoder.finish();
+        {
+            #[cfg(feature = "tracy")]
+            let _zone = bevy::log::info_span!("gpu.timestamps.queue_submit", slot).entered();
+            queue.submit([command]);
+        }
         target.passes = passes;
         target.draws = draws;
         for span in (0..passes).chain(PASS_SPANS..PASS_SPANS + draws) {
@@ -432,15 +449,17 @@ impl GpuTimestamps {
             target.stages[span as usize] = RuntimeStage::ALL[stage as usize];
         }
         let state = target.state.clone();
-        target
-            .buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
+        let slice = target.buffer.slice(..);
+        {
+            #[cfg(feature = "tracy")]
+            let _zone = bevy::log::info_span!("gpu.timestamps.map_request", slot).entered();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
                 state.store(
                     if result.is_ok() { MAPPED } else { FAILED },
                     Ordering::Release,
                 );
             });
+        }
         self.ring.submit(index);
     }
 }
@@ -466,7 +485,11 @@ fn begin_gpu_frame(
         return;
     };
     // Non-blocking: only fires map callbacks the GPU has already completed.
-    let _ = device.poll(wgpu::PollType::Poll);
+    {
+        #[cfg(feature = "tracy")]
+        let _zone = bevy::log::info_span!("gpu.timestamps.device_poll").entered();
+        let _ = device.poll(wgpu::PollType::Poll);
+    }
     timestamps.begin(|frame| profiler.record_gpu_frame(frame));
 }
 

@@ -3,6 +3,8 @@
 These are diagnostic hidden-window captures, not release or displayed-frame
 qualification. The long-stall gate remains open. The owner’s saved render distance
 is 10 chunks; it was read, copied to the isolated client and left unchanged.
+The later [Tracy captures](frame-breakdown-tracy.md) reproduce 100–170 ms stalls
+and correlate elapsed spans with thread-state samples; they are not pooled here.
 
 ## Measured workload
 
