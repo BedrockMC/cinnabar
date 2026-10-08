@@ -88,6 +88,7 @@ mod tests {
 
     fn fixture() -> BTreeMap<(Box<str>, Box<str>), PendingGeometry> {
         let geometry = PendingGeometry {
+            visible_bounds: None,
             identifier: POLAR_BEAR_GEOMETRY.into(),
             inherits: None,
             source_path: POLAR_BEAR_PATH.into(),
