@@ -23,8 +23,10 @@ For the 1.26.50.26 client:
   rotates about the part pivot. Children retain their authored pivots and
   animation frames.
 
-## Vanilla resource witness
+## Scope
 
+The adult body and tail retain the cube binds above when a replacement omits
+them. The baby model in `baby_fox.geo.json` has no inherited adult binds.
 
 The correction applies only in vanilla compilation to the exact adult sample
 path, identifier and source SHA-256. Its digest is declared once in
