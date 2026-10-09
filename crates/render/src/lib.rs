@@ -34,7 +34,7 @@ mod entity_shadow_render;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
 pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};
 mod gpu_timing;
-pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
+pub use gpu_timing::{DetailedGpuTiming, GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;

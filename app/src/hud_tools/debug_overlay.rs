@@ -170,6 +170,7 @@ fn publish_debug_overlay(
     time: Res<Time<Real>>,
     mut state: ResMut<DebugOverlayState>,
     mut presentation: ResMut<UiPresentationRuntime>,
+    gpu_detail: Option<ResMut<render::DetailedGpuTiming>>,
     context: DebugContext,
 ) {
     let timing_updated = state.sample_frame(time.delta());
@@ -187,6 +188,12 @@ fn publish_debug_overlay(
             }
             state.publication_present = false;
         }
+    }
+    // The overlay names the slowest passes, so it needs every pass timed while it shows.
+    if let Some(mut detail) = gpu_detail
+        && detail.0 != state.visible
+    {
+        detail.0 = state.visible;
     }
     if !state.visible {
         return;

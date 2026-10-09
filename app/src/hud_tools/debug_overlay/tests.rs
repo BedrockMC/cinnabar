@@ -150,6 +150,31 @@ fn f3_toggles_rendered_overlay_and_hidden_frames_leave_presentation_untouched() 
     );
 }
 
+/// The overlay ranks GPU passes, so pass timing follows its visibility.
+#[test]
+fn f3_requests_per_pass_gpu_timing_only_while_shown() {
+    let mut app = App::new();
+    app.insert_resource(ButtonInput::<KeyCode>::default())
+        .insert_resource(Time::<Real>::default())
+        .insert_resource(ClientWorld::default())
+        .insert_resource(LocalPlayerFrameCarrier::default())
+        .insert_resource(client_ui::test_support::mini_engine_presentation())
+        .init_resource::<render::DetailedGpuTiming>();
+    configure(&mut app);
+    let toggle = |app: &mut App| {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(KeyCode::F3);
+        keys.clear();
+        keys.press(KeyCode::F3);
+        app.update();
+        app.world().resource::<render::DetailedGpuTiming>().0
+    };
+    app.update();
+    assert!(!app.world().resource::<render::DetailedGpuTiming>().0);
+    assert!(toggle(&mut app));
+    assert!(!toggle(&mut app));
+}
+
 #[test]
 fn visible_frames_between_diagnostic_ticks_leave_presentation_untouched() {
     use bevy::ecs::system::{IntoSystem, System};

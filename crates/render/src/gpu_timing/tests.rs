@@ -235,6 +235,61 @@ fn ui_pass_categories_are_opt_in_and_do_not_duplicate_parent_spans() {
     }
 }
 
+/// Frames nothing inspects pass by pass open one whole-frame span, which the readback closes.
+#[test]
+fn unprofiled_frames_time_only_the_whole_frame() {
+    if cfg!(target_os = "macos") {
+        return;
+    }
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    let stages = [
+        RuntimeStage::GpuOpaque,
+        RuntimeStage::GpuTransparent,
+        RuntimeStage::GpuBlit,
+    ];
+    for detail in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+        timestamps.pass_detail = detail;
+        timestamps.begin(|_| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let mut context = RenderContext::new(device.clone(), None);
+        for stage in stages {
+            timed(&world, &mut context, stage, |_| {});
+        }
+        queue.submit(context.finish().0);
+        let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
+        timestamps.submit(&device, &queue);
+        let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
+        let recorded = &slot.stages[..slot.passes as usize];
+        if detail {
+            assert_eq!(recorded, stages);
+        } else {
+            assert_eq!(recorded, [RuntimeStage::GpuFrame]);
+        }
+    }
+}
+
+/// The stage profiler or an explicit request, such as the F3 overlay's, times every pass.
+#[test]
+fn profiling_or_a_detail_request_times_every_pass() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for (profiling, requested, detail) in [
+        (false, false, false),
+        (true, false, true),
+        (false, true, true),
+    ] {
+        let mut world = World::new();
+        world.insert_resource(GpuTimestamps::new(&device, &queue, false).unwrap());
+        world.insert_resource(RuntimeStageProfiler::new(profiling));
+        world.insert_resource(DetailedGpuTiming(requested));
+        world.run_system_once(begin_gpu_frame).unwrap();
+        assert_eq!(world.resource::<GpuTimestamps>().pass_detail, detail);
+    }
+}
+
 #[test]
 fn draw_overflow_drops_categories_but_keeps_passes() {
     let features = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;

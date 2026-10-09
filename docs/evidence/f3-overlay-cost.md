@@ -67,7 +67,7 @@ Baseline regression fixtures failed for the short frame-statistics window, per-f
 
 ## GPU and readback
 
-F3 never enables timing collection, submits timestamp queries or requests readback. It reads the existing CPU snapshot at the frame-statistics cadence. The timing ring uses asynchronous mapping and nonblocking device polling, skipping unavailable slots. Existing collector work is present with F3 closed and open.
+These measurements predate whole-frame GPU timing. F3 now asks for per-pass timestamp spans while it shows, because its GPU line names the slowest passes; closed, frames record only the whole-frame span. F3 submits no queries or readbacks of its own and reads the existing snapshot at the frame-statistics cadence. The timing ring uses asynchronous mapping and nonblocking device polling, skipping unavailable slots.
 
 | Query-health pair | Frames | Readbacks | Ring skips | Resolved spans/readback | UI spans/readback | Mapping failures | Reversed UI samples |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
