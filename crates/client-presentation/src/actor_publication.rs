@@ -307,6 +307,10 @@ pub fn prepare_actor_render_frame(
         })
         .flatten();
     let mut native_body_sampled = false;
+    let mut render_frame = client_world
+        .stream
+        .as_ref()
+        .map(|stream| stream.authority().actor_render_frame(step.partial_tick));
     let (local_runtime_id, actor_session_id, dimension, remotes, canonical_local, unrigged_actors) =
         client_world
             .stream
@@ -321,7 +325,26 @@ pub fn prepare_actor_render_frame(
                     let Some(actor) = stream.authority().actor(rig.actor.runtime_id) else {
                         continue;
                     };
-                    // Culled before any per-actor work; the local rig also drives the hand.
+                    let mut sample_scale = |rig| {
+                        render_frame
+                            .as_mut()
+                            .map_or(rig, |frame| frame.sample_rig_scale(rig))
+                    };
+                    let rig = if rig.actor.runtime_id == local_runtime_id {
+                        sample_scale(rig)
+                    } else {
+                        let Some(rig) = crate::presentation::actors::sample_candidate_scale(
+                            rig,
+                            actor,
+                            step.partial_tick,
+                            cull_view,
+                            sample_scale,
+                        ) else {
+                            continue;
+                        };
+                        rig
+                    };
+                    // Cull at the sampled frame scale; the local rig also drives the hand.
                     if rig.actor.runtime_id != local_runtime_id
                         && !crate::presentation::actors::rig_may_be_visible(
                             &rig,
@@ -622,8 +645,7 @@ pub fn prepare_actor_render_frame(
     }
 
     // After equipment, which rides the rig's own model even when a controller draws another.
-    if let Some(stream) = client_world.stream.as_ref() {
-        let mut render_frame = stream.authority().actor_render_frame(step.partial_tick);
+    if let Some(render_frame) = render_frame.as_mut() {
         crate::presentation::entity_layers::apply_render_layers_cached(
             &mut batch,
             |runtime_id| {
