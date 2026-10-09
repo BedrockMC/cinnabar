@@ -526,6 +526,7 @@ impl Specializer<RenderPipeline> for BlockEntitySpecializer {
         descriptor: &mut RenderPipelineDescriptor,
     ) -> Result<Canonical<Self::Key>, BevyError> {
         descriptor.multisample.count = key.msaa.samples();
+        crate::alpha_coverage::apply(descriptor, key.mode == PipelineMode::Solid);
         descriptor.primitive.cull_mode =
             matches!(key.mode, PipelineMode::Portal | PipelineMode::Additive)
                 .then_some(bevy::render::render_resource::Face::Back);
@@ -957,16 +958,8 @@ impl<P: PhaseItem, const LIST: u8> RenderCommand<P> for DrawList<LIST> {
 mod upload_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn vertex_lists_track_counts_without_a_device() {
-        let list = VertexList::new();
-        assert_eq!(list.count, 0);
-        assert!(list.buffer.is_none() && list.bind_group.is_none());
-    }
-}
+#[path = "gpu/tests.rs"]
+mod tests;
 
 impl crate::pipeline_warmup::PrewarmPipelines for BlockEntityPipeline {
     fn prewarm(

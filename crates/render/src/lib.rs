@@ -1,7 +1,10 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+mod alpha_coverage;
+mod depth_smaa;
 #[cfg(test)]
 #[path = "../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+pub use depth_smaa::DepthSmaaPlugin;
 mod lighting;
 mod lightmap;
 #[cfg(test)]
@@ -124,7 +127,7 @@ pub use actor::{
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
-    pack_overlay_rgba8, pack_skin_slot,
+    pack_actor_light_without_lightmap, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{

@@ -213,6 +213,7 @@ impl ActorSnapshot {
         };
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
+        snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
         snapshot
     }
@@ -326,6 +327,12 @@ impl ActorSnapshot {
     /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        self.bounding_box_at(self.position)
+    }
+
+    /// [`Self::bounding_box`] with the feet at `position`.
+    #[must_use]
+    pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
         let player = matches!(self.kind, ActorKind::Player { .. });
         let dimension = |key, default| match self.metadata.get(&key) {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
@@ -347,7 +354,7 @@ impl ActorSnapshot {
         if !half_width.is_finite() || !height.is_finite() {
             return None;
         }
-        let [x, y, z] = self.position;
+        let [x, y, z] = position;
         Some((
             [x - half_width, y, z - half_width],
             [x + half_width, y + height, z + half_width],
@@ -678,6 +685,12 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// Health admitted before the client-fed local actor is created.
+    pending_local_health: Option<ActorAttribute>,
+    pending_local_damage: Option<local_health::PendingLocalDamage>,
+    local_health_skips: u64,
+    /// Server PlayerSpawn has enabled local health-drop animations in this session.
+    local_player_spawned: bool,
     /// Key of the synthetic local-player profile, present only while the player list carries no
     /// self entry; cleared when a real echo takes over or the actor set is reset.
     synthetic_local_uuid: Option<[u8; 16]>,
@@ -690,6 +703,10 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
+    /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
+    /// the frame advances the live actors; reused across frames.
+    pick_states: Vec<(u64, movement_interpolation::MotionState)>,
+    picks_ahead: bool,
     local_view_bobbing: bool,
     local_flying: bool,
     /// Held items of the client-fed local player, which the item store never tracks.
@@ -718,6 +735,7 @@ pub(crate) struct ActorStore {
 }
 
 mod cloud_particles;
+pub(crate) mod creeper;
 mod crystal_beam;
 pub use crystal_beam::CrystalBeamView;
 pub(crate) mod dragon_animation;
@@ -730,6 +748,8 @@ mod dropped;
 mod entities;
 mod fire;
 mod hurt;
+mod local_health;
+pub use local_health::DEFAULT_PLAYER_HEALTH;
 mod lifecycle;
 mod lightning;
 mod mount;
@@ -748,8 +768,8 @@ pub use entities::{
 };
 pub use fire::FIRE_FADE_TICKS;
 pub use hurt::{
-    ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS, HURT_DURATION_TICKS,
-    HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+    ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
+    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
 pub(crate) use placement::FLAG_BABY;

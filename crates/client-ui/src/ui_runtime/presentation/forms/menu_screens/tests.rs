@@ -2,6 +2,17 @@ use super::*;
 use crate::menu::split_address;
 use json_ui::RectOut;
 
+#[test]
+fn reconnect_regions_require_a_retryable_failure() {
+    let mut shown = view(MenuScreen::Play);
+    let button = region(HitKind::Button, Some("button.cinnabar_reconnect"));
+    assert_eq!(action_for(&shown, &button), None);
+    shown.disconnect_message = Some("network session failed: closed".into());
+    assert_eq!(action_for(&shown, &button), None);
+    shown.can_reconnect = true;
+    assert_eq!(action_for(&shown, &button), Some(MenuAction::Reconnect));
+}
+
 fn view(screen: MenuScreen) -> MenuView {
     let mut view = crate::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = screen;
@@ -187,6 +198,10 @@ fn pressed_buttons_map_to_menu_actions() {
         Some(MenuAction::PauseDisconnect)
     );
     let death = view(MenuScreen::Death);
+    assert_eq!(
+        press(&death, "button.main_menu_button"),
+        Some(MenuAction::OpenDeathQuit)
+    );
     assert_eq!(
         press(&death, "button.respawn_button"),
         Some(MenuAction::Respawn)
@@ -425,5 +440,34 @@ fn motion_blur_dropdown_binds_saved_presets_and_edits_the_registered_option() {
             );
         }
         assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn spatial_antialiasing_choices_bind_shared_labels_and_edit_the_saved_setting() {
+    use crate::menu::settings_options::{SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION};
+    let mut view = view(MenuScreen::Settings);
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == SMAA_OPTION.name)
+        .unwrap();
+    for mode in [ui::SmaaMode::Off, ui::SmaaMode::Smaa] {
+        Arc::make_mut(&mut view.settings_options).set(index, mode as i32);
+        let mut actual = DataSource::default();
+        super::super::settings_controls::bind(&view, &mut actual, &str::to_owned);
+        let mut expected = actual.clone();
+        expected.set_global(
+            format!("#{}_dropdown_toggle_label", SMAA_OPTION.name),
+            Scalar::Text(mode.label().into()),
+        );
+        assert_eq!(actual, expected);
+        for (value, choice) in SMAA_CHOICES.iter().enumerate() {
+            let mut radio = region(HitKind::Toggle, None);
+            radio.control_name = Some(choice.name.into());
+            assert_eq!(
+                super::super::settings_controls::action(&view, &radio),
+                Some(MenuAction::SettingsOption(index as u16, value as i32))
+            );
+        }
     }
 }

@@ -146,10 +146,10 @@ pub(crate) enum ClientFrameSet {
     Physics,
     Camera,
     Interaction,
+    NetworkSend,
     WorldPublication,
     ActorPreparation,
     UiPreparation,
-    NetworkSend,
     ActorFinalization,
     ActorPublication,
     UiPublication,
@@ -160,7 +160,19 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
     app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
         .add_systems(
             Update,
-            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+            (
+                advance_actor_frame,
+                crate::runtime::network::publish_local_actor_damage,
+            )
+                .chain()
+                .in_set(ClientFrameSet::ActorPreparation),
+        )
+        // Picks in Interaction and NetworkSend read this frame's remote actor positions.
+        .add_systems(
+            Update,
+            crate::runtime::network::advance_actor_motion
+                .after(ClientFrameSet::Camera)
+                .before(ClientFrameSet::Interaction),
         )
         .add_systems(
             Update,
@@ -296,12 +308,21 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 produce_melee,
                 produce_survival_mining,
                 crate::item_use::produce_item_use,
+                #[cfg(feature = "tracy")]
+                crate::tracy::plot_physics_to_send,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,
             )
                 .chain()
                 .in_set(ClientFrameSet::NetworkSend),
         );
+    #[cfg(feature = "tracy")]
+    app.init_resource::<crate::tracy::PhysicsEnd>().add_systems(
+        Update,
+        crate::tracy::mark_physics_end
+            .after(advance_local_physics)
+            .in_set(ClientFrameSet::Physics),
+    );
 }
 
 pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
@@ -743,7 +764,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .set(render_plugin())
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-        // Vanilla resolves multisampled geometry without a screen-space AA filter.
+        // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
@@ -948,6 +969,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::BlockEntityRenderPlugin,
         render::EntityShadowRenderPlugin,
     ));
+    app.add_plugins(render::DepthSmaaPlugin);
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
         diagnostics_enabled,

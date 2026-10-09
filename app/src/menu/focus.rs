@@ -9,6 +9,10 @@ pub(super) use settings::SettingsFocusGeometry;
 
 impl MenuRuntime {
     pub(super) fn focus_pointer(&mut self, action: MenuAction) {
+        let action = match action {
+            MenuAction::CloseSignIn => MenuAction::CancelSignIn,
+            action => action,
+        };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
             if self.settings_dropdown.is_some() || self.settings_scale_picker {
                 *candidate == action
@@ -293,6 +297,13 @@ impl MenuRuntime {
 
     /// The actions keyboard and gamepad focus cycles through on the current screen.
     pub(super) fn focus_actions(&self) -> Vec<MenuAction> {
+        if let Some(state) = &self.realm_membership.state {
+            return state
+                .actions()
+                .into_iter()
+                .map(MenuAction::RealmMembership)
+                .collect();
+        }
         if self.is_connecting() && self.feeds.server_trust.is_some() {
             return vec![
                 MenuAction::ServerTrust(true),
@@ -354,6 +365,9 @@ impl MenuRuntime {
                     MenuAction::DismissDialog,
                 ],
                 MenuDialog::Exit => vec![MenuAction::ConfirmExit, MenuAction::DismissDialog],
+                MenuDialog::DeathQuit => {
+                    vec![MenuAction::ConfirmDeathQuit, MenuAction::DismissDialog]
+                }
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
@@ -362,6 +376,13 @@ impl MenuRuntime {
         }
         if let Some(actions) = self.join_request_focus_actions() {
             return actions;
+        }
+        if self.disconnect_message.is_some() && !self.is_connecting() {
+            return if self.can_reconnect() {
+                vec![MenuAction::Reconnect, MenuAction::DismissDialog]
+            } else {
+                vec![MenuAction::DismissDialog]
+            };
         }
         let nav = || {
             vec![
@@ -417,6 +438,11 @@ impl MenuRuntime {
             }
             MenuScreen::Social => {
                 let mut actions = nav();
+                if self.current_auth().as_ref() == &AuthState::Authenticated {
+                    actions.push(MenuAction::RealmMembership(
+                        launcher::menu::realm_membership::Action::Open,
+                    ));
+                }
                 actions.push(MenuAction::RefreshCatalog);
                 actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
                 actions
@@ -464,6 +490,9 @@ impl MenuRuntime {
                     if profile.unavailable {
                         actions.push(MenuAction::RefreshProfile);
                     } else if profile.loaded {
+                        if profile.avatar_loaded && profile.featured_screenshot_loaded {
+                            actions.push(MenuAction::Navigate(MenuScreen::DressingRoom));
+                        }
                         actions.extend([
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Overview),
                             MenuAction::SelectProfileTab(launcher::menu::ProfileTab::Stats),
@@ -523,7 +552,11 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
+            MenuScreen::Death if !self.death_controls_ready() => Vec::new(),
+            MenuScreen::Death if self.death_presentation.hardcore => {
+                vec![MenuAction::DeathExitWorld, MenuAction::Respawn]
+            }
+            MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::OpenDeathGameMenu],
             MenuScreen::Inbox => {
                 use super::inbox::{Action, CATEGORIES, category_index};
                 if self.feeds.inbox_state.delete_pending.is_some() {

@@ -8,7 +8,9 @@ mod chat_position;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
+mod death_screen;
 mod debug_overlay;
+mod disconnect_retry;
 pub mod discord_presence_setting;
 pub mod furnace_book;
 pub(super) use container_kinds::supported_storage_slots;
@@ -49,6 +51,7 @@ pub mod motion_blur_setting;
 pub mod npc;
 pub mod oreui;
 mod retained_menu;
+pub mod smaa_setting;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pack_harness;

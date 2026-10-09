@@ -36,9 +36,9 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
     },
 ];
 
-/// The default choice uses Java animation while Bedrock retains the vanilla paths.
+/// Bedrock animation is the default; Java 1.7 stays selectable.
 pub const ANIMATIONS_OPTION: SettingDefinition =
-    dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
+    dropdown("animations", "Animations", ANIMATION_CHOICES, 1);
 
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
@@ -64,6 +64,26 @@ pub const MOTION_BLUR_OPTION: SettingDefinition = dropdown(
     "Motion Blur",
     MOTION_BLUR_CHOICES,
     ui::MotionBlurQuality::Off.index(),
+);
+
+/// Spatial edge smoothing uses the same choices in JSON-UI and OreUI.
+pub const SMAA_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "smaa_radio_off",
+        label: ui::SmaaMode::Off.label(),
+    },
+    SettingChoice {
+        name: "smaa_radio_on",
+        label: ui::SmaaMode::Smaa.label(),
+    },
+];
+
+/// An extra silhouette filter independent of vanilla's coverage sample count.
+pub const SMAA_OPTION: SettingDefinition = dropdown(
+    "smaa",
+    "Spatial Anti-Aliasing",
+    SMAA_CHOICES,
+    ui::DEFAULT_SMAA_MODE as i32,
 );
 
 /// Publishes the client's state to Discord Rich Presence.
@@ -297,6 +317,7 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
         ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32,
         ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32,
     ),
+    SMAA_OPTION,
     MOTION_BLUR_OPTION,
     // Vanilla keeps this out of retail menus (persisted `gfx_vsync`, on); see plan.md.
     toggle("vsync", "options.vsync", true),

@@ -1,3 +1,16 @@
+## Optional spatial anti-aliasing and cutout coverage
+
+- Capability-aware MSAA remains the primary setting with its existing default. Spatial
+  anti-aliasing is an independent Off/SMAA option, defaulting to Off.
+- Spatial SMAA uses world-depth discontinuities and continuous-slope rejection before world
+  text, hands and HUD drawing. It uses no temporal samples or colour edge detection.
+- Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
+  nearest; newly covered transparent texels use the nearest covered neighbour's colour.
+  Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
+  vanilla coverage parity. Matched hardware performance and native foliage comparison remain
+  incomplete; no parity or performance gate closes from these changes.
+
 ## Optional camera motion blur
 
 - Video offers Off (default), Low, Medium and High camera exposure. This is an owner-authorized
@@ -91,6 +104,10 @@
 - Physics uses the selected collision support for landing responses and the
   near-feet material for travel friction. Auto-climb, levitation, restitution
   thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+- When collision data pauses local ticks, the camera holds the completed crouch
+  and correction offsets alongside the feet position. Subtick rendering no longer
+  repeats an unfinished stance or correction transition. Missing-terrain recovery
+  and matched loading/stall behavior remain incomplete.
 - Prediction corrections replay regardless of distance. Nonzero future ticks
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
@@ -602,6 +619,16 @@
 - Forward movement requests normal sprint; sneak, hunger and other restrictions still apply.
 - Auth-input sprint flags remain derived from the completed physics state.
 - Windows official install: Keyboard & Mouse rendered at a 1280×720 client area; label and toggle are legible, aligned and unclipped. Enabled preference persisted during user interaction. Live user movement acceptance remains pending.
+
+## Remote session reconnect
+
+- Reconnect is a requested menu extension on remote disconnect and connection-failure screens.
+  It retries the selected destination through the normal join route and retains the originating
+  page. OK and Escape dismiss the failure. Account changes and local-world exits clear retry.
+- Behavioral regressions cover repeated attempts, teardown, transfers and account ownership.
+- macOS rendered input checks passed at 1280×720: keyboard and pointer retry completed
+  loopback joins after refusal and server disconnect; OK, Escape and loading Cancel worked.
+  This requested extension does not establish native UI parity.
 
 ## VSync video toggle
 
@@ -1142,11 +1169,13 @@ Per-request diagnostics report fixed outcomes with rate limits and no account
 material. Native privacy/offline classification and a separate permissions
 facet remain incomplete; see `docs/profile-parity.md` for references.
 
-2026-10-03 Realms add/join: incomplete. The OreUI control has no action because
-the account control surface only lists and connects to existing Realms. Joining
-by invite or code and creating a Realm need a supported backend operation and a
-version-matched native flow reference before the button can perform that work.
-This does not close the Realm management parity gate.
+Realms add/join: invitation codes now have a signed-in launcher route, read-only
+verification, explicit membership confirmation, cancellable preview requests,
+retryable errors and a returned Realm that can be played. Real remote acceptance
+has not been verified. Incomplete parity: pending invitation acceptance, subscription
+creation, account multiplayer permission admission, service-specific error messages,
+and the full options and confirmation presentation. This does not close the Realm
+management parity gate.
 
 2026-10-03 overlapping crafting ingredients: native parity remains incomplete.
 Consume requests now find a complete assignment for recipes the existing matcher
@@ -1442,7 +1471,9 @@ layers count every texel), unsampled ones are cleared, and the body route takes
 only the first unconditional controller's art. The pinned pack now binds the
 creeper and admits two NPC skins; blaze, spider, cave spider, enderman and drowned
 still fall back because sampled texels carry unverified fractional-alpha material
-semantics. Live visual acceptance of the creeper is pending.
+semantics. Creeper ignition/defuse visual acceptance remains incomplete pending
+rendered comparisons. The charged aura material fallback is provisional; exact
+target material equivalence remains incomplete.
 
 Ordinary terrain-blend model/water faces now share the current native perspective
 metric; ordinary Ice and water use
@@ -6625,14 +6656,21 @@ parity gate.
 
 - Pillars, slab halves and matching doubles, trapdoors, hoppers, supported attachments,
   colored carpets, fence/pane connections and stacking existing snow resolve locally.
-- Placement parity remains incomplete for stairs, general directional blocks, two-cell blocks,
-  stacking candles/pickles, walls, rails, redstone, vines, signs and substrate-sensitive plants.
-  Unknown states and support shapes stay server-confirmed. See
-  [local placement rules](docs/reference/block-placement-prediction.md).
+- Stairs and changed stair corners, loom/glazed rotations, dispenser/piston facing, door pairs,
+  levers, ordinary signs, unlit torches, first dry vines/multiface attachments, conservative
+  first snow placement, and dry candle/pickle stacks now resolve locally.
+- Placement parity remains incomplete for directional types outside the verified table, beds,
+  walls, rails, redstone dust, plant substrates, wet/existing attachment masks and special supports.
+  Beds also need local block-entity visual publication. Unknown door-hinge materials defer.
+  See [local placement rules](docs/reference/block-placement-prediction.md).
 - Non-air replacement is server-confirmed; complete replacement-component classification and
   its effective placement face are incomplete. Clicked-cell selection retains the existing rule.
-- Same-frame visibility and rendered neighbor/correction behavior still need headless captures;
-  this work does not close a visual or frame-budget gate.
+- Local commit starts bounded worker work; the late render handoff services available completions
+  without another server poll. Frame receipts distinguish commit, staging and observed upload.
+  Headless stairs first render +3 frames after commit with the server paused; both door halves
+  also render before confirmation.
+  Asynchronous lighting/meshing keeps click-frame visibility incomplete. Full family visual parity
+  and hardware frame-budget gates remain open.
 
 ### Furnace recipe panel continuation (incomplete general parity)
 
@@ -6673,3 +6711,27 @@ selection and advancing cracks. Enhanced remains disabled for ordinary launches.
 Arbitrary runtime face-key remapping and non-power-of-two pack raster equivalence
 remain broader pack-stack work. Hidden debug captures do not close displayed-frame
 performance or the overall UI and performance gate.
+
+## Death-screen reasons
+
+The dedicated server death-information packet supplies the localized reason to
+the death screen independently of chat. Reasons survive either arrival order
+around zero health and clear on authoritative health recovery or session replacement.
+Recovery reads positive actor health independently of the rounded HUD values.
+The default death screen uses the owned OreUI renderer with a radial world overlay,
+centered title and literal wrapped reason, Respawn and Game menu actions, and the
+HUD beneath it. Message, button, backdrop and loading animations have separate
+clocks. The prompt still waits before accepting actions when animations are disabled.
+Game menu returns to the same death presentation. Respawn retains progress until
+authoritative recovery; pending requests survive outbound backpressure. Forced
+death cancels hidden key capture, and formatted reason parameters remain literal.
+The legacy JSON-UI renderer retains literal reason handling for fallback controls.
+Ordinary first-person world damage rotation samples the actor's completed hurt
+and death counters independently of hand animation. Scripted captures retain
+their requested pose after those effects run.
+Portal and fire overlays sample the final rendered camera pose and projection.
+
+Incomplete parity: exact target-version animation constants,
+respawn retries, death camera/FOV, hurt and HUD flash timing, hardcore and secondary
+client variants, and matched native frames remain open. The modern implementation
+and its focused regressions do not close the full death-screen parity gate.
