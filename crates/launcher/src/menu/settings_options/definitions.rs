@@ -36,9 +36,9 @@ pub const ANIMATION_CHOICES: &[SettingChoice] = &[
     },
 ];
 
-/// The default choice uses Java animation while Bedrock retains the vanilla paths.
+/// Bedrock animation is the default; Java 1.7 stays selectable.
 pub const ANIMATIONS_OPTION: SettingDefinition =
-    dropdown("animations", "Animations", ANIMATION_CHOICES, 0);
+    dropdown("animations", "Animations", ANIMATION_CHOICES, 1);
 
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {

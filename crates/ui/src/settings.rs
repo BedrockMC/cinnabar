@@ -175,7 +175,7 @@ impl Default for VideoSettings {
             camera_shake: true,
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
-            java_animations: true,
+            java_animations: false,
         }
     }
 }
