@@ -332,6 +332,10 @@ pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
     crate::runtime::network::session::configure_network_frame_flush(app);
+    crate::runtime::world::configure_world_service(
+        app,
+        crate::runtime::network::session::NetworkFrameFlush,
+    );
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
         .configure_sets(
@@ -947,6 +951,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
+    if let Some(service) = crate::runtime::world::WorldServiceSlot::from_environment()? {
+        app.insert_resource(service);
+    }
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);

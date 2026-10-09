@@ -21,6 +21,10 @@ pub enum RuntimeStage {
     ActorEquipmentSetup,
     NetworkIngestion,
     WorldStream,
+    /// Between-frames world-stream polling on its service thread; overlaps the frame gap.
+    WorldService,
+    /// Frame-thread wait for the world-stream service to hand the stream back.
+    WorldServiceReclaim,
     CaveVisibility,
     RenderQueueApplication,
     ChunkExtraction,
@@ -98,7 +102,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 70] = [
+    pub const ALL: [Self; 72] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -109,6 +113,8 @@ impl RuntimeStage {
         Self::ActorEquipmentSetup,
         Self::NetworkIngestion,
         Self::WorldStream,
+        Self::WorldService,
+        Self::WorldServiceReclaim,
         Self::CaveVisibility,
         Self::RenderQueueApplication,
         Self::ChunkExtraction,
@@ -254,6 +260,8 @@ impl RuntimeStage {
             Self::ActorEquipmentSetup => "actor_equipment_setup",
             Self::NetworkIngestion => "network_ingestion",
             Self::WorldStream => "world_stream",
+            Self::WorldService => "world_service",
+            Self::WorldServiceReclaim => "world_service_reclaim",
             Self::CaveVisibility => "cave_visibility",
             Self::RenderQueueApplication => "render_queue_application",
             Self::ChunkExtraction => "chunk_extraction",
@@ -498,7 +506,7 @@ impl RuntimeStageProfiler {
     }
 
     /// Records a span measured outside a system, such as across the render handoff.
-    pub(crate) fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
+    pub fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
         if self.active() {
             record_elapsed(&self.state, stage, started, elapsed);
         }

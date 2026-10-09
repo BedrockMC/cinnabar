@@ -18,8 +18,10 @@ use committed_ui::refresh_player_list_cache_for_controls;
 pub(crate) use dimension::advance_dimension_transfer;
 #[cfg(test)]
 mod player_list_tests;
+mod service;
 mod shutdown_watchdog;
 mod sub_chunk_requests;
+pub(crate) use service::{WorldServiceSlot, configure_world_service};
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 
 #[cfg(feature = "acceptance")]
@@ -327,10 +329,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
         return;
     };
     stream.set_view_forward((view.rotation() * Vec3::NEG_Z).to_array());
-    frame_poll.report = stream.poll(
+    // Adds to the between-frames service's work already recorded for this frame.
+    frame_poll.report.accumulate(stream.poll(
         view.eye_translation().to_array(),
         upload_budget.max_per_frame,
-    );
+    ));
     frame_poll.cohort = frame_cohort_status(
         stream,
         #[cfg(feature = "acceptance")]

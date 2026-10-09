@@ -161,6 +161,11 @@ extraction. `input_pacing_wait` is the deliberate main-thread delay before the n
 later of its frame-rate cadence slot and the predicted render-thread completion;
 `frame_pacing_lateness` is how far past that deadline the wait woke. `RUST_MCBE_INPUT_PACING=0`
 stops only the render-completion delay; a frame-rate cap still applies.
+`world_service` is the world-stream service thread's polling time between frames, recorded
+at reclaim; it overlaps extraction and pacing and is not main-thread time.
+`world_service_reclaim` is the main-thread wait to take the stream back before `First`.
+`RUST_MCBE_WORLD_SERVICE=0` keeps every world-stream poll on the main thread, a
+same-binary control for chunk-streaming comparisons.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the

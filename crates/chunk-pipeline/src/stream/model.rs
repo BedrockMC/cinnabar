@@ -541,6 +541,8 @@ pub(super) fn queue_wait(queued_at: Instant, started_at: Instant) -> Duration {
 /// Work performed by one call to [`WorldStream::poll`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamPoll {
+    /// Ordered commit steps applied, counting each partial sub-chunk batch entry.
+    pub commit_steps: usize,
     pub decoded_results: usize,
     pub light_results: usize,
     pub light_jobs_dispatched: usize,

@@ -3,7 +3,7 @@ use super::*;
 /// Cooperative frame allocation, with one progress item per ready service lane.
 pub(super) const WORLD_POLL_BUDGET: Duration = Duration::from_millis(3);
 /// High refresh rates get a smaller allocation so a streaming backlog cannot halve them.
-const WORLD_POLL_BUDGET_FLOOR: Duration = Duration::from_millis(1);
+pub(super) const WORLD_POLL_BUDGET_FLOOR: Duration = Duration::from_millis(1);
 /// The allocation never exceeds this fraction of the display interval, down to the floor.
 const WORLD_POLL_INTERVAL_SHARE: u32 = 2;
 /// Reserves half of the frame allocation for light and mesh service.
@@ -29,16 +29,28 @@ impl WorldStream {
             Some(now + self.poll_budget - self.poll_budget / WORLD_SCHEDULING_SHARE);
     }
 
-    /// Reports whether normal work has spent this poll's shared allocation.
+    /// Reports whether normal work has spent this poll's shared allocation, or a
+    /// between-frames service has been asked to hand the stream back.
     pub(super) fn poll_budget_exhausted(&self) -> bool {
-        self.poll_deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
+        self.service_yield_requested()
+            || self
+                .poll_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+    }
+
+    /// Whether the frame is reclaiming the stream from its between-frames service.
+    pub(super) fn service_yield_requested(&self) -> bool {
+        self.service_yield
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
     }
 
     /// Commits every unblocked event. Heavy terrain steps stop at the poll deadline, with one
     /// guaranteed per poll across every pass it runs; light steps never wait for, or spend,
-    /// the terrain allocation.
+    /// the terrain allocation. A deferred retention change evicts first, as it preceded
+    /// every commit still to come.
     pub(super) fn apply_ready(&mut self) {
+        self.apply_due_chunk_retention();
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.commit_ready").entered();
         let deadline = self
@@ -48,14 +60,19 @@ impl WorldStream {
             self.poll_deadline.is_none() || (self.polling && self.poll_heavy_guarantee);
         loop {
             // Without local physics the server position scopes retention; a committed
-            // teleport, respawn or dimension change can hand it back mid-pass.
+            // teleport, respawn or dimension change can hand it back mid-pass. An offloaded
+            // frame poll leaves heavy chunk data to the service unless a ready mutation,
+            // retention change or barrier waits behind it, which local authority observes.
             let budget = CommitBudget {
-                heavy: heavy_guaranteed || Instant::now() < deadline,
+                heavy: heavy_guaranteed
+                    || (Instant::now() < deadline && !self.service_yield_requested()),
+                chunk_data: !self.chunk_data_offloaded,
                 couple_position: self.local_player_chunk.is_none(),
             };
             let Some(step) = self.order.next_commit_within(budget) else {
                 break;
             };
+            self.commit_steps = self.commit_steps.wrapping_add(1);
             if self.order.last_step_was_heavy() {
                 heavy_guaranteed = false;
                 self.poll_heavy_guarantee = false;

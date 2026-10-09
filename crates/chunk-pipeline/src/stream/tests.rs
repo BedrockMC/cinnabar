@@ -970,6 +970,7 @@ mod lenient_decode;
 mod local_abilities;
 mod prediction;
 mod render_distance;
+mod service;
 mod streaming_harness;
 
 mod actor_block_sync;
