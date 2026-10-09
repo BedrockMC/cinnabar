@@ -557,9 +557,8 @@ impl OrderedCommitState {
         None
     }
 
-    /// For a pass without the chunk-data allowance: the earliest heavy chunk data it skips,
-    /// ready to start or a partial batch, when a ready later event waits only behind skipped
-    /// chunk data. Committing in order from there unblocks that event within the pass.
+    /// Finds chunk data that can progress when a ready later event waits only on chunk data.
+    /// A queued sub-chunk batch first needs the active batch to release its shared slot.
     fn chunk_data_holding_ready_work(&mut self, couple_position: bool) -> Option<u64> {
         self.earlier.clear();
         self.skipped_chunk_data.clear();
@@ -579,8 +578,18 @@ impl OrderedCommitState {
                 .as_ref()
                 .is_some_and(|pending| pending.sequence == sequence);
             let free = matches!(&entry.slot, Slot::Ready(event) if self.kind_is_free(event));
-            if !blocked && is_heavy_chunk_data(&entry.footprint) && (free || partial_batch) {
-                first_skipped.get_or_insert(sequence);
+            let batch_waits_for = match &entry.slot {
+                Slot::Ready(PreparedWorldEvent::SubChunks { .. }) => self
+                    .pending_sub_chunks
+                    .as_ref()
+                    .map(|pending| pending.sequence),
+                _ => None,
+            };
+            if !blocked
+                && is_heavy_chunk_data(&entry.footprint)
+                && (free || partial_batch || batch_waits_for.is_some())
+            {
+                first_skipped.get_or_insert(batch_waits_for.unwrap_or(sequence));
                 self.skipped_chunk_data
                     .add(&entry.footprint, couple_position);
                 continue;

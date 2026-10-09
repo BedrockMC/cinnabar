@@ -533,3 +533,60 @@ fn skipping_chunk_data_still_finishes_a_batch_a_ready_mutation_waits_behind() {
     assert_eq!(order, [2, 3], "the batch's last entry, then the change");
     assert_eq!(state.committed_sequence(), 0, "the earlier batch waits");
 }
+
+/// A mutation behind a queued batch can finish the active batch that holds its slot,
+/// regardless of which batch came first on the wire, while respecting the heavy budget.
+#[test]
+fn skipping_chunk_data_follows_a_queued_batch_dependency() {
+    let decoded = |x| PreparedWorldEvent::SubChunks {
+        dimension: 0,
+        entries: (0..2)
+            .map(|y| PreparedSubChunk {
+                position: [x, y, 0],
+                ..air_slot(y)
+            })
+            .collect(),
+        duration: Duration::ZERO,
+    };
+    for (active, queued) in [(1, 2), (2, 1)] {
+        let mut state = OrderedCommitState::new(1);
+        admit(&mut state, active, sub_chunks(0), false);
+        admit(&mut state, queued, sub_chunks(1), false);
+        state.insert_ready(active, decoded(0)).unwrap();
+        assert!(matches!(
+            state.next_commit(),
+            Some(CommitStep::BatchStarted)
+        ));
+        assert_eq!(
+            commit_within(&mut state, CommitBudget::UNLIMITED),
+            Some(active)
+        );
+        state.insert_ready(queued, decoded(1)).unwrap();
+        assert!(state.next_commit_within(SKIP_CHUNK_DATA).is_none());
+        admit(&mut state, 3, block_update(1), true);
+        admit(&mut state, 4, level_chunk(2), true);
+        assert!(
+            state
+                .next_commit_within(CommitBudget {
+                    heavy: false,
+                    ..SKIP_CHUNK_DATA
+                })
+                .is_none()
+        );
+
+        let mut order = Vec::new();
+        while let Some(step) = state.next_commit_within(SKIP_CHUNK_DATA) {
+            if let Some(sequence) = applied(Some(step)) {
+                order.push(sequence);
+                state.finish_commit(sequence);
+            }
+        }
+        assert_eq!(order, [active, queued, queued, 3]);
+        assert_eq!(state.committed_sequence(), 3);
+        assert_eq!(
+            state.admitted_count(),
+            1,
+            "unrelated chunk data stays offloaded"
+        );
+    }
+}
