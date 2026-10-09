@@ -134,6 +134,7 @@ impl ClientBlobCacheOwner {
 }
 
 mod authority;
+mod executor;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -960,6 +961,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
+    executor::run_frame_schedules_on_one_thread(&mut app);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {
