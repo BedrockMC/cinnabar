@@ -116,6 +116,59 @@ fn geometry_replacement_preserves_json_control_state_and_flat_sprites() {
     assert_eq!(nodes[1], flat);
 }
 
+/// Most frames show no player preview, so they must not pay for its mesh.
+#[test]
+fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
+    use std::cell::Cell;
+    use ui::{UiNodeId, UiPoint, UiRect};
+    let preview = IconRef {
+        page: 2,
+        uv: [0, 0, 32, 32],
+        glint: false,
+    };
+    let other = IconRef {
+        page: 1,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    };
+    let mesh = item_gui::cube([other; 6]).unwrap();
+    let bounds = UiRect::new(
+        UiPoint::new(0.0, 0.0).unwrap(),
+        UiPoint::new(16.0, 16.0).unwrap(),
+    )
+    .unwrap();
+    let sprite = |id, icon: IconRef| {
+        UiNode::new(UiNodeId::new(id), None, bounds).with_visual(UiVisual::Sprite {
+            texture_page: icon.page,
+            uv: icon.uv,
+            color: [255; 4],
+        })
+    };
+    let builds = Cell::new(0);
+    let player = || {
+        builds.set(builds.get() + 1);
+        Some(Arc::clone(&mesh))
+    };
+    let models = |key: &IconKey| (*key == icon_key(other)).then_some(&mesh);
+
+    let mut hud = vec![sprite(1, other), sprite(2, other)];
+    replace_model_icons(&mut hud, Some(icon_key(preview)), player, models);
+    assert_eq!(builds.get(), 0, "no node shows the preview");
+    assert!(
+        hud.iter()
+            .all(|node| matches!(node.visual(), UiVisual::Mesh(_)))
+    );
+
+    let mut shown = vec![sprite(1, preview), sprite(2, preview)];
+    replace_model_icons(&mut shown, Some(icon_key(preview)), player, models);
+    assert_eq!(builds.get(), 1, "one build serves every preview node");
+    assert!(
+        shown
+            .iter()
+            .all(|node| matches!(node.visual(), UiVisual::Mesh(_)))
+    );
+}
+
 #[test]
 fn live_pose_changes_only_geometry_and_original_skin_keeps_its_density() {
     let mut presentation = UiPresentationRuntime::new(super::super::tests::fixture_font()).unwrap();
