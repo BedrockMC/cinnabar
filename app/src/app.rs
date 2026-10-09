@@ -19,7 +19,7 @@ use bevy::{
         App, ClearColor, Color, DefaultPlugins, First, IntoScheduleConfigs, Last, PluginGroup,
         Resource, SystemSet, Update, default,
     },
-    render::{diagnostic::RenderDiagnosticsPlugin, settings::Backends},
+    render::diagnostic::RenderDiagnosticsPlugin,
     window::WindowPlugin,
 };
 use chunk_pipeline::PublicationServiceConfig;
@@ -134,6 +134,7 @@ impl ClientBlobCacheOwner {
 }
 
 mod authority;
+mod executor;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -145,10 +146,10 @@ pub(crate) enum ClientFrameSet {
     Physics,
     Camera,
     Interaction,
+    NetworkSend,
     WorldPublication,
     ActorPreparation,
     UiPreparation,
-    NetworkSend,
     ActorFinalization,
     ActorPublication,
     UiPublication,
@@ -159,7 +160,19 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
     app.init_resource::<client_presentation::actor_publication::ActorFrameState>()
         .add_systems(
             Update,
-            advance_actor_frame.in_set(ClientFrameSet::ActorPreparation),
+            (
+                advance_actor_frame,
+                crate::runtime::network::publish_local_actor_damage,
+            )
+                .chain()
+                .in_set(ClientFrameSet::ActorPreparation),
+        )
+        // Picks in Interaction and NetworkSend read this frame's remote actor positions.
+        .add_systems(
+            Update,
+            crate::runtime::network::advance_actor_motion
+                .after(ClientFrameSet::Camera)
+                .before(ClientFrameSet::Interaction),
         )
         .add_systems(
             Update,
@@ -295,12 +308,21 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 produce_melee,
                 produce_survival_mining,
                 crate::item_use::produce_item_use,
+                #[cfg(feature = "tracy")]
+                crate::tracy::plot_physics_to_send,
                 send_player_auth_inputs,
                 crate::pick_block::produce_pick_block,
             )
                 .chain()
                 .in_set(ClientFrameSet::NetworkSend),
         );
+    #[cfg(feature = "tracy")]
+    app.init_resource::<crate::tracy::PhysicsEnd>().add_systems(
+        Update,
+        crate::tracy::mark_physics_end
+            .after(advance_local_physics)
+            .in_set(ClientFrameSet::Physics),
+    );
 }
 
 pub(crate) fn configure_acceptance_finish_system(app: &mut App) {
@@ -386,23 +408,6 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 .after(FlyCameraUpdateSet),
         )
         .add_systems(Last, arm_shutdown_watchdog);
-}
-
-pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
-    if explicit.is_some() {
-        return None;
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Prefer Vulkan so capable Windows adapters can use count-driven GPU Hi-Z terrain
-        // culling. Keep DX12 admitted as the fallback for drivers without a usable Vulkan
-        // surface; an explicit WGPU_BACKEND still retains full operator control.
-        Some(Backends::VULKAN | Backends::DX12)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        None
-    }
 }
 
 /// Binds the identity-checked session-directory owner for direct starts.
@@ -705,9 +710,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let startup_vsync = present_mode_runtime
+        .vsync_override()
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync);
     let primary_window = render_setup::primary_window(
         launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
+        render::frame_latency_for_vsync(startup_vsync),
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
@@ -720,7 +729,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         })
         .set(render_plugin())
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
-        // Vanilla resolves multisampled geometry without a screen-space AA filter.
+        // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
@@ -925,6 +934,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         render::BlockEntityRenderPlugin,
         render::EntityShadowRenderPlugin,
     ));
+    app.add_plugins(render::DepthSmaaPlugin);
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
         diagnostics_enabled,
@@ -963,6 +973,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     #[cfg(feature = "enhanced-diagnostics")]
     crate::enhanced_diagnostics::install(&mut app, diagnostic_budget);
+    executor::run_frame_schedules_on_one_thread(&mut app);
     let exit = app.run();
     crate::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app.world_mut().remove_resource::<NetworkHandle>() {

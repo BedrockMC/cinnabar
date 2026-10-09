@@ -4,6 +4,9 @@ mod potion;
 mod wolf;
 
 #[cfg(test)]
+mod player_tests;
+
+#[cfg(test)]
 mod fish_tests;
 #[cfg(test)]
 mod pack_query_tests;
@@ -107,8 +110,7 @@ const KEY_SWELL: u32 = 19;
 pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
 
-// Fuse ticks a swell is normalised by; needs independent measurement.
-const SWELL_FULL_TICKS: f32 = 28.0;
+use crate::actor_store::creeper::SWELL_FULL_TICKS;
 
 // Actors that swim in place, so airborne means in water; without a fluid sample this stands in
 // for the fish-on-land flop.
@@ -142,6 +144,7 @@ pub(super) struct QueryInputs<'a> {
     pub(super) context: &'a ActorTickContext,
     pub(super) anim_tick: u64,
     pub(super) anim_time: Option<f32>,
+    pub(super) swell_amount: Option<f32>,
     pub(super) life_tick: u64,
     /// Whether all and any animations of the controller state being left have finished.
     pub(super) finished: (bool, bool),
@@ -301,6 +304,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
     if name == "is_grazing" && actor.is_horse() {
         return truth(super::horse::is_grazing(actor));
     }
+    if name == "swelling_dir" && actor.is_creeper() {
+        return actor.creeper_swelling_direction();
+    }
     if let Some((_, bit)) = FLAG_QUERIES.iter().find(|(query, _)| *query == name) {
         return truth(actor_flag(actor, *bit));
     }
@@ -319,6 +325,18 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         return *idle;
     }
     match name {
+        "approx_eq" => {
+            let Some((first, rest)) = arguments.split_first().filter(|(_, rest)| !rest.is_empty())
+            else {
+                return 0.0;
+            };
+            truth(
+                rest.iter()
+                    .all(|argument| first.number() == argument.number()),
+            )
+        }
+        "is_local_player" => truth(context.is_local_player),
+        "is_on_fire" => truth(actor.is_on_fire()),
         "frame_alpha" => context.frame_alpha,
         "anim_time" => evaluator.anim_tick as f32 * ACTOR_TICK_DURATION.as_secs_f32(),
         "life_time" => {
@@ -425,6 +443,9 @@ fn number(evaluator: &QueryInputs<'_>, name: &str, arguments: &[MolangValue]) ->
         // Ticks stand in for the world clock; only the phase between actors differs.
         "time_stamp" => evaluator.life_tick as f32,
         "has_target" => truth(has_target(actor)),
+        "swell_amount" if actor.is_creeper() => evaluator
+            .swell_amount
+            .unwrap_or_else(|| actor.creeper_swell_amount(context.frame_alpha)),
         "swell_amount" => metadata_number(actor, KEY_SWELL)
             .map_or(0.0, |swell| (swell / SWELL_FULL_TICKS).max(0.0)),
         // Wither armor shows below half health.

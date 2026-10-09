@@ -1,12 +1,14 @@
 use std::f32::consts::PI;
 
 use bevy::{
+    anti_alias::smaa::Smaa,
     core_pipeline::tonemapping::Tonemapping,
     input::{
         mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
         touch::Touches,
     },
     prelude::*,
+    render::render_resource::TextureUsages,
     window::{PrimaryWindow, Window},
 };
 use ui::UserSettings;
@@ -16,6 +18,7 @@ use crate::local_player::{
     LocalPlayerFrameCarrier, LocalViewPose,
 };
 
+pub mod actor_effects;
 pub mod antialiasing;
 mod bob;
 mod controls;
@@ -53,7 +56,7 @@ pub use overlay::{
     HeadMedium, OverlayKind, OverlayLayer, PortalProgress, ScreenEffectInputs, ScreenOverlays,
     VisionEffects, compute_overlays,
 };
-pub use portal_projection::{first_person_hand_fov, update_camera_fov};
+pub use portal_projection::{first_person_hand_fov, set_camera_projection_fov, update_camera_fov};
 pub use presentation::{FirstPersonHandMotion, ScreenEffectFacts};
 pub use rig::{
     collision_safe_perspective_pose, collision_safe_rig_pose, perspective_pose, rig_pose,
@@ -122,8 +125,13 @@ pub fn spawn_fly_camera(
     support: Res<antialiasing::CameraAntiAliasingSupport>,
 ) {
     let camera = FlyCamera::default();
-    commands.spawn((
-        Camera3d::default(),
+    let mut entity = commands.spawn((
+        Camera3d {
+            depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::TEXTURE_BINDING)
+                .into(),
+            ..default()
+        },
         support.msaa(settings.anti_aliasing_samples()),
         Projection::Perspective(PerspectiveProjection {
             fov: projection_fov_radians(settings.horizontal_fov_degrees()),
@@ -140,6 +148,9 @@ pub fn spawn_fly_camera(
             settings.perspective(),
         ),
     ));
+    if settings.smaa_mode() == ui::SmaaMode::Smaa {
+        entity.insert(Smaa::default());
+    }
 }
 
 /// Owns camera presentation state; callers retain their input and frame scheduling.

@@ -555,11 +555,11 @@ fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
 }
 
 #[test]
-fn animations_default_to_java_and_persist_both_choices() {
+fn animations_default_to_bedrock_and_persist_both_choices() {
     let mut settings = SettingsOptions::default();
     let index = index("animations");
-    assert_eq!(settings.get(index), 0);
-    assert!(settings.user_settings().video.java_animations);
+    assert_eq!(settings.get(index), 1);
+    assert!(!settings.user_settings().video.java_animations);
     for choice in [1, 0] {
         settings.set(index, choice);
         let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
@@ -567,10 +567,10 @@ fn animations_default_to_java_and_persist_both_choices() {
         assert_eq!(loaded.user_settings().video.java_animations, choice == 0);
     }
     let untouched = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
-    assert!(untouched.user_settings().video.java_animations);
-    settings.set(index, 1);
+    assert!(!untouched.user_settings().video.java_animations);
+    settings.set(index, 0);
     settings.reset_group(super::SettingsGroup::Video);
-    assert!(settings.user_settings().video.java_animations);
+    assert!(!settings.user_settings().video.java_animations);
 }
 
 #[test]

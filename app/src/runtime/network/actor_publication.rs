@@ -1,4 +1,4 @@
-//! Captures pre-send observations and finalizes poses after local interaction admission.
+//! Captures post-send observations and finalizes poses after local interaction admission.
 use crate::{
     movement::{LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries},
     player_runtime::PlayerRuntime,
@@ -11,6 +11,22 @@ pub(crate) use client_presentation::actor_publication::{
     ActorFramePartialTick, HandRigBuilder, publish_actor_render_frame,
 };
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+
+/// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
+pub(crate) fn publish_local_actor_damage(
+    world: Res<ClientWorld>,
+    mut ui: Option<ResMut<UiRuntime>>,
+) {
+    let Some(ui) = ui.as_deref_mut() else {
+        return;
+    };
+    let actor = world
+        .stream
+        .as_ref()
+        .filter(|_| world.fatal_error.is_none() && world.transfer_notice.is_none())
+        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
+    ui.publish_local_actor_health(actor);
+}
 
 /// App-owned inputs borrowed only while this frame's presentation is prepared.
 #[derive(SystemParam)]
@@ -33,7 +49,20 @@ pub(crate) struct ActorObservations<'w> {
     profiler: Option<Res<'w, render::RuntimeStageProfiler>>,
 }
 
-/// Captures live owners and advances actors before UI and interaction picking.
+/// Predicts remote actors at this frame's tick positions before interaction picks them.
+pub(crate) fn advance_actor_motion(
+    mut world: ResMut<ClientWorld>,
+    mut state: ResMut<client_presentation::actor_publication::ActorFrameState>,
+    time: Res<Time<Real>>,
+) {
+    client_presentation::actor_publication::advance_actor_motion(
+        &mut state,
+        world.stream.as_mut(),
+        time.delta(),
+    );
+}
+
+/// Captures live owners and evaluates actor visuals after this frame's sends.
 pub(crate) fn advance_actor_frame(
     observations: ActorObservations,
     params: client_presentation::actor_publication::ActorFramePublication,
@@ -374,3 +403,7 @@ mod custom_emotes;
 #[cfg(test)]
 #[path = "actor_publication/tests/item_swing.rs"]
 mod item_swing;
+
+#[cfg(test)]
+#[path = "actor_publication/tests/damage.rs"]
+mod damage;

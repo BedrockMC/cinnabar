@@ -113,7 +113,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
     let mut settings = crate::camera::CameraSettingsAuthority::default();
     let mut user = ui::UserSettings::default();
-    assert!(user.video.java_animations, "exercise the default overlay");
+    user.video.java_animations = true;
     user.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
     settings.replace(1, &user).unwrap();
     world.insert_resource(settings);

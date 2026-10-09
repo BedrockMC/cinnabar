@@ -1,6 +1,6 @@
 use super::*;
-use crate::item::EquipmentOutcome;
 
+mod equipment;
 mod interpolation;
 
 impl ActorStore {
@@ -101,12 +101,18 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            pending_local_health: None,
+            pending_local_damage: None,
+            local_health_skips: 0,
+            local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
             synthetic_local_skin_pending: false,
             synthetic_local_revision: 0,
             local_first_person: false,
             local_view_dirty: false,
+            pick_states: Vec::new(),
+            picks_ahead: false,
             local_view_bobbing: true,
             local_flying: false,
             local_hands: [None, None],
@@ -211,6 +217,7 @@ impl ActorStore {
             ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.actors.insert(runtime_id, actor);
+        self.apply_pending_local_health(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
             self.animation
                 .insert(self.session_id, self.dimension, actor);
@@ -284,7 +291,12 @@ impl ActorStore {
     #[cfg(test)]
     pub(crate) fn begin_session(&mut self, session_id: u64, dimension: i32) {
         self.session_id = session_id;
+        self.pending_local_health = None;
+        self.pending_local_damage = None;
+        self.local_health_skips = 0;
+        self.local_player_spawned = false;
         self.local_flying = false;
+        self.picks_ahead = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
         self.aim_actor_classes.clear();
@@ -321,6 +333,20 @@ impl ActorStore {
         }
         self.dimension = dimension;
         self.local_flying = false;
+        self.pending_local_health = self
+            .remote_state_excluded_runtime_id
+            .and_then(|runtime_id| self.actors.get(&runtime_id))
+            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .cloned()
+            .or_else(|| self.pending_local_health.take());
+        self.pending_local_damage = self
+            .remote_state_excluded_runtime_id
+            .and_then(|runtime_id| self.actors.get(&runtime_id))
+            .map(|actor| super::local_health::PendingLocalDamage {
+                damage: actor.status.damage,
+                hurt_time: actor.status.hurt_time,
+            })
+            .or_else(|| self.pending_local_damage.take());
         self.actors.clear();
         self.unique_to_runtime.clear();
         self.rider_to_ridden.clear();
@@ -505,6 +531,7 @@ impl ActorStore {
                 }
             }
             ActorEvent::Attributes(update) => {
+                self.retain_unspawned_local_health(update.runtime_id, &update.attributes);
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     return ActorApplyResult::MissingActor;
                 };
@@ -658,6 +685,17 @@ impl ActorStore {
         let held_item = spawn.held_item.clone();
         self.actors
             .insert(runtime_id, ActorSnapshot::from_spawn(spawn, sequence));
+        if self.remote_state_excluded_runtime_id == Some(runtime_id) {
+            if self.actors[&runtime_id]
+                .attributes
+                .contains_key("minecraft:health")
+            {
+                self.pending_local_health = None;
+                self.pending_local_damage = None;
+            } else {
+                self.apply_pending_local_health(runtime_id);
+            }
+        }
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.adopt_spawned_unique_id(runtime_id);
         self.prune_unlisted_players();
@@ -732,50 +770,6 @@ impl ActorStore {
             .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
     }
 
-    pub(crate) fn apply_equipment(
-        &mut self,
-        session_id: u64,
-        sequence: u64,
-        event: EquipmentEvent,
-    ) -> ActorApplyResult {
-        let (runtime_id, stack) = (event.actor_runtime_id, event.stack.clone());
-        let (result, outcome) = self.apply_equipment_inner(session_id, sequence, event);
-        self.items.note(runtime_id, false, outcome, &[&stack]);
-        result
-    }
-
-    fn apply_equipment_inner(
-        &mut self,
-        session_id: u64,
-        sequence: u64,
-        event: EquipmentEvent,
-    ) -> (ActorApplyResult, EquipmentOutcome) {
-        let guard = self.guard(session_id, sequence);
-        if guard != ActorApplyResult::Updated {
-            return (guard, EquipmentOutcome::Stale);
-        }
-        if self.remote_state_excluded_runtime_id == Some(event.actor_runtime_id) {
-            return (
-                ActorApplyResult::MissingActor,
-                EquipmentOutcome::LocalPlayer,
-            );
-        }
-        let Some(lifetime) = self.lifetime(event.actor_runtime_id) else {
-            return (
-                ActorApplyResult::MissingActor,
-                EquipmentOutcome::UnknownActor,
-            );
-        };
-        if self.items.apply_equipment(lifetime, sequence, event) {
-            (ActorApplyResult::Updated, EquipmentOutcome::Applied)
-        } else {
-            (
-                ActorApplyResult::CapacityRejected,
-                EquipmentOutcome::RejectedStack,
-            )
-        }
-    }
-
     /// Layers a session's server-pack entity catalog over the vanilla one.
     pub(crate) fn set_pack_entities(
         &mut self,
@@ -807,68 +801,6 @@ impl ActorStore {
         timings: std::sync::Arc<std::collections::BTreeMap<Box<str>, protocol::ItemAttackTiming>>,
     ) {
         self.items.set_attack_timings(timings);
-    }
-
-    /// Applies worn armor to a live remote actor, or to the client-owned local runtime even
-    /// before its synthetic actor exists.
-    pub(crate) fn apply_armor(
-        &mut self,
-        session_id: u64,
-        sequence: u64,
-        event: &protocol::ArmorEquipmentEvent,
-    ) -> ActorApplyResult {
-        let (result, outcome) = self.apply_armor_inner(session_id, sequence, event);
-        let stacks = [
-            &event.helmet,
-            &event.chestplate,
-            &event.leggings,
-            &event.boots,
-            &event.body,
-        ];
-        self.items
-            .note(event.actor_runtime_id, true, outcome, &stacks);
-        result
-    }
-
-    fn apply_armor_inner(
-        &mut self,
-        session_id: u64,
-        sequence: u64,
-        event: &protocol::ArmorEquipmentEvent,
-    ) -> (ActorApplyResult, EquipmentOutcome) {
-        let guard = self.guard(session_id, sequence);
-        if guard != ActorApplyResult::Updated {
-            return (guard, EquipmentOutcome::Stale);
-        }
-        let lifetime = self.lifetime(event.actor_runtime_id).or_else(|| {
-            (self.remote_state_excluded_runtime_id == Some(event.actor_runtime_id)).then_some(
-                ActorLifetimeId {
-                    session_id: self.session_id,
-                    dimension: self.dimension,
-                    runtime_id: event.actor_runtime_id,
-                    spawn_revision: 0,
-                },
-            )
-        });
-        let Some(lifetime) = lifetime else {
-            return (
-                ActorApplyResult::MissingActor,
-                EquipmentOutcome::UnknownActor,
-            );
-        };
-        if self.items.apply_armor(lifetime, sequence, event) {
-            (ActorApplyResult::Updated, EquipmentOutcome::Applied)
-        } else {
-            (
-                ActorApplyResult::CapacityRejected,
-                EquipmentOutcome::RejectedStack,
-            )
-        }
-    }
-
-    /// Drains where equipment events landed since the last call.
-    pub(crate) fn take_equipment_notices(&mut self) -> Vec<crate::EquipmentNotice> {
-        self.items.take_notices()
     }
 
     pub(crate) fn apply_item_actor(

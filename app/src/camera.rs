@@ -99,10 +99,18 @@ impl Plugin for FlyCameraPlugin {
                     .chain()
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
-                // After camera input, so a rig committed this frame sets this frame's FOV.
-                update_camera_fov
+                (
+                    presentation::collect_death_fov_inputs,
+                    update_camera_fov,
+                    presentation::apply_actor_damage_camera_rotation
+                        .in_set(client_presentation::camera::actor_effects::ActorCameraEffects),
+                    overlay_publish::publish_screen_overlays,
+                )
+                    .chain()
                     .after(FlyCameraUpdateSet)
-                    .before(ClientFrameSet::Camera),
+                    .after(ClientFrameSet::Camera)
+                    .after(ClientFrameSet::ActorPreparation)
+                    .before(ClientFrameSet::UiPreparation),
                 (
                     update_cursor_capture,
                     update_perspective,
@@ -116,7 +124,6 @@ impl Plugin for FlyCameraPlugin {
                     presentation::advance_presentation_state,
                     presentation::update_screen_overlays,
                     presentation::apply_camera_presentation,
-                    overlay_publish::publish_screen_overlays,
                     facts::diagnose_portal,
                 )
                     .chain()
@@ -250,3 +257,46 @@ fn axis(positive: bool, negative: bool) -> f32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod antialiasing_settings_tests {
+    use super::*;
+    use bevy::anti_alias::smaa::Smaa;
+
+    #[test]
+    fn runtime_settings_enable_and_disable_world_smaa_alongside_msaa() {
+        let mut app = App::new();
+        app.init_resource::<RuntimeSettings>()
+            .init_resource::<CameraSettingsAuthority>()
+            .init_resource::<antialiasing::CameraAntiAliasingSupport>()
+            .add_systems(
+                Update,
+                (
+                    apply_runtime_camera_settings,
+                    antialiasing::apply_camera_antialiasing,
+                )
+                    .chain(),
+            );
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Msaa::Off))
+            .id();
+        let mut settings = ui::UserSettings::default();
+        settings.video.smaa_mode = ui::SmaaMode::Smaa;
+        app.world_mut()
+            .resource_mut::<RuntimeSettings>()
+            .replace_user_settings(settings.clone());
+        app.update();
+        assert!(app.world().get::<Smaa>(camera).is_some());
+        assert_eq!(
+            app.world().get::<Msaa>(camera).unwrap().samples(),
+            settings.video.anti_aliasing_samples
+        );
+        settings.video.smaa_mode = ui::SmaaMode::Off;
+        app.world_mut()
+            .resource_mut::<RuntimeSettings>()
+            .replace_user_settings(settings);
+        app.update();
+        assert!(app.world().get::<Smaa>(camera).is_none());
+    }
+}

@@ -1,7 +1,10 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+mod alpha_coverage;
+mod depth_smaa;
 #[cfg(test)]
 #[path = "../tests/it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+pub use depth_smaa::DepthSmaaPlugin;
 mod lighting;
 mod lightmap;
 #[cfg(test)]
@@ -34,7 +37,7 @@ mod entity_shadow_render;
 pub use enhanced::{EnhancedRenderPlugin, EnhancedRendering, MAX_SHADOW_CASCADES};
 pub use entity_shadow_render::{EntityShadowRenderPlugin, EntityShadowScene};
 mod gpu_timing;
-pub use gpu_timing::{GpuFrameTimes, GpuTimingPlugin};
+pub use gpu_timing::{DetailedGpuTiming, GpuFrameTimes, GpuTimingPlugin};
 
 mod dropped_item_render;
 mod hand_rig_render;
@@ -124,7 +127,7 @@ pub use actor::{
     MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_PRESENTED_ACKNOWLEDGEMENTS,
     MAX_ACTOR_RENDER_DISTANCE_BLOCKS, MAX_ACTOR_RENDER_INSTANCES, MAX_ACTOR_TEXTURE_PAGES,
     ResidentSkin, actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
-    pack_overlay_rgba8, pack_skin_slot,
+    pack_actor_light_without_lightmap, pack_overlay_rgba8, pack_skin_slot,
 };
 pub use actor_render::ActorRenderPlugin;
 pub use atmosphere::{
@@ -204,7 +207,8 @@ pub use panorama::{PANORAMA_WGSL, PanoramaScene};
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     PresentModePolicy, PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
-    requested_present_mode_kind, resolve_dx12_present_mode_remedy, window_present_mode,
+    frame_latency_for_vsync, requested_present_mode_kind, resolve_dx12_present_mode_remedy,
+    window_present_mode,
 };
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,

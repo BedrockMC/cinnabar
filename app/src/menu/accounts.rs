@@ -130,6 +130,7 @@ impl MenuRuntime {
             }
             MenuAction::StartSignIn
             | MenuAction::CancelSignIn
+            | MenuAction::CloseSignIn
             | MenuAction::AddAccount
             | MenuAction::SignOut => true,
             _ => false,
@@ -219,6 +220,7 @@ impl MenuRuntime {
         }
         self.sign_in_cancelled = false;
         self.accounts.operation = Some(Operation::Switch(account.id.clone()));
+        self.retry_target = None;
         self.focused = 0;
     }
 
