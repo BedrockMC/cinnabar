@@ -6033,6 +6033,20 @@ scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
 
+### Between-frames world servicing (incomplete native acceptance)
+
+The production client lends `WorldStream` to a `stream-service` thread after each frame's
+last schedule and reclaims it before the next frame's first, so decode commits, light and
+mesh scheduling and retention evictions overlap extraction and pacing. The frame keeps a
+floor poll and still commits the chunk data that a ready block change, retention change
+or barrier waits behind. Resident membership, keyed stream state and terrain lookups use
+hashed indexes, and mesh halo and neighbour checks read each index once. Offline synthetic
+replays (radius 12, 120 Hz) cut frame-thread stream time several-fold and converge to the
+same presented meshes ([offline evidence](docs/evidence/async-chunk-servicing.md)); joins
+mesh the faced view sooner and rear sub-chunks of nearby columns later. Release captures on
+target hardware, live join and streaming budgets, and real-pack meshing and lighting load
+remain open.
+
 ### Inventory/HUD correction continuation (2026-10-02, incomplete general parity)
 
 Selected-item text now positions its spawned Java-look factory root above the

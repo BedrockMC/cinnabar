@@ -19,9 +19,10 @@ pub use stream::{
     Phase2PresentationSnapshot, Phase2PublicationSnapshot, PresentModeIdentity,
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
     PublicationStageCounters, RequestClass, RequestClassDepth, RequestQueueEvidence,
-    SUB_CHUNK_RESPONSE_TIMEOUT, StageDurations, SubChunkOutcomeCounters, ViewCohortStatus,
-    WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError, WorldStreamFatalError,
-    WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamStats,
+    SUB_CHUNK_RESPONSE_TIMEOUT, ServicedStream, StageDurations, SubChunkOutcomeCounters,
+    ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream, WorldStreamError,
+    WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamService,
+    WorldStreamStats,
 };
 #[cfg(feature = "publication-test-support")]
 pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
