@@ -10,14 +10,16 @@ use bevy::{
     window::{PresentMode, Window},
 };
 
-/// One queued frame: input-to-photon drops a refresh against the default two.
-const PRIMARY_FRAME_LATENCY: NonZeroU32 = NonZeroU32::MIN;
-
-pub(super) fn primary_window(title: String, present_mode: PresentMode) -> Window {
+/// The primary window; `frame_latency` must suit the session's VSync choice from the start.
+pub(super) fn primary_window(
+    title: String,
+    present_mode: PresentMode,
+    frame_latency: NonZeroU32,
+) -> Window {
     Window {
         title,
         present_mode,
-        desired_maximum_frame_latency: Some(PRIMARY_FRAME_LATENCY),
+        desired_maximum_frame_latency: Some(frame_latency),
         ..Default::default()
     }
 }
@@ -44,14 +46,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn primary_window_queues_a_single_frame() {
-        for present_mode in [PresentMode::Fifo, PresentMode::AutoNoVsync] {
-            let window = primary_window(String::new(), present_mode);
+    fn primary_window_queues_one_frame_with_vsync_and_two_without() {
+        // Windows request FIFO until the surface is probed, whatever VSync choice they serve.
+        for (vsync, queued) in [(true, 1), (false, 2)] {
+            let window = primary_window(
+                String::new(),
+                PresentMode::Fifo,
+                render::frame_latency_for_vsync(vsync),
+            );
             assert_eq!(
                 window.desired_maximum_frame_latency.map(NonZeroU32::get),
-                Some(1)
+                Some(queued)
             );
-            assert_eq!(window.present_mode, present_mode);
+            assert_eq!(window.present_mode, PresentMode::Fifo);
         }
     }
 }

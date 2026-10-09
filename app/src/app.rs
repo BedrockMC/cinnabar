@@ -701,9 +701,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     };
     let shutdown_watchdog = ShutdownWatchdog::process(SHUTDOWN_WATCHDOG_TIMEOUT);
 
+    let startup_vsync = present_mode_runtime
+        .vsync_override()
+        .unwrap_or_else(|| saved_settings.user_settings().video.vsync);
     let primary_window = render_setup::primary_window(
         launcher::window_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref()),
         present_mode,
+        render::frame_latency_for_vsync(startup_vsync),
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);

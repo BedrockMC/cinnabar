@@ -204,7 +204,8 @@ pub use panorama::{PANORAMA_WGSL, PanoramaScene};
 pub use panorama_render::PanoramaRenderPlugin;
 pub use present_mode::{
     PresentModePolicy, PresentModePolicyPlugin, PresentModePreference, PresentModeRemedy,
-    requested_present_mode_kind, resolve_dx12_present_mode_remedy, window_present_mode,
+    frame_latency_for_vsync, requested_present_mode_kind, resolve_dx12_present_mode_remedy,
+    window_present_mode,
 };
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
