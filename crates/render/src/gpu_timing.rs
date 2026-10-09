@@ -24,6 +24,7 @@ use bevy::{
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
         extract_resource::{ExtractResource, ExtractResourcePlugin},
+        graph::CameraDriverLabel,
         render_graph::{
             EmptyNode, InternedRenderLabel, Node, NodeRunError, RenderGraph, RenderGraphContext,
             RenderLabel, SlotInfo,
@@ -37,7 +38,7 @@ use std::{
     marker::PhantomData,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -54,6 +55,7 @@ const SLOT_BYTES: u64 = SLOT_SPANS as u64 * 2 * TIMESTAMP_BYTES;
 const TIMESTAMP_BYTES: u64 = 8;
 const NO_SLOT: u32 = u32::MAX;
 const NO_SPAN: u32 = u32::MAX;
+const NOT_RESOLVED: u64 = u64::MAX;
 
 const PENDING: u8 = 0;
 const MAPPED: u8 = 1;
@@ -83,12 +85,15 @@ impl Plugin for GpuTimingPlugin {
             .insert_resource(profiler)
             // RenderStartup runs inside the render app after every plugin has built the graph,
             // and still reaches it after pipelined rendering moves the app to its own thread.
-            .add_systems(RenderStartup, (init_gpu_timestamps, wrap_timed_nodes))
+            .add_systems(
+                RenderStartup,
+                (init_gpu_timestamps, wrap_timed_nodes, add_readback_node),
+            )
             .add_systems(
                 Render,
                 (
                     begin_gpu_frame.in_set(RenderSystems::PrepareResources),
-                    submit_gpu_frame.in_set(crate::device_poll::FrameSubmissions),
+                    request_gpu_frame_readback.in_set(crate::device_poll::FrameSubmissions),
                 ),
             );
         #[cfg(feature = "tracy")]
@@ -161,6 +166,37 @@ fn wrap_timed_nodes(world: &mut World) {
             inner = replacement;
         }
         state.node = Box::new(TimedNode { inner, stage });
+    }
+}
+
+/// Resolves the frame's spans at the end of its own graph, after every camera.
+fn add_readback_node(world: &mut World) {
+    let Some(mut graph) = world.get_resource_mut::<RenderGraph>() else {
+        return;
+    };
+    if graph.get_node_state(CameraDriverLabel).is_err() {
+        return;
+    }
+    graph.add_node(ReadbackLabel, ReadbackNode);
+    graph.add_node_edge(CameraDriverLabel, ReadbackLabel);
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct ReadbackLabel;
+
+struct ReadbackNode;
+
+impl Node for ReadbackNode {
+    fn run<'w>(
+        &self,
+        _: &mut RenderGraphContext,
+        render_context: &mut RenderContext<'w>,
+        world: &'w World,
+    ) -> Result<(), NodeRunError> {
+        if let Some(timestamps) = world.get_resource::<GpuTimestamps>() {
+            timestamps.encode_readback(render_context.command_encoder());
+        }
+        Ok(())
     }
 }
 
@@ -272,8 +308,10 @@ struct FrameSpans {
     stages: [AtomicU8; SLOT_SPANS as usize],
     /// Whether the frame's first timed node has run.
     started: AtomicBool,
-    /// Begin query of a whole-frame span that [`GpuTimestamps::submit`] still has to close.
+    /// Begin query of a whole-frame span that [`GpuTimestamps::encode_readback`] still has to close.
     open_frame: AtomicU32,
+    /// Pass and draw span counts copied for readback, packed high and low, or `NOT_RESOLVED`.
+    resolved: AtomicU64,
 }
 
 struct ReadbackSlot {
@@ -350,6 +388,7 @@ impl GpuTimestamps {
                 stages: std::array::from_fn(|_| AtomicU8::new(0)),
                 started: AtomicBool::new(false),
                 open_frame: AtomicU32::new(NO_SPAN),
+                resolved: AtomicU64::new(NOT_RESOLVED),
             },
             health: health::QueryHealth::requested(),
         })
@@ -463,34 +502,30 @@ impl GpuTimestamps {
         self.frame.draws.store(0, Ordering::Relaxed);
         self.frame.started.store(false, Ordering::Relaxed);
         self.frame.open_frame.store(NO_SPAN, Ordering::Relaxed);
+        self.frame.resolved.store(NOT_RESOLVED, Ordering::Relaxed);
         self.frame.slot.store(slot, Ordering::Release);
     }
 
-    /// Resolves this frame's spans and maps them asynchronously; nothing waits on the GPU.
-    fn submit(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    /// Closes the whole-frame span and copies the frame's spans into its readback slot, inside the
+    /// frame's own submission so timing adds no queue submission.
+    fn encode_readback(&self, encoder: &mut wgpu::CommandEncoder) {
         #[cfg(feature = "tracy")]
-        let _zone = bevy::log::info_span!("gpu.timestamps.resolve_submit").entered();
-        let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
+        let _zone = bevy::log::info_span!("gpu.timestamps.resolve").entered();
+        let slot = self.frame.slot.load(Ordering::Acquire);
         if slot == NO_SLOT {
             return;
         }
         let passes = self.frame.passes.load(Ordering::Relaxed).min(PASS_SPANS);
         let draws = self.frame.draws.load(Ordering::Relaxed);
         let draws = if draws > DRAW_SPANS { 0 } else { draws };
-        let index = slot as usize;
         if passes == 0 && draws == 0 {
-            self.ring.release(index);
             return;
         }
-        let base = slot * SLOT_SPANS * 2;
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("gpu timestamp readback"),
-        });
-        // The queue runs this after the frame's graph work, so it closes the whole-frame span.
         let open_frame = self.frame.open_frame.swap(NO_SPAN, Ordering::AcqRel);
         if open_frame != NO_SPAN {
-            mark(&mut encoder, &self.queries, open_frame + 1);
+            mark(encoder, &self.queries, open_frame + 1);
         }
+        let base = slot * SLOT_SPANS * 2;
         if passes > 0 {
             encoder.resolve_query_set(&self.queries, base..base + passes * 2, &self.resolve, 0);
         }
@@ -503,14 +538,29 @@ impl GpuTimestamps {
                 u64::from(PASS_SPANS) * 2 * TIMESTAMP_BYTES,
             );
         }
-        let target = &mut self.slots[index];
+        let target = &self.slots[slot as usize];
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &target.buffer, 0, SLOT_BYTES);
-        let command = encoder.finish();
-        {
-            #[cfg(feature = "tracy")]
-            let _zone = bevy::log::info_span!("gpu.timestamps.queue_submit", slot).entered();
-            queue.submit([command]);
+        self.frame.resolved.store(
+            u64::from(passes) << 32 | u64::from(draws),
+            Ordering::Release,
+        );
+    }
+
+    /// Maps the slot the submitted frame resolved into; nothing waits on the GPU. A frame whose
+    /// graph resolved nothing gives its slot back.
+    fn request_readback(&mut self) {
+        let slot = self.frame.slot.swap(NO_SLOT, Ordering::AcqRel);
+        if slot == NO_SLOT {
+            return;
         }
+        let index = slot as usize;
+        let resolved = self.frame.resolved.swap(NOT_RESOLVED, Ordering::AcqRel);
+        if resolved == NOT_RESOLVED {
+            self.ring.release(index);
+            return;
+        }
+        let (passes, draws) = ((resolved >> 32) as u32, resolved as u32);
+        let target = &mut self.slots[index];
         target.passes = passes;
         target.draws = draws;
         for span in (0..passes).chain(PASS_SPANS..PASS_SPANS + draws) {
@@ -567,12 +617,8 @@ fn begin_gpu_frame(
     timestamps.begin(|frame| profiler.record_gpu_frame(frame));
 }
 
-fn submit_gpu_frame(
-    timestamps: Option<ResMut<GpuTimestamps>>,
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
-) {
+fn request_gpu_frame_readback(timestamps: Option<ResMut<GpuTimestamps>>) {
     if let Some(mut timestamps) = timestamps {
-        timestamps.submit(&device, &queue);
+        timestamps.request_readback();
     }
 }

@@ -113,7 +113,7 @@ fn metal_pass_markers_emit_readable_timestamps() {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     queue.submit(context.finish().0);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
-    timestamps.submit(&device, &queue);
+    super::tests::finish_frame(&mut timestamps, &device, &queue);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let index = timestamps.ring.oldest_in_flight().unwrap();
     let mapped = timestamps.slots[index].buffer.slice(..).get_mapped_range();

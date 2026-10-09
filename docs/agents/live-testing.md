@@ -166,7 +166,7 @@ GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
 window they appear in. `gpu_frame` spans the first to last timestamp only when the sampled graph covers the frame.
 Without the stage profiler or a shown F3 overlay, frames record only `gpu_frame`, from the first timed
-node to the readback submission, which can include idle time after the graph finishes.
+node to the end of the frame's graph, where the frame's own submission resolves its spans.
 On Metal, queries attach to existing owned render passes and the stock opaque pass:
 other stock Bevy passes and shared draw categories remain unmeasured, and `gpu_frame` stays absent. Empty
 compute marker passes do not produce usable timestamps on Apple GPUs. Pass categories
