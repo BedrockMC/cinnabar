@@ -44,7 +44,6 @@ fn serviced_app(slot: Option<WorldServiceSlot>) -> App {
 fn frame_systems_always_find_the_stream_while_the_service_holds_it_between_frames() {
     let service = WorldServiceSlot {
         service: WorldStreamService::spawn().unwrap(),
-        launched_at: None,
     };
     let mut app = serviced_app(Some(service));
     for _ in 0..3 {

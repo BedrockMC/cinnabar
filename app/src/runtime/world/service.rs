@@ -27,7 +27,6 @@ pub(crate) struct WorldServiceReclaim;
 #[derive(Resource)]
 pub(crate) struct WorldServiceSlot {
     service: WorldStreamService,
-    launched_at: Option<Instant>,
 }
 
 impl WorldServiceSlot {
@@ -38,7 +37,6 @@ impl WorldServiceSlot {
         }
         Ok(Some(Self {
             service: WorldStreamService::spawn()?,
-            launched_at: None,
         }))
     }
 }
@@ -69,7 +67,6 @@ fn launch_world_service(
     let Some(stream) = client_world.stream.take() else {
         return;
     };
-    slot.launched_at = Some(Instant::now());
     slot.service.launch(
         stream,
         view.eye_translation().to_array(),
@@ -103,11 +100,9 @@ fn reclaim_world_service(
     if let Some(profiler) = profiler {
         profiler.record(RuntimeStage::WorldServiceReclaim, started, reclaimed);
         if serviced.busy > Duration::ZERO {
-            let launched_at = slot.launched_at.unwrap_or(started);
-            profiler.record(RuntimeStage::WorldService, launched_at, serviced.busy);
+            profiler.record_background_sample(RuntimeStage::WorldService, serviced.busy);
         }
     }
-    slot.launched_at = None;
 }
 
 #[cfg(test)]

@@ -86,6 +86,8 @@ struct ServiceLaunch {
     max_mesh_jobs: usize,
 }
 
+// Keep successful handoffs inline: boxing the stream would allocate on every frame.
+#[allow(clippy::large_enum_variant)]
 enum ServiceResult {
     Done(ServicedStream),
     Panicked(Box<dyn Any + Send>),

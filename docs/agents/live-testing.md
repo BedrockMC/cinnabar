@@ -162,7 +162,8 @@ later of its frame-rate cadence slot and the predicted render-thread completion;
 `frame_pacing_lateness` is how far past that deadline the wait woke. `RUST_MCBE_INPUT_PACING=0`
 stops only the render-completion delay; a frame-rate cap still applies.
 `world_service` is the world-stream service thread's polling time between frames, recorded
-at reclaim; it overlaps extraction and pacing and is not main-thread time.
+at reclaim; it overlaps extraction and pacing and is not main-thread time. Trace exports
+show it as a background-work counter at receipt, not a continuous execution span.
 `world_service_reclaim` is the main-thread wait to take the stream back before `First`.
 `RUST_MCBE_WORLD_SERVICE=0` keeps every world-stream poll on the main thread, a
 same-binary control for chunk-streaming comparisons.
