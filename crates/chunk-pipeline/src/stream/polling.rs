@@ -68,6 +68,7 @@ impl WorldStream {
     pub fn poll(&mut self, camera_position: [f32; 3], max_mesh_jobs: usize) -> WorldStreamPoll {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.poll").entered();
+        let mesh_changes_queued = self.stats.phase2_stages.mesh_changes_queued;
         // Before any commit, as the request preceded every commit still to come.
         self.apply_due_chunk_retention();
         if camera_position.iter().all(|value| value.is_finite()) {
@@ -78,25 +79,7 @@ impl WorldStream {
                 floor_to_i32(camera_position[2]).div_euclid(16),
             ));
         }
-        let now = Instant::now();
-        let mut frame_deadline = self
-            .frame_deadline
-            .take()
-            .unwrap_or_else(|| self.poll_deadline.unwrap_or(now + self.poll_budget));
-        // A service that held the stream for a whole allocation between frames carries the
-        // backlog: the frame keeps the floor allocation and leaves chunk-data commits to it.
-        let offloaded = self.between_frames_service
-            && self.service_yield.is_none()
-            && self.service_window >= self.poll_budget;
-        if offloaded {
-            frame_deadline = frame_deadline.min(now + commit_budget::WORLD_POLL_BUDGET_FLOOR);
-        }
-        let remaining = frame_deadline.saturating_duration_since(now);
-        self.poll_deadline
-            .get_or_insert(now + remaining - remaining / commit_budget::WORLD_SCHEDULING_SHARE);
-        self.polling = true;
-        self.poll_heavy_guarantee = true;
-        self.chunk_data_offloaded = offloaded;
+        let frame_deadline = self.begin_poll_work(Instant::now());
         let commit_steps = self.commit_steps;
         let mut report = WorldStreamPoll::default();
         while report.decoded_results == 0 || !self.poll_budget_exhausted() {
@@ -174,6 +157,11 @@ impl WorldStream {
         self.polling = false;
         self.chunk_data_offloaded = false;
         report.commit_steps = self.commit_steps.wrapping_sub(commit_steps) as usize;
+        report.mesh_changes_queued = self
+            .stats
+            .phase2_stages
+            .mesh_changes_queued
+            .saturating_sub(mesh_changes_queued) as usize;
         report
     }
     /// Dispatches the light and mesh work a live block change made urgent, without

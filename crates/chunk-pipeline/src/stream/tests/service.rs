@@ -103,3 +103,49 @@ fn dropping_a_servicing_service_drops_its_stream() {
     drop(service);
     assert_eq!(Arc::strong_count(&witness), 1);
 }
+
+/// Offloaded foreground polling reserves lighting and meshing time inside its smaller limit,
+/// even when ingress already started the normal frame allocation.
+#[test]
+fn service_poll_clamps_the_commit_deadline_after_frame_work_started() {
+    let mut stream = block_entity_visual_stream();
+    stream.between_frames_service = true;
+    stream.service_window = stream.poll_budget;
+    stream.begin_frame_work();
+    let now = stream.frame_deadline.unwrap() - stream.poll_budget;
+    let frame_deadline = stream.begin_poll_work(now);
+    let allocation = super::super::commit_budget::WORLD_POLL_BUDGET_FLOOR;
+    assert_eq!(frame_deadline, now + allocation);
+    assert_eq!(stream.poll_deadline, Some(now + allocation / 2));
+}
+
+/// Starting the next poll never grants more time to an already exhausted commit lane.
+#[test]
+fn service_poll_preserves_an_earlier_commit_deadline() {
+    let mut stream = block_entity_visual_stream();
+    stream.between_frames_service = true;
+    stream.service_window = stream.poll_budget;
+    let now = Instant::now();
+    let expired = now - Duration::from_millis(1);
+    stream.frame_deadline = Some(now + stream.poll_budget);
+    stream.poll_deadline = Some(expired);
+    stream.begin_poll_work(now);
+    assert_eq!(stream.poll_deadline, Some(expired));
+}
+
+/// A removal-only slice makes progress even without worker results or dispatched jobs; the
+/// service must keep polling the remaining removals instead of treating that slice as idle.
+#[test]
+fn service_poll_reports_removal_progress_with_more_removals_ready() {
+    let mut stream = block_entity_visual_stream();
+    for x in 0..4 {
+        stream.mark_dirty_exact(SubChunkKey::new(0, x, 0, 0), Instant::now());
+    }
+    stream.frame_deadline = Some(Instant::now());
+    let report = stream.poll([0.0; 3], 4);
+    assert_eq!(stream.mesh_changes.len(), 1);
+    assert_eq!(stream.mesh_jobs.pending.len(), 3);
+    assert!(stream.mesh_jobs.in_flight.is_empty());
+    assert_eq!(report.mesh_changes_queued, 1);
+    assert_ne!(report, WorldStreamPoll::default());
+}

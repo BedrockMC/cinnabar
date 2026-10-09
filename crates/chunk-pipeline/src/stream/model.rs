@@ -548,6 +548,8 @@ pub struct WorldStreamPoll {
     pub light_jobs_dispatched: usize,
     pub mesh_results: usize,
     pub mesh_jobs_dispatched: usize,
+    /// Mesh updates or removals queued, including replacements of pending changes.
+    pub mesh_changes_queued: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]

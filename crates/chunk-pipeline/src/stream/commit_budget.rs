@@ -29,6 +29,32 @@ impl WorldStream {
             Some(now + self.poll_budget - self.poll_budget / WORLD_SCHEDULING_SHARE);
     }
 
+    /// Starts a poll under the remaining frame allocation and reports its final deadline.
+    pub(super) fn begin_poll_work(&mut self, now: Instant) -> Instant {
+        let mut frame_deadline = self
+            .frame_deadline
+            .take()
+            .unwrap_or_else(|| self.poll_deadline.unwrap_or(now + self.poll_budget));
+        // A service that held the stream for a whole allocation between frames carries the
+        // backlog: the frame keeps the floor allocation and leaves chunk-data commits to it.
+        let offloaded = self.between_frames_service
+            && self.service_yield.is_none()
+            && self.service_window >= self.poll_budget;
+        if offloaded {
+            frame_deadline = frame_deadline.min(now + WORLD_POLL_BUDGET_FLOOR);
+        }
+        let remaining = frame_deadline.saturating_duration_since(now);
+        let commit_deadline = now + remaining - remaining / WORLD_SCHEDULING_SHARE;
+        self.poll_deadline = Some(
+            self.poll_deadline
+                .map_or(commit_deadline, |earlier| earlier.min(commit_deadline)),
+        );
+        self.polling = true;
+        self.poll_heavy_guarantee = true;
+        self.chunk_data_offloaded = offloaded;
+        frame_deadline
+    }
+
     /// Reports whether normal work has spent this poll's shared allocation, or a
     /// between-frames service has been asked to hand the stream back.
     pub(super) fn poll_budget_exhausted(&self) -> bool {

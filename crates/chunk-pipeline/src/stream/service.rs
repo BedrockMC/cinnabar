@@ -12,7 +12,7 @@ use crossbeam_channel::Select;
 
 use super::*;
 
-/// Longest single poll in a service run, which also bounds how long a reclaim waits.
+/// Cooperative poll budget; a work item already running can exceed this slice.
 const SERVICE_SLICE: Duration = Duration::from_micros(250);
 /// Longest idle sleep between worker results. Work no result announces, such as an expired
 /// neighbour deadline, waits for the next frame's poll, so idle runs rarely wake.
@@ -39,8 +39,8 @@ impl WorldStream {
             let report = self.poll(camera_position, max_mesh_jobs);
             busy += started.elapsed();
             total.accumulate(report);
-            // A slice that committed, accepted or dispatched anything may have left more; one
-            // that did nothing sleeps until a worker result can change that.
+            // Commits, worker activity and queued publications all count as progress.
+            // Only a slice that made none sleeps until a worker result can change that.
             if report == WorldStreamPoll::default()
                 && self.decode_rx.is_empty()
                 && self.lighting.rx.is_empty()
@@ -76,6 +76,7 @@ impl WorldStreamPoll {
         self.light_jobs_dispatched += other.light_jobs_dispatched;
         self.mesh_results += other.mesh_results;
         self.mesh_jobs_dispatched += other.mesh_jobs_dispatched;
+        self.mesh_changes_queued += other.mesh_changes_queued;
     }
 }
 
@@ -105,8 +106,9 @@ pub struct ServicedStream {
 ///
 /// The frame thread hands the stream over with [`launch`](Self::launch) once nothing else in
 /// the frame needs it, and takes it back with [`reclaim`](Self::reclaim) before anything does.
-/// A reclaim waits at most one poll slice plus one work item. A panic on the service thread
-/// resumes on the reclaiming thread, as it would have had the poll run there.
+/// Reclaim waits for the active poll to yield; work already running can exceed its slice.
+/// A panic on the service thread resumes on the reclaiming thread, as it would have had the
+/// poll run there.
 pub struct WorldStreamService {
     launches: Option<Sender<ServiceLaunch>>,
     results: Receiver<ServiceResult>,
