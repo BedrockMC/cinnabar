@@ -533,6 +533,12 @@ producer = "crates/diagnostics/src/markers.rs"
 consumer = "app/src/app.rs"
 
 [[markers]]
+literal = "RUST_MCBE_WORLD_SERVICE"
+kind = "environment_variable"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "app/src/runtime/world/service.rs"
+
+[[markers]]
 literal = "RUST_MCBE_MOVEMENT_TRACE"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"

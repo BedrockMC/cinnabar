@@ -66,6 +66,10 @@
   settings. Preview drag gain is provisional. The chosen normal generator targets Java-style
   terrain; Bedrock terrain, structures and mobs remain unverified. No performance gate closes.
 
+- Back navigation retains an available prior control and validates Home focus against painted
+  enabled controls. Keyboard/gamepad return and pointer outline admission have regression coverage.
+  Exact native Home restoration policy and full authored frontend parity remain incomplete.
+
 ## OreUI Unicode fallback
 
 - Native language labels and server text resolve missing glyphs from installed locale-specific Noto
@@ -114,6 +118,9 @@
   and correction offsets alongside the feet position. Subtick rendering no longer
   repeats an unfinished stance or correction transition. Missing-terrain recovery
   and matched loading/stall behavior remain incomplete.
+- Cache responses retain valid requested columns when accompanied by repeated
+  verified blobs still in the cache. Late responses after eviction and the
+  remaining missing-terrain recovery behavior remain incomplete.
 - Prediction corrections replay regardless of distance. Nonzero future ticks
   attach to the current captured frame for a later rewind; zero ticks and ticks
   older than retained history are discarded. MovePlayer teleports keep their
@@ -155,6 +162,9 @@
 
 ## Frame attribution and unchanged GPU uploads
 
+- Apple pipelined rendering keeps surface creation on the UI thread while render
+  submission stays on the render thread. Main and extraction schedules retain
+  single-thread execution; runtime startup checks do not close frame-budget gates.
 - Idle native metadata publication no longer dispatches through the main thread.
   macOS frame workers use interactive scheduling; bounded-load diagnostics show
   more render-work headroom. Unloaded tail results remain adverse and unexplained:
@@ -6022,6 +6032,20 @@ and OS priority mappings are Cinnabar implementation choices; exact current-clie
 scheduling parity remains incomplete. Native release frame and network-latency
 acceptance remains open. See `docs/reviews/mesh-stall-followup.md` for the references
 and local regression measurements.
+
+### Between-frames world servicing (incomplete native acceptance)
+
+The production client lends `WorldStream` to a `stream-service` thread after each frame's
+last schedule and reclaims it before the next frame's first, so decode commits, light and
+mesh scheduling and retention evictions overlap extraction and pacing. The frame keeps a
+floor poll and still commits the chunk data that a ready block change, retention change
+or barrier waits behind. Resident membership, keyed stream state and terrain lookups use
+hashed indexes, and mesh halo and neighbour checks read each index once. Offline synthetic
+replays (radius 12, 120 Hz) cut frame-thread stream time several-fold and converge to the
+same presented meshes ([offline evidence](docs/evidence/async-chunk-servicing.md)); joins
+mesh the faced view sooner and rear sub-chunks of nearby columns later. Release captures on
+target hardware, live join and streaming budgets, and real-pack meshing and lighting load
+remain open.
 
 ### Inventory/HUD correction continuation (2026-10-02, incomplete general parity)
 
