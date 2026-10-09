@@ -101,8 +101,8 @@ impl Plugin for GpuTimingPlugin {
     }
 }
 
-/// Asks for per-pass GPU spans in frames the stage profiler does not record, such as while a
-/// developer overlay shows the slowest passes.
+/// Asks for per-pass GPU spans in the next rendered frame when the stage profiler does not
+/// already record them, such as when a developer overlay refreshes its slowest passes.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq, ExtractResource)]
 pub struct DetailedGpuTiming(pub bool);
 

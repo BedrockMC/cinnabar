@@ -189,11 +189,13 @@ fn publish_debug_overlay(
             state.publication_present = false;
         }
     }
-    // The overlay names the slowest passes, so it needs every pass timed while it shows.
+    // The overlay names the slowest passes once per refresh, so one timed frame per refresh
+    // suffices; it is read back before the next refresh.
+    let wanted = state.visible && (toggled || timing_updated);
     if let Some(mut detail) = gpu_detail
-        && detail.0 != state.visible
+        && detail.0 != wanted
     {
-        detail.0 = state.visible;
+        detail.0 = wanted;
     }
     if !state.visible {
         return;
@@ -218,7 +220,7 @@ fn publish_debug_overlay(
         state.has_gpu = context
             .profiler
             .as_deref()
-            .and_then(RuntimeStageProfiler::latest_gpu_frame)
+            .and_then(RuntimeStageProfiler::latest_pass_frame)
             .is_some_and(|frame| gpu_line(&frame, &mut state.gpu));
         context.sample_ui_stats(&mut state.ui_line);
     }
