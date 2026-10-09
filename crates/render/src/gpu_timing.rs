@@ -193,7 +193,24 @@ impl Node for ReadbackNode {
         render_context: &mut RenderContext<'w>,
         world: &'w World,
     ) -> Result<(), NodeRunError> {
-        if let Some(timestamps) = world.get_resource::<GpuTimestamps>() {
+        if let Some(timestamps) = world.get_resource::<GpuTimestamps>()
+            && timestamps.frame.slot.load(Ordering::Acquire) != NO_SLOT
+        {
+            if cfg!(target_os = "macos")
+                || timestamps.draw_spans
+                || world.contains_resource::<categories::CategoryProfiling>()
+            {
+                // Owned Metal passes, category passes and profiled draws allocate queries while
+                // recording deferred work. Finish that CPU work before choosing query ranges,
+                // retaining the buffers for one submission. Other frames keep their encoder.
+                let replacement = RenderContext::new(render_context.render_device().clone(), None);
+                let pending = std::mem::replace(render_context, replacement);
+                let (buffers, device, diagnostics) = pending.finish();
+                *render_context = RenderContext::new(device, diagnostics);
+                for buffer in buffers {
+                    render_context.add_command_buffer(buffer);
+                }
+            }
             timestamps.encode_readback(render_context.command_encoder());
         }
         Ok(())

@@ -1,56 +1,30 @@
-use std::{
-    num::NonZeroU32,
-    sync::{
-        Arc,
-        atomic::{AtomicU8, AtomicU16, Ordering},
-    },
+mod frame_latency;
+
+pub use frame_latency::frame_latency_for_vsync;
+
+use std::sync::{
+    Arc,
+    atomic::{AtomicU8, AtomicU16, Ordering},
 };
 
 use bevy::{
     app::{App, Plugin},
-    ecs::{entity::Entity, schedule::SystemSet},
-    prelude::{Query, ResMut, Resource},
-    render::{Extract, ExtractSchedule, RenderApp, view::window::ExtractedWindows},
-    window::{PresentMode, Window},
+    ecs::schedule::SystemSet,
+    prelude::Resource,
+    render::RenderApp,
+    window::PresentMode,
 };
 #[cfg(target_os = "windows")]
 use bevy::{
-    ecs::system::Local,
+    ecs::{entity::Entity, system::Local},
     prelude::{IntoScheduleConfigs, Res},
-    render::{Render, RenderSystems, renderer::RenderAdapter, view::window::create_surfaces},
+    render::{
+        Render, RenderSystems,
+        renderer::RenderAdapter,
+        view::window::{ExtractedWindows, create_surfaces},
+    },
 };
 use render_model::{PresentModeKind, PresentationIntent, SurfacePresentModes};
-
-/// One queued frame with display pacing: input-to-photon drops a refresh against the default two.
-const PACED_FRAME_LATENCY: NonZeroU32 = NonZeroU32::MIN;
-/// Unpaced presentation keeps a second frame in flight so CPU recording overlaps GPU work; it
-/// adds at most one rendered frame of latency, a fraction of a display refresh.
-const UNPACED_FRAME_LATENCY: NonZeroU32 = NonZeroU32::new(2).expect("two is nonzero");
-
-/// The swapchain frames a session keeps in flight with or without VSync. DX12 fixes a
-/// swapchain's queued-frame allowance when it is created, so windows start with this value
-/// rather than the one for the FIFO mode they request before surface probing.
-#[must_use]
-pub const fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
-    if vsync {
-        PACED_FRAME_LATENCY
-    } else {
-        UNPACED_FRAME_LATENCY
-    }
-}
-
-/// Bevy copies a window's frame latency only when it first extracts the window, so later
-/// changes to the main-world value follow here.
-fn extract_frame_latency(
-    windows: Extract<Query<(Entity, &Window)>>,
-    mut extracted: ResMut<ExtractedWindows>,
-) {
-    for (entity, window) in &windows {
-        if let Some(extracted) = extracted.windows.get_mut(&entity) {
-            extracted.desired_maximum_frame_latency = window.desired_maximum_frame_latency;
-        }
-    }
-}
 
 const AFFECTED_DX12_ADAPTER: &str = "Radeon RX 570 Series";
 const AFFECTED_DX12_DRIVERS: &[&str] = &["31.0.21924.61", "31.0.21925.1001"];
@@ -245,7 +219,7 @@ impl Plugin for PresentModePolicyPlugin {
         render_app.insert_resource(self.policy.clone());
         crate::surface_lifecycle::install(render_app);
         crate::surface_capabilities::install(render_app);
-        render_app.add_systems(ExtractSchedule, extract_frame_latency);
+        frame_latency::install(render_app);
         #[cfg(target_os = "windows")]
         render_app.add_systems(
             Render,

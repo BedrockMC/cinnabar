@@ -36,6 +36,71 @@ pub(super) fn finish_frame(
     timestamps.request_readback();
 }
 
+/// Runs the production readback node while deferred recording is still queued.
+pub(super) fn run_readback_node<'w>(world: &'w World, context: &mut RenderContext<'w>) {
+    let mut graph = RenderGraph::default();
+    graph.add_node(ReadbackLabel, ReadbackNode);
+    let state = graph.get_node_state(ReadbackLabel).unwrap();
+    let mut outputs = [];
+    let mut graph_context = RenderGraphContext::new(&graph, state, &[], &mut outputs);
+    state.node.run(&mut graph_context, context, world).unwrap();
+}
+
+/// Deferred passes and draws belong to the same readback as synchronously recorded work.
+#[test]
+fn readback_includes_queries_allocated_by_deferred_recording() {
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let features = wgpu::Features::TIMESTAMP_QUERY
+        | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
+        | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+    let (device, queue) = noop_device(features);
+    for synchronous in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, true).unwrap();
+        timestamps.begin(|_| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let timestamps = world.resource::<GpuTimestamps>();
+        let mut context = RenderContext::new(device.clone(), None);
+        if synchronous {
+            let span = timestamps.open_pass(RuntimeStage::GpuUi).unwrap();
+            context
+                .command_encoder()
+                .write_timestamp(span.queries, span.begin);
+            context
+                .command_encoder()
+                .write_timestamp(span.queries, span.begin + 1);
+        }
+        context.add_command_buffer_generation_task(move |device| {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            for span in [
+                timestamps.open_pass(RuntimeStage::GpuOpaque).unwrap(),
+                timestamps.open_draw(RuntimeStage::GpuActors).unwrap(),
+            ] {
+                encoder.write_timestamp(span.queries, span.begin);
+                encoder.write_timestamp(span.queries, span.begin + 1);
+            }
+            encoder.finish()
+        });
+        run_readback_node(&world, &mut context);
+        queue.submit(context.finish().0);
+        let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
+        timestamps.request_readback();
+        let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
+        let expected = if synchronous {
+            vec![RuntimeStage::GpuUi, RuntimeStage::GpuOpaque]
+        } else {
+            vec![RuntimeStage::GpuOpaque]
+        };
+        assert_eq!(slot.stages[..slot.passes as usize], expected);
+        assert_eq!(slot.draws, 1);
+        assert_eq!(slot.stages[PASS_SPANS as usize], RuntimeStage::GpuActors);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let mut readbacks = 0;
+        timestamps.begin(|_| readbacks += 1);
+        assert_eq!(readbacks, 1);
+    }
+}
+
 struct CountingNode(Arc<AtomicU32>);
 
 impl Node for CountingNode {
@@ -331,9 +396,11 @@ fn spans_are_read_back_only_after_the_frame_graph_resolves_them() {
     timed(&world, &mut context, RuntimeStage::GpuOpaque, |_| {});
     let readback = world.resource::<GpuTimestamps>();
     assert_ne!(readback.frame.open_frame.load(Ordering::Relaxed), NO_SPAN);
-    readback.encode_readback(context.command_encoder());
+    run_readback_node(&world, &mut context);
     assert_eq!(readback.frame.open_frame.load(Ordering::Relaxed), NO_SPAN);
-    queue.submit(context.finish().0);
+    let buffers = context.finish().0;
+    assert_eq!(buffers.len(), 1, "ordinary frames retain one encoder");
+    queue.submit(buffers);
     let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
     timestamps.request_readback();
     let slot = &timestamps.slots[timestamps.ring.oldest_in_flight().unwrap()];
