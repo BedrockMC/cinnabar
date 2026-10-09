@@ -385,21 +385,43 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
         .add_systems(Last, arm_shutdown_watchdog);
 }
 
-pub(crate) fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
+/// The backends the renderer may choose from, or `None` to keep wgpu's defaults. An explicit
+/// `WGPU_BACKEND` keeps full operator control. Windows uses DX12 whenever `dx12_hardware`
+/// reports a hardware adapter: its fixed-count GPU culling matches Vulkan's, while wgpu's
+/// Windows Vulkan swapchain waits on a fence after every acquire without VSync. Vulkan remains
+/// the fallback for systems without one.
+pub(crate) fn preferred_render_backends(
+    explicit: Option<&OsStr>,
+    dx12_hardware: impl FnOnce() -> bool,
+) -> Option<Backends> {
     if explicit.is_some() {
         return None;
     }
-    #[cfg(target_os = "windows")]
-    {
-        // Prefer Vulkan so capable Windows adapters can use count-driven GPU Hi-Z terrain
-        // culling. Keep DX12 admitted as the fallback for drivers without a usable Vulkan
-        // surface; an explicit WGPU_BACKEND still retains full operator control.
-        Some(Backends::VULKAN | Backends::DX12)
+    if !cfg!(target_os = "windows") {
+        return None;
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        None
-    }
+    Some(if dx12_hardware() {
+        Backends::DX12
+    } else {
+        Backends::VULKAN | Backends::DX12
+    })
+}
+
+/// Whether DX12 exposes a discrete or integrated GPU on this system.
+pub(crate) fn dx12_hardware_adapter() -> bool {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::DX12,
+        ..Default::default()
+    });
+    instance
+        .enumerate_adapters(wgpu::Backends::DX12)
+        .iter()
+        .any(|adapter| {
+            matches!(
+                adapter.get_info().device_type,
+                wgpu::DeviceType::DiscreteGpu | wgpu::DeviceType::IntegratedGpu
+            )
+        })
 }
 
 /// Binds the identity-checked session-directory owner for direct starts.

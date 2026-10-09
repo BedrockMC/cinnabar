@@ -30,9 +30,10 @@ pub(super) fn render_plugin() -> RenderPlugin {
         .limits
         .max_storage_buffers_per_shader_stage
         .max(render::required_vertex_storage_buffers());
-    if let Some(backends) =
-        super::preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref())
-    {
+    if let Some(backends) = super::preferred_render_backends(
+        std::env::var_os("WGPU_BACKEND").as_deref(),
+        super::dx12_hardware_adapter,
+    ) {
         settings.backends = Some(backends);
     }
     RenderPlugin {

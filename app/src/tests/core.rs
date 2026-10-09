@@ -5,20 +5,39 @@ mod publication_markers;
 const WORLD_STREAM_COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[test]
-fn windows_prefers_vulkan_with_dx12_fallback_without_overriding_an_explicit_backend() {
+fn windows_prefers_dx12_hardware_and_falls_back_to_vulkan_without_overriding_an_explicit_backend() {
+    use bevy::render::settings::Backends;
     use std::ffi::OsStr;
 
+    let probed = std::cell::Cell::new(false);
+    let probe = |available: bool| {
+        let probed = &probed;
+        move || {
+            probed.set(true);
+            available
+        }
+    };
     assert_eq!(
-        crate::app::preferred_render_backends(Some(OsStr::new("vulkan"))),
+        crate::app::preferred_render_backends(Some(OsStr::new("vulkan")), probe(true)),
         None
     );
-    #[cfg(target_os = "windows")]
-    assert_eq!(
-        crate::app::preferred_render_backends(None),
-        Some(bevy::render::settings::Backends::VULKAN | bevy::render::settings::Backends::DX12)
-    );
-    #[cfg(not(target_os = "windows"))]
-    assert_eq!(crate::app::preferred_render_backends(None), None);
+    assert!(!probed.get(), "an explicit backend skips the adapter probe");
+    if cfg!(target_os = "windows") {
+        assert_eq!(
+            crate::app::preferred_render_backends(None, probe(true)),
+            Some(Backends::DX12)
+        );
+        assert_eq!(
+            crate::app::preferred_render_backends(None, probe(false)),
+            Some(Backends::VULKAN | Backends::DX12)
+        );
+    } else {
+        assert_eq!(
+            crate::app::preferred_render_backends(None, probe(true)),
+            None
+        );
+        assert!(!probed.get(), "other platforms keep wgpu's defaults");
+    }
 }
 
 #[test]
