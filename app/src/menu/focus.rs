@@ -354,6 +354,9 @@ impl MenuRuntime {
                     MenuAction::DismissDialog,
                 ],
                 MenuDialog::Exit => vec![MenuAction::ConfirmExit, MenuAction::DismissDialog],
+                MenuDialog::DeathQuit => {
+                    vec![MenuAction::ConfirmDeathQuit, MenuAction::DismissDialog]
+                }
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
@@ -530,7 +533,11 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::Navigate(MenuScreen::Pause)],
+            MenuScreen::Death if !self.death_controls_ready() => Vec::new(),
+            MenuScreen::Death if self.death_presentation.hardcore => {
+                vec![MenuAction::DeathExitWorld, MenuAction::Respawn]
+            }
+            MenuScreen::Death => vec![MenuAction::Respawn, MenuAction::OpenDeathGameMenu],
             MenuScreen::Inbox => {
                 use super::inbox::{Action, CATEGORIES, category_index};
                 if self.feeds.inbox_state.delete_pending.is_some() {

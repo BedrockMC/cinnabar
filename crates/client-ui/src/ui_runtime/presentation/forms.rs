@@ -8,6 +8,7 @@ mod chat_position;
 pub mod chat_screen;
 pub mod container_data;
 pub mod container_kinds;
+mod death_screen;
 mod debug_overlay;
 mod disconnect_retry;
 pub mod discord_presence_setting;

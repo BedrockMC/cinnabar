@@ -12,6 +12,7 @@ mod accounts;
 pub(crate) mod auth;
 mod construction;
 pub(crate) mod core_process;
+mod death;
 pub(crate) mod disconnect;
 mod dressing_room;
 #[cfg(test)]
@@ -162,6 +163,9 @@ pub(crate) struct MenuRuntime {
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
+    death_loading: bool,
+    death_presentation: launcher::menu::death::DeathPresentation,
+    death_retry_remaining: Option<std::time::Duration>,
     local_worlds: Vec<LocalWorldCard>,
     local_world_requested: Option<usize>,
     local_ui: worlds_tab::LocalWorldsUi,
@@ -345,31 +349,6 @@ impl MenuRuntime {
         self.local_world_requested.take()
     }
 
-    /// Show the death screen once per death (health reached zero in play).
-    pub(crate) fn open_death(&mut self) {
-        if self.visible || self.is_connecting() || self.death_shown {
-            return;
-        }
-        self.death_shown = true;
-        self.history.reset(MenuScreen::Death);
-        self.show_top();
-    }
-
-    /// Health came back above zero: a later death shows the screen again.
-    pub(crate) fn note_player_alive(&mut self) {
-        self.death_shown = false;
-        if self.screen == MenuScreen::Death && self.visible {
-            self.set_visible(false);
-            self.history.reset(MenuScreen::Home);
-            self.screen = MenuScreen::Home;
-        }
-    }
-
-    /// The death screen's respawn press, for the session to send once.
-    pub(crate) fn take_respawn_request(&mut self) -> bool {
-        std::mem::take(&mut self.intents.respawn)
-    }
-
     pub(crate) fn open_pause(&mut self) {
         if self.visible || self.is_connecting() {
             return;
@@ -395,6 +374,7 @@ impl MenuRuntime {
 
     /// The session is live: the menu gives way to the world.
     pub(crate) fn show_world(&mut self) {
+        self.reset_death();
         self.visible = false;
         self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
@@ -403,6 +383,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn show_connecting(&mut self) {
+        self.reset_death();
         self.visible = true;
         self.history.reset(MenuScreen::Home);
         self.history.push(MenuScreen::Play);
@@ -411,6 +392,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn show_home(&mut self) {
+        self.reset_death();
         self.visible = true;
         self.history.reset(MenuScreen::Home);
         self.screen = MenuScreen::Home;
@@ -441,6 +423,7 @@ impl MenuRuntime {
     }
 
     pub(crate) fn show_transfer(&mut self, address: &str) {
+        self.reset_death();
         self.message = Some(format!("Transferring to {address}…"));
     }
 
@@ -455,6 +438,7 @@ impl MenuRuntime {
     /// Returns `false` when the client was started with `--address`, which has
     /// no launcher to fall back to and must still exit the process.
     pub(crate) fn absorb_session_failure(&mut self, error: &str) -> bool {
+        self.reset_death();
         if !self.launcher {
             return false;
         }
@@ -572,6 +556,33 @@ impl MenuRuntime {
             MenuAction::ConfirmExit => {
                 self.dialog = None;
                 self.intents.exit = true;
+            }
+            MenuAction::OpenDeathQuit => {
+                if self.death_controls_ready() {
+                    self.dialog = Some(MenuDialog::DeathQuit);
+                    self.focused = 0;
+                }
+            }
+            MenuAction::OpenDeathGameMenu => {
+                if self.death_controls_ready() {
+                    self.enter(MenuScreen::Pause);
+                }
+            }
+            MenuAction::DeathExitWorld => {
+                if self.death_controls_ready() && self.death_presentation.hardcore {
+                    self.death_loading = true;
+                    self.death_presentation.exiting_world = true;
+                    self.death_presentation.respawn_seconds = Some(0.0);
+                    self.intents.disconnect = true;
+                    self.dialog = None;
+                }
+            }
+            MenuAction::ConfirmDeathQuit => {
+                if self.dialog == Some(MenuDialog::DeathQuit) {
+                    self.dialog = None;
+                    self.intents.disconnect = true;
+                    self.set_visible(false);
+                }
             }
             MenuAction::DismissDialog => self.dismiss_accounts(),
             MenuAction::Reconnect => {
@@ -743,8 +754,9 @@ impl MenuRuntime {
             | MenuAction::SettingsResetChat
             | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {
-                self.intents.respawn = true;
-                self.set_visible(false);
+                if self.death_controls_ready() {
+                    self.request_respawn();
+                }
             }
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SelectFeatured(index) => self.feeds.select(index),

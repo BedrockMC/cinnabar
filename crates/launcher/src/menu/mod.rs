@@ -1,6 +1,7 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
 pub mod auth;
+pub mod death;
 pub mod disconnect;
 pub mod inbox;
 pub mod invite;
@@ -59,6 +60,7 @@ pub enum MenuServerTab {
 pub enum MenuDialog {
     Accounts,
     Exit,
+    DeathQuit,
     RemoveSaved(usize),
     StorageDelete,
     StorageError,
@@ -131,6 +133,10 @@ pub enum MenuAction {
     ToggleRenderMode,
     PauseResume,
     PauseDisconnect,
+    OpenDeathQuit,
+    OpenDeathGameMenu,
+    DeathExitWorld,
+    ConfirmDeathQuit,
     PauseSettings,
     /// Load a saved server into the add/edit draft.
     EditSaved(usize),
