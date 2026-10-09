@@ -30,6 +30,50 @@ pub(super) const SKIN_PAGE: usize = render_model::UI_PLAYER_SKIN_PAGE_OFFSET;
 pub(super) const MODEL_PAGE: usize = render_model::UI_MODEL_ATLAS_PAGE_OFFSET;
 pub(super) const MODEL_PAGES: usize = render_model::MAX_UI_MODEL_ATLAS_PAGES;
 
+/// Swaps sprites that have native models for their geometry. The player preview mesh is built
+/// at most once, and only when a node shows the preview icon. Translucent optional models
+/// retain their original sprite so faded controls keep a single layer.
+fn replace_model_icons<'a>(
+    nodes: &mut [UiNode],
+    preview: Option<IconKey>,
+    optional_models: &BTreeSet<IconKey>,
+    player: impl FnOnce() -> Option<Arc<UiMesh>>,
+    models: impl Fn(&IconKey) -> Option<&'a Arc<UiMesh>>,
+) {
+    let mut build_player = Some(player);
+    let mut player = None;
+    for node in nodes {
+        let (key, color, glint) = match node.visual() {
+            UiVisual::Sprite {
+                texture_page,
+                uv,
+                color,
+            } => ((*texture_page, *uv), *color, false),
+            UiVisual::GlintSprite {
+                texture_page,
+                uv,
+                color,
+            } => ((*texture_page, *uv), *color, true),
+            _ => continue,
+        };
+        if color[3] < u8::MAX && optional_models.contains(&key) {
+            continue;
+        }
+        let mesh = if preview == Some(key) {
+            if let Some(build) = build_player.take() {
+                player = build();
+            }
+            player.as_ref()
+        } else {
+            models(&key)
+        };
+        let Some(mesh) = mesh.and_then(|mesh| modulated(mesh, color, glint)) else {
+            continue;
+        };
+        *node = node.clone().with_visual(UiVisual::Mesh(mesh));
+    }
+}
+
 pub(super) type IconKey = (u16, [u16; 4]);
 pub(super) fn icon_key(icon: IconRef) -> IconKey {
     (icon.page, icon.uv)
@@ -242,37 +286,18 @@ impl UiPresentationRuntime {
             return;
         }
         let preview = self.player_preview_icon.map(icon_key);
-        let player = self.gui_player_mesh();
-        for node in nodes {
-            let (key, color, glint) = match node.visual() {
-                UiVisual::Sprite {
-                    texture_page,
-                    uv,
-                    color,
-                } => ((*texture_page, *uv), *color, false),
-                UiVisual::GlintSprite {
-                    texture_page,
-                    uv,
-                    color,
-                } => ((*texture_page, *uv), *color, true),
-                _ => continue,
-            };
-            if color[3] < u8::MAX && self.gui_models.optional_models.contains(&key) {
-                continue;
-            }
-            let mesh = if preview == Some(key) {
-                player.as_ref()
-            } else {
+        replace_model_icons(
+            nodes,
+            preview,
+            &self.gui_models.optional_models,
+            || self.gui_player_mesh(),
+            |key| {
                 self.gui_models
                     .models
-                    .get(&key)
-                    .or_else(|| self.session_icons.models.get(&key))
-            };
-            let Some(mesh) = mesh.and_then(|mesh| modulated(mesh, color, glint)) else {
-                continue;
-            };
-            *node = node.clone().with_visual(UiVisual::Mesh(mesh));
-        }
+                    .get(key)
+                    .or_else(|| self.session_icons.models.get(key))
+            },
+        );
     }
 
     fn gui_player_mesh(&self) -> Option<Arc<UiMesh>> {

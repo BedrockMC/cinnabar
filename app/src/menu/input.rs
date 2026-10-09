@@ -1,3 +1,4 @@
+mod cancel;
 mod context;
 mod death;
 mod preview;
@@ -963,33 +964,6 @@ pub(crate) fn drive_menu_input(
     }
     keys.reset_all();
     mouse_buttons.reset_all();
-}
-
-impl MenuRuntime {
-    /// A selected vanilla edit box consumes cancel before the screen handles it.
-    fn go_back_from_input(&mut self) {
-        if self.sign_in_focus().is_some() || self.join_request_prompted() {
-            self.go_back();
-            return;
-        }
-        if self.clear_settings_slider_selection() {
-            return;
-        }
-        if self.screen == super::MenuScreen::Inbox
-            && (self.feeds.inbox_state.opened.is_some()
-                || self.feeds.inbox_state.delete_pending.is_some()
-                || self.feeds.inbox_state.filters)
-        {
-            self.activate_inbox(super::inbox::Action::Cancel);
-            return;
-        }
-        if self.screen == super::MenuScreen::AddServer && self.field.is_some() {
-            self.edit_field(|editor| editor.place_cursor(editor.cursor_byte()));
-            self.field = None;
-            return;
-        }
-        self.go_back();
-    }
 }
 
 #[cfg(test)]
