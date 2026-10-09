@@ -2,10 +2,7 @@ use super::*;
 use bevy::{
     camera::{NormalizedRenderTarget, RenderTarget},
     ecs::system::RunSystemOnce,
-    render::{
-        MainWorld, render_resource::TextureView, texture::OutputColorAttachment,
-        view::window::ExtractedWindow,
-    },
+    render::{MainWorld, texture::OutputColorAttachment, view::window::ExtractedWindow},
     window::{RawHandleWrapper, WindowRef, WindowWrapper},
 };
 use wgpu::rwh::{self, HasDisplayHandle, HasWindowHandle};
@@ -77,7 +74,7 @@ fn worlds(vsync: bool) -> (World, Entity, NormalizedRenderTarget) {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
-    let view = TextureView::from(texture.create_view(&Default::default()));
+    let view = texture.create_view(&Default::default());
     windows
         .windows
         .get_mut(&entity)
