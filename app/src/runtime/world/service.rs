@@ -5,12 +5,12 @@
 use std::time::{Duration, Instant};
 
 use bevy::{
-    app::{App, First, MainScheduleOrder},
+    app::{App, MainScheduleOrder},
     ecs::schedule::ScheduleLabel,
     prelude::{Res, ResMut, Resource},
 };
 use chunk_pipeline::WorldStreamService;
-use render::{ChunkUploadBudget, RuntimeStage, RuntimeStageProfiler};
+use render::{ChunkUploadBudget, FrameStart, RuntimeStage, RuntimeStageProfiler};
 
 use super::{ClientWorld, WorldStreamFramePoll};
 use crate::{acceptance::markers, local_player::LocalViewPose};
@@ -42,13 +42,14 @@ impl WorldServiceSlot {
 }
 
 /// Orders the hand-off schedules: launch after `after`, which must be the frame's final
-/// schedule, and reclaim before `First`.
+/// schedule, and reclaim after frame timing starts but before `First`.
 pub(crate) fn configure_world_service(app: &mut App, after: impl ScheduleLabel) {
+    FrameStart::install(app);
     app.init_schedule(WorldServiceLaunch)
         .init_schedule(WorldServiceReclaim);
     let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
     order.insert_after(after, WorldServiceLaunch);
-    order.insert_before(First, WorldServiceReclaim);
+    order.insert_after(FrameStart, WorldServiceReclaim);
     app.add_systems(WorldServiceLaunch, launch_world_service)
         .add_systems(WorldServiceReclaim, reclaim_world_service);
 }

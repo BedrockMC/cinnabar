@@ -37,7 +37,7 @@ pub enum RuntimeStage {
     OpaqueBatchPlanning,
     TransparentQueue,
     AcceptanceTelemetry,
-    /// Main-world wall time from `First` to `Last`.
+    /// Main-world wall time from frame-start timing to `Last`, including stream reclaim.
     MainFrame,
     ActorPublication,
     /// Fixed-tick actor animation and Molang, inside `ActorPublication`.

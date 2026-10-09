@@ -65,7 +65,8 @@ when they only need authority. This adapter owns no duplicate state.
 
 `WorldStreamService` owns one `stream-service` thread. The production app lends it
 `ClientWorld.stream` in a schedule after `Last` and its network flush, and reclaims it
-in a schedule before `First`, so no frame system ever sees the stream missing. While
+after frame timing starts but before `First`, so frame systems from `First` onward
+find the stream present and pacing includes any reclaim wait. While
 lent, the thread runs the unchanged `WorldStream::poll` in 250 µs slices: decode
 acceptance, ordered commits, light and mesh acceptance and dispatch. That work overlaps
 render extraction and frame pacing instead of the next frame. A reclaim raises a yield

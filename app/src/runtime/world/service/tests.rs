@@ -1,4 +1,4 @@
-use bevy::prelude::{App, Last, MinimalPlugins, ResMut, Resource};
+use bevy::prelude::{App, First, Last, MinimalPlugins, ResMut, Resource};
 use chunk_pipeline::WorldStream;
 use protocol::WorldBootstrap;
 

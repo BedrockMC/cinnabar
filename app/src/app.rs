@@ -896,7 +896,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<render::RuntimeStageSpans>()
         .add_plugins(render::GpuTimingPlugin)
         .add_systems(
-            First,
+            render::FrameStart,
             (
                 crate::runtime::frame_profile::track_frame_interval,
                 crate::runtime::frame_profile::trace_frame_focus,
