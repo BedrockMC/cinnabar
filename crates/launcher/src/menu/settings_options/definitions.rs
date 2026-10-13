@@ -71,6 +71,9 @@ pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definitio
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
 
+/// Far terrain draws cached terrain past the render distance.
+pub const FAR_TERRAIN_OPTION: SettingDefinition = SettingId::FarTerrain.definition();
+
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -551,4 +554,6 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    FarTerrain => "far_terrain", toggle("Far Terrain (LOD)", render_api::far_terrain::DEFAULT_ENABLED),
+        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
 }

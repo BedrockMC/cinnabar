@@ -1,22 +1,33 @@
-//! Moves column summaries from the world stream into the far-terrain cache and keeps the
-//! cache on the server, world and dimension being played.
+//! Moves column summaries from the world stream into the far-terrain cache, keeps the cache
+//! on the server, world and dimension being played, and publishes the tiles to draw.
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
 use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
-use far_terrain::{ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, RetiringSession};
+use client_state::RuntimeSettings;
+use far_terrain::{
+    ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
+    RetiringSession, TileView,
+};
+use render_api::far_terrain::{DeviceTier, far_reach_chunks};
+use render_scene::FarTerrainScene;
 
 use crate::{runtime::world::ClientWorld, session::SessionController};
 
-/// The far-terrain cache and whether the feature runs.
+/// The far-terrain cache, the selected tiles and the view they were chosen for.
 #[derive(Resource)]
 pub(crate) struct FarTerrain {
-    pub(crate) cache: FarTerrainCache,
-    pub(crate) enabled: bool,
-    /// Columns beyond the render distance kept loaded around the player.
-    pub(crate) distance_chunks: i32,
+    cache: FarTerrainCache,
+    tiles: FarTiles,
     drained: Vec<FarColumnSummary>,
+    near: Arc<NearMask>,
+    /// Centre column and drawn-set revision the mask was built for.
+    near_view: Option<([i32; 2], u64)>,
+    published: Option<u64>,
     retiring: Vec<Retiring>,
 }
 
@@ -38,6 +49,19 @@ struct Retiring {
 }
 
 impl FarTerrain {
+    /// A cache persisted under `disk_root`, or memory-only without one.
+    pub(crate) fn new(disk_root: Option<std::path::PathBuf>) -> Self {
+        Self {
+            cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root, version_base()),
+            tiles: FarTiles::default(),
+            drained: Vec::new(),
+            near: Arc::new(NearMask::default()),
+            near_view: None,
+            published: None,
+            retiring: Vec::new(),
+        }
+    }
+
     /// Summarises the stream's resident columns before it is dropped, so this session's
     /// edits reach the cache even though no column retires through eviction.
     pub(crate) fn retire_stream(&mut self, stream: &mut WorldStream) {
@@ -99,34 +123,39 @@ impl FarTerrain {
         self.cache.leave_world();
         self.cache.sync();
     }
-
-    /// A cache persisted under `disk_root`, or memory-only without one.
-    pub(crate) fn new(disk_root: Option<std::path::PathBuf>) -> Self {
-        Self {
-            cache: FarTerrainCache::new(FarTerrainConfig::default(), disk_root, version_base()),
-            enabled: false,
-            distance_chunks: 0,
-            drained: Vec::new(),
-            retiring: Vec::new(),
-        }
-    }
 }
+
+/// Finest tiles are kept built this far either side of the drawn columns' edge, so a column
+/// changing drawer already has its far tile.
+const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
 
 /// The world the cache was last pointed at, so unchanged frames skip the identity hash.
 #[derive(Default)]
 pub(crate) struct ActiveWorld(Option<(String, u64, i32)>);
 
-/// Keeps the stream's summary extraction, the cache's namespace and its loaded area current.
+/// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
     far: Option<ResMut<FarTerrain>>,
     world: Option<ResMut<ClientWorld>>,
     session: Option<Res<SessionController>>,
+    settings: Res<RuntimeSettings>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    scene: Option<ResMut<FarTerrainScene>>,
     mut active: Local<ActiveWorld>,
 ) {
-    let (Some(mut far), Some(mut world)) = (far, world) else {
+    let (Some(mut far), Some(mut world), Some(mut scene)) = (far, world, scene) else {
         return;
     };
     let far = &mut *far;
+    let video = settings.user_settings_update().1.video;
+    let tier = menu.as_ref().map_or(DeviceTier::Mid, |menu| {
+        DeviceTier::from_recommended_render_distance(
+            menu.settings_snapshot()
+                .0
+                .render_distance_defaults()
+                .recommended,
+        )
+    });
     let destination = session
         .as_deref()
         .and_then(SessionController::destination_identity);
@@ -134,7 +163,7 @@ pub(crate) fn feed_far_terrain(
         .stream
         .as_ref()
         .zip(destination)
-        .filter(|_| far.enabled)
+        .filter(|_| video.far_terrain)
         .map(|(stream, destination)| {
             (
                 destination,
@@ -163,6 +192,7 @@ pub(crate) fn feed_far_terrain(
             }
             None => far.cache.leave_world(),
         }
+        far.tiles.clear();
         active.0 = target
             .map(|(destination, level, dimension)| (destination.to_owned(), level, dimension));
     }
@@ -178,6 +208,9 @@ pub(crate) fn feed_far_terrain(
     }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
         far.cache.poll(now);
+        if far.published.take().is_some() {
+            *scene = FarTerrainScene::default();
+        }
         return;
     };
     for FarColumnSummary { column, summary } in far.drained.drain(..) {
@@ -189,10 +222,57 @@ pub(crate) fn feed_far_terrain(
         );
     }
     let centre = stream.far_terrain_centre();
-    let radius = (stream.render_distance_blocks() / 16.0).ceil() as i32 + far.distance_chunks;
+    // Far terrain fills from what the server sends out to the render distance.
+    let loaded = stream.server_view_radius().unwrap_or_else(|| {
+        stream
+            .retained_view_radius()
+            .unwrap_or(i32::from(video.render_distance_chunks))
+    });
+    let reach = far_reach_chunks(
+        u32::from(video.render_distance_chunks),
+        loaded.max(0) as u32,
+        tier,
+    ) as i32;
+    // Far terrain hides under exactly the columns near terrain has drawn.
+    let (drawn_revision, _) = stream.near_drawn_columns();
+    let near_view = ([centre.x, centre.z], drawn_revision);
+    let near_changed = far.near_view != Some(near_view);
+    if near_changed {
+        let drawn = stream
+            .near_drawn_columns()
+            .1
+            .filter(|column| column.dimension == centre.dimension)
+            .map(|column| ColumnPos::new(column.x, column.z));
+        far.near = Arc::new(NearMask::from_columns(near_view.0, loaded + reach, drawn));
+        far.near_view = Some(near_view);
+    }
+    let horizon_blocks = ((loaded + reach) * 16) as f32;
     far.cache
-        .set_focus(ColumnPos::new(centre.x, centre.z), radius);
+        .set_focus(ColumnPos::new(centre.x, centre.z), loaded + reach);
     far.cache.poll(now);
+    let changed = far.cache.store().take_changed();
+    far.tiles.mark_changed(&changed);
+    // Only finest tiles, which hide per column, reach the drawn columns and a margin past
+    // them, so a coarser tile is replaced before near terrain takes any of its columns. Tiles
+    // wholly inside the drawn disc, short of a margin kept ready for columns leaving it, are
+    // left out.
+    let near_blocks = far.near.outer_blocks() + EDGE_MARGIN_BLOCKS;
+    far.tiles.set_view(TileView {
+        centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
+        near_blocks,
+        skip_blocks: (far.near.inner_blocks() - EDGE_MARGIN_BLOCKS).max(0.0),
+        far_blocks: (horizon_blocks - near_blocks).max(0.0),
+    });
+    far.tiles.release_near(&far.near);
+    far.tiles.update(far.cache.store(), now);
+    let revision = far.tiles.revision();
+    if near_changed || far.published != Some(revision) {
+        *scene = FarTerrainScene {
+            tiles: far.tiles.drawn().into(),
+            near: Arc::clone(&far.near),
+        };
+        far.published = Some(revision);
+    }
 }
 
 /// Writes far-terrain summaries still in flight when the app exits.

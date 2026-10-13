@@ -31,6 +31,28 @@ pub const MAX_UNRESOLVED_COLUMNS: usize = 4096;
 /// probes it has, so sparse worlds are still persisted.
 pub const WORLD_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Cells along one side of every far-terrain tile, at any level.
+pub const TILE_CELLS: usize = 64;
+
+/// Detail levels; level `l` has cells `2^l` blocks wide (1 to 16 blocks).
+pub const LEVEL_COUNT: u8 = 5;
+
+/// A tile splits into four finer ones while it is closer to the near-terrain edge than this
+/// many of its own widths.
+pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
+
+/// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
+pub const SKIRT_DEPTH_BLOCKS: i16 = 16;
+
+/// A tile whose columns changed is rebuilt at most this often.
+pub const TILE_REBUILD_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Tile meshes built concurrently on worker threads.
+pub const MAX_TILE_BUILDS: usize = 4;
+
+/// Columns gathered for new tile builds per update, bounding the owner thread's share.
+pub const TILE_BUILD_COLUMNS_PER_UPDATE: usize = 1024;
+
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;
 

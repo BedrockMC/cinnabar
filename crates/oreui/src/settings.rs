@@ -401,6 +401,9 @@ impl Content<'_, '_> {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
         } else if id == SettingId::UpdateChannel {
             "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
+        } else if id == SettingId::FarTerrain {
+            "Draw terrain you have already visited beyond the render distance, in less detail."
+                .to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (id == SettingId::RenderClouds

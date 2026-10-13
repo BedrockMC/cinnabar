@@ -160,8 +160,9 @@ impl WorldStream {
             feed.pending.clear();
             feed.queued.clear();
             feed.retiring.clear();
+            self.clear_near_drawn();
         } else if !was_enabled {
-            // Columns already resident were never summarised while off.
+            // Columns already resident were never summarised or tracked as drawn while off.
             let columns: Vec<ChunkKey> = self.loaded_columns.iter().copied().collect();
             for column in columns {
                 self.note_far_column_complete(column);
@@ -172,6 +173,18 @@ impl WorldStream {
     #[must_use]
     pub const fn far_terrain_enabled(&self) -> bool {
         self.far_terrain.enabled
+    }
+
+    /// The radius the server last said it sends, in chunks.
+    #[must_use]
+    pub const fn server_view_radius(&self) -> Option<i32> {
+        self.chunk_radius
+    }
+
+    /// The radius the client's chunk grid retains, once the server has confirmed one.
+    #[must_use]
+    pub fn retained_view_radius(&self) -> Option<i32> {
+        self.retained_radius()
     }
 
     /// The local player's column, which centres retention and far terrain.
@@ -209,6 +222,7 @@ impl WorldStream {
 
     /// Queues a column whose every section has arrived, including a resend.
     pub(super) fn note_far_column_complete(&mut self, column: ChunkKey) {
+        self.note_near_drawn(column);
         let feed = &mut self.far_terrain;
         if feed.enabled && feed.queued.insert(column) {
             feed.pending.push_back(column);

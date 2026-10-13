@@ -899,6 +899,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins((
         render::DepthSmaaPlugin,
         render::motion_blur::CameraMotionBlurPlugin,
+        render::FarTerrainRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
@@ -935,6 +936,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         app.insert_resource(service);
     }
     app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)))
+        .init_resource::<render_scene::FarTerrainScene>()
         .add_systems(
             Last,
             crate::far_terrain::finish_far_terrain_on_exit.after(arm_shutdown_watchdog),

@@ -9,6 +9,8 @@ publish = false
 assets = { path = "../assets" }
 crossbeam-channel = "0.5"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+rayon.workspace = true
+render-api = { path = "../render-api" }
 sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -17,10 +19,15 @@ xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 
 [dev-dependencies]
 criterion.workspace = true
+test-time = { path = "../test-time" }
 tempfile = "3"
 
 [[bench]]
 name = "summary_costs"
+harness = false
+
+[[bench]]
+name = "tile_costs"
 harness = false
 
 [lints]
