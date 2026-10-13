@@ -1187,7 +1187,7 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["bridge", "launcher", "protocol", "server-experience", "test-time", "update-manifest", "update-installer"]
+allowed_dependencies = ["bridge", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 

@@ -8624,6 +8624,25 @@ base visual is the intended semantic, locked by the connection permutation
 regression. Incomplete: mask compilation, neighbor rule, meshing selection,
 and the native comparison.
 
+
+## Import player data from Minecraft
+
+The launcher offers a one-time Import or Not now choice when a known user-data
+directory exists. File contents are read only after an explicit import action.
+General Settings retains Import from Minecraft and Revert actions. Import previews
+one selected profile, merges server endpoints, validates and copies installed
+resource packs, and preserves the chosen active order. A durable snapshot restores
+settings, servers and active pack order without removing copied packs.
+
+Supported preferences use a schema-checked mapping table. Primary desktop keyboard
+and mouse bindings use the existing binding validator. Unknown settings, secondary
+key assignments, controller and touch layouts, encrypted packs and invalid or
+over-limit entries are counted and skipped. Existing pack identities are retained.
+
+Incomplete: complete option and control-layout parity, Android scoped-storage
+imports, custom launcher data roots, and verification of every supported desktop
+location against a live install. This feature does not close a parity gate.
+
 ## Outline label sizing and alignment
 
 Named outline labels normalize their ascent and descent independently of the bitmap

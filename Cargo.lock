@@ -4598,6 +4598,7 @@ dependencies = [
  "libc",
  "protocol",
  "reqwest",
+ "resource-pack",
  "rustix 1.1.4",
  "serde",
  "serde_json",

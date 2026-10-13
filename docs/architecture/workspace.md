@@ -129,7 +129,7 @@ the prepared visual data to the GPU.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/launcher` | `launcher` | Engine-independent account, menu and world models plus product identity; use these models across services and screens. | `launcher-host` owns process and persistence services; `client-shell` integrates them. |
-| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
+| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
 | `crates/first-run` | `first-run` | Consent, download and preparation of local asset carriers; use its setup runner before launching the game window. | `asset-compiler` builds carriers; `launcher-host` owns ordinary launcher services. |
 | `crates/rich-presence` | `rich-presence` | Optional Discord desktop activity and RPC worker; use its presence and join-request APIs. | `client-shell` projects menu/session state; `launcher` owns product identity. |
 | `crates/update-manifest` | `update-manifest` | Signed release manifest format, channels, verification and build comparison; use its manifest APIs for update decisions. | `release-manifest` signs releases; `launcher-host` downloads them; `update-installer` verifies staged payloads. |
