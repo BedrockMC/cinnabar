@@ -426,7 +426,7 @@ forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-time"]
+allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-alloc", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
