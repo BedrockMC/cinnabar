@@ -446,6 +446,40 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   differing DPI. Native offscreen validation covers nonzero small attachments.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
+
+## Graphics API startup recovery
+
+- A shared policy selects Windows Vulkan/DX12, Linux Vulkan, Android Vulkan,
+  and macOS Metal. Each API has its own instance and enumeration sentinel. Known vendor
+  defaults order probes; fresh installs use platform order until hardware is identified.
+- Precedence is `WGPU_BACKEND`, the restart-only Video override, vendor defaults and the
+  driver blocklist, then crash exclusions. Explicit overrides bypass automatic filters.
+  A failed saved Video choice retries Auto for that launch; only the environment override is strict.
+  GL/GLES is unavailable, saved GL choices become Auto, and Android requires Vulkan.
+  The Video control is hidden on macOS.
+- All eligible adapters are ranked by device type (discrete, integrated, virtual, other, CPU),
+  then vendor backend order. Low-power preference puts integrated hardware before discrete.
+  Windows Intel adapters prefer DX12 on ties; other multi-API defaults prefer Vulkan. A requested adapter name restricts candidates across every API.
+- Candidates must support terrain base-vertex draws, vertex and fragment storage, alternate
+  texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and
+  the required storage limits.
+  Startup tries each ranked candidate; returned device failures advance to the next candidate.
+  Crash exclusions identify only the backend and survive successful fallback. Client version
+  changes and Graphics API selections, including reselecting Auto, clear exclusions at startup.
+  If no non-excluded candidate succeeds, startup clears allowed exclusions for one more attempt pass.
+  Startup log boundaries flush the file directly without waiting for terminal output.
+- The driver blocklist has one data source and bounded numeric version rules. Native Windows
+  exception capture and Unix fatal-signal capture retain local renderer context and normal OS
+  crash handling.
+- Startup recovery files have an exclusive OS lease through the first completed frame;
+  sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
+  cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel
+  writes, while panics and native faults retain crash evidence. Saved Unix handlers receive the
+  original signal information and machine context; default hardware faults repeat their original
+  instruction. Another client's saved choice cannot change this process's crash attribution.
+- Target-device crash reproduction, Android lifecycle acceptance
+  and Video screenshots remain incomplete. This work closes no parity or performance gate.
+
 ## UI text and presentation failure recovery
 
 - Wrapped presentation text keeps an indivisible glyph wider than its control, with
