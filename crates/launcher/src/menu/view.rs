@@ -547,6 +547,7 @@ pub struct MenuView {
     pub player_skin: Option<render_api::StandardSkin>,
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
+    pub mods: std::sync::Arc<crate::mods::Snapshot>,
     pub minecraft_import: std::sync::Arc<crate::minecraft_import::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
@@ -802,6 +803,7 @@ impl MenuView {
             player_skin: None,
             player_skin_model: Default::default(),
             global_resources: Default::default(),
+            mods: Default::default(),
             minecraft_import: Default::default(),
             disconnect_message: None,
             can_reconnect: false,

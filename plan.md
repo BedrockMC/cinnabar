@@ -2811,6 +2811,23 @@ gaps: no smelting at 1.26.x, brewing skipped, recipes with Molang/complex/deferr
 ingredients dropped. Incomplete as for the spike: process isolation, signing,
 consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
 
+2026-10-13 Settings Mods tab: the resource-pack page's toolbar, card disclosures,
+Active/My mods groups and animations now manage an ordered native mod list. Enable,
+Disable and Remove affect each card's identity independently. Active cards can reorder,
+reload individually or reload all; failed reloads preserve the running instance.
+Per-card permission toggles are derived from the host grant declaration and default off.
+The original single registration migrates with its grants, font and UI intact. Each guest
+keeps its execution limits; regular frame callbacks share a deterministic fuel allowance,
+with bounded event and session-loading lanes preserving their full guest limits. Deferred
+lifecycle notifications and bounded screen-scoped edit text remain queued until delivery.
+Frame-local outputs reset even when execution defers. Superseded authority revocations can
+rebuild; unrelated registration changes retain guest quarantine.
+Camera, time and contested HUD slots obey Active-list precedence with counted refusals.
+Modding and its Wasmtime host ship in every native build, including builds without default
+features. The host's execution modules and tests compile unconditionally. Incomplete:
+component icons and descriptions, owner visual review and native cross-platform acceptance.
+See `docs/modding-spike.md`.
+
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
 interpolated per frame. Local actor feet, interaction eye and network anchor are

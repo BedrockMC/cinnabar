@@ -5,6 +5,7 @@ mod button;
 mod controls;
 mod gui_scale;
 mod layout;
+mod mods;
 mod picker;
 mod presets;
 mod resources;

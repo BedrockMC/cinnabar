@@ -127,6 +127,14 @@ network and audio adapters remain in `app`. Menu tests moved with their owner;
 combined session, inventory and present-mode checks remain in `app`. These moves
 have not been compiled or executed and do not close this gate.
 
+Settings now manages ordered local components, independent reloads and per-mod permissions.
+The native mod host is always included; regular callback fuel and separate event/loading
+lanes are bounded across the full frame. Deferred lifecycle state and bounded screen-scoped
+edit text remain queued until delivery, while frame-local outputs reset. Revocation is distinct
+from quarantine, so unrelated registration changes do not restart trapped guests.
+These extension changes close no vanilla parity gate. Their native execution and visual
+acceptance remain incomplete until CI and owner review, as recorded in `plan.md`.
+
 `client-extensions` now owns personal component collection and callback merging,
 permission grants, player snapshots, panel fonts, and server consent input and text.
 Consent state and ordering live in `client-state`. The coupled session, gameplay,
