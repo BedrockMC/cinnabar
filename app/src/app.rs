@@ -40,7 +40,7 @@ use {
     render::{ActorRenderPlugin, AtmospherePlugin, ChunkRenderPlugin, UiRenderPlugin},
     render_scene::{
         ActorRenderScene, AtmosphereFrame, AtmosphereTextureAssets, ChunkRenderApplySet,
-        ChunkTextureAssets, RuntimeStageProfiler, VisibilityDiagnosticsInput,
+        ChunkTextureAssets, VisibilityDiagnosticsInput,
     },
 };
 mod logging;
@@ -840,7 +840,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     });
     {
         const MAIN_FRAME: usize = render_scene::RuntimeStage::MainFrame as usize;
-        app.insert_resource(RuntimeStageProfiler::for_gameplay(
+        app.insert_resource(crate::runtime::frame_profile::profiler(
             stage_profile_enabled,
             env_compat::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
                 .map(std::path::PathBuf::from),
@@ -952,7 +952,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(First, crate::lifecycle::acknowledge_startup);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
-    let exit = app.run();
+    let exit = crate::runtime::frame_profile::run(&mut app);
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app

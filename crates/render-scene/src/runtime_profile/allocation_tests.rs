@@ -57,8 +57,8 @@ fn system_spans_count_requests_between_boundaries() {
         Option<Res<RuntimeStageProfiler>>,
         Option<ResMut<RuntimeStageSpans>>,
     )>::new(&mut world);
-    let (_, spans) = parameters.get_mut(&mut world).unwrap();
-    begin_stage_span::<STAGE>(spans);
+    let (profiler_resource, spans) = parameters.get_mut(&mut world).unwrap();
+    begin_stage_span::<STAGE>(spans, profiler_resource);
     let bytes = std::hint::black_box(vec![0_u8; 128]);
     let (profiler_resource, spans) = parameters.get_mut(&mut world).unwrap();
     end_stage_span::<STAGE>(profiler_resource, spans);
@@ -86,13 +86,15 @@ fn system_spans_count_parallel_requests_across_boundary_threads() {
         let owner = std::thread::current().id();
         let barrier = Arc::new(Barrier::new(2));
         let worker_barrier = Arc::clone(&barrier);
-        let begin = move |_: NonSendMarker, spans: Option<ResMut<RuntimeStageSpans>>| {
+        let begin = move |_: NonSendMarker,
+                          spans: Option<ResMut<RuntimeStageSpans>>,
+                          profiler: Option<Res<RuntimeStageProfiler>>| {
             assert_eq!(std::thread::current().id(), owner);
             match stage {
                 RuntimeStage::MainUpdate => {
-                    begin_stage_span::<{ RuntimeStage::MainUpdate as usize }>(spans);
+                    begin_stage_span::<{ RuntimeStage::MainUpdate as usize }>(spans, profiler);
                 }
-                _ => begin_stage_span::<{ RuntimeStage::RenderFrame as usize }>(spans),
+                _ => begin_stage_span::<{ RuntimeStage::RenderFrame as usize }>(spans, profiler),
             }
         };
         let main_work = move |_: NonSendMarker| {

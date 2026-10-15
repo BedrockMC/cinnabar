@@ -81,25 +81,58 @@ pub(super) fn finish_frame() {
     enabled::finish_frame();
 }
 
-/// Appends the last completed interval only when a slow-frame line is emitted.
-pub(super) fn append_fields(line: &mut String) {
+/// Copies the completed interval for deferred formatting when a slow-frame line is emitted.
+pub(super) fn snapshot() -> UploadFrame {
     #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
-    enabled::append_fields(line);
+    {
+        enabled::snapshot()
+    }
     #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
-    let _ = line;
+    UploadFrame {}
+}
+
+/// Owned upload samples that remain valid after later frame boundaries.
+pub(super) struct UploadFrame {
+    #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
+    sites: Vec<(enabled::Key, enabled::Counts)>,
+}
+
+impl UploadFrame {
+    /// Formats labelled staged and queue counts without locking the live table.
+    pub(super) fn append_fields(&self, line: &mut String) {
+        #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
+        {
+            use std::fmt::Write;
+            line.push_str(" gpu_writes=");
+            let mut separator = "";
+            for ((file, row, column, kind), counts) in &self.sites {
+                let _ = write!(
+                    line,
+                    "{separator}{file}:{row}:{column}/{kind:?}:staged={}:{}:queue={}:{}",
+                    counts.staged_writes,
+                    counts.staged_bytes,
+                    counts.queue_writes,
+                    counts.queue_bytes
+                );
+                separator = ",";
+            }
+        }
+        #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
+        let _ = line;
+    }
 }
 
 #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
 mod enabled {
-    use super::{UploadKind, UploadPath};
-    use std::{collections::BTreeMap, fmt::Write, panic::Location, sync::Mutex};
+    use super::{UploadFrame, UploadKind, UploadPath};
+    use std::{collections::BTreeMap, panic::Location, sync::Mutex};
 
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    struct Counts {
-        staged_writes: u64,
-        staged_bytes: u64,
-        queue_writes: u64,
-        queue_bytes: u64,
+    pub(super) struct Counts {
+        pub(super) staged_writes: u64,
+        pub(super) staged_bytes: u64,
+        pub(super) queue_writes: u64,
+        pub(super) queue_bytes: u64,
     }
 
     impl Counts {
@@ -146,7 +179,7 @@ mod enabled {
         plots: Option<[tracy_client::PlotName; 4]>,
     }
 
-    type Key = (&'static str, u32, u32, UploadKind);
+    pub(super) type Key = (&'static str, u32, u32, UploadKind);
     struct UploadCounters(BTreeMap<Key, Site>);
     static SITES: Mutex<UploadCounters> = Mutex::new(UploadCounters(BTreeMap::new()));
 
@@ -171,12 +204,12 @@ mod enabled {
             .finish_frame();
     }
 
-    /// Formats the shared table's most recently completed interval.
-    pub(super) fn append_fields(line: &mut String) {
+    /// Copies active samples from the shared table's most recently completed interval.
+    pub(super) fn snapshot() -> UploadFrame {
         SITES
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .append_fields(line);
+            .snapshot()
     }
 
     impl UploadCounters {
@@ -220,24 +253,15 @@ mod enabled {
             }
         }
 
-        /// Formats labelled counts as staged writes:bytes and queue writes:bytes.
-        fn append_fields(&self, line: &mut String) {
-            line.push_str(" gpu_writes=");
-            let mut separator = "";
-            for ((file, row, column, kind), site) in self.0.iter() {
-                let counts = site.last;
-                if counts == Counts::default() {
-                    continue;
-                }
-                let _ = write!(
-                    line,
-                    "{separator}{file}:{row}:{column}/{kind:?}:staged={}:{}:queue={}:{}",
-                    counts.staged_writes,
-                    counts.staged_bytes,
-                    counts.queue_writes,
-                    counts.queue_bytes
-                );
-                separator = ",";
+        /// Retains only active sites; this is requested at most once per slow-frame log interval.
+        fn snapshot(&self) -> UploadFrame {
+            UploadFrame {
+                sites: self
+                    .0
+                    .iter()
+                    .filter(|(_, site)| site.last != Counts::default())
+                    .map(|(key, site)| (*key, site.last))
+                    .collect(),
             }
         }
     }
@@ -259,8 +283,11 @@ mod enabled {
             counters.record(second, UploadKind::Buffer, UploadPath::Queue, 16);
             counters.record(second, UploadKind::Texture, UploadPath::Queue, 0);
             counters.finish_frame();
+            let snapshot = counters.snapshot();
+            // Formatting may be delayed past a later frame's drain.
+            counters.finish_frame();
             let mut fields = String::new();
-            counters.append_fields(&mut fields);
+            snapshot.append_fields(&mut fields);
             assert!(
                 fields.contains(&format!("{first}/Buffer:staged=1:64:queue=1:32")),
                 "{fields}"
@@ -276,7 +303,7 @@ mod enabled {
             assert_eq!(counters.0.len(), 3);
             counters.finish_frame();
             fields.clear();
-            counters.append_fields(&mut fields);
+            counters.snapshot().append_fields(&mut fields);
             assert_eq!(fields, " gpu_writes=");
             assert_eq!(counters.0.len(), 3);
             let (_, overhead) = test_alloc::measure(|| {
