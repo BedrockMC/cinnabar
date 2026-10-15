@@ -368,6 +368,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    let app = logging::startup_app();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -430,11 +431,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
-    diagnostics::log_stderr!("{}", hud_assets.startup_summary());
+    bevy::log::info!("{}", hud_assets.startup_summary());
     let icon_assets = carriers
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
-    diagnostics::log_stderr!("{}", icon_assets.startup_summary());
+    bevy::log::info!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
@@ -448,7 +449,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
-    diagnostics::log_stderr!("{}", lang_assets.startup_summary());
+    bevy::log::info!("{}", lang_assets.startup_summary());
     let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
@@ -521,7 +522,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .unwrap_or(Path::new(".")),
     ) && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
-        diagnostics::log_stderr!("OreUI originals disabled ({reason})");
+        bevy::log::warn!("OreUI originals disabled ({reason})");
     }
     let food_catalog = equipment_catalog.clone();
     ui_presentation.set_equipment_catalog(equipment_catalog);
@@ -563,7 +564,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             &entity_runtime,
         )?;
     let collision_registries = carriers.collision?;
-    diagnostics::log_stderr!(
+    bevy::log::info!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
@@ -692,7 +693,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
-    let mut app = App::new();
+    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
+    let mut app = app;
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
@@ -713,7 +715,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.set(logging::plugin());
+    let plugins = plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()

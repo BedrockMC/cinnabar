@@ -41,6 +41,9 @@ struct InteractionBlock {
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
 
+/// Sequential and hashed IDs grouped by block identity and canonical state.
+type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
+
 /// Runtime-ID collision registries for both Bedrock palette identity modes.
 ///
 /// The two maps are intentionally distinct: a 32-bit network hash may have
