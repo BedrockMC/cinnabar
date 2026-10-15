@@ -977,17 +977,22 @@ arm and fallback main-hand items. Item use and special movement retain their
 authored poses. Java 1.7 takes precedence for body, arm and item poses.
 First-person hand sway deliberately uses Java tick smoothing in both combat
 profiles, independently of the Java animation option.
+Sway retains complete camera yaw turns through tick smoothing and frame interpolation,
+including turns larger than a half turn in one input frame.
+Leaving freelook restores the actor heading with the nearest equivalent yaw winding,
+so full camera revolutions do not add artificial hand motion on release.
+Activating or leaving the sleeping camera reanchors its presentation history, including
+when sleep begins before held freelook is released; stable sleeping frames keep their history.
 Movement bob uses the physics fraction; hurt and death use the actor fraction.
 Remote movement keeps pitch in the signed half-turn range before strike poses read it.
 Frame interpolation takes the shortest pitch arc across the signed boundary in Java mode.
 Regression coverage samples repeated remote swings in Bedrock and Java modes with equivalent
-signed and wrapped pitch values; compilation and execution remain pending CI.
+signed and wrapped pitch values.
 Page-level body dye masks retain zero-alpha RGB and depth independently of armour cutout.
 
 Implementation and deterministic swing, sway, camera, overlay, equipment and shader fixtures
-are present. They have not been compiled or run. CI verification and a headless
-visual comparison remain outstanding; this does not close a parity or visual
-acceptance gate.
+are present. Full combat-profile visual comparison remains incomplete; this does
+not close a parity or visual acceptance gate.
 
 ## Java 1.7 animations
 
@@ -1807,7 +1812,8 @@ frame-budget or identical-version pixel gates.
   with its eye at the sleeping offset, while its physics stays where it stood. One shared pose
   samples loaded bed headings before Camera, including frames without actor ticks, and feeds
   camera publication, actor camera queries, body placement and particle attachments. Sleep
-  transitions reanchor camera history once; stable sleeping frames retain motion-blur history.
+  pose transitions and changes of the sleeping camera override reanchor camera history;
+  stable sleeping frames retain motion-blur history.
   Actor transitions also reanchor displacement and cape position history without restarting
   animation; stable frames preserve that history.
   Java animations retain the sleeping eye height, and named audio keeps an eligible first-person

@@ -123,9 +123,8 @@ pub fn advance_presentation_state(
         .and_then(|physics| physics.state())
         .is_some_and(|state| state.on_ground);
     hurt.advance(dt);
-    let (yaw, pitch, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
     hand.eye_height_adjustment = 0.0;
-    let look = [-pitch.to_degrees(), -yaw.to_degrees()];
+    let look = view.camera_look();
     let local_actor = client_world
         .as_ref()
         .and_then(|world| world.stream)
@@ -265,6 +264,7 @@ pub fn advance_presentation_state(
     } else {
         ViewEffect::NONE
     };
+    let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
     hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
         Quat::from_mat4(&hurt.view_matrix(yaw)),
         settings.feel().damage_bob,

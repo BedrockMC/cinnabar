@@ -214,7 +214,13 @@ fn pick_prediction_keeps_multi_tick_animation_inputs() {
             .unwrap();
         stream.poll([0.0, 64.0, 0.0], 0);
         if predict {
+            let before = [2, 4].map(|id| stream.authority().actor(id).cloned());
             stream.predict_remote_actor_motion(3);
+            assert_eq!(
+                [2, 4].map(|id| stream.authority().actor(id).cloned()),
+                before,
+                "pick prediction leaves authoritative actor state unchanged"
+            );
         }
         stream.advance_actor_interpolation_frame(3);
         let authority = stream.authority();
