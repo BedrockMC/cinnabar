@@ -1,3 +1,20 @@
+## World-service handback
+
+Retention and full-detail transitions share the poll deadline and resume between columns.
+Moving views skip unchanged row interiors. Server teleports use the same retention scan;
+later commits wait for preceding retention, and reclaim requests stop before the next item.
+Near/far terrain still hands coverage over only after its summaries and uploads are ready.
+Outgoing handoffs recheck the latest radius and player centre before withdrawing coverage.
+Discarded detail invalidates pending meshes; retained handoffs regain lighting and its halo.
+Eviction clears interrupted membership so replacement columns refresh through the entering cursor.
+Repeated restoration cancellations retain the original refresh checkpoint while keeping
+published members eligible for later edits.
+Poll reports count maintenance work and its maximum item time; trace spans record commit
+sizes and reclaim waits.
+
+Incomplete: matched release flight and teleport captures must establish reclaim max and
+p99 on target hardware. Synthetic CPU benchmarks do not close a frame-pacing or parity gate.
+
 ## Creative search under server UI packs
 
 Unchanged inventory screens keep recipe-grid virtualization even when a server supplies
