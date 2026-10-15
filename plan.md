@@ -1,3 +1,10 @@
+## Held input across HUD toggles
+
+Display-setting replacements retain the controls revision when controls are unchanged.
+Gameplay input uses that revision, so hiding and showing the HUD or paper doll preserves
+held movement, jump and attack. Changed controls still release held input until it is
+pressed again. Regression tests are written but unrun; compilation and live acceptance
+remain pending. No parity gate closes here.
 ## Prepared session block registries
 
 Session preparation constructs collision registrations, custom state identities and merged
