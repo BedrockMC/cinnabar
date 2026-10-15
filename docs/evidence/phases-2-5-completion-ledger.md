@@ -90,6 +90,28 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 ## P3-MOVEMENT
 
+Riptide releases now carry a level-dependent launch and spin lifetime through fixed ticks,
+correction replay, input start/stop flags and local actor presentation. Charge and admission
+regressions cover wetness, queue rejection, captured ordinary and assisted release facing,
+snap/replay lifetime and cancellation with a discarded release. Ordinary and assisted releases retain
+release-edge eligibility before waiting for interaction sampling or facing input, including movement
+FIFO backpressure, and retain use slowdown through that tick. An accepted use keeps its facing
+fence while pending inventory gestures hide the selected stack. The first release observation
+retains its selected item, eligibility and effective action facing for the input and launch,
+without replacing later physical look outside that action fence. Release
+sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
+launches survive a snap or replay fallback until their movement input is written, including late
+socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and
+liquid attachment heights from retained eye state. Locomotion selection, travel and replay share
+the preceding spin's compact liquid probe so water sensing also gates glide entry. Respawn search and ready anchors discard old
+releases, temporary use modifiers
+and pending launches, including unreleased item-use charges and reserved use input/facing. Item-use admission waits for
+respawn completion without resetting inventory or cooldown policy. Suppressed travel uses the compact spin body for block contacts. Unsupported
+impulses are retired at the
+collision-query budget, a known safety divergence for oversized levels. Exact positional rain eligibility, actor-hit
+termination, server spin metadata, audio and integrated acceptance remain incomplete; this
+change closes no movement parity or performance gate.
+
 Remaining double intermediates in processed controls, block-height contact, support
 offsets, climb requests and fallback travel drag now use f32 operations. Precision
 regressions await CI; full numeric and trajectory parity remains open.
