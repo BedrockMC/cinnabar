@@ -259,18 +259,6 @@ pub const STATES: &[State] = &[
         fixture: settings_video,
     },
     State {
-        name: "settings-video-distance",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FarTerrain),
-    },
-    State {
-        name: "settings-video-full-detail",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_video_option(SettingId::FullDetailDistance),
-    },
-    State {
         name: "settings-storage",
         size: SIZE,
         gui_scale: GUI_SCALE,
