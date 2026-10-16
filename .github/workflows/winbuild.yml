@@ -1,14 +1,17 @@
 name: winbuild
 
-# Windows-only build of Cinnabar. Same packaging steps as the "Package" workflow's
-# windows job, but with no prepare job, no macOS/Linux builds and no release publishing.
-# Output is a downloadable workflow artifact (MSI + setup.exe).
+# Windows-only build of Cinnabar. Mirrors the "Package" workflow's windows job, minus the prepare job,
+# the macOS/Linux builds, symbol archives, timing reports and all release publishing.
+# Output is a downloadable workflow artifact (MSI + setup.exe), and nothing is tagged or released.
 # Signing is optional: missing secrets yield unsigned artifacts.
 on:
   workflow_dispatch:
     inputs:
       branch:
         description: Branch to build (blank uses the selected workflow branch)
+        type: string
+      version:
+        description: App version X.Y.Z for artifact names (blank reads it from the source's Cargo metadata)
         type: string
 
 concurrency:
@@ -23,48 +26,85 @@ defaults:
     working-directory: source
 
 env:
-  CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
   UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
+  # The build cache saves target/; keep compiler intermediates there, not in the shared build-dir.
+  CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # These overrides also enable symbols when packaging an older source checkout.
+  CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
+  CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "packed"
+  CARGO_PROFILE_RELEASE_STRIP: "debuginfo"
   CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
 
 jobs:
-  # Keep this job id as "windows": rust-cache includes the job id in its cache key,
-  # so this run can reuse the cache already built by the Package workflow.
   windows:
     name: Windows x64
+    permissions:
+      contents: read
+      actions: write
     runs-on: windows-2025
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
         working-directory: source
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.branch || github.ref_name }}
           persist-credentials: false
           path: source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ github.workflow_sha }}
           path: release-tools
           persist-credentials: false
-      - name: Resolve the downloadable artifact name
-        run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
+      - name: Resolve the app version
+        id: version
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          if [[ -n "$VERSION_INPUT" ]]; then
+            version="$VERSION_INPUT"
+          else
+            cargo metadata --no-deps --format-version 1 > "$RUNNER_TEMP/cargo-metadata.json"
+            version="$(python - "$RUNNER_TEMP/cargo-metadata.json" <<'PY'
+          import collections, json, sys
+          packages = json.load(open(sys.argv[1], encoding="utf-8"))["packages"]
+          for package in packages:
+              if package["name"] == "cinnabar":
+                  print(package["version"])
+                  break
+          else:
+              print(collections.Counter(p["version"] for p in packages).most_common(1)[0][0])
+          PY
+            )"
+          fi
+          echo "::notice::Building app version $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Resolve the downloadable artifact name
+        run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 --version "${{ steps.version.outputs.version }}" >> "$GITHUB_ENV"
+      # Restore only: the Package workflow owns saving, so this run stays fast and never writes caches.
+      - name: Restore Rust release build cache
+        uses: ./release-tools/.github/actions/build-cache
         with:
-          key: package
-          workspaces: source -> target
+          workspace: source
+          lane: release
+          store: artifact
       - uses: actions/setup-go@v6
         with:
-          go-version-file: source/core/go.mod
-          cache-dependency-path: |
-            source/core/go.sum
-            source/tools/localserver/go.sum
-            source/go.work.sum
+          go-version: 'stable'
+          cache: false
+      - name: Restore Go build cache
+        uses: ./release-tools/.github/actions/build-cache
+        with:
+          workspace: source
+          language: go
+          lane: release
+          store: artifact
       - name: Install WiX, ImageMagick and make
         shell: pwsh
         run: |
@@ -109,7 +149,7 @@ jobs:
           $process = Start-Process -FilePath $setup -ArgumentList @('/layout', ('"' + $layout + '"'),
             '/quiet', '/norestart', '/log', ('"' + $log + '"')) -WindowStyle Hidden -Wait -PassThru
           if ($process.ExitCode -ne 0) { Get-Content $log; throw "Setup layout failed: $($process.ExitCode)" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
