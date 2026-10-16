@@ -157,3 +157,6 @@ pub mod startup_presentation;
 mod queue_review_support;
 
 mod runtime_profile_trace;
+
+#[cfg(feature = "publication-test-support")]
+pub use actor_render::publication_test_support::{PreparedActorDraw, prepare_actor_test_frame};
