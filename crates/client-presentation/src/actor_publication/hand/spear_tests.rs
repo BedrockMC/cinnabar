@@ -111,6 +111,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
             damage: None,
             dye_rgb: None,
             enchanted: false,
+            glint: Default::default(),
         }),
         ..Default::default()
     };

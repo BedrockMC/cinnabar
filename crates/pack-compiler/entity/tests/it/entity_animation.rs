@@ -189,7 +189,8 @@ fn selectable_geometry_pack(index: &str, members: &[&str]) -> TempDir {
     pack
 }
 
-fn evaluate_selection_expression(
+/// Evaluates a numeric selection expression with the same value supplied for every query.
+pub(super) fn evaluate_selection_expression(
     compiled: &assets::CompiledEntityAssets,
     expression: u32,
     query_value: f32,
