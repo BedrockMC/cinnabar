@@ -4189,6 +4189,7 @@ dependencies = [
  "client-world",
  "env-compat",
  "inventory 0.1.20",
+ "meshing",
  "player-state",
  "protocol",
  "protocol-ids",

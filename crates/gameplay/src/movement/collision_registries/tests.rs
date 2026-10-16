@@ -14,6 +14,9 @@ mod custom_shapes;
 #[path = "tests/admission.rs"]
 mod admission;
 
+#[path = "tests/palette_path.rs"]
+mod palette_path;
+
 #[path = "tests/multipart.rs"]
 mod multipart;
 

@@ -5,4 +5,5 @@ pub mod items;
 pub mod packets;
 pub mod recipes;
 pub mod remote_equipment;
+pub mod startup;
 pub mod transactions;
