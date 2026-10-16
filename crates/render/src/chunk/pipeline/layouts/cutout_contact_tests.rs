@@ -108,7 +108,11 @@ fn two_sided_cutout_keeps_exposed_pixels_without_fighting_a_partial_opaque_face(
                         continue;
                     }
                     if on_face.y < 0.0 {
-                        assert_eq!(*pixel, [255, 0, 0, 255], "cutout overwrites the opaque half");
+                        assert_eq!(
+                            *pixel,
+                            [255, 0, 0, 255],
+                            "cutout overwrites the opaque half"
+                        );
                         stone_pixels += 1;
                     } else if *pixel == [0, 255, 0, 255] {
                         leaf_pixels += 1;
