@@ -474,16 +474,6 @@ fn settings_storage() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Reveals the distance controls through the same focus scrolling as the client.
-fn settings_video_option(id: SettingId) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    view.focused_action = Some(MenuAction::SettingsOption(
-        id.index() as u16,
-        view.settings_options.value(id),
-    ));
-    Fixture::Menu(Box::new(view))
-}
-
 /// Shows the keyboard options and command macro modifier without a live session.
 fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
