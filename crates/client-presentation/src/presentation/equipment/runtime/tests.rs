@@ -15,6 +15,9 @@ mod held_block_entity_reload_tests;
 #[path = "block_reload_tests.rs"]
 mod block_reload_tests;
 
+#[path = "texture_artwork_tests.rs"]
+mod texture_artwork_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;

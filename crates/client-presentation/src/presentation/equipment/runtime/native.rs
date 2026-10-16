@@ -391,7 +391,7 @@ impl EquipmentRuntime {
             if let Some(texture) = pack.catalog.as_ref()?.texture(&identifier)
                 && let Some(location) = pack.texture_locations.get(&identifier)
             {
-                return Some((texture.clone(), *location));
+                return Some((texture.clone(), location.location));
             }
             if artwork.startup_texture_is_sprite
                 && let Some(texture) = self
@@ -400,7 +400,7 @@ impl EquipmentRuntime {
                     .and_then(|catalog| catalog.texture(&identifier))
                 && let Some(location) = self.texture_locations.get(&identifier)
             {
-                return Some((texture.clone(), *location));
+                return Some((texture.clone(), location.location));
             }
         }
         // A raised spear may reuse its normal texture when the pack has no raised alias.

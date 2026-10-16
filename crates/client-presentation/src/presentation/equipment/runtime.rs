@@ -100,7 +100,7 @@ pub struct EquipmentRuntime {
     blocks: crate::prepared_actor_artwork::PlacedBlockItems,
     startup_blocks: crate::prepared_actor_artwork::PlacedBlockItems,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
-    texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
+    texture_locations: BTreeMap<Box<str>, pack::TextureArtwork>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
     /// Bones of player skins' own models, by skin rig id.
     skin_bones: BTreeMap<EntityRigId, Arc<BodyBones>>,
@@ -200,11 +200,8 @@ impl EquipmentRuntime {
             None => artwork,
         };
         let (mut artwork, locations) = artwork.with_equipment_rasters(&rasters);
-        let texture_locations = textures
-            .iter()
-            .zip(&locations[texture_start..])
-            .filter_map(|(texture, location)| Some((texture.identifier.clone(), (*location)?)))
-            .collect();
+        let texture_locations =
+            pack::placed_textures(textures, locations[texture_start..].iter().copied());
         let blocks = crate::prepared_actor_artwork::PlacedBlockItems {
             source: blocks,
             locations: locations[atlas_layers..texture_start].to_vec(),

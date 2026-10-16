@@ -3914,6 +3914,9 @@ resource packs), rigs depending on vanilla clips are attributed as fallbacks; se
 
 Texture-only equipment overrides replace artwork at validated startup texture paths;
 startup bindings, controllers and geometry remain active without loose resource files.
+Startup and session equipment artwork maps bind each placed raster's catalog index once.
+Draws reuse that index, including after missing placements and pack replacement, while
+retaining pack precedence and startup fallback. Hardware frame budgets remain unverified.
 Artwork-only layers support item textures with no entity symbols, create no pack attachable
 bindings and need no sidecar rebuild. Each item's authored dependencies decide whether it
 uses this path. Mixed texture and geometry, controller or material overrides retain the

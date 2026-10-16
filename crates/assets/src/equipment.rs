@@ -29,6 +29,20 @@ pub use use_profiles::CompiledItemUseOverlay;
 #[path = "equipment/texture_tests.rs"]
 mod texture_tests;
 
+#[cfg(any(test, feature = "test-support"))]
+thread_local! {
+    static TEXTURE_SLICE_ACCESSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts texture-slice accessor calls on the current thread while `run` executes.
+#[cfg(any(test, feature = "test-support"))]
+pub fn count_texture_slice_accesses<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let before = TEXTURE_SLICE_ACCESSES.with(std::cell::Cell::get);
+    let result = run();
+    let accesses = TEXTURE_SLICE_ACCESSES.with(std::cell::Cell::get) - before;
+    (result, accesses)
+}
+
 pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
 /// Includes authored use profiles, food nutrition, component durations and use-modifiers presence.
 /// Older carriers need a rebuild.
@@ -374,6 +388,8 @@ impl RuntimeEquipmentCatalog {
     /// Attachable textures sorted by identifier.
     #[must_use]
     pub fn textures(&self) -> &[EquipmentTexture] {
+        #[cfg(any(test, feature = "test-support"))]
+        TEXTURE_SLICE_ACCESSES.with(|accesses| accesses.set(accesses.get() + 1));
         &self.textures
     }
 
