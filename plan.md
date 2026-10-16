@@ -7170,6 +7170,11 @@ Source-water, source-lava, and powder-snow collection were observed against a
 local Bedrock server. Waterlogged-source acceptance remains unverified; this does
 not close the interaction parity gate.
 
+Middle-click picking includes mobs and paintings, and asks the server for the
+nearest eligible actor's item using its persistent ID. Mob spawn eggs remain
+server-authoritative; walls, reach, and mounted-actor exclusion still constrain
+the pick. This does not close the broader interaction parity gate.
+
 **Phase 5 roadmap (kept current as work lands):**
 
 **Approved gameplay-HUD presentation deviation (expanded 2026-07-19):** the
