@@ -1,0 +1,119 @@
+name: winbuild
+
+# Windows-only build of Cinnabar. Same packaging steps as the "Package" workflow's
+# windows job, but with no prepare job, no macOS/Linux builds and no release publishing.
+# Output is a downloadable workflow artifact (MSI + setup.exe).
+# Signing is optional: missing secrets yield unsigned artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to build (blank uses the selected workflow branch)
+        type: string
+
+concurrency:
+  group: winbuild-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: source
+
+env:
+  CINNABAR_UPDATE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/latest/download/update-stable.json
+  UPDATE_TRUSTED_KEYS: ${{ vars.UPDATE_TRUSTED_KEYS }}
+  CARGO_TERM_COLOR: always
+  CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
+
+jobs:
+  # Keep this job id as "windows": rust-cache includes the job id in its cache key,
+  # so this run can reuse the cache already built by the Package workflow.
+  windows:
+    name: Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: source
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref_name }}
+          persist-credentials: false
+          path: source
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: release-tools
+          persist-credentials: false
+      - name: Resolve the downloadable artifact name
+        run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 >> "$GITHUB_ENV"
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: package
+          workspaces: source -> target
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: source/core/go.mod
+          cache-dependency-path: |
+            source/core/go.sum
+            source/tools/localserver/go.sum
+            source/go.work.sum
+      - name: Install WiX, ImageMagick and make
+        shell: pwsh
+        run: |
+          # The .wxs uses <Files>, which needs WiX 5.
+          dotnet tool install --global wix --version 5.0.2
+          & "$env:USERPROFILE\.dotnet\tools\wix.exe" extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2
+          choco install imagemagick --no-progress -y
+          if (-not (Get-Command make -ErrorAction SilentlyContinue)) { choco install make --no-progress -y }
+          $magick = Get-ChildItem "$env:ProgramFiles\ImageMagick*" -Directory | Select-Object -First 1
+          if (-not $magick) { throw "ImageMagick install directory not found" }
+          Add-Content $env:GITHUB_PATH $magick.FullName
+          Add-Content $env:GITHUB_PATH "$env:USERPROFILE\.dotnet\tools"
+          Add-Content $env:GITHUB_PATH "$env:ProgramData\chocolatey\bin"
+      - name: Package and sign
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          make package-binaries
+          pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
+          mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
+          mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
+      - name: Extract the MSI
+        shell: pwsh
+        run: |
+          $image = Join-Path $env:RUNNER_TEMP "msi-image"
+          $msi = Join-Path $env:RUNNER_TEMP $env:AUXILIARY_ASSET
+          & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/extract-msi.ps1" -Msi $msi -Out $image
+      - name: Check the MSI against the payload allowlist
+        run: bash "$GITHUB_WORKSPACE/release-tools/packaging/check-payload.sh" windows "$(cygpath -u "$RUNNER_TEMP")/msi-image"
+      - name: Check the setup embeds the verified MSI
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/release-tools/packaging/windows/check-setup.ps1" -Setup (Join-Path $env:RUNNER_TEMP $env:RELEASE_ASSET) `
+            -Msi (Join-Path $env:RUNNER_TEMP $env:AUXILIARY_ASSET) -Out "$env:RUNNER_TEMP/setup-image"
+      - name: Smoke test the setup engine without installing
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP $env:RELEASE_ASSET
+          $layout = Join-Path $env:RUNNER_TEMP "setup-layout"
+          $log = Join-Path $env:RUNNER_TEMP "setup-layout.log"
+          $process = Start-Process -FilePath $setup -ArgumentList @('/layout', ('"' + $layout + '"'),
+            '/quiet', '/norestart', '/log', ('"' + $log + '"')) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { Get-Content $log; throw "Setup layout failed: $($process.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
+            ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
+          if-no-files-found: error
+          retention-days: 7
