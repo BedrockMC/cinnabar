@@ -228,16 +228,9 @@ pub(in crate::chunk) fn init_chunk_gpu_animation_clock(
 pub(in crate::chunk) fn prepare_chunk_animation_clock(
     clock: Res<ChunkAnimationClock>,
     gpu_clock: Res<ChunkGpuAnimationClock>,
-    render_queue: Res<RenderQueue>,
-    device: Res<RenderDevice>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
+    uploads: crate::upload_staging::FrameUploads,
 ) {
-    crate::upload_staging::write_batch(
-        staging.as_deref(),
-        &device,
-        &render_queue,
-        &[(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock))],
-    );
+    uploads.write(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
 }
 
 type PreparedReplacement = (

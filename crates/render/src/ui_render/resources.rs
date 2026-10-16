@@ -79,23 +79,21 @@ type UiPreparationOptions<'w> = (
     Option<Res<'w, UiHandCoverage>>,
     Option<Res<'w, UiGlintSettings>>,
     Option<Res<'w, profile::UiProfile>>,
-    Option<Res<'w, crate::upload_staging::BufferUploadStaging>>,
 );
 
 /// Admits a publication and updates its shared GPU storage without waiting for readback.
 pub(crate) fn prepare_ui_resources(
     scene: Res<UiRenderSceneResource>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<UiGpu>,
     stats: Res<UiRenderStatsResource>,
     tick: SystemChangeTick,
-    (coverage, glint, profile, staging): UiPreparationOptions<'_>,
+    (coverage, glint, profile): UiPreparationOptions<'_>,
 ) {
-    let same_device = &gpu.device == render_device.wgpu_device();
+    let same_device = &gpu.device == uploads.device.wgpu_device();
     let device_valid =
         gpu.device_observation
-            .observe(render_device.last_changed(), tick.this_run(), same_device);
+            .observe(uploads.device.last_changed(), tick.this_run(), same_device);
     if let Some(coverage) = coverage {
         coverage.clear();
     }
@@ -144,12 +142,7 @@ pub(crate) fn prepare_ui_resources(
             let _span =
                 bevy::log::info_span!("ui.viewport_write", bytes = size_of::<UiViewportUniform>())
                     .entered();
-            crate::upload_staging::write_batch(
-                staging.as_deref(),
-                &render_device,
-                &render_queue,
-                &[(&*viewport_buffer, 0, bytemuck::bytes_of(uniform))],
-            );
+            uploads.write(&*viewport_buffer, 0, bytemuck::bytes_of(uniform));
             if let Some(profile) = profile.as_deref() {
                 profile.record_upload(
                     profile::UploadKind::Viewport,
@@ -206,8 +199,8 @@ pub(crate) fn prepare_ui_resources(
     }
     if let Err(reason) = gpu.textures.prepare(
         &input.textures,
-        &render_device,
-        &render_queue,
+        &uploads.device,
+        &uploads.queue,
         profile.as_deref(),
     ) {
         gpu.accepted_revision = None;
@@ -219,7 +212,7 @@ pub(crate) fn prepare_ui_resources(
 
     if let Err(reason) = gpu
         .textures
-        .prepare_fonts(input, &render_queue, profile.as_deref())
+        .prepare_fonts(input, &uploads.queue, profile.as_deref())
     {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
@@ -238,7 +231,7 @@ pub(crate) fn prepare_ui_resources(
             bytes = arena_bytes(capacity, size_of::<FontAtlasVertex>())
         )
         .entered();
-        gpu.vertex_buffer = Some(render_device.create_buffer(&BufferDescriptor {
+        gpu.vertex_buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI vertex arena"),
             size: arena_bytes(capacity, size_of::<FontAtlasVertex>()),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
@@ -255,7 +248,7 @@ pub(crate) fn prepare_ui_resources(
             bytes = arena_bytes(capacity, size_of::<u32>())
         )
         .entered();
-        gpu.index_buffer = Some(render_device.create_buffer(&BufferDescriptor {
+        gpu.index_buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
             label: Some("shared bounded UI index arena"),
             size: arena_bytes(capacity, size_of::<u32>()),
             usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
@@ -265,9 +258,11 @@ pub(crate) fn prepare_ui_resources(
         gpu.index_arena_id = gpu.index_arena_id.saturating_add(1);
     }
     let UiGpu {
-        uploads, textures, ..
+        uploads: buffer_uploads,
+        textures,
+        ..
     } = &mut *gpu;
-    let upload = uploads.plan(input, &textures.fonts, fresh_vertices, fresh_indices);
+    let upload = buffer_uploads.plan(input, &textures.fonts, fresh_vertices, fresh_indices);
     if let Some(buffer) = gpu.vertex_buffer.as_ref()
         && !upload.vertices.is_empty()
     {
@@ -279,7 +274,7 @@ pub(crate) fn prepare_ui_resources(
             bytes = upload.vertices.len() * size_of::<FontAtlasVertex>(),
         )
         .entered();
-        render_queue.profiled_write_buffer(
+        uploads.queue.profiled_write_buffer(
             buffer,
             (upload.vertices.start * size_of::<FontAtlasVertex>()) as u64,
             bytemuck::cast_slice(&gpu.textures.fonts.vertices[upload.vertices.clone()]),
@@ -306,7 +301,7 @@ pub(crate) fn prepare_ui_resources(
             bytes = upload.indices.len() * size_of::<u32>(),
         )
         .entered();
-        render_queue.profiled_write_buffer(
+        uploads.queue.profiled_write_buffer(
             buffer,
             (upload.indices.start * size_of::<u32>()) as u64,
             bytemuck::cast_slice(&input.indices[upload.indices.clone()]),

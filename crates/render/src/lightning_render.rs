@@ -1,4 +1,3 @@
-use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use bevy::{
@@ -26,7 +25,7 @@ use bevy::{
             PipelineCache, RenderPipeline, RenderPipelineDescriptor, ShaderStages, Specializer,
             SpecializerKey, Variants, VertexState,
         },
-        renderer::{RenderDevice, RenderQueue},
+        renderer::RenderDevice,
         sync_world::MainEntity,
         view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
@@ -39,6 +38,7 @@ const LIGHTNING_SHADER_HANDLE: Handle<Shader> =
 const RECORD_BYTES: usize = std::mem::size_of::<BoltRecord>();
 
 pub(crate) fn install_lightning_render(app: &mut App) {
+    crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<LightningPipeline>(app);
     load_internal_asset!(
         app,
@@ -87,13 +87,13 @@ fn init_lightning_gpu(mut commands: Commands, render_device: Res<RenderDevice>) 
 
 fn prepare_lightning_records(
     scene: Res<LightningScene>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<LightningGpu>,
 ) {
     let count = scene.records.len().min(MAX_BOLT_RECORDS);
     gpu.record_count = u32::try_from(count).expect("bounded bolt record count");
     if count > 0 {
-        render_queue.profiled_write_buffer(
+        uploads.write(
             &gpu.record_buffer,
             0,
             bytemuck::cast_slice::<BoltRecord, u8>(&scene.records[..count]),
@@ -364,6 +364,28 @@ mod review_tests {
     use super::*;
     use crate::queue_review_support as fixture;
     use bevy::ecs::system::RunSystemOnce;
+    #[test]
+    fn frame_uploads_stage_lightning_records() {
+        use crate::upload_staging::BufferUploadStaging;
+        let (mut app, _) = fixture::app();
+        let world = app.world_mut();
+        let staging = BufferUploadStaging::new(world.resource());
+        world.insert_resource(staging);
+        world.insert_resource(LightningScene {
+            records: vec![BoltRecord {
+                start: [0.0; 3],
+                end: [0.0, 1.0, 0.0],
+                half_width: 0.1,
+                intensity: 1.0,
+            }],
+        });
+        world.run_system_once(init_lightning_gpu).unwrap();
+        world.run_system_once(prepare_lightning_records).unwrap();
+        let stats = world.resource::<BufferUploadStaging>().stats();
+        assert_eq!(stats.staged_writes, 1);
+        assert_eq!(stats.fallback_writes, 0);
+    }
+
     #[test]
     fn review_render_lightning_queue_uses_current_records() {
         let (mut app, view) = fixture::app();

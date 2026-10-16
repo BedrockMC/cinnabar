@@ -1,19 +1,4 @@
-//! Frame admission: the single wait between one frame's handoff and the next frame's input.
-//!
-//! The main thread hands frame N to the render thread at the end of an update, then would start
-//! N+1 at once and block at the next handoff until N finishes rendering, so N+1's input goes stale
-//! by that whole wait. After each handoff this delays the next update until the later of two
-//! deadlines: the next slot of the requested frame-rate cadence, and the predicted render
-//! completion less the predicted main-thread time and a safety margin, from recent frame history
-//! (or that frame's actual completion if sooner). Render time includes drawable acquisition, so
-//! swapchain backpressure is folded in. The wait ends before the event loop collects the next
-//! frame's input, so events arriving meanwhile are read fresh, and since every update passes
-//! through it, input events can wake the loop but never admit an extra frame.
-//! On Metal, completed frame markers also predict the GPU queue's finish. That prediction counts
-//! every submission and budgets CPU encoding separately from drawable waits, so input can be
-//! sampled later without adding GPU backlog. Display-synchronized surfaces use CPU completion
-//! and drawable backpressure, since their GPU markers contain display-dependent gaps.
-//! Missing or stale GPU feedback leaves CPU pacing intact.
+//! Admits fresh input after frame handoff using the requested cadence and predicted CPU/GPU work.
 
 use bevy::prelude::IntoScheduleConfigs;
 mod frame_time;

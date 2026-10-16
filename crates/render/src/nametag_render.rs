@@ -6,6 +6,8 @@ use bevy::prelude::DetectChanges;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
+#[cfg(test)]
+use bevy::render::renderer::RenderQueue;
 use render_scene::NametagSceneResource;
 use std::{ops::Range, sync::Arc};
 
@@ -41,7 +43,7 @@ use bevy::{
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
             TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
-        renderer::{RenderDevice, RenderQueue},
+        renderer::RenderDevice,
         sync_world::MainEntity,
         view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
@@ -183,25 +185,18 @@ fn init_nametag_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 /// resources were (re)created, or the queue changed; the atlas uploads its changed cells.
 fn prepare_nametags(
     scene: Res<NametagSceneResource>,
-    render_queue: Res<RenderQueue>,
-    render_device: Res<RenderDevice>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<NametagGpu>,
 ) {
-    if scene.is_changed() || gpu.is_added() || render_queue.is_changed() {
+    if scene.is_changed() || gpu.is_added() || uploads.queue.is_changed() {
         let total = scene.records.len().min(MAX_NAMETAG_RECORDS);
         gpu.total = total as u32;
         record_batches(&scene.records[..total], &mut gpu.batches);
         if total > 0 {
-            crate::upload_staging::write_batch(
-                staging.as_deref(),
-                &render_device,
-                &render_queue,
-                &[(
-                    &gpu.record_buffer,
-                    0,
-                    bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
-                )],
+            uploads.write(
+                &gpu.record_buffer,
+                0,
+                bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
             );
         }
     }
@@ -210,7 +205,7 @@ fn prepare_nametags(
     }
     for rectangle in NametagAtlasRect::updates(&scene.atlas, &gpu.atlas) {
         let [x, y, width, height] = rectangle.cell;
-        render_queue.profiled_write_texture(
+        uploads.queue.profiled_write_texture(
             bevy::render::render_resource::TexelCopyTextureInfo {
                 texture: &gpu.atlas_texture,
                 mip_level: 0,

@@ -24,6 +24,9 @@ pub(crate) type BufferWrite<'a> = (&'a wgpu::Buffer, u64, &'a [u8]);
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Stats {
     pub(crate) staged_writes: u64,
+    /// Batches admitted under one pool lock.
+    #[cfg(test)]
+    pub(crate) batches: u64,
     pub(crate) staged_bytes: u64,
     /// Pool misses: writes that took the queue path, each allocating backend staging.
     pub(crate) fallback_writes: u64,
@@ -88,25 +91,36 @@ fn initialize(world: &mut World) {
     let (frame, terrain) = (requested.frame, requested.terrain);
     let device = world.resource::<RenderDevice>().clone();
     if frame {
-        world.insert_resource(BufferUploadStaging(Staging::new(&device, FRAME)));
+        world.insert_resource(BufferUploadStaging::new(&device));
     }
     if terrain {
         world.insert_resource(TerrainUploadStaging::new(&device));
     }
 }
 
-/// Uses retained storage when installed; isolated owners retain their ordinary queue path.
-#[track_caller]
-pub(crate) fn write_batch(
-    staging: Option<&BufferUploadStaging>,
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    writes: &[BufferWrite<'_>],
-) {
-    if let Some(staging) = staging {
-        staging.write_batch(device, queue, writes);
-    } else {
-        fallback(queue, writes, std::panic::Location::caller());
+/// Frame upload dependencies shared by render preparation systems and their helpers.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct FrameUploads<'w> {
+    pub(crate) device: Res<'w, RenderDevice>,
+    pub(crate) queue: Res<'w, RenderQueue>,
+    staging: Option<Res<'w, BufferUploadStaging>>,
+}
+
+impl FrameUploads<'_> {
+    /// Stages one batch under one lock, or queues it when no frame pool is installed.
+    #[track_caller]
+    pub(crate) fn write_batch(&self, writes: &[BufferWrite<'_>]) {
+        if let Some(staging) = &self.staging {
+            staging.write_batch(&self.device, &self.queue, writes);
+        } else {
+            fallback(&self.queue, writes, std::panic::Location::caller());
+        }
+    }
+
+    /// Uploads one recurring buffer update through the same ordering contract as a batch.
+    #[track_caller]
+    pub(crate) fn write(&self, target: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
+        self.write_batch(&[(target, offset, bytes)]);
     }
 }
 
@@ -129,6 +143,13 @@ pub(crate) struct BufferUploadStaging(Staging);
 /// Terrain arena writes; a migration slice must encode pending copies before it copies.
 #[derive(Resource, Deref)]
 pub(crate) struct TerrainUploadStaging(Staging);
+
+impl BufferUploadStaging {
+    /// Creates retained staging for recurring frame uploads.
+    pub(crate) fn new(device: &RenderDevice) -> Self {
+        Self(Staging::new(device, FRAME))
+    }
+}
 
 impl TerrainUploadStaging {
     pub(crate) fn new(device: &RenderDevice) -> Self {
@@ -196,6 +217,10 @@ impl Staging {
     #[track_caller]
     fn admit<'a>(&self, device: &RenderDevice, writes: &[BufferWrite<'a>]) -> Option<Miss<'a>> {
         let mut pool = self.lock();
+        #[cfg(test)]
+        {
+            pool.stats.batches += 1;
+        }
         let (index, staged) = pool.stage_prefix(writes)?;
         let (target, offset, bytes) = writes[index];
         let mut rest = Vec::with_capacity(writes.len() - index);

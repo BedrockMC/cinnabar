@@ -153,20 +153,18 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
 
 fn prepare_particle_resources(
     frame: Res<ParticleGpuFrame>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
 ) {
     if let Some(base) = &frame.base
         && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
         && assets::texture::policy::TexturePolicy::for_device(
-            render_device.limits().max_texture_dimension_2d,
+            uploads.device.limits().max_texture_dimension_2d,
         )
         .page_bytes(frame.atlas_side, frame.atlas_side)
             == Some(base.len())
     {
-        let texture = render_device.create_texture(&TextureDescriptor {
+        let texture = uploads.device.create_texture(&TextureDescriptor {
             label: Some("particle atlas"),
             size: Extent3d {
                 width: frame.atlas_side,
@@ -181,7 +179,7 @@ fn prepare_particle_resources(
             view_formats: &[],
         });
         write_rect(
-            &render_queue,
+            &uploads.queue,
             &texture,
             [0, 0],
             [frame.atlas_side, frame.atlas_side],
@@ -198,7 +196,7 @@ fn prepare_particle_resources(
     {
         for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
             write_rect(
-                &render_queue,
+                &uploads.queue,
                 texture,
                 [patch.x, patch.y],
                 [patch.width, patch.height],
@@ -219,7 +217,7 @@ fn prepare_particle_resources(
     }
     if gpu.capacity < total || gpu.buffer.is_none() {
         let capacity = total.next_power_of_two().max(MIN_CAPACITY);
-        gpu.buffer = Some(render_device.create_buffer(&BufferDescriptor {
+        gpu.buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
             label: Some("particle instances"),
             size: capacity as u64 * INSTANCE_BYTES,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
@@ -236,24 +234,19 @@ fn prepare_particle_resources(
             bytes = total as u64 * INSTANCE_BYTES
         )
         .entered();
-        crate::upload_staging::write_batch(
-            staging.as_deref(),
-            &render_device,
-            &render_queue,
-            &[
-                (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
-                (
-                    buffer,
-                    opaque as u64 * INSTANCE_BYTES,
-                    bytemuck::cast_slice(&frame.blend[..]),
-                ),
-                (
-                    buffer,
-                    (opaque + blend) as u64 * INSTANCE_BYTES,
-                    bytemuck::cast_slice(&frame.add[..]),
-                ),
-            ],
-        );
+        uploads.write_batch(&[
+            (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
+            (
+                buffer,
+                opaque as u64 * INSTANCE_BYTES,
+                bytemuck::cast_slice(&frame.blend[..]),
+            ),
+            (
+                buffer,
+                (opaque + blend) as u64 * INSTANCE_BYTES,
+                bytemuck::cast_slice(&frame.add[..]),
+            ),
+        ]);
     }
 }
 

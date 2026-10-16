@@ -507,3 +507,18 @@ fn retained_storage_handles_growth_empty_windows_and_asset_replacement() {
     assert!(world.resource::<CloudGpu>().views[&view].record_count > 0);
     assert_eq!(world.resource::<CloudGpu>().work.buffer_creations, 2);
 }
+
+#[test]
+fn frame_uploads_stage_cloud_records_and_colour() {
+    use crate::upload_staging::BufferUploadStaging;
+    let mut world = world();
+    world.init_resource::<render_scene::AtmosphereViewInputs>();
+    let staging = BufferUploadStaging::new(world.resource());
+    world.insert_resource(staging);
+    spawn_view(&mut world, Vec3::ZERO);
+    world.run_system_once(prepare_cloud_records).unwrap();
+    world.run_system_once(prepare_cloud_colour).unwrap();
+    let stats = world.resource::<BufferUploadStaging>().stats();
+    assert_eq!(stats.staged_writes, 2);
+    assert_eq!(stats.fallback_writes, 0);
+}

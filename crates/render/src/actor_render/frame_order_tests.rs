@@ -513,3 +513,19 @@ fn a_depth_writing_blend_cannot_split_a_sorted_dissolve_pair() {
         "the color finishes before the intervening blend can write depth"
     );
 }
+
+#[test]
+fn actor_instances_and_both_bone_endpoints_take_one_pool_lock() {
+    use crate::upload_staging::BufferUploadStaging;
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let staging = BufferUploadStaging::new(world.resource());
+    world.insert_resource(staging);
+    world.insert_resource(frame(&[false, false, true]));
+    let before = world.resource::<BufferUploadStaging>().stats();
+    world.run_system_once(prepare_actor_resources).unwrap();
+    let after = world.resource::<BufferUploadStaging>().stats();
+    assert_eq!(after.staged_writes - before.staged_writes, 3);
+    assert_eq!(after.batches - before.batches, 1);
+    assert_eq!(after.fallback_writes, 0);
+}

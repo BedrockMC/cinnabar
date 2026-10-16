@@ -325,10 +325,8 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
 #[allow(clippy::too_many_arguments)]
 fn prepare_actor_resources(
     frame: Res<ActorRenderFrame>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ActorGpu>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
@@ -344,7 +342,7 @@ fn prepare_actor_resources(
     let rig = &frame.rig;
     let artwork_valid = gpu
         .artwork
-        .prepare(&frame.artwork, &render_device, &render_queue);
+        .prepare(&frame.artwork, &uploads.device, &uploads.queue);
     gpu.artwork_current = artwork_valid;
     if gpu.artwork_identity != frame.artwork.identity() {
         gate.clear();
@@ -370,15 +368,15 @@ fn prepare_actor_resources(
         gpu.bones.clear();
         // A new skin model or item mesh uploads only its own vertices.
         gpu.geometry_ready = gpu.geometry_vertices.sync(
-            &render_device,
-            &render_queue,
+            &uploads.device,
+            &uploads.queue,
             "shared actor rig vertices",
             &rig.geometry_vertices,
         );
         if !rig.geometry_spans.is_empty() && gpu.geometry_ready {
             if let Some(buffer) = allocation::buffer_with_data(
-                &render_device,
-                &render_queue,
+                &uploads.device,
+                &uploads.queue,
                 "shared actor rig geometry spans",
                 bytemuck::cast_slice::<ActorRigGeometrySpan, u8>(&rig.geometry_spans),
                 BufferUsages::STORAGE,
@@ -441,33 +439,26 @@ fn prepare_actor_resources(
             )
             .entered();
             let uploaded = allocation::checked(
-                &render_device,
+                &uploads.device,
                 "actor instance and bone upload",
                 (std::mem::size_of_val(&*prepared.instances) + prepared.uploaded_bytes()) as u64,
                 || {
-                    crate::upload_staging::write_batch(
-                        staging.as_deref(),
-                        &render_device,
-                        &render_queue,
-                        &[(
-                            &gpu.instance_buffer,
-                            0,
-                            bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
-                        )],
-                    );
+                    let mut writes =
+                        Vec::with_capacity(1 + prepared.previous.len() + prepared.current.len());
+                    writes.push((
+                        &*gpu.instance_buffer,
+                        0,
+                        bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
+                    ));
                     gpu.bones.writes(&prepared, |current, offset, bytes| {
                         let buffer = if current {
                             &gpu.current_bone_buffer
                         } else {
                             &gpu.previous_bone_buffer
                         };
-                        crate::upload_staging::write_batch(
-                            staging.as_deref(),
-                            &render_device,
-                            &render_queue,
-                            &[(buffer, offset, bytes)],
-                        );
+                        writes.push((&**buffer, offset, bytes));
                     });
+                    uploads.write_batch(&writes);
                 },
             );
             if uploaded.is_none() {
@@ -528,7 +519,9 @@ fn prepare_actor_resources(
             });
             return;
         }
-        let views_changed = gpu.skins.sync(&frame.skins, &render_device, &render_queue);
+        let views_changed = gpu
+            .skins
+            .sync(&frame.skins, &uploads.device, &uploads.queue);
         if !gpu.skins.is_synced(&frame.skins) {
             gpu.bind_group = None;
             gpu.instance_count = 0;
