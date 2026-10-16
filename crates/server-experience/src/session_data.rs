@@ -60,6 +60,9 @@ pub enum RecipeCategory {
     Cartography,
     SmithingTransform,
     SmithingTrim,
+    Furnace,
+    BlastFurnace,
+    Smoker,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
