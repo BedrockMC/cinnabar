@@ -352,6 +352,10 @@ verification. No parity gate closes here.
 
 ## Launcher updates
 
+Windows runtime executables carry `asInvoker` manifests and refuse elevated game, core and
+crash-monitor startup or relaunch. Setup does not launch the game, and MSI Restart Manager
+relaunch is disabled. The machine-wide install identity and custom install folders remain supported.
+
 One client per install owns update checks, Beta/Nightly/Stable channel selection, explicit Restart and
 update / Later actions, and a separate default-off install-on-quit preference. Signed manifests
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
