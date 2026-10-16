@@ -3248,9 +3248,10 @@ remain visible; native behavior for that resource limit is unverified. Full pack
 and multi-bone preview parity remains open.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
-state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces
-visible through holes. Non-blended face alpha uses the thumbnail threshold; fractional blended
-faces (stained glass) retain their composed thumbnail. Chests (a cube of their inventory tiles)
+state). Cut-out cube previews (glass, leaves) draw their camera-facing surfaces, so rear
+faces do not show through front texel holes. Their thumbnails use the same face selection.
+Non-blended face alpha uses the thumbnail threshold; fractional blended faces (stained glass)
+retain their composed thumbnail. Chests (a cube of their inventory tiles)
 and blend-flagged art that is only opaque or cut out (anvils) draw as GUI geometry too. Overlapping
 meshes keep their thumbnail when faded. Optional sources follow required atlas pages and fall
 back to thumbnails when the atlas is full. Incomplete: layered translucent cube GUI geometry is
@@ -3891,6 +3892,11 @@ dispatch and a fresh live check remain outstanding. New chat/loading regressions
 are authored but unrun at the user's request. Native
 `#item_name_text_offset` controller binding remains
 incomplete; this correction preserves the approved built-in pack geometry.
+
+Sulfur-cube body and shell material aliases retain their cutout and blended states.
+The pinned adult and baby shell rasters preserve fractional opacity through actor
+carrier admission. Incomplete: absorbed-block scale and attachment placement remain
+unverified; restoring the shell does not close the full sulfur-cube rendering gate.
 
 2026-10-05 custom actor lens materials: the Murder Mystery lens overrides its body's
 wildcard material with `slime_outer`. The compiler previously ignored bone-specific
@@ -8961,8 +8967,9 @@ Attacks at actors, air or blocks send the item-directed transaction with aim and
 allowing the server to apply damage and Lunge movement. Component, admission,
 catalog/reset and real-carrier animation regressions pass. Matched live captures
 show the jab, charged hold and default-Java third-person arm; server-confirmed
-Lunge moves the fixed client without movement input. The complete matched-version
-native comparison remains incomplete. See
+Lunge moves the fixed client without movement input. Hotbar shading now follows
+admitted attack-category cooldowns, including other displayed stacks in the same
+category. The complete matched-version native comparison remains incomplete. See
 [spear actions](docs/reference/spear-actions.md).
 
 ## Third-person held attachables

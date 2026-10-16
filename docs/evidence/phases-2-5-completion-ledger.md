@@ -270,6 +270,10 @@ and exact native and platform comparison remain open.
 
 ## P4.4-LIVE-ACTOR
 
+Sulfur-cube material states and content-pinned shell opacity have alias, carrier
+roundtrip and custom-raster exclusion regressions. Absorbed-block attachment
+placement remains open; no complete actor parity claim.
+
 Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
 matched pack frames, authored sword display transforms and first-person face shading
 remain open in `plan.md`.
@@ -329,6 +333,10 @@ vocabulary. Screen routing and core form/context consumers use those names;
 remaining controller migrations and stale-name corrections are incomplete.
 This adds no live visual evidence and leaves the UI acceptance gate open.
 
+Cube inventory thumbnails and alpha-tested GUI meshes share the canonical outward
+faces. Regressions cover projected surface orientation, transparent front holes and
+retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
+
 ## P5.2-HUD
 
 | Field | Evidence |
@@ -339,6 +347,10 @@ This adds no live visual evidence and leaves the UI acceptance gate open.
 | Live/native witness | Not started |
 | Performance/resource witness | Not started |
 | Final status | Open |
+
+Attack-category cooldown shading has owning timer and hotbar-publication regressions
+for admission rollback, shared categories and expiry. A local spear jab reproduces
+the missing overlay against the official client; broader HUD parity remains open.
 
 ## P5.3-CHAT
 
