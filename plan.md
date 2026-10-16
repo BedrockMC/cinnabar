@@ -3672,8 +3672,14 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 
 2026-10-15 actor attacks run the ordinary pick once against the published frame's
 camera ray, ordered actor boxes and lifetime identities, using current admission policy.
-The selected frame also owns the action-facing rotation. Block presses resolve before
-catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+The selected frame also owns piercing direction and action-facing rotation. Assisted
+visibility follows the ray from that frame's eye to its selected point. Block presses
+wait behind older inputs without requiring a predecessor pose. Presses and their
+mining starts and predicted breaks share one ordered queue. Each pending entry has
+its own expiry; accepted carriers advance before later presses and survive their
+cancellation. Existing destroy progress, cancellation and held-input delay advance
+while new presses wait. One admission step resolves attacks and catch-up mining
+against the shared swing clock. Accepted item uses keep advancing
 while pending interaction presses suppress new use starts.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced
