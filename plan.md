@@ -357,6 +357,9 @@ update / Later actions, and a separate default-off install-on-quit preference. S
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
+Windows uses this helper even without direct write rights: Windows Installer handles any
+administrator authorization after shutdown, and the helper owns the client relaunch.
+Manual Windows downloads open their folder so they cannot start an installer over a running client.
 Each launch checks once startup completes; the fallback poll runs every six hours, and a Cinnabar
 API release notice for the selected channel checks immediately.
 
@@ -366,8 +369,9 @@ publication number, then SemVer prerelease precedence. An unavailable or invalid
 leaves nightly usable. Cached offers and retained stages use the same order to prevent automatic
 downgrades when the winning publishing channel changes. Beta remains the default channel.
 
-Incomplete: CI must compile and run the written regression tests on all platforms. The package
-workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
+Incomplete: CI must compile and run the written regression tests on all platforms. A real Windows
+check must confirm permission consent, installation and one relaunch. The package workflow
+publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
 the protected `release` environment and the `UPDATE_TRUSTED_KEYS` repository variable are
 configured. The first signed publication remains pending.
 The launcher owner must review the notice screenshots before merge.
