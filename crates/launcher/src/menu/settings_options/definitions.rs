@@ -196,21 +196,6 @@ const fn slider(
     option(id, label, SettingKind::Slider, min, max, default)
 }
 
-/// Defines a slider that moves in steps of `step`.
-const fn stepped_slider(
-    id: SettingId,
-    label: &'static str,
-    min: i32,
-    max: i32,
-    default: i32,
-    step: i32,
-) -> SettingDefinition {
-    SettingDefinition {
-        step,
-        ..slider(id, label, min, max, default)
-    }
-}
-
 /// Defines a dropdown in its displayed radio-choice order.
 const fn dropdown(
     id: SettingId,
