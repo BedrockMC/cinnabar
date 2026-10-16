@@ -1842,6 +1842,21 @@ not close a parity or visual acceptance gate.
   Pose selection with unavailable terrain retains the preceding inferred mode;
   exact native fallback and packet scheduling remain open parity details.
 
+## Windowed Metal presentation
+
+- macOS enables bounded asynchronous presentation for opaque, windowed Immediate
+  surfaces on macOS 14 and later. Three reusable color targets decouple rendering
+  from display drawable recycling; a separate queue copies the newest GPU-completed
+  image at the original resolution and format. Superseded completed images are
+  reusable, while pending writes and presentation reads retain ownership.
+- Surface reconfiguration cancels and joins the display consumer. Allocation or
+  worker setup failure uses the existing direct surface path. FIFO and native
+  fullscreen retain direct presentation.
+- The optimized build and live maximized-window rendering capture pass on M3 Pro;
+  the owner confirms uncapped windowed play. Pool ownership regressions are authored
+  but unrun at the owner's request. Mode transitions, broader hardware, sustained
+  pacing and latency acceptance remain open.
+
 ## Entity shadows
 
 - Entity facts are compiled by `registryc` into a hash-checked carrier and installed by
