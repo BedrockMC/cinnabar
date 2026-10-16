@@ -9810,3 +9810,15 @@ residency and idle demotion remain unimplemented. Windows-specific texture memor
 allowances, initial allocation policy and adapter pressure thresholds remain
 unverified. This recovery change does not close the streaming or hardware frame
 budget acceptance gates.
+
+## Cutout cube contact depth
+
+Two-sided cutout cubes use a small receding slope depth offset so their back
+faces do not fight coplanar opaque stair/slab faces seen through alpha holes.
+Ordinary and retained-unit draws share the policy. Opaque cubes, model geometry,
+blended terrain and liquids retain their existing depth state.
+
+Incomplete parity: the installed native cutout material supports this offset,
+but exact-current seasonal material selection remains unverified. Mixed model
+materials are outside this change. The raster and descriptor regressions are
+written but unrun; this does not close a renderer parity or frame-budget gate.
