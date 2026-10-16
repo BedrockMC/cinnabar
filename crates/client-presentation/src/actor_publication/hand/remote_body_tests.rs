@@ -143,7 +143,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
         for java_mode in [false, true] {
             for alpha in [0.05, 0.75] {
                 let input = super::super::ActorFrameInput {
-                    hat: None,
+                    cosmetics: Vec::new(),
                     local_feed: None,
                     predicted_eye: None,
                     predicted_feet: None,
@@ -431,7 +431,7 @@ fn sample_shared_bodies<'a>(
     remote_emotes: Vec<super::super::RemoteEmote>,
 ) -> super::super::bodies::SampledBodies<'a> {
     let input = super::super::ActorFrameInput {
-        hat: None,
+        cosmetics: Vec::new(),
         local_feed: None,
         predicted_eye: None,
         predicted_feet: None,
@@ -480,7 +480,7 @@ fn shared_hats_follow_remote_heads_share_textures_and_reject_stale_spawns() {
         .map(|runtime_id| super::super::RemoteHat {
             runtime_id,
             spawn_revision: stream.authority().actor(runtime_id).unwrap().spawn_revision,
-            hat: render_api::Hat::Crown,
+            hat: render_model::hats::fixture::rigid(),
         })
         .into();
     let mut hats = super::super::hats::HatState::default();
@@ -501,7 +501,7 @@ fn shared_hats_follow_remote_heads_share_textures_and_reject_stale_spawns() {
             crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
         let body_count = batch.submissions.len();
         let textures = batch.skin_layers.len();
-        hats.advance(None, 0.0, 1.0 / 60.0);
+        hats.advance(&[], 0.0, 1.0 / 60.0);
         hats.attach(&mut batch, Some(&stream), &selected, &mut scene);
         let expected = selected
             .iter()
@@ -543,8 +543,54 @@ fn shared_hats_follow_remote_heads_share_textures_and_reject_stale_spawns() {
             );
             assert_eq!(
                 attachment.input.rig,
-                render_model::hats::rig(render_api::Hat::Crown).geometry.id
+                render_model::hats::rig(render_model::hats::fixture::rigid())
+                    .geometry
+                    .id
             );
         }
+    }
+}
+
+#[test]
+fn shared_hats_render_multiple_catalog_slots_on_one_actor() {
+    let ((mut stream, _, artwork, local_equipment), _) =
+        super::native_tests::fixture_with_rotation(true);
+    spawn_remotes(&mut stream);
+    let items = [
+        render_model::hats::fixture::bunny(),
+        render_model::hats::fixture::rigid(),
+    ];
+    let selections: Vec<_> = items
+        .into_iter()
+        .map(|hat| super::super::RemoteHat {
+            runtime_id: 2,
+            spawn_revision: stream.authority().actor(2).unwrap().spawn_revision,
+            hat,
+        })
+        .collect();
+    let bodies = sample_shared_bodies(&stream, &artwork, &local_equipment, false, Vec::new());
+    let mut batch =
+        crate::presentation::actors::select_actor_presentations(1, false, None, bodies.remotes);
+    let before = batch.submissions.len();
+    let mut state = super::super::hats::HatState::default();
+    state.advance(&[], 0.0, 0.0);
+    state.attach(
+        &mut batch,
+        Some(&stream),
+        &selections,
+        &mut render_scene::ActorRenderScene::default(),
+    );
+    assert_eq!(batch.submissions.len(), before + items.len());
+    let layers: std::collections::HashSet<_> = batch.submissions[before..]
+        .iter()
+        .map(|draw| draw.input.identity.layer)
+        .collect();
+    assert_eq!(layers.len(), items.len());
+    for item in items {
+        assert!(
+            batch.submissions[before..]
+                .iter()
+                .any(|draw| draw.input.rig == render_model::hats::rig(item).geometry.id)
+        );
     }
 }

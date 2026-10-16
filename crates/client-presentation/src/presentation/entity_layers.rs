@@ -16,7 +16,7 @@ use render_model::{EntityRigId, RenderBoneTransform, layer_geometry_rig_id};
 use super::actors::ActorPresentationBatch;
 
 /// First render layer id of extra texture layers; equipment layers use the ids below.
-pub const ACTOR_LAYER_TEXTURE_BASE: u8 = 32;
+pub const ACTOR_LAYER_TEXTURE_BASE: u8 = render_model::hats::ACTOR_LAYER_HAT_END;
 /// Every layer id above the base, so no authored controller is dropped.
 const MAX_TEXTURE_LAYERS: usize = (u8::MAX - ACTOR_LAYER_TEXTURE_BASE) as usize + 2;
 

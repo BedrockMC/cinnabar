@@ -14,9 +14,9 @@ pub(super) struct LivePlayer {
     geometry: Option<ActorRigGeometry>,
     pub(super) vertices: Vec<ActorVertex>,
     pub(super) cape_vertices: Vec<ActorVertex>,
-    pub(super) hat_vertices: Vec<ActorVertex>,
-    hat_pose: render_model::hats::HatPoseCache,
-    pub(super) hat_bend: f32,
+    pub(super) hat_vertices: std::collections::HashMap<cosmetics::Item, Vec<ActorVertex>>,
+    hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
+    pub(super) hat_bends: std::collections::HashMap<cosmetics::Item, f32>,
     bones: Vec<RenderBoneTransform>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
@@ -27,9 +27,10 @@ pub(super) struct LivePlayer {
 
 impl UiPresentationRuntime {
     /// Shares the actor frame's wind angle without advancing a second animation clock.
-    pub fn set_preview_hat_bend(&mut self, bend: f32) {
-        if self.gui_models.live_player.hat_bend != bend {
-            self.gui_models.live_player.hat_bend = bend;
+    pub fn set_cosmetic_bends(&mut self, bends: &[(cosmetics::Item, f32)]) {
+        let bends: std::collections::HashMap<_, _> = bends.iter().copied().collect();
+        if self.gui_models.live_player.hat_bends != bends {
+            self.gui_models.live_player.hat_bends = bends;
             self.last_frame = None;
         }
     }
@@ -109,10 +110,7 @@ impl UiPresentationRuntime {
             Vec3::from_array(rig.axis_scale)
                 * (rig.scale / super::super::player_preview::PLAYER_MODEL_SCALE),
         );
-        for (part, name) in ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"]
-            .into_iter()
-            .enumerate()
-        {
+        for (part, name) in render_model::STANDARD_BIPED_BONES.into_iter().enumerate() {
             if let Some(index) = rig.bone_names.iter().position(|bone| bone.as_ref() == name)
                 && let (Some(rest), Some(posed)) = (rig.rest.get(index), pose.get(index))
                 && let (Some(rest), Some(posed)) = (bone_matrix(rest), bone_matrix(posed))
@@ -150,21 +148,32 @@ impl UiPresentationRuntime {
         }
         let frame = offset * actor_scale * basis;
         project_vertices(geometry, &live.bones, frame, &mut live.vertices);
-        if let Some(hat) = self.menu_preview_model.hat
-            && let Some(index) = rig
+        live.hat_pose
+            .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
+        for &hat in &self.menu_preview_model.cosmetics {
+            let Some(index) = rig
                 .bone_names
                 .iter()
-                .position(|bone| bone.eq_ignore_ascii_case("head"))
-            && let Some(head) = live.bones.get(index)
-        {
-            let pose = live.hat_pose.pose(hat, *head, live.hat_bend);
+                .position(|bone| bone.eq_ignore_ascii_case(&hat.descriptor().attachment_bone))
+            else {
+                continue;
+            };
+            let Some(head) = live.bones.get(index) else {
+                continue;
+            };
+            let pose = live.hat_pose.entry(hat).or_default().pose(
+                hat,
+                *head,
+                live.hat_bends.get(&hat).copied().unwrap_or(0.0),
+            );
+            let vertices = live.hat_vertices.entry(hat).or_default();
             project_vertices(
                 &render_model::hats::rig(hat).geometry,
                 &pose,
                 frame,
-                &mut live.hat_vertices,
+                vertices,
             );
-            discard_collapsed_faces(&mut live.hat_vertices);
+            discard_collapsed_faces(vertices);
         }
         if draw_cape && let Some(cape) = &self.gui_models.cape {
             let pose = cape.pose(

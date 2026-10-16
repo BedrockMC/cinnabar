@@ -19,6 +19,7 @@ pub(super) struct PreviewArea {
     pub(super) clip: Bounds,
     pub(super) visible_skins: Vec<usize>,
     pub(super) visible_capes: Vec<usize>,
+    pub(super) visible_cosmetics: Vec<usize>,
 }
 
 fn command(action: Action) -> MenuAction {
@@ -53,7 +54,7 @@ pub(super) fn draw(
             match view.dressing_room.section {
                 launcher::dressing_room::DressingRoomSection::Skins => "dressing_room",
                 launcher::dressing_room::DressingRoomSection::Capes => "dressing_room_capes",
-                launcher::dressing_room::DressingRoomSection::Hats => "dressing_room_hats",
+                launcher::dressing_room::DressingRoomSection::Cosmetics => "dressing_room_hats",
             },
             viewport,
         )?;
@@ -110,7 +111,7 @@ pub(super) fn draw(
         match view.dressing_room.section {
             launcher::dressing_room::DressingRoomSection::Skins => "skin_library",
             launcher::dressing_room::DressingRoomSection::Capes => "cape_library",
-            launcher::dressing_room::DressingRoomSection::Hats => "hat_library",
+            launcher::dressing_room::DressingRoomSection::Cosmetics => "hat_library",
         },
         viewport,
     )?;

@@ -49,8 +49,8 @@ pub struct ActorFrameState {
 
 impl ActorFrameState {
     /// Wind angle shared by the world attachment and the HUD paperdoll for this frame.
-    pub fn hat_bend(&self) -> f32 {
-        self.hat_state.bend
+    pub fn cosmetic_bends(&self) -> Vec<(cosmetics::Item, f32)> {
+        self.hat_state.local_bends()
     }
 
     /// Shares the exact accepted artwork snapshot with client-owned actor publishers.
@@ -187,7 +187,7 @@ pub fn advance_actor_frame(
     let speed = input.local_feed.as_ref().map_or(0.0, |feed| {
         render_model::hats::forward_speed(feed.velocity, feed.yaw)
     });
-    hat_state.advance(input.hat, speed, time.delta_secs());
+    hat_state.advance(&input.cosmetics, speed, time.delta_secs());
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());
     let items = session_id.and_then(|_| client_world.session_items.clone());
     let same = |left: Option<*const ()>, right: Option<*const ()>| left == right;

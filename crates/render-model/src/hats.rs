@@ -1,61 +1,128 @@
-//! Original headwear geometry shared by world players and wardrobe previews.
-
-use std::sync::{Arc, OnceLock};
-
-use glam::{Quat, Vec3};
-use render_api::{CapeImage, Hat, SkinRgba8};
-
+//! Catalog attachments shared by world players and wardrobe previews.
 use crate::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
+use cosmetics::Item;
+use glam::{Quat, Vec3};
+use render_api::{CapeImage, SkinRgba8};
+use std::sync::{Arc, RwLock};
 
-/// Layer reserved between player capes and animated skin layers.
-pub const ACTOR_LAYER_HAT: u8 = 25;
+/// First cosmetic attachment layer, following animated skins and world flames.
+pub const ACTOR_LAYER_HAT: u8 = crate::ACTOR_LAYER_FLAME + 1;
+const _: () = assert!(cosmetics::SLOT_COUNT <= (u8::MAX - ACTOR_LAYER_HAT) as usize);
+/// Exclusive end of the cosmetic range; authored controller layers start here.
+pub const ACTOR_LAYER_HAT_END: u8 = ACTOR_LAYER_HAT + cosmetics::SLOT_COUNT as u8;
 
-/// A head attachment with optional flexible surface joints.
+/// Distinguishes every supported cosmetic slot from skins, flames and equipment.
+pub const fn is_cosmetic_layer(layer: u8) -> bool {
+    layer >= ACTOR_LAYER_HAT && layer < ACTOR_LAYER_HAT_END
+}
+
 pub struct HatRig {
     pub geometry: ActorRigGeometry,
     parents: Vec<Option<usize>>,
     flex: Vec<f32>,
+    rest_rotations: Vec<Quat>,
     head: usize,
+    offset: [f32; 3],
+    wind: Option<cosmetics_animation::Wind>,
     pub rest_vertices: Arc<[ActorVertex]>,
     pub texture: CapeImage,
     pub pixels: SkinRgba8,
 }
 
-/// Resolves original authored assets once, independently of installed game carriers.
-pub fn rig(hat: Hat) -> &'static HatRig {
-    static RIGS: OnceLock<Vec<HatRig>> = OnceLock::new();
-    let index = Hat::ALL
+static RIGS: RwLock<Vec<(Item, &'static HatRig)>> = RwLock::new(Vec::new());
+
+/// Resolves immutable geometry for a handle admitted with all of its verified assets.
+pub fn rig(item: Item) -> &'static HatRig {
+    RIGS.read()
+        .unwrap_or_else(|error| error.into_inner())
         .iter()
-        .position(|entry| *entry == hat)
-        .expect("catalogued hat");
-    &RIGS.get_or_init(|| Hat::ALL.iter().copied().map(model::build).collect())[index]
+        .find(|(key, _)| *key == item)
+        .expect("admitted cosmetic rig")
+        .1
+}
+
+/// Installs verified content once, bounding immutable per-process model allocations.
+pub fn admit(
+    descriptor: cosmetics::Descriptor,
+    geometry: &[u8],
+    texture: &[u8],
+    animation: &[u8],
+) -> Option<Item> {
+    if !cosmetics::supported(&descriptor)
+        || !descriptor.assets.geometry.verifies(geometry)
+        || !descriptor.assets.texture.verifies(texture)
+        || descriptor
+            .assets
+            .animation
+            .as_ref()
+            .is_some_and(|asset| !asset.verifies(animation))
+    {
+        return None;
+    }
+    let mut rigs = RIGS.write().unwrap_or_else(|error| error.into_inner());
+    if let Some((item, _)) = rigs
+        .iter()
+        .find(|(item, _)| item.descriptor() == &descriptor)
+    {
+        return Some(*item);
+    }
+    let mut rig = model::build(
+        &descriptor,
+        std::str::from_utf8(geometry).ok()?,
+        texture,
+        animation,
+    )?;
+    let item = Item::admit(descriptor)?;
+    rig.geometry.id = EntityRigId(0xDFFF_FFFF - u32::from(item.index()));
+    rigs.push((item, Box::leak(Box::new(rig))));
+    Some(item)
 }
 
 impl HatRig {
-    /// Whether the authored surface contains joints that respond to movement.
+    /// Whether an authored animation changes any attachment joints.
     pub fn bends_in_wind(&self) -> bool {
-        self.flex.iter().any(|weight| *weight > 0.0)
+        self.wind.is_some() && self.flex.iter().any(|weight| *weight > 0.0)
     }
 
-    /// Attaches a continuous ear surface to the head, curving its upper rings progressively.
-    /// Positive bend moves the tips toward model +Z, behind a player facing model -Z.
-    pub fn pose(&self, head: RenderBoneTransform, bend: f32) -> Arc<[RenderBoneTransform]> {
-        let rotation = Quat::from_array(head.rotation);
-        let scale =
-            Vec3::from_array([0, 1, 2].map(|i| head.axis_scale[i] * head.translation_scale[3]));
+    /// Attaches authored joints to the evaluated bone with catalog offsets and bounded motion.
+    pub fn pose(
+        &self,
+        mut attachment: RenderBoneTransform,
+        bend: f32,
+    ) -> Arc<[RenderBoneTransform]> {
+        let rotation = Quat::from_array(attachment.rotation);
+        let scale = Vec3::from_array(
+            [0, 1, 2].map(|i| attachment.axis_scale[i] * attachment.translation_scale[3]),
+        );
+        let position = Vec3::from_slice(&attachment.translation_scale[..3])
+            + rotation * (Vec3::from_array(self.offset) * scale);
+        attachment.translation_scale[..3].copy_from_slice(&position.to_array());
         let mut poses: Vec<RenderBoneTransform> = Vec::with_capacity(self.parents.len());
         for index in 0..self.parents.len() {
-            let mut pose = head;
+            let mut pose = attachment;
+            if index == self.head {
+                pose.rotation = (rotation * self.rest_rotations[index]).to_array();
+            }
             if index != self.head {
-                let parent = self.parents[index].expect("headwear is attached to the head");
+                let parent = self.parents[index].expect("admitted attachment parent");
                 let parent_pose = poses[parent];
                 let offset = Vec3::from_array(self.geometry.bone_pivots[index])
                     - Vec3::from_array(self.geometry.bone_pivots[parent]);
                 let position = Vec3::from_slice(&parent_pose.translation_scale[..3])
                     + Quat::from_array(parent_pose.rotation) * (offset * scale);
                 pose.translation_scale[..3].copy_from_slice(&position.to_array());
-                pose.rotation =
-                    (rotation * Quat::from_rotation_x(bend * self.flex[index])).to_array();
+                let axis = self
+                    .wind
+                    .as_ref()
+                    .map_or(Vec3::X, |wind| match wind.axis.as_str() {
+                        "y" => Vec3::Y,
+                        "z" => Vec3::Z,
+                        _ => Vec3::X,
+                    });
+                pose.rotation = (Quat::from_array(parent_pose.rotation)
+                    * self.rest_rotations[index]
+                    * Quat::from_axis_angle(axis, bend * (self.flex[index] - self.flex[parent])))
+                .to_array();
             }
             poses.push(pose);
         }
@@ -63,7 +130,6 @@ impl HatRig {
     }
 }
 
-/// Smooth, bounded wind response in seconds; sideways and backward motion leave ears upright.
 #[derive(Default)]
 pub struct EarWind {
     bend: f32,
@@ -77,16 +143,24 @@ pub fn forward_speed(velocity_per_tick: [f32; 3], yaw_degrees: f32) -> f32 {
 }
 
 impl EarWind {
-    /// Updates from forward speed in blocks/second and caller-owned elapsed seconds.
-    pub fn advance(&mut self, forward_speed: f32, seconds: f32) -> f32 {
-        let speed = if forward_speed.is_finite() {
-            forward_speed.max(0.0)
+    /// Evaluates catalog motion using caller-owned forward speed and elapsed seconds.
+    pub fn advance(&mut self, item: Item, speed: f32, seconds: f32) -> f32 {
+        let Some(wind) = rig(item).wind.as_ref() else {
+            self.bend = 0.0;
+            return 0.0;
+        };
+        let speed = if speed.is_finite() {
+            speed.max(0.0)
         } else {
             0.0
         };
-        let target = (speed / 6.0).clamp(0.0, 1.0) * 65.0_f32.to_radians();
+        let target = (speed / wind.speed).clamp(0.0, 1.0) * wind.max_degrees.to_radians();
         if seconds.is_finite() && seconds > 0.0 {
-            let response = if target > self.bend { 12.0 } else { 8.0 };
+            let response = if target > self.bend {
+                wind.rise
+            } else {
+                wind.fall
+            };
             self.bend += (target - self.bend) * (1.0 - (-response * seconds).exp());
             if (target - self.bend).abs() < 0.0001 {
                 self.bend = target;
@@ -96,31 +170,33 @@ impl EarWind {
     }
 }
 
-/// Reuses immutable poses when neither the evaluated head nor the settled wind changed.
 #[derive(Default)]
 pub struct HatPoseCache {
-    key: Option<(Hat, RenderBoneTransform, f32)>,
+    key: Option<(Item, RenderBoneTransform, f32)>,
     pose: Arc<[RenderBoneTransform]>,
 }
-
 impl HatPoseCache {
-    /// Returns a cached pose or rebuilds exactly this head attachment.
+    /// Reuses immutable poses when the attachment bone and its evaluated motion are unchanged.
     pub fn pose(
         &mut self,
-        hat: Hat,
+        item: Item,
         head: RenderBoneTransform,
         bend: f32,
     ) -> Arc<[RenderBoneTransform]> {
-        let bend = if rig(hat).bends_in_wind() { bend } else { 0.0 };
-        let key = (hat, head, bend);
+        let bend = if rig(item).bends_in_wind() { bend } else { 0.0 };
+        let key = (item, head, bend);
         if self.key != Some(key) {
-            self.pose = rig(hat).pose(head, bend);
+            self.pose = rig(item).pose(head, bend);
             self.key = Some(key);
         }
         self.pose.clone()
     }
 }
 
+mod cosmetics_animation;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture;
 mod model;
 #[cfg(test)]
 mod tests;
+pub mod thumbnail;

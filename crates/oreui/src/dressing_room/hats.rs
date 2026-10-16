@@ -16,6 +16,8 @@ pub(super) fn collection(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
+    viewport: Bounds,
+    preview: &mut super::PreviewArea,
 ) -> Result<f32, PaintError> {
     let [left, top, right, _] = b;
     let side = canvas.r(12.8).min(right - left);
@@ -23,23 +25,37 @@ pub(super) fn collection(
         canvas,
         view,
         [left, top, left + side, top + canvas.r(4.4)],
-        if view.dressing_room.selected_hat.is_none() {
+        if view
+            .dressing_room
+            .selected_cosmetics
+            .values()
+            .all(Option::is_none)
+        {
             Variant::Primary
         } else {
             Variant::Secondary
         },
-        "No hat",
-        enabled(view).then_some(command(Action::SelectHat(None))),
+        "Remove all",
+        enabled(view).then_some(command(Action::SelectCosmetic(None))),
     )?;
     let y = top + canvas.r(6.0);
     let gap = canvas.r(1.2);
     let columns = (((right - left + gap) / (side + gap)).floor() as usize).max(1);
-    for (slot, hat) in render_api::Hat::ALL.iter().enumerate() {
+    let items = cosmetics::Item::all();
+    for (slot, hat) in items.iter().enumerate() {
         let x = left + (slot % columns) as f32 * (side + gap);
         let y = y + (slot / columns) as f32 * (side + gap);
-        tile(canvas, view, [x, y, x + side, y + side], *hat)?;
+        let bounds = [x, y, x + side, y + side];
+        if bounds[0] < viewport[2]
+            && bounds[2] > viewport[0]
+            && bounds[1] < viewport[3]
+            && bounds[3] > viewport[1]
+        {
+            preview.visible_cosmetics.push(slot);
+        }
+        tile(canvas, view, bounds, *hat)?;
     }
-    Ok(y + render_api::Hat::ALL.len().div_ceil(columns) as f32 * (side + gap))
+    Ok(y + items.len().div_ceil(columns) as f32 * (side + gap))
 }
 
 /// Uses the existing surface feedback, selection mark and focus frame around the preview.
@@ -47,10 +63,15 @@ fn tile(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     b: Bounds,
-    hat: render_api::Hat,
+    hat: cosmetics::Item,
 ) -> Result<(), PaintError> {
-    let action = command(Action::SelectHat(Some(hat)));
-    let selected = view.dressing_room.selected_hat == Some(hat);
+    let action = command(Action::SelectCosmetic(Some(hat)));
+    let selected = view
+        .dressing_room
+        .selected_cosmetics
+        .get(&hat.descriptor().slot)
+        .and_then(|value| value.as_deref())
+        == Some(hat.id());
     let state = canvas.interaction(view, Some(action));
     let motion = canvas.feedback(state, enabled(view), selected, Kind::Surface);
     let role = canvas.role(theme::NEUTRAL);

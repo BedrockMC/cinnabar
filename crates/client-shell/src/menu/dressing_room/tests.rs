@@ -488,7 +488,7 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
 }
 
 #[test]
-fn hat_selection_updates_local_presentation_without_sending_a_skin_change() {
+fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change() {
     use launcher::dressing_room::DressingRoomSection;
     let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
     let mut local = menu.player_skin.clone();
@@ -496,11 +496,11 @@ fn hat_selection_updates_local_presentation_without_sending_a_skin_change() {
     menu.activate(MenuAction::Navigate(MenuScreen::DressingRoom));
     wait(&mut menu, &mut local, &mut world);
     menu.activate(MenuAction::DressingRoom(Action::SetSection(
-        DressingRoomSection::Hats,
+        DressingRoomSection::Cosmetics,
     )));
     assert!(
         menu.dressing_room_focus()
-            .contains(&MenuAction::DressingRoom(Action::SelectHat(None)))
+            .contains(&MenuAction::DressingRoom(Action::SelectCosmetic(None)))
     );
     assert!(
         !menu
@@ -508,15 +508,15 @@ fn hat_selection_updates_local_presentation_without_sending_a_skin_change() {
             .contains(&MenuAction::DressingRoom(Action::Import))
     );
     let before = local.standard_skin();
-    menu.activate(MenuAction::DressingRoom(Action::SelectHat(Some(
-        render_api::Hat::BunnyEars,
+    menu.activate(MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+        render_model::hats::fixture::bunny(),
     ))));
     wait(&mut menu, &mut local, &mut world);
-    assert_eq!(local.hat, Some(render_api::Hat::BunnyEars));
-    assert_eq!(menu.player_skin.hat, local.hat);
+    assert_eq!(local.cosmetics, vec![render_model::hats::fixture::bunny()]);
+    assert_eq!(menu.player_skin.cosmetics, local.cosmetics);
     assert_eq!(local.standard_skin(), before);
     assert!(menu.skin_packet_pending.is_none());
-    menu.activate(MenuAction::DressingRoom(Action::SelectHat(None)));
+    menu.activate(MenuAction::DressingRoom(Action::SelectCosmetic(None)));
     wait(&mut menu, &mut local, &mut world);
-    assert_eq!(local.hat, None);
+    assert!(local.cosmetics.is_empty());
 }

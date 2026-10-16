@@ -8,7 +8,7 @@ use bevy::math::Vec3;
 use chunk_pipeline::WorldStream;
 use client_world::ActorSnapshot;
 use render_model::{
-    RenderBoneTransform,
+    RenderBoneTransform, STANDARD_BIPED_BONES as PART_BONES,
     java_animation::{
         self as java, JavaBiped, JavaBipedInput, JavaCapeInput, JavaHand, JavaUse, is_java_sword,
     },
@@ -26,8 +26,6 @@ use crate::presentation::{
 const BOW: &str = assets::facts::VanillaItem::Bow.identifier();
 const BOW_USE_DURATION: u32 = assets::item_use::LONG_WEAPON_USE_TICKS;
 const FILLED_MAP: &str = assets::facts::FILLED_MAP_IDENTIFIER;
-/// Pose bones Java's parts drive, in [`JavaBiped::parts`] order.
-const PART_BONES: [&str; 6] = ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"];
 const RIGHT_ARM: usize = 2;
 const REMOTE_SNEAK_DROP: f32 = 0.125;
 const LOCAL_SNEAK_DROP: f32 = 0.2 * 0.4;

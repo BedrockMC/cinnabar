@@ -148,13 +148,13 @@ pub(crate) fn advance_actor_frame(
     let shared = shared_players::exchange(
         stream,
         ui.as_deref().map(|ui| &ui.0),
-        skin.hat,
+        &skin.cosmetics,
         account.as_deref().map(|account| &account.0),
         &time,
         &mut shared_state,
     );
     let input = ActorFrameInput {
-        hat: skin.hat,
+        cosmetics: skin.cosmetics.clone(),
         local_feed,
         predicted_eye,
         predicted_feet,

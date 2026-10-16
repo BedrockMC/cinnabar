@@ -6,9 +6,10 @@ rust-version.workspace = true
 publish = false
 
 [features]
-test-support = ["protocol/test-support"]
+test-support = ["protocol/test-support", "render-model/test-support"]
 
 [dependencies]
+cosmetics = { path = "../../crates/cosmetics" }
 assets = { path = "../../crates/assets" }
 image.workspace = true
 inventory = { path = "../../crates/inventory" }

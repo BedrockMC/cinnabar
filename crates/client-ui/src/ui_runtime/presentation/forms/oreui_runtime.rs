@@ -131,6 +131,7 @@ impl UiPresentationRuntime {
         if let Some(dressing) = paint.dressing_preview.take() {
             self.menu_skin_thumbnail_indices = dressing.visible_skins;
             self.menu_cape_thumbnail_indices = dressing.visible_capes;
+            self.menu_cosmetic_thumbnail_indices = dressing.visible_cosmetics;
             self.append_menu_player_preview(
                 nodes,
                 next,

@@ -54,7 +54,7 @@ pub enum Action {
     Import,
     ImportCape,
     SelectCape(Option<usize>),
-    SelectHat(Option<render_api::Hat>),
+    SelectCosmetic(Option<cosmetics::Item>),
     SetModel(SkinModel),
     BeginRename(usize),
     BeginDelete(usize),
@@ -86,7 +86,7 @@ macro_rules! wardrobe_sections {
     };
 }
 
-wardrobe_sections! { Skins => "Skins", Capes => "Capes", Hats => "Hats" }
+wardrobe_sections! { Skins => "Skins", Capes => "Capes", Cosmetics => "Cosmetics" }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkinEditorMode {
@@ -140,7 +140,7 @@ pub struct DressingRoomView {
     pub editor: Option<SkinEditor>,
     pub capes: Arc<[DressingRoomCape]>,
     pub selected_cape: Option<usize>,
-    pub selected_hat: Option<render_api::Hat>,
+    pub selected_cosmetics: cosmetics::Slots,
 }
 
 impl DressingRoomView {

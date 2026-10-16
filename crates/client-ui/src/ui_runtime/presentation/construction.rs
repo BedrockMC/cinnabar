@@ -122,6 +122,7 @@ impl UiPresentationRuntime {
             menu_hit_targets: Vec::new(),
             menu_skin_thumbnail_indices: Vec::new(),
             menu_cape_thumbnail_indices: Vec::new(),
+            menu_cosmetic_thumbnail_indices: Vec::new(),
             settings_slider_drag_targets: Vec::new(),
             menu_scrolls: Default::default(),
             engine: None,

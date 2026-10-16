@@ -1,0 +1,119 @@
+{
+  "version": 2,
+  "items": [
+    {
+      "id": "cinnabar:bunny_ears",
+      "slot": "head",
+      "display_name": "Bunny ears",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/c89adbd00dc984832657394c8fe931eb3779e4d0f5651920f625c8be06e500c0",
+          "sha256": "c89adbd00dc984832657394c8fe931eb3779e4d0f5651920f625c8be06e500c0",
+          "bytes": 57675
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/18f8e6360ebebd791296f147a3d278563e640982e6bf0090edab211581cac797",
+          "sha256": "18f8e6360ebebd791296f147a3d278563e640982e6bf0090edab211581cac797",
+          "bytes": 163
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/32b25a78ddf62f6fb5ad5d31416e2fc3a0be57916c5f7ccb697f7a6558543214",
+          "sha256": "32b25a78ddf62f6fb5ad5d31416e2fc3a0be57916c5f7ccb697f7a6558543214",
+          "bytes": 1131
+        }
+      },
+      "geometry_id": "geometry.cinnabar.bunny_ears",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:crown",
+      "slot": "head",
+      "display_name": "Crown",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/fd599f4edc99aa6dff7951d508394b2a67cc09b8f022776e9f00257f1c9f9c16",
+          "sha256": "fd599f4edc99aa6dff7951d508394b2a67cc09b8f022776e9f00257f1c9f9c16",
+          "bytes": 80585
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/500f6f7a3d966858cbe141e3c785ca113ca153b24f1b27b1ca0d4fe49e7e1de1",
+          "sha256": "500f6f7a3d966858cbe141e3c785ca113ca153b24f1b27b1ca0d4fe49e7e1de1",
+          "bytes": 177
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+          "bytes": 3
+        }
+      },
+      "geometry_id": "geometry.cinnabar.crown",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    },
+    {
+      "id": "cinnabar:devil_horns",
+      "slot": "head",
+      "display_name": "Devil horns",
+      "tags": [
+        "original",
+        "free"
+      ],
+      "free": true,
+      "assets": {
+        "geometry": {
+          "url": "/v1/cosmetics/assets/cddb1eb97b2848fe9f83ae2d7d99f75b2eeadef790901a562b53a1a83c077e44",
+          "sha256": "cddb1eb97b2848fe9f83ae2d7d99f75b2eeadef790901a562b53a1a83c077e44",
+          "bytes": 25703
+        },
+        "texture": {
+          "url": "/v1/cosmetics/assets/e7f1e47a180b28a4289ca012458e2150138fb795a482518155b6b76b960a4c18",
+          "sha256": "e7f1e47a180b28a4289ca012458e2150138fb795a482518155b6b76b960a4c18",
+          "bytes": 172
+        },
+        "animation": {
+          "url": "/v1/cosmetics/assets/ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+          "bytes": 3
+        }
+      },
+      "geometry_id": "geometry.cinnabar.devil_horns",
+      "attachment_bone": "head",
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "render_flags": {
+        "double_sided": false
+      },
+      "license": "https://polyformproject.org/licenses/noncommercial/1.0.0"
+    }
+  ]
+}

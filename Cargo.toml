@@ -54,6 +54,7 @@ members = [
     "crates/server-experience",
     "crates/render",
     "crates/render-api",
+    "crates/cosmetics",
     "crates/test-alloc",
     "crates/test-time",
     "crates/render-model",

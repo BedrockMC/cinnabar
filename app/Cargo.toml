@@ -54,6 +54,7 @@ reports = []
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
+cosmetics = { path = "../crates/cosmetics" }
 test-alloc = { path = "../crates/test-alloc", optional = true }
 protocol-ids = { path = "../crates/protocol-ids" }
 mimalloc = { workspace = true, optional = true }

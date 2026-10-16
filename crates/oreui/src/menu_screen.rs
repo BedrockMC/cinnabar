@@ -81,6 +81,7 @@ pub struct DressingPreview {
     pub preview: CharacterPreview,
     pub visible_skins: Vec<usize>,
     pub visible_capes: Vec<usize>,
+    pub visible_cosmetics: Vec<usize>,
 }
 
 /// What a menu paint leaves its adapter beyond hits and focus.
@@ -433,6 +434,7 @@ impl Screen for OreUiScreen {
                 },
                 visible_skins: area.visible_skins,
                 visible_capes: area.visible_capes,
+                visible_cosmetics: area.visible_cosmetics,
             }),
             settings_input,
             entrance: root_entrance,

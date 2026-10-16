@@ -140,6 +140,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
             }));
+            cosmetic_icons(&mut artwork, &mut carriers.pages);
             mod_icons(&view, &mut artwork, &mut carriers.pages)?;
             let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
@@ -418,3 +419,25 @@ pub(crate) fn oreui_screen(first: u16, images: oreui::images::OreUiImages) -> or
 
 #[cfg(test)]
 mod tests;
+
+/// Uses the production cosmetic gallery renderer for original fixture artwork.
+fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Page>) {
+    for item in cosmetics::Item::all() {
+        let Some(image) = render_model::hats::thumbnail::render(item, 128, 128) else {
+            continue;
+        };
+        artwork.insert(
+            item.thumbnail_key(),
+            ui::IconRef {
+                page: pages.len() as u16,
+                uv: [0, 0, 128, 128],
+                glint: false,
+            },
+        );
+        pages.push(Page {
+            width: image.width,
+            height: image.height,
+            rgba: image.rgba8,
+        });
+    }
+}
