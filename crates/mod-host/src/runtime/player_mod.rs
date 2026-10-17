@@ -29,6 +29,23 @@ mod transaction_tests;
 
 pub(super) use super::{DataSource, Modifiers, ScreenLayout as Layout};
 
+/// What the screen's queries report about the events being delivered.
+pub(super) struct EventContext {
+    /// The modifiers held with them (`screen.held-modifiers`).
+    pub(super) modifiers: crate::KeyModifiers,
+    /// When the instance was created, which `screen.elapsed-seconds` counts from.
+    pub(super) started: std::time::Instant,
+}
+
+impl Default for EventContext {
+    fn default() -> Self {
+        Self {
+            modifiers: crate::KeyModifiers::default(),
+            started: std::time::Instant::now(),
+        }
+    }
+}
+
 /// Host calls one callback may make, reads included.
 const MAX_HOST_CALLS: usize = 1024;
 
@@ -203,14 +220,19 @@ impl screen::Host for State {
 
     fn held_modifiers(&mut self) -> Result<Modifiers> {
         self.charge()?;
-        Ok(modifiers(self.held_modifiers))
+        Ok(modifiers(self.events.modifiers))
+    }
+
+    fn elapsed_seconds(&mut self) -> Result<f64> {
+        self.charge()?;
+        Ok(self.events.started.elapsed().as_secs_f64())
     }
 }
 
 impl super::Instance {
     /// The modifiers `screen.held-modifiers` reports to the next callbacks.
     pub(crate) fn set_held_modifiers(&mut self, held: crate::KeyModifiers) {
-        self.store.data_mut().held_modifiers = held;
+        self.store.data_mut().events.modifiers = held;
     }
 }
 

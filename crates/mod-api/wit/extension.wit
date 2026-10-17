@@ -374,6 +374,8 @@ interface screen {
     focus-text: func(control: string) -> result<_, string>;
     /// The modifier keys held with the event being delivered, such as Shift with a press.
     held-modifiers: func() -> modifiers;
+    /// Monotonic seconds since the mod loaded, to animate by, as JEI cycles ingredients.
+    elapsed-seconds: func() -> f64;
 }
 
 /// Vanilla inventory requests a player mod asks for; each is one the vanilla screens can make,

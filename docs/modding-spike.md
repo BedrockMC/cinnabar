@@ -872,7 +872,9 @@ report the vanilla screen name, the root size and GUI scale, the GUI rect, the e
 the view's bounds, in GUI units; opening, closing or resizing the view delivers
 `screen-changed`. Templates,
 data binding (`set-collection`, `set-value`, `set-text`) and their limits are the client part
-modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box. Rows bind
+modal's (server-experiences.md, Modal screens); `focus-text` selects an edit box,
+`held-modifiers` reports the modifiers held with the event being delivered and
+`elapsed-seconds` is a monotonic clock to animate by. Rows bind
 `#item_id_aux` (network id << 16 | aux) and `item_renderer` draws the item. The mod's atlas
 has its own four dynamic texture pages. With several mods loaded, one owns the screens: the
 earliest in load order with an overlay or view, else the earliest granted `screen`. Only it
