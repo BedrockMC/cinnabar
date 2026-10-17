@@ -5,8 +5,6 @@
 //! - Smelting: only shapeless recipes tagged `furnace`, `blast_furnace` or `smoker` are listed;
 //!   the vanilla client reads CraftingData entry types 0, 1 and 4–9 only, so furnace entries
 //!   (types 2 and 3) are not.
-//! - Brewing: the decoder skips CraftingData's potion and container-change vectors
-//!   (`protocol` `recipes/grammar.rs`).
 //! - A recipe with a Molang, complex alias, deferred or int-id ingredient is dropped whole by the
 //!   decoder (`grammar.rs`'s `ingredient`), so it is missing here too.
 //! - `max-stack` is the registry's negotiated component value when a server sends one, else 64.
@@ -390,6 +388,53 @@ fn build_recipes(
                 outputs,
             });
         }
+    }
+    for brewing in catalog.brewing_recipes() {
+        let item = |item: &protocol::BrewingItem| {
+            let entry = registry.get(&item.network_id)?;
+            let aux = u16::try_from(item.aux.unwrap_or(0)).ok()?;
+            Some((entry, aux))
+        };
+        let (Some(input), Some(reagent), Some((output, aux))) = (
+            item(&brewing.input),
+            item(&brewing.reagent),
+            item(&brewing.output),
+        ) else {
+            skipped += 1;
+            continue;
+        };
+        // A container change takes the potion of any type.
+        let ingredient = |(entry, aux): (&ItemRegistryEntry, u16), any: bool| {
+            let name = entry.identifier.to_string();
+            Some(Ingredient {
+                kind: if any {
+                    IngredientKind::AnyAux(name)
+                } else {
+                    IngredientKind::Item(ItemKey {
+                        identifier: name,
+                        aux,
+                    })
+                },
+                count: 1,
+            })
+        };
+        let any = brewing.input.aux.is_none();
+        recipes.push(Recipe {
+            network_id: 0,
+            category: RecipeCategory::Brewing,
+            shapeless: false,
+            width: 0,
+            height: 0,
+            ingredients: vec![ingredient(input, any), ingredient(reagent, any)],
+            outputs: vec![Stack {
+                key: ItemKey {
+                    identifier: output.identifier.to_string(),
+                    aux,
+                },
+                icon: SessionData::icon_key(output.network_id, aux),
+                count: 1,
+            }],
+        });
     }
     (recipes, skipped)
 }

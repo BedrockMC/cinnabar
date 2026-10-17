@@ -408,6 +408,7 @@ fn recipe(recipe: &data::Recipe) -> recipes::Recipe {
             data::RecipeCategory::Furnace => recipes::Category::Furnace,
             data::RecipeCategory::BlastFurnace => recipes::Category::BlastFurnace,
             data::RecipeCategory::Smoker => recipes::Category::Smoker,
+            data::RecipeCategory::Brewing => recipes::Category::Brewing,
         },
         shapeless: recipe.shapeless,
         width: recipe.width,

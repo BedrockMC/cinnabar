@@ -109,12 +109,13 @@ pub use interaction::{
     use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
+    BrewingItem, BrewingRecipe, MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
+    ScreenRecipes,
+};
+pub use inventory::recipes::{
     MAX_RECIPE_INGREDIENTS, RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition,
     RecipeHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput, RecipeUpdate,
     decode_recipe_update, empty_recipe_extra, recipe_binding_supported, vanilla_tag_contains,
-};
-pub use inventory::recipes::{
-    MultiRecipe, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
 };
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
