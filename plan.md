@@ -4,15 +4,26 @@ The wardrobe uses a fetched, ETag-cached catalog with namespaced item IDs and in
 head, back, face, body, pet and aura slots. Geometry, textures and optional joint motion
 are loaded from bounded, SHA-256-checked assets. The catalog includes original bunny
 ears, the crown, rigid red devil horns, animated back-slot dragon wings and a pet-slot
-shoulder parrot; editable artwork and export conformance tests remain available.
+shoulder parrot, plus studio headphones and a halo (head), pixel shades and a kitsune
+mask (face), morpho wings and an ember jetpack (back), a fox tail and a knit scarf (body),
+a bee buddy (pet) and an amethyst orbit (aura); editable artwork and export conformance
+tests remain available.
 The parrot stays in Cosmetics, with its existing pet slot exposed by the category filter.
 Each attachment follows its declared bone and offset. World and HUD share local motion.
 Bounded transform clips and continuous span flex animate wings alongside independent hats.
 An optional intro and delayed repeating clip sequence animate the parrot flying in once
 and changing shoulders, using shared immutable geometry and caller-owned time.
 Unknown, unsupported and unowned items render nothing.
+Items flagged `render_flags.emissive` draw their opaque texels fullbright in the world through
+the emissive-alpha actor material; previews keep the authored texture. Animation files may
+declare up to eight particle emitters on authored bones. Their effects are registered under
+client-owned identifiers and may draw original 16x16 sprites cut from the item's own texture.
+They follow the posed bone and stop when the item is unequipped, hidden or despawned.
+Emitters run only in the world, with at most 128 alive at once; HUD and wardrobe previews show
+geometry without particles.
 
-The Cosmetics gallery offers All, Head, Back and Pet choices through a filter icon beside
+The Cosmetics gallery offers All, Head, Face, Back, Body, Pet and Aura choices, one per schema
+slot, through a filter icon beside
 Remove all. Its menu closes on selection, outside click or Escape. Filtering preserves equipped
 items, retains separate scroll positions and limits thumbnails and keyboard navigation
 to the selected category.
