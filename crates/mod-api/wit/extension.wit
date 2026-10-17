@@ -372,6 +372,8 @@ interface screen {
     set-text: func(control: string, text: string) -> result<_, string>;
     /// Selects the drawn edit box named `control`, as a press on it would.
     focus-text: func(control: string) -> result<_, string>;
+    /// The modifier keys held with the event being delivered, such as Shift with a press.
+    held-modifiers: func() -> modifiers;
 }
 
 /// Vanilla inventory requests a player mod asks for; each is one the vanilla screens can make,

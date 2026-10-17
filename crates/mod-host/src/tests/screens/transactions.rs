@@ -621,3 +621,18 @@ fn callbacks_commit_once_reset_budgets_and_discard_trapped_screens() {
     assert!(instance.store.data().pending_screens.is_none());
     same_screens(&instance.store.data().screens, &ModScreens::default());
 }
+
+#[test]
+fn held_modifiers_report_what_the_host_last_set() {
+    let mut state = state();
+    assert_eq!(state.held_modifiers().unwrap(), Modifiers::empty());
+    state.held_modifiers = crate::KeyModifiers {
+        shift: true,
+        ctrl: true,
+        alt: false,
+    };
+    assert_eq!(
+        state.held_modifiers().unwrap(),
+        Modifiers::SHIFT | Modifiers::CTRL
+    );
+}

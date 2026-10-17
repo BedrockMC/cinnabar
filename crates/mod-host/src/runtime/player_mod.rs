@@ -200,6 +200,18 @@ impl screen::Host for State {
             Ok(ScreenWrite::Focus(control))
         })
     }
+
+    fn held_modifiers(&mut self) -> Result<Modifiers> {
+        self.charge()?;
+        Ok(modifiers(self.held_modifiers))
+    }
+}
+
+impl super::Instance {
+    /// The modifiers `screen.held-modifiers` reports to the next callbacks.
+    pub(crate) fn set_held_modifiers(&mut self, held: crate::KeyModifiers) {
+        self.store.data_mut().held_modifiers = held;
+    }
 }
 
 /// Player mods use only `ui`'s types; its functions are a client part's and always refuse.

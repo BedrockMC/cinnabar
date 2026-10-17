@@ -106,6 +106,7 @@ struct State {
     output: usize,
     block_highlights: block_highlights::HighlightState,
     inventory: inventory::InventoryRequests,
+    held_modifiers: crate::KeyModifiers,
 }
 
 impl State {
@@ -171,6 +172,7 @@ impl State {
             output: 0,
             block_highlights: block_highlights::HighlightState::default(),
             inventory: Default::default(),
+            held_modifiers: Default::default(),
         }
     }
 }
