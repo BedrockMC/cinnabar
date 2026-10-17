@@ -108,6 +108,20 @@ pub const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "dressing-room-parrot",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: parrot,
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "dressing-room-parrot-narrow",
+        size: [360, 720],
+        gui_scale: GUI_SCALE,
+        fixture: parrot,
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "craft-overlap-ready",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -697,6 +711,7 @@ fn wardrobe() -> Fixture {
     let item = render_model::hats::fixture::bunny();
     render_model::hats::fixture::crown();
     render_model::hats::fixture::devil_horns();
+    render_model::hats::fixture::shoulder_parrot();
     render_model::hats::fixture::dragon_wings();
     Arc::make_mut(&mut view.dressing_room).section =
         launcher::dressing_room::DressingRoomSection::Cosmetics;
@@ -746,6 +761,22 @@ fn dragon_wings() -> Fixture {
     if let Fixture::Menu(view) = &mut fixture {
         let item = render_model::hats::fixture::dragon_wings();
         Arc::make_mut(&mut view.dressing_room)
+            .selected_cosmetics
+            .insert(item.descriptor().slot.clone(), Some(item.id().into()));
+    }
+    fixture
+}
+
+/// Shows the parrot alongside head and back items in the cosmetics gallery.
+#[cfg(feature = "test-support")]
+fn parrot() -> Fixture {
+    let mut fixture = dragon_wings();
+    if let Fixture::Menu(view) = &mut fixture {
+        let item = render_model::hats::fixture::shoulder_parrot();
+        let wardrobe = Arc::make_mut(&mut view.dressing_room);
+        wardrobe.section = launcher::dressing_room::DressingRoomSection::Cosmetics;
+        wardrobe.cosmetic_category = launcher::dressing_room::CosmeticCategory::Pet;
+        wardrobe
             .selected_cosmetics
             .insert(item.descriptor().slot.clone(), Some(item.id().into()));
     }
