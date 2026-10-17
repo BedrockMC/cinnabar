@@ -7326,6 +7326,12 @@ Source-water, source-lava, and powder-snow collection were observed against a
 local Bedrock server. Waterlogged-source acceptance remains unverified; this does
 not close the interaction parity gate.
 
+Dynamic container registry cleanup retires only matching retained bundle contents
+through the session inventory FIFO. Other containers and item stacks stay intact,
+and cleanup frees capacity for subsequent dynamic containers. Focused wire and
+ledger tests cover cleanup, ID reuse, retention pressure and session reset;
+exact stable-client gameplay validation and full inventory parity remain incomplete.
+
 Middle-click picking includes mobs and paintings, and asks the server for the
 nearest eligible actor's item using its persistent ID. Mob spawn eggs remain
 server-authoritative; walls, reach, and mounted-actor exclusion still constrain
