@@ -331,6 +331,14 @@ impl TemplateScreen {
         })
     }
 
+    /// The collection and row of the topmost drawn cell under window-logical `point`, as the
+    /// container screens hit-test their slots.
+    pub(super) fn cell_at(&self, point: [f32; 2]) -> Option<(&str, usize)> {
+        let frame = self.frame.as_ref()?;
+        let region = json_ui::hit_test(&frame.hits, virtual_point(frame, point))?;
+        Some((region.collection.as_deref()?, region.collection_index?))
+    }
+
     /// Tracks a left press and returns the control id and collection row of a press released
     /// over the control it began on, as vanilla buttons fire.
     pub(super) fn press(

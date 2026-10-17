@@ -172,6 +172,40 @@ fn bound_item_keys_are_the_modal_icon_keys() {
     );
 }
 
+/// A terminal with the player's hotbar and inventory rows at the top left, 18 GUI units a slot,
+/// each a button as vanilla's container cells are.
+const SLOTS: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"hotbar": {"type": "grid", "size": [162, 18], "offset": [0, 0],
+            "anchor_from": "top_left", "anchor_to": "top_left", "grid_dimensions": [9, 1],
+            "collection_name": "hotbar_items", "grid_item_template": "demo.cell"}},
+        {"inventory": {"type": "grid", "size": [162, 54], "offset": [0, 20],
+            "anchor_from": "top_left", "anchor_to": "top_left", "grid_dimensions": [9, 3],
+            "collection_name": "inventory_items", "grid_item_template": "demo.cell"}}]},
+    "cell": {"type": "button", "size": [18, 18], "button_mappings": [
+        {"from_button_id": "button.menu_select", "to_button_id": "button.container_slot", "mapping_type": "pressed"}],
+        "controls": [
+        {"item": {"type": "custom", "renderer": "inventory_item_renderer", "size": [16, 16]}}]}}"#;
+
+/// A hotbar key acts on the modal's player slot under the pointer, as in a container screen: a
+/// hotbar row is that hotbar slot and an inventory row the main inventory slot after it.
+#[test]
+fn modal_inventory_rows_hit_their_player_slots() {
+    use ui_screens::container_actions::InventoryCellHit;
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", SLOTS)]));
+    let presentation = drawn(&modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let at = |x: f32, y: f32| presentation.experience_modal_inventory_hit([x * scale, y * scale]);
+    assert_eq!(at(2.0 * 18.0 + 9.0, 9.0), Some(InventoryCellHit::Player(2)));
+    assert_eq!(
+        at(18.0 + 9.0, 20.0 + 18.0 + 9.0),
+        Some(InventoryCellHit::Player(19))
+    );
+    assert_eq!(at(400.0, 400.0), None);
+}
+
 /// The drawn modal's size is its root's, in GUI units, with the GUI scale that maps them onto the
 /// window; a resize changes it, and a closed modal has none.
 #[test]
