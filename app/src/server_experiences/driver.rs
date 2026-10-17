@@ -107,13 +107,21 @@ fn modal_hotbar(
         let Some(code) = client_shell::physical_input::keyboard_usage(key) else {
             continue;
         };
-        crate::ui_runtime::interaction::dispatch_bound_inventory_hotbar(
+        let control = semantic_input::PhysicalControl::KeyboardUsage(code);
+        for slot in client_shell::menu::settings_options::control_bindings::hotbar_control_slots(
             menu.as_deref(),
-            semantic_input::PhysicalControl::KeyboardUsage(code),
-            &mut player,
-            &mut runtime,
-            Some(hit),
-        );
+            control,
+        ) {
+            let result = client_ui::ui_runtime::interaction::dispatch_modal_hotbar(
+                &mut player,
+                &mut runtime,
+                hit,
+                slot,
+            );
+            if let Some(Err(error)) = result {
+                bevy::log::debug!(?error, ?hit, slot, "modal hotbar swap refused");
+            }
+        }
     }
 }
 
