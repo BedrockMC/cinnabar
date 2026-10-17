@@ -847,7 +847,11 @@ namespace. A build script calls `experience_sdk::declarations::generate_mod("mod
 `templates::*` and `keys::*` with `experience_sdk::include_declarations!()`.
 `CINNABAR_MOD_PACKAGE` grants what the manifest asks for, plus the environment opt-ins a bare
 component gets; in a set, each package permission needs both the manifest's ask and the entry's
-grant (`screen`, `items`, `recipes`, `keys`). `inventory` has no import yet. On reload, the new
+grant (`screen`, `items`, `recipes`, `keys`, `settings`, `inventory`). `settings` gives the
+`settings` interface its companion file. `inventory` also needs `CINNABAR_MOD_INVENTORY=1` and
+grants the `inventory` interface: `creative-take` (Creative only, an item of the creative
+content) and `fill-recipe` (a crafting recipe, once, onto the cursor), each the request the
+creative catalog or the recipe book makes, at most four per callback. On reload, the new
 manifest narrows the original loader authorization again; an entry cannot gain an ungranted
 permission by changing its manifest.
 

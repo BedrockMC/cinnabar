@@ -34,7 +34,7 @@ const MAX_HOST_CALLS: usize = 1024;
 
 impl State {
     /// Stops host-call floods even when the guest ignores denied results.
-    fn charge(&mut self) -> Result<()> {
+    pub(super) fn charge(&mut self) -> Result<()> {
         self.calls += 1;
         ensure!(self.calls <= MAX_HOST_CALLS, "host-call limit exceeded");
         Ok(())
