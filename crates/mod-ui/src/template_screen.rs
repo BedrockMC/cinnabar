@@ -127,6 +127,8 @@ pub(super) struct TemplateScreen {
     secondary: Option<String>,
     /// An edit box to select once drawn, by `text_box_name`.
     pending_focus: Option<String>,
+    /// The `now` of the last edit pass, the clock the selected box's caret blinks on.
+    blink_clock: Option<f64>,
 }
 
 /// What one frame of input did to a template screen's edit boxes.
@@ -148,6 +150,7 @@ impl TemplateScreen {
             self.frame = None;
             self.dispatcher = Dispatcher::default();
             self.reported.clear();
+            self.blink_clock = None;
         }
         let changed = self.revision != Some(modal.revision);
         if changed {
@@ -209,6 +212,12 @@ impl TemplateScreen {
         };
         let hits = &frame.hits;
         let point = point.map(|point| virtual_point(frame, point));
+        // The selected box's caret blinks on the edit component's interval, as vanilla's does.
+        let delta = self.blink_clock.map_or(0.0, |last| (now - last).max(0.0));
+        self.blink_clock = Some(now);
+        if delta > 0.0 {
+            self.dispatcher.tick(hits, &mut self.view, delta);
+        }
         let mut events = Vec::new();
         let on_box = point.is_some_and(|point| {
             hits.iter()
@@ -523,7 +532,10 @@ impl TemplateScreen {
             frame.origin[0] + ((x + width / 2.0) as f32) * frame.scale,
             frame.origin[1] + ((y + height / 2.0) as f32) * frame.scale,
         ];
-        let _ = self.edit(Some(point), true, &[], false, 0.0);
+        // A selection outside the frame's input keeps the caret's clock.
+        let clock = self.blink_clock;
+        let _ = self.edit(Some(point), true, &[], false, clock.unwrap_or(0.0));
+        self.blink_clock = clock;
     }
 }
 

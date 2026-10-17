@@ -412,6 +412,107 @@ fn typed_text_draws_in_the_box() {
     );
 }
 
+/// The texts the last frame drew.
+fn drawn_texts(presentation: &UiPresentationRuntime) -> Vec<String> {
+    presentation
+        .last_frame
+        .as_ref()
+        .expect("a frame")
+        .nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A selected box draws vanilla's caret after its text, blinking on the edit component's
+/// interval and shown again by each edit; a deselected box draws none.
+#[test]
+fn a_selected_box_draws_a_blinking_caret() {
+    let (modal, files) = open_search();
+    let mut presentation = drawn(&modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let inside = Some([10.0 * scale, 10.0 * scale]);
+    let none: Vec<String> = Vec::new();
+    let caret = format!("iron{}", json_ui::CARET_GLYPH);
+    let at = |presentation: &mut UiPresentationRuntime, typed: &[String], escape, now| {
+        presentation
+            .mod_ui_mut()
+            .edit_experience_modal(inside, false, typed, escape, now);
+        redraw(presentation, &modal, &files, [1280, 720]);
+        drawn_texts(presentation)
+    };
+    presentation
+        .mod_ui_mut()
+        .edit_experience_modal(inside, true, &none, false, 0.0);
+    let typed = at(&mut presentation, &["iron".to_owned()], false, 0.05);
+    assert!(typed.contains(&caret), "{typed:?}");
+    let blinked = at(
+        &mut presentation,
+        &none,
+        false,
+        0.05 + json_ui::CARET_BLINK_SECONDS * 1.5,
+    );
+    assert!(blinked.iter().any(|text| text == "iron"), "{blinked:?}");
+    let back = at(
+        &mut presentation,
+        &none,
+        false,
+        0.05 + json_ui::CARET_BLINK_SECONDS * 2.5,
+    );
+    assert!(back.contains(&caret), "{back:?}");
+    let escaped = at(&mut presentation, &none, true, 1.0);
+    assert!(!escaped.contains(&caret), "{escaped:?}");
+    assert!(escaped.iter().any(|text| text == "iron"), "{escaped:?}");
+}
+
+/// A search field built on vanilla's `common.text_edit_box`, clipped and right-anchored as a
+/// terminal's search is.
+const VANILLA_SEARCH: &str = r#"{"namespace": "demo",
+    "terminal": {"type": "panel", "size": ["100%", "100%"], "controls": [
+        {"search@common.text_edit_box": {"anchor_from": "top_left", "anchor_to": "top_left",
+            "size": [89, 12], "max_length": 25,
+            "$text_box_name": "demo.search",
+            "$text_edit_clipping_panel_size": [79, "100%"],
+            "$text_edit_box_label_anchor_point": "top_right"}}]}}"#;
+
+/// Vanilla's own edit box draws the caret after the typed text too.
+#[test]
+fn a_selected_vanilla_box_draws_its_caret() {
+    let Some(mut presentation) = super::super::super::pack_harness::engine_presentation() else {
+        return;
+    };
+    let mut modal = screen::Modal::default();
+    modal.open(Some("ui/terminal.json".into()));
+    let files = Arc::new(files(&[("ui/terminal.json", VANILLA_SEARCH)]));
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let scale = presentation.mod_ui().experience_modal_size().unwrap().scale as f32;
+    let inside = Some([40.0 * scale, 6.0 * scale]);
+    let none: Vec<String> = Vec::new();
+    presentation
+        .mod_ui_mut()
+        .edit_experience_modal(inside, true, &none, false, 0.0);
+    presentation.mod_ui_mut().edit_experience_modal(
+        inside,
+        false,
+        &["iron".to_owned()],
+        false,
+        0.05,
+    );
+    redraw(&mut presentation, &modal, &files, [1280, 720]);
+    let texts = drawn_texts(&presentation);
+    let caret = format!("iron{}", json_ui::CARET_GLYPH);
+    assert!(texts.contains(&caret), "{texts:?}");
+}
+
 /// A list 100 GUI units wide whose 50-unit viewport scrolls 400 units of content, at the top
 /// left, named `demo.list`, beside an unnamed one; it needs nothing from the vanilla pack.
 const LIST: &str = r#"{"namespace": "demo",
