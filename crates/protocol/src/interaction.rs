@@ -591,6 +591,16 @@ pub fn stop_riding_packet(
     }))
 }
 
+/// Builds an entity-hover update from a retained world-space pick, or a positionless clear.
+#[must_use]
+pub fn entity_hover_packet(target: Option<(u64, [f32; 3])>) -> crate::Packet {
+    crate::Packet::new(Interact {
+        action: InteractAction::Interactupdate,
+        target_runtime_id: ActorRuntimeID(target.map_or(0, |(id, _)| id)),
+        position: target.map(|(_, point)| point.into()),
+    })
+}
+
 /// Builds the local player's arm-swing animation packet.
 #[must_use]
 pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
