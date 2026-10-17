@@ -259,7 +259,8 @@ pub use pinned_content::{
     pinned_world_provenance,
 };
 pub use potion::{
-    POTION_DESCRIPTORS, PotionDescriptor, PotionEffect, potion_descriptor, vanilla_potion_variant,
+    POTION_DESCRIPTORS, PotionDescriptor, PotionEffect, potion_descriptor, tipped_arrow_name_key,
+    vanilla_potion_variant,
 };
 pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,

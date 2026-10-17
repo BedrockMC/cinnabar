@@ -11,6 +11,8 @@ const ENCHANT_COLOR: [u8; 4] = [170, 170, 170, 255];
 const LORE_COLOR: [u8; 4] = [170, 0, 170, 255];
 const BENEFICIAL_EFFECT_COLOR: [u8; 4] = [85, 85, 255, 255];
 const HARMFUL_EFFECT_COLOR: [u8; 4] = [255, 85, 85, 255];
+/// Tipped arrows are arrows whose aux names the potion they carry.
+const TIPPED_ARROW: &str = "minecraft:arrow";
 
 /// The potion form of a vanilla potion item identifier.
 fn potion_form(identifier: &str) -> Option<PotionForm> {
@@ -98,6 +100,12 @@ pub(crate) fn default_name(runtime: &UiRuntime, identifier: &str, metadata: u32)
         .is_some_and(|components| components.display_name.is_some())
     {
         return runtime.localized_item_name(identifier);
+    }
+    if identifier == TIPPED_ARROW
+        && let Some(name) =
+            assets::tipped_arrow_name_key(metadata).and_then(|key| runtime.translation(&key))
+    {
+        return name.to_string();
     }
     potion(Some(identifier), metadata)
         .and_then(|(descriptor, form)| {
