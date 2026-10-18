@@ -11,10 +11,7 @@ use ui_engine::engine::screen::PaintError;
 /// Presents the installed version, channel policy and one explicit fresh-check action.
 pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
-    content.heading(
-        "Updates",
-        "Beta gets regular releases. Nightly gets the newest changes and may have bugs.",
-    )?;
+    content.heading("Updates", "")?;
     if !view.updates.active {
         return content.label(
             &installed_version(),
