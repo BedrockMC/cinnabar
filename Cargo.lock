@@ -6723,6 +6723,7 @@ version = "0.1.21"
 dependencies = [
  "assets",
  "block-transform",
+ "bridge",
  "image",
  "json-ui",
  "pack-compile-input",
