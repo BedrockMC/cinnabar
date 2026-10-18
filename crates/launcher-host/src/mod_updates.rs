@@ -162,15 +162,12 @@ impl Checker {
     pub fn updates(&mut self) -> &[AvailableUpdate] {
         for response in self.responses.try_iter() {
             if response.generation == self.generation.load(Ordering::SeqCst)
-                && response.manual.is_some()
                 && response.manual == self.pending
+                && let Some(manual) = response.manual
             {
                 self.pending = None;
                 if response.message.is_some() {
-                    self.progress.finish(
-                        response.manual.expect("manual response"),
-                        response.generation,
-                    );
+                    self.progress.finish(manual, response.generation);
                 }
                 self.message = response.message;
             }
