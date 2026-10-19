@@ -8,12 +8,17 @@ use super::{
     atlas::{ParticleAtlas, Placement},
     def::TextureSource,
     emitter::{Emitter, Outputs, ParticleSound, SpawnRequest},
+    event_budget::{EventOverflows, MAX_QUEUED_SOUNDS},
     library::EffectLibrary,
     world::ParticleWorld,
 };
 
 mod biome_tinted;
 mod bookkeeping;
+#[cfg(test)]
+mod cosmetic_tests;
+#[cfg(test)]
+mod event_tests;
 
 use bookkeeping::Bookkeeping;
 
@@ -43,8 +48,17 @@ const TILE_VARIABLE_NAMES: [[&str; 4]; 5] = tile_variable_names! {
     "ground_particle_texture_coordinate", "ground_particle_texture_size";
     "surface_particle_texture_coordinate", "surface_particle_texture_size";
 };
-/// Undrained sound requests kept before the oldest are dropped.
-const MAX_QUEUED_SOUNDS: usize = 256;
+/// Process-unique identity of one particle world; emitter ids are only meaningful within it.
+#[derive(Debug)]
+struct Instance(u64);
+
+impl Default for Instance {
+    /// Draws the next identity, so a rebuilt system never matches its predecessor.
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
 
 #[derive(Default)]
 pub struct ParticleSystem {
@@ -65,6 +79,9 @@ pub struct ParticleSystem {
     pub(super) draw_scratch: super::draw::DrawScratch,
     /// Requests dropped for an unknown effect, distance or a full emitter table.
     pub dropped_spawns: u64,
+    instance: Instance,
+    /// Cumulative authored-event admission losses; work counts skipped roots, not their descendants.
+    pub event_overflows: EventOverflows,
 }
 
 impl ParticleSystem {
@@ -200,7 +217,8 @@ impl ParticleSystem {
         self.spawn(request)
     }
 
-    /// Resolves pixels and appends tile aliases after caller variables.
+    /// Resolves pixels and appends tile aliases after caller variables. Cosmetic sprites use
+    /// the request's tile like terrain and items but map UVs within it, so they add no aliases.
     fn resolve_texture(
         &mut self,
         source: &TextureSource,
@@ -209,6 +227,11 @@ impl ParticleSystem {
         let fallback = self.atlas.fallback();
         match source {
             TextureSource::Path(path) => self.atlas.placement(path).unwrap_or(fallback),
+            TextureSource::Cosmetic => request
+                .tile
+                .as_ref()
+                .and_then(|tile| self.atlas.tile(tile.key, tile.size, &tile.pixels))
+                .unwrap_or(fallback),
             TextureSource::Terrain | TextureSource::Items => {
                 let Some(tile) = request.tile.as_ref() else {
                     return fallback;
@@ -293,6 +316,33 @@ impl ParticleSystem {
         }
     }
 
+    /// Identifies this particle world. Hosts holding emitter ids discard them when it changes,
+    /// because a rebuilt system restarts its id sequence.
+    #[must_use]
+    pub fn instance(&self) -> u64 {
+        self.instance.0
+    }
+
+    /// Whether `id` is a live emitter that has not been stopped or finished emitting.
+    #[must_use]
+    pub fn is_emitting(&self, id: u64) -> bool {
+        self.emitter(id).is_some_and(|emitter| !emitter.done)
+    }
+
+    /// Whether `id` still occupies the emitter table, including a stopped emitter whose
+    /// particles are draining.
+    #[must_use]
+    pub fn contains_emitter(&self, id: u64) -> bool {
+        self.emitter(id).is_some()
+    }
+
+    /// Finds an emitter by id. Spawning appends increasing ids and removal keeps order, so the
+    /// table stays sorted by id.
+    fn emitter(&self, id: u64) -> Option<&Emitter> {
+        let index = self.emitters.binary_search_by_key(&id, |e| e.id).ok()?;
+        self.emitters.get(index)
+    }
+
     /// Moves an attached emitter; ignored once the emitter is gone.
     pub fn set_transform(&mut self, id: u64, position: [f32; 3], basis: [[f32; 3]; 3]) {
         if let Some(emitter) = self.emitters.iter_mut().find(|e| e.id == id) {
@@ -332,7 +382,11 @@ impl ParticleSystem {
 
     /// Advances lifetimes and accounts for removals before admitting nested effects.
     fn step(&mut self, dt: f32, world: &dyn ParticleWorld) {
-        let mut output = Outputs::default();
+        self.step_with_output(dt, world, Outputs::default());
+    }
+
+    /// Shares one output allowance across creation, deferred dispatch and all existing emitters.
+    fn step_with_output(&mut self, dt: f32, world: &dyn ParticleWorld, mut output: Outputs) {
         let live = self.live_particles();
         let mut budget = MAX_LIVE_PARTICLES.saturating_sub(live);
         let mut boxes = std::mem::take(&mut self.boxes);
@@ -353,12 +407,22 @@ impl ParticleSystem {
                 true
             }
         });
-        self.sounds.append(&mut output.sounds);
-        if self.sounds.len() > MAX_QUEUED_SOUNDS {
-            let excess = self.sounds.len() - MAX_QUEUED_SOUNDS;
-            self.sounds.drain(..excess);
-        }
         self.seed = self.seed.wrapping_add(1);
+        self.accept_outputs(output);
+    }
+
+    /// Publishes bounded outputs after lifetime retention, keeping the latest undrained sounds.
+    fn accept_outputs(&mut self, mut output: Outputs) {
+        let excess = (self.sounds.len() + output.sounds.len()).saturating_sub(MAX_QUEUED_SOUNDS);
+        self.sounds.drain(..excess);
+        self.sounds.extend(output.sounds);
+        output.budget.overflow.sounds = output.budget.overflow.sounds.saturating_add(excess as u64);
+        if self.event_overflows == EventOverflows::default()
+            && output.budget.overflow != EventOverflows::default()
+        {
+            tracing::warn!(overflow = ?output.budget.overflow, "particle event admission limit reached");
+        }
+        self.event_overflows.add(output.budget.overflow);
         for request in output.spawns {
             self.spawn(&request);
         }
@@ -418,6 +482,33 @@ mod tests {
         assert!(system.spawn(&request("burst", 0.0)).is_some());
         system.tick(0.05, &EmptyWorld);
         assert_eq!(system.live_particles(), 4);
+    }
+
+    #[test]
+    fn hosts_can_tell_live_emitters_and_rebuilt_systems_apart() {
+        let mut system = system();
+        let id = system.spawn(&request("burst", 0.0)).unwrap();
+        assert!(system.is_emitting(id));
+        let later = system.spawn(&request("burst", 1.0)).unwrap();
+        system.tick(0.01, &EmptyWorld);
+        system.stop(id);
+        assert!(!system.is_emitting(id));
+        assert!(
+            system.contains_emitter(id),
+            "stopped emitters drain their particles"
+        );
+        assert!(system.is_emitting(later) || system.contains_emitter(later));
+        for _ in 0..8 {
+            system.tick(0.25, &EmptyWorld);
+        }
+        assert!(
+            !system.contains_emitter(id),
+            "drained emitters leave the table"
+        );
+        assert!(!system.contains_emitter(u64::MAX));
+        let rebuilt = self::system();
+        assert_ne!(rebuilt.instance(), system.instance());
+        assert!(!rebuilt.is_emitting(id));
     }
 
     #[test]

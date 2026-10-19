@@ -49,7 +49,7 @@ pub mod painting;
 mod particle;
 mod physics_registry;
 mod pinned_content;
-mod potion;
+pub mod potion;
 mod provenance;
 pub mod registry;
 mod runtime;
@@ -207,6 +207,7 @@ pub use icon::{
     MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES,
     MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog, compose_block_item_sheet,
     encode_icon_catalog, encode_icon_catalog_with_block_sheets, encode_icon_catalog_with_blocks,
+    encode_icon_catalog_with_sources,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
@@ -228,18 +229,19 @@ pub use model::{
     BUBBLE_COLUMN_POSITION_VARIANTS, BUBBLE_COLUMN_TEMPLATE_COUNT, END_GATEWAY_IDENTIFIER,
     END_PORTAL_FRAME_IDENTIFIER, END_PORTAL_IDENTIFIER, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
     MAX_MODEL_QUADS, MAX_MODEL_TEMPLATE_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES,
-    MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
-    MODEL_TEMPLATE_FLAG_BAMBOO, MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN,
+    MODEL_POSITION_SCALE, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_BAMBOO, MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_DOOR, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
     MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
     MODEL_TEMPLATE_FLAG_NETHER_PORTAL, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_POTTED_PLANT,
-    MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TORCH,
-    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL, ModelQuad, ModelTemplate,
-    NETHER_PORTAL_IDENTIFIER, NO_ANIMATION, NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET,
-    SEASONAL_LEAF_EXPOSED_OFFSET, SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE,
-    TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT, TOP_SNOW_LAYER_COUNT, TexturePage, TextureRef,
-    VisualKind, VisualSupport, bubble_column_quad_count, model_template_parts,
+    MODEL_TEMPLATE_FLAG_SHORT_GRASS, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TORCH, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
+    MODEL_UV_SCALE, ModelQuad, ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET,
+    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT,
+    TOP_SNOW_LAYER_COUNT, TexturePage, TextureRef, VisualKind, VisualSupport,
+    bubble_column_quad_count, model_template_parts,
 };
 pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
@@ -257,17 +259,14 @@ pub use pinned_content::{
     active_content_registry_protocol, pinned_block_registry_bytes, pinned_block_sequential_id,
     pinned_world_provenance,
 };
-pub use potion::{
-    POTION_DESCRIPTORS, PotionDescriptor, PotionEffect, potion_descriptor, vanilla_potion_variant,
-};
 pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
     vanilla_source, vanilla_source_manifest_sha256,
 };
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
-    ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord, read_registry,
-    read_registry_for_protocol, registry_header_protocol,
+    ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
+    pinned_block_identity, read_registry, read_registry_for_protocol, registry_header_protocol,
 };
 pub use runtime::{
     BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,

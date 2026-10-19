@@ -147,9 +147,7 @@ fn install(app: &mut App) {
 
 #[path = "gpu/vertices.rs"]
 mod vertices;
-#[cfg(test)]
-use vertices::changed_span;
-use vertices::{VertexList, VertexUpload};
+use vertices::VertexList;
 
 /// The vertex lists last passed to each [`VertexList::upload`], shared rather than copied.
 #[derive(Default)]
@@ -233,16 +231,9 @@ fn prepare_resources(
     frame: Res<render_scene::BlockEntityFrameResource>,
     selection: Res<render_scene::BlockSelectionFrameResource>,
     atmosphere: Option<Res<render_scene::AtmosphereFrame>>,
-    staging: Option<Res<crate::upload_staging::BufferUploadStaging>>,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
+    uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<BlockEntityGpu>,
 ) {
-    let upload = VertexUpload {
-        device: &render_device,
-        queue: &render_queue,
-        staging: staging.as_deref(),
-    };
     let atmosphere = atmosphere.as_deref().copied().unwrap_or_default();
     let [red, green, blue] = atmosphere.fog_color();
     let portal_parameters = [
@@ -252,7 +243,7 @@ fn prepare_resources(
         [atmosphere.fog_end(), 0.0, 0.0, 0.0],
     ];
     if !frame.portal.is_empty() && gpu.portal_parameters != Some(portal_parameters) {
-        render_queue.profiled_write_buffer(
+        uploads.write(
             &gpu.portal_uniform,
             0,
             bytemuck::cast_slice(&portal_parameters),
@@ -269,7 +260,7 @@ fn prepare_resources(
         .unwrap_or_else(|| render_model::block_entity::selection::fallback_atlas());
     if gpu.atlas_identity != atlas.identity || gpu.atlas_size != atlas.size || gpu.texture.is_none()
     {
-        let texture = render_device.create_texture(&TextureDescriptor {
+        let texture = uploads.device.create_texture(&TextureDescriptor {
             label: Some("block-entity atlas"),
             size: Extent3d {
                 width: atlas.size[0],
@@ -284,7 +275,7 @@ fn prepare_resources(
             view_formats: &[],
         });
         write_rows(
-            &render_queue,
+            &uploads.queue,
             &texture,
             0,
             atlas.size[0],
@@ -309,7 +300,7 @@ fn prepare_resources(
     {
         if let Some(texture) = &gpu.texture {
             write_rows(
-                &render_queue,
+                &uploads.queue,
                 texture,
                 atlas.static_height,
                 atlas.size[0],
@@ -359,7 +350,7 @@ fn prepare_resources(
                 "block-entity overlay vertices",
             ),
         ] {
-            list.upload(previous, vertices, &upload, label);
+            list.upload(previous, vertices, &uploads, label);
             *previous = Arc::clone(vertices);
         }
     }
@@ -367,7 +358,7 @@ fn prepare_resources(
         outline.upload(
             &uploaded.outline,
             &selection.outline,
-            &upload,
+            &uploads,
             "block selection line vertices",
         );
         uploaded.outline = Arc::clone(&selection.outline);
@@ -379,7 +370,7 @@ fn prepare_resources(
         crack.upload(
             &uploaded.crack,
             crack_scratch,
-            &upload,
+            &uploads,
             "block-entity crack vertices",
         );
         std::mem::swap(crack_scratch, &mut uploaded.crack);

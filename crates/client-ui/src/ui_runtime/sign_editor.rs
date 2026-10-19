@@ -13,7 +13,8 @@ pub struct SignEdit {
     position: [i32; 3],
     front: bool,
     lines: [String; SIGN_LINES],
-    original: [String; SIGN_LINES],
+    line_count: usize,
+    original: String,
     line: usize,
     /// Cursor position in characters within the current line.
     column: usize,
@@ -64,11 +65,13 @@ impl SignEdit {
             .unwrap_or(-0x0100_0000);
         let [_, red, green, blue] = argb.to_be_bytes();
         let lines = split_lines(text);
+        let line_count = text.split('\n').count().min(SIGN_LINES);
         Self {
             position,
             front,
-            original: lines.clone(),
+            original: lines[..line_count].join("\n"),
             lines,
+            line_count,
             line: 0,
             column: 0,
             base,
@@ -103,14 +106,13 @@ impl SignEdit {
         self.color
     }
 
-    /// The edited text as the sign stores it, lines joined by newlines.
-    /// The lines joined by newlines, without the empty trailing lines the editor pads with.
+    /// Joins authored lines, preserving trailing breaks without adding editor padding.
     pub fn text(&self) -> String {
-        self.lines.join("\n").trim_end_matches('\n').to_owned()
+        self.lines[..self.line_count].join("\n")
     }
 
     pub fn changed(&self) -> bool {
-        self.lines != self.original
+        self.text() != self.original
     }
 
     fn byte_index(&self, column: usize) -> usize {
@@ -135,6 +137,7 @@ impl SignEdit {
             return false;
         }
         self.lines[self.line] = candidate;
+        self.line_count = self.line_count.max(self.line + 1);
         self.column += 1;
         true
     }
@@ -204,6 +207,7 @@ impl SignEdit {
             return true;
         }
         self.line += 1;
+        self.line_count = self.line_count.max(self.line + 1);
         self.column = 0;
         false
     }
@@ -287,15 +291,14 @@ impl SignEditor {
         self.active.as_mut()
     }
 
+    /// Sends the edit back on close, even when unchanged: the server holds the sign
+    /// until the client's `BlockActorData` arrives, so skipping an unchanged edit
+    /// leaves the sign locked and it cannot be reopened.
     /// Keeps a completed edit open until the transport accepts its packet.
     pub fn finish(&mut self, send: impl FnOnce(protocol::Packet) -> Result<(), ()>) -> bool {
         let Some(edit) = self.active.clone() else {
             return true;
         };
-        if !edit.changed() {
-            self.close();
-            return true;
-        }
         let position = edit.position();
         let accepted = match edit.into_encoded_nbt() {
             Ok(nbt) => send(protocol::sign_edit_packet(position, &nbt)).is_ok(),

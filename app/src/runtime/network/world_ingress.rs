@@ -8,13 +8,15 @@ use bevy::prelude::ResMut;
 use chunk_pipeline::WorldStream;
 use client_runtime::{
     ingress::{WORLD_INGRESS_DRAIN_BUDGET, WorldIngressDrain},
-    inventory::{route_inventory_ingress, route_item_registry_ingress},
+    inventory::{
+        route_crafting_rules_ingress, route_inventory_ingress, route_item_registry_ingress,
+    },
     network::NetworkHandle,
 };
 use client_shell::ui_resources::UiRuntimeResource;
 use client_state::PlayerRuntime;
 use protocol::WorldEvent;
-use std::time::Instant;
+use web_time::Instant;
 #[cfg(feature = "acceptance")]
 use {
     crate::runtime::visibility::AppMetrics,
@@ -28,6 +30,16 @@ use {
     },
     diagnostics::write_stdout_marker,
 };
+
+/// Records a world event's commit in the latency trace; installed only while tracing.
+pub(super) fn trace_committed(fifo: u64) {
+    if let Some(trace) = bridge::latency_trace::active() {
+        trace.record(
+            bridge::latency_trace::kind::COMMITTED,
+            &[fifo as i64, trace.now()],
+        );
+    }
+}
 
 /// Drains available lanes while the stream preserves dependencies and transfer barriers.
 #[allow(clippy::too_many_arguments)]
@@ -57,6 +69,13 @@ pub(super) fn drain(
                 break;
             }
         };
+        if let Some(trace) = bridge::latency_trace::active() {
+            let (session, fifo) = ingress.identity();
+            trace.record(
+                bridge::latency_trace::kind::DRAINED,
+                &[session as i64, fifo as i64, trace.now()],
+            );
+        }
         let sequenced = match ingress {
             client_session::WorldIngress::Event(sequenced) => {
                 network.record_readiness_event_consumed(&sequenced.event);
@@ -237,6 +256,11 @@ fn route_player_ingress(
         }
         Ok(None)
     } else {
+        if matches!(&sequenced.event, WorldEvent::GameRules(_))
+            && let Err(error) = route_crafting_rules_ingress(player_runtime, ui_runtime, &sequenced)
+        {
+            return Err(format!("crafting rule ingress rejected: {error:?}"));
+        }
         if matches!(
             &sequenced.event,
             WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(_))
@@ -287,5 +311,56 @@ fn observe_event(
         } else {
             stream.schedule_source_capture(sequenced.sequence.get());
         }
+    }
+}
+
+#[cfg(test)]
+mod crafting_rule_tests {
+    use super::route_crafting_rules_ingress;
+    use client_session::SequencedWorldEvent;
+    use client_ui::ui_runtime::UiRuntime;
+    use protocol::WorldEvent;
+
+    #[test]
+    fn crafting_rules_route_to_inventory_at_the_world_commit_position() {
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut runtime = UiRuntime::new(1);
+        let event = SequencedWorldEvent {
+            session_generation: simulation_clock::identity::SessionGeneration::new(1),
+            sequence: protocol::identity::FifoSequence::new(5),
+            event: WorldEvent::GameRules(protocol::GameRulesEvent {
+                daylight_cycle: None,
+                weather_cycle: None,
+                hud: Default::default(),
+                death: Default::default(),
+                crafting: protocol::CraftingRules {
+                    recipes_unlock: None,
+                    limited_crafting: Some(true),
+                },
+            }),
+        };
+        route_crafting_rules_ingress(&mut player, &mut runtime, &event).unwrap();
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(4))));
+        player.inventory.drain_pending_inventory();
+        assert!(
+            !player
+                .inventory
+                .crafting_rules()
+                .unwrap()
+                .requires_manual_unlock()
+        );
+        player
+            .inventory
+            .synchronize_crafting_frontier(1, Some((1, 0, Some(5))));
+        player.inventory.finish_drain();
+        assert!(
+            player
+                .inventory
+                .crafting_rules()
+                .unwrap()
+                .requires_manual_unlock()
+        );
     }
 }

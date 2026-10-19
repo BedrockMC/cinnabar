@@ -63,15 +63,6 @@ where
     }
 }
 
-/// Runs `work` unless the session is already cancelled, without borrowing the channel meanwhile.
-pub(super) fn unless_cancelled<T>(
-    cancelled: &watch::Receiver<bool>,
-    work: impl FnOnce() -> T,
-) -> Option<T> {
-    let cancelled = *cancelled.borrow();
-    (!cancelled).then(work)
-}
-
 pub(super) async fn wait_for_send_or_cancel<F>(
     send: F,
     shutdown: &mut watch::Receiver<bool>,
@@ -224,4 +215,40 @@ impl NetworkSequencer {
             event,
         }
     }
+}
+
+/// Records which core frame and slot produced `ingress`, once it is sequenced.
+pub(super) fn trace_decoded((conn, frame, index): (u64, u64, u32), ingress: &WorldIngress) {
+    if let Some(trace) = bridge::latency_trace::active() {
+        let (session, fifo) = ingress.identity();
+        trace.record(
+            bridge::latency_trace::kind::DECODED,
+            &[
+                conn as i64,
+                frame as i64,
+                i64::from(index),
+                session as i64,
+                fifo as i64,
+                trace.now(),
+            ],
+        );
+    }
+}
+
+/// Publishes `ingress` into the app's world channel, recording its entry at the time publishing
+/// began, so the app can never drain it before its recorded enqueue time.
+pub(super) fn publish_traced(permit: mpsc::Permit<'_, WorldIngress>, ingress: WorldIngress) {
+    let Some(trace) = bridge::latency_trace::active() else {
+        permit.send(ingress);
+        return;
+    };
+    let (session, fifo) = ingress.identity();
+    let _ = trace.record_admitted(
+        bridge::latency_trace::kind::ENQUEUED,
+        &[session as i64, fifo as i64],
+        || {
+            permit.send(ingress);
+            Ok::<_, std::convert::Infallible>(())
+        },
+    );
 }

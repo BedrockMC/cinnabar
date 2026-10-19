@@ -18,10 +18,7 @@ use {
     client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource},
     client_state::ClientFrameSet,
     mod_host::{ModGrants, ModHost},
-    std::{
-        path::Path,
-        time::{Duration, Instant},
-    },
+    std::{path::Path, time::Duration},
 };
 
 const COMPONENT_ENV: &str = "CINNABAR_MOD_COMPONENT";
@@ -32,6 +29,8 @@ const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
 mod admission;
+mod anchors;
+mod drawing_policy;
 mod environment_loader;
 mod hud_editor;
 mod library;
@@ -43,13 +42,13 @@ mod terrain;
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 
 #[derive(Resource)]
-struct ModRuntime {
+pub(crate) struct ModRuntime {
     hosts: ModHosts,
+    /// One entry per host, kept in host order by the lifecycle methods.
     metadata: Vec<registration::HostMetadata>,
     /// Per-mod render generations behind the last merged scene.
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
-    last_reload: Instant,
     controls: mod_host::ControlFrame,
     suspended: bool,
     hud_editor_owner: Option<hud_editor::Owner>,
@@ -58,6 +57,63 @@ struct ModRuntime {
 }
 
 impl ModRuntime {
+    /// Starts a runtime with one host and its stable presentation metadata.
+    fn new(host: ModHost, metadata: registration::HostMetadata) -> Self {
+        Self {
+            hosts: ModHosts::new(host, Vec::new()),
+            metadata: vec![metadata],
+            render_sources: Vec::new(),
+            render_merge: Default::default(),
+            controls: mod_host::empty_controls(),
+            suspended: false,
+            hud_editor_owner: None,
+            screens: Default::default(),
+        }
+    }
+
+    /// Appends a guest with its metadata and invalidates the merged render output.
+    fn push_host(&mut self, host: ModHost, metadata: registration::HostMetadata) {
+        self.hosts.push(host);
+        self.metadata.push(metadata);
+        self.render_sources.clear();
+    }
+
+    /// Replaces an environment guest and its presentation resources, retiring its input state.
+    fn replace_host(
+        &mut self,
+        index: usize,
+        mut prepared: admission::PreparedMod,
+        presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    ) -> ModHost {
+        self.screens.replace_host(index);
+        if self
+            .hud_editor_owner
+            .is_some_and(|owner| owner.host == index)
+        {
+            hud_editor::cancel(self, presentation, false);
+        }
+        prepared
+            .host
+            .activate_settings(Some(self.hosts.host_mut(index)));
+        let retired = std::mem::replace(self.hosts.host_mut(index), prepared.host);
+        let metadata = &mut self.metadata[index];
+        metadata.font = prepared.font;
+        metadata.branding = prepared.branding;
+        presentation
+            .mod_ui_mut()
+            .set_prepared_panel_ui(metadata.owner, prepared.panel_ui);
+        self.render_sources.clear();
+        retired
+    }
+
+    /// The first active local mod may select ordinary input modes for this frame.
+    pub(crate) fn movement_toggles(&self) -> Option<&mod_host::MovementToggles> {
+        if self.suspended {
+            return None;
+        }
+        (0..self.hosts.host_count()).find_map(|index| self.hosts.host(index).movement_toggles())
+    }
+
     /// Moves metadata, guest and index-based input ownership together without a restart.
     fn swap_hosts(&mut self, left: usize, right: usize) {
         self.hosts.swap(left, right);
@@ -74,6 +130,7 @@ impl ModRuntime {
     }
     /// Removes one guest and adjusts the surviving input and presentation owners together.
     fn remove_host(&mut self, index: usize) -> ModHost {
+        let host = self.hosts.remove(index);
         self.metadata.remove(index);
         self.screens.remove_host(index);
         if let Some(owner) = self.hud_editor_owner.as_mut() {
@@ -85,7 +142,7 @@ impl ModRuntime {
         }
         self.render_sources.clear();
         self.controls = mod_host::empty_controls();
-        self.hosts.remove(index)
+        host
     }
     /// Maps a publishing host's runtime index to its stable panel catalog owner.
     fn panel_ui_owner(&self, host: usize) -> mod_ui::PanelUiOwner {
@@ -125,6 +182,9 @@ pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
                 "reserved_keys": host.reserved_keys(),
                 "movement_granted": host.grants().movement,
                 "refused_outputs": host.refused_outputs(),
+                "last_fuel_used": host.last_fuel_used(),
+                "hud_cards": host.hud().map_or(0, |hud| hud.cards.len()),
+                "hud": host.hud(),
                 "panel": host.panel(),
             })
         })
@@ -230,71 +290,71 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
                 None
             }
         });
-    let mut fonts = Vec::new();
-    let mut brands = Vec::new();
-    hosts.retain(|host| {
-        let result = if host.grants().controls {
-            if let Some(font) = &override_font {
-                Ok(Some(font.clone()))
+    let hosts: Vec<_> = hosts
+        .into_iter()
+        .filter_map(|host| {
+            let result = if host.grants().controls {
+                if let Some(font) = &override_font {
+                    Ok(Some(font.clone()))
+                } else {
+                    host.panel_font_source()
+                        .map(font::rasterize)
+                        .transpose()
+                        .map(|font| font.map(std::sync::Arc::new))
+                }
             } else {
-                host.panel_font_source()
-                    .map(font::rasterize)
-                    .transpose()
-                    .map(|font| font.map(std::sync::Arc::new))
-            }
-        } else {
-            Ok(None)
-        };
-        match result {
-            Ok(font) => match admission::prepare_branding(host) {
-                Ok(branding) => {
-                    fonts.push(font);
-                    brands.push(branding);
-                    true
-                }
+                Ok(None)
+            };
+            match result {
+                Ok(font) => match admission::prepare_branding(&host) {
+                    Ok(branding) => Some((host, font, branding)),
+                    Err(error) => {
+                        warn!("Embedded menu branding rejected; component disabled: {error}");
+                        None
+                    }
+                },
                 Err(error) => {
-                    warn!("Embedded menu branding rejected; component disabled: {error}");
-                    false
+                    warn!("Embedded personal-panel font rejected; component disabled: {error}");
+                    None
                 }
-            },
-            Err(error) => {
-                warn!("Embedded personal-panel font rejected; component disabled: {error}");
-                false
             }
-        }
-    });
-    for (index, host) in hosts.iter().enumerate() {
+        })
+        .enumerate()
+        .map(|(index, (host, font, branding))| {
+            let mut metadata = registration::HostMetadata::environment(index);
+            metadata.font = font;
+            metadata.branding = branding;
+            (host, metadata)
+        })
+        .collect();
+    for (host, metadata) in &hosts {
         if let Some(bundle) = host.panel_bundle() {
             match mod_ui::PreparedPanelUi::prepare(bundle) {
                 Ok(prepared) => {
                     if let Some(mut presentation) =
                         app.world_mut().get_resource_mut::<UiPresentationResource>()
                     {
-                        presentation.mod_ui_mut().set_prepared_panel_ui(
-                            mod_ui::PanelUiOwner::Environment(index),
-                            Some(prepared),
-                        );
+                        presentation
+                            .mod_ui_mut()
+                            .set_prepared_panel_ui(metadata.owner, Some(prepared));
                     }
                 }
                 Err(error) => warn!("Optional personal-panel preparation unavailable: {error}"),
             }
         }
     }
-    let first_controls = hosts.iter().position(|host| host.grants().controls);
+    let first_controls = hosts.iter().position(|(host, _)| host.grants().controls);
     let sources = hosts
         .iter()
         .enumerate()
-        .filter_map(|(index, host)| {
-            Some(environment_loader::Source {
-                owner: mod_ui::PanelUiOwner::Environment(index),
-                component: host.component_source()?.to_owned(),
-                grants: host.grants().clone(),
-                font: std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from),
-                ui: (Some(index) == first_controls)
-                    .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
-                    .flatten()
-                    .map(std::path::PathBuf::from),
-            })
+        .map(|(index, (host, metadata))| {
+            let mut source = environment_loader::Source::from_host(metadata.owner, host);
+            source.font = std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from);
+            source.ui = (Some(index) == first_controls)
+                .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
+                .flatten()
+                .map(std::path::PathBuf::from);
+            source
         })
         .collect::<Vec<_>>();
     if !sources.is_empty() {
@@ -306,31 +366,16 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
         }
     }
     let mut hosts = hosts.into_iter();
-    let Some(host) = hosts.next() else { return };
+    let Some((host, metadata)) = hosts.next() else {
+        return;
+    };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
-    let companions: Vec<_> = hosts.map(|host| multi::Companion { host }).collect();
-    app.insert_resource(VisualTimeOverride(host.time_override()))
-        .insert_resource(ModRuntime {
-            metadata: fonts
-                .into_iter()
-                .zip(brands)
-                .enumerate()
-                .map(|(index, (font, branding))| {
-                    let mut metadata = registration::HostMetadata::environment(index);
-                    metadata.font = font;
-                    metadata.branding = branding;
-                    metadata
-                })
-                .collect(),
-            hosts: ModHosts::new(host, companions),
-            render_sources: Vec::new(),
-            render_merge: Default::default(),
-            last_reload: Instant::now(),
-            controls: mod_host::empty_controls(),
-            suspended: false,
-            hud_editor_owner: None,
-            screens: screens::ScreenState::default(),
-        })
+    app.insert_resource(VisualTimeOverride(host.time_override()));
+    let mut runtime = ModRuntime::new(host, metadata);
+    for (host, metadata) in hosts {
+        runtime.push_host(host, metadata);
+    }
+    app.insert_resource(runtime)
         .init_resource::<interaction::ModInteraction>();
     registration::presentation::refresh_presentation(app.world_mut());
     configure_systems(app, false);
@@ -340,6 +385,13 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
     ghost::configure(app);
+    app.add_systems(
+        Update,
+        anchors::publish
+            .after(ClientFrameSet::ActorPublication)
+            .after(drive_mod)
+            .before(ClientFrameSet::UiPublication),
+    );
     block_highlights::configure(app);
     fullbright::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
@@ -364,12 +416,33 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(crate::environment::update_atmosphere_frame),
     );
     app.init_resource::<packet_delay::RealPositionSnapshot>()
-        .add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod));
+        .add_systems(Update, packet_delay::publish_packet_delay.after(drive_mod))
+        .add_systems(Update, inventory::apply_inventory_requests.after(drive_mod));
 }
 
 /// Starts the shared callback allowance before any input or event reaches a guest.
-fn begin_mod_frame(extension: Option<ResMut<ModRuntime>>) {
+fn begin_mod_frame(
+    extension: Option<ResMut<ModRuntime>>,
+    gameplay: gameplay::GameplayContext,
+    ui: Res<UiRuntimeResource>,
+    actors: Option<Res<render_scene::ActorRenderFrame>>,
+) {
     if let Some(mut extension) = extension {
+        drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+        anchors::reconcile(&mut extension.hosts, &gameplay);
+        let needs_targets = (0..extension.hosts.host_count())
+            .any(|index| extension.hosts.host(index).grants().entity_highlight);
+        let targets = actors
+            .as_deref()
+            .filter(|_| needs_targets)
+            .map(render_scene::mod_scene::mask_targets)
+            .unwrap_or_default();
+        for index in 0..extension.hosts.host_count() {
+            extension
+                .hosts
+                .host_mut(index)
+                .publish_mask_targets(&targets);
+        }
         extension.hosts.begin_frame();
     }
 }
@@ -396,7 +469,6 @@ type ModOutputs<'w> = (
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 struct ModObservation<'w, 's> {
-    environment_loader: Option<Res<'w, environment_loader::Loader>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
     cameras: Query<
@@ -428,13 +500,12 @@ fn drive_mod(
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
     interaction: Option<ResMut<interaction::ModInteraction>>,
-    mut outputs: ModOutputs,
+    outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
     time: Res<Time<Real>>,
     observation: ModObservation,
 ) {
     let ModObservation {
-        environment_loader,
         watcher,
         render_scene,
         cameras,
@@ -472,41 +543,8 @@ fn drive_mod(
     if extension.suspended {
         return;
     }
-    let mut reloaded = false;
-    if extension.last_reload.elapsed() >= RELOAD_INTERVAL {
-        extension.last_reload = Instant::now();
-        for index in 0..extension.hosts.host_count() {
-            if extension.metadata[index].registration.is_some() {
-                continue;
-            }
-            if environment_loader.is_some()
-                && extension.hosts.host(index).component_source().is_some()
-            {
-                continue;
-            }
-            match extension.hosts.host_mut(index).reload_if_changed() {
-                // A new instance never sees cues from before it existed.
-                Ok(true) => {
-                    if extension
-                        .hud_editor_owner
-                        .is_some_and(|owner| owner.host == index)
-                    {
-                        hud_editor::cancel(&mut extension, &mut presentation, false);
-                    }
-                    reloaded = true;
-                    if let Some(cues) = outputs.2.as_mut() {
-                        cues.0.clear();
-                    }
-                }
-                Ok(false) => {}
-                Err(error) => warn!("Cinnabar extension reload rejected: {error:#}"),
-            }
-        }
-    }
-    if reloaded {
-        gameplay.synchronize_jump_scope(false, &ui);
-        gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
-    }
+    drawing_policy::bind(&mut extension.hosts, &gameplay, &ui);
+    anchors::reconcile(&mut extension.hosts, &gameplay);
     // Reconcile screen departures before frame callbacks retry deferred edits.
     let cursor = windows
         .single()
@@ -590,7 +628,7 @@ fn drive_mod(
             if let Some(registered) = &registrations[index]
                 && let Some(watcher) = watcher.as_ref()
             {
-                watcher.quarantine(&registered.entry.component, error.clone());
+                watcher.quarantine(&registered.entry, error.clone());
             }
             warn!("Cinnabar extension callback failed: {error}");
         },
@@ -605,7 +643,7 @@ fn drive_mod(
     }
     render::publish(render_scene, &mut extension);
     if let Some(watcher) = watcher.as_ref() {
-        watcher.remember_settings(&extension);
+        watcher.remember_settings(Some(&extension), Some(&ui));
     }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);
@@ -629,6 +667,7 @@ fn drive_mod(
         camera.set_preserve_teleport_rotation(merged.preserve_teleport_rotation);
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
+        camera.set_hurt_camera_style(merged.hurt_style);
     }
     if let Some(mut policy) = item_use {
         policy.scope = merged.item_use_delay_fix;
@@ -826,7 +865,8 @@ pub(super) mod fullbright;
 mod gameplay;
 pub(crate) mod ghost;
 mod input;
-pub(crate) mod interaction;
+use crate::interaction_override as interaction;
+mod inventory;
 mod module_observations;
 pub(crate) mod packet_delay;
 mod render;

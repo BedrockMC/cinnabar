@@ -20,8 +20,8 @@ use crate::{LoadingScreenPhase, Packet, ProtocolError, ServerTransferEvent, Sess
 
 /// Bounds the bytes deferred to play while the spawn prerequisites arrive.
 pub(super) const MAX_DEFERRED_PACKET_BYTES: usize = 16 * 1024 * 1024;
-/// The view radius the client requests before it spawns.
-const STARTUP_CHUNK_RADIUS: u8 = 16;
+/// The fallback view radius when the caller supplies no saved preference.
+pub(super) const DEFAULT_CHUNK_RADIUS: u8 = 16;
 /// The stage a join-time Disconnect names once the session has been handed over.
 const STAGE: &str = "StartGame";
 
@@ -64,10 +64,12 @@ impl DeferredPackets {
 /// first item registry, the radius reply and PlayerSpawn have all arrived, leaving every deferred
 /// packet ahead of unread ones. `on_startup` receives the first StartGame and item registry as soon
 /// as both have arrived, while the sequence keeps reading. Dropping the future cancels it.
-pub(super) async fn await_spawn(
-    transport: &mut SessionTransport,
+pub(super) async fn await_spawn<R: bridge::FrameRead>(
+    transport: &mut SessionTransport<R>,
+    view_distance_chunks: u8,
     on_startup: impl FnOnce(StartGame, ItemRegistry),
 ) -> Result<Spawned, ProtocolError> {
+    let profile = bridge::join_profile::JoinProfile::current();
     let mut on_startup = Some(on_startup);
     let mut runtime_id: Option<u64> = None;
     let mut start_game: Option<StartGame> = None;
@@ -95,6 +97,7 @@ pub(super) async fn await_spawn(
                     }
                     Some(_) => {}
                     None => {
+                        profile.mark("start_game_decoded");
                         runtime_id = Some(received);
                         start_game = Some(*start);
                     }
@@ -109,6 +112,7 @@ pub(super) async fn await_spawn(
                 if registry_seen {
                     continue;
                 }
+                profile.mark("item_registry_decoded");
                 registry_seen = true;
                 item_registry = Some(registry);
             }
@@ -117,6 +121,9 @@ pub(super) async fn await_spawn(
                     unreachable!("packet ID and decoded variant must agree")
                 };
                 if status.status == PlayStatusType::Playerspawn {
+                    if !received_player_spawn {
+                        profile.mark("player_spawn");
+                    }
                     received_player_spawn = true;
                 }
             }
@@ -133,6 +140,9 @@ pub(super) async fn await_spawn(
                     .into());
                 }
                 deferred.push(raw)?;
+                if !received_chunk_radius {
+                    profile.mark("chunk_radius_reply");
+                }
                 received_chunk_radius = true;
             }
             PacketId::Disconnect => {
@@ -163,11 +173,12 @@ pub(super) async fn await_spawn(
             );
         }
         if !sent_chunk_radius && runtime_id.is_some() {
-            if let Err(error) = transport.send(&loading_started()).await {
+            if let Err(error) = transport.send(&loading_started(view_distance_chunks)).await {
                 return Err(
                     startup_write_failure(transport, error, super::WRITE_FAILURE_DRAIN).await,
                 );
             }
+            profile.mark("chunk_radius_requested");
             sent_chunk_radius = true;
         }
         if sent_chunk_radius
@@ -186,9 +197,12 @@ pub(super) async fn await_spawn(
 }
 
 /// The radius request and loading-start the client sends once StartGame arrives.
-fn loading_started() -> [Packet; 2] {
+fn loading_started(view_distance_chunks: u8) -> [Packet; 2] {
     [
-        crate::request_chunk_radius_packet(STARTUP_CHUNK_RADIUS, STARTUP_CHUNK_RADIUS),
+        crate::request_chunk_radius_packet(
+            view_distance_chunks,
+            render_api::MAX_VIEW_RADIUS_CHUNKS as u8,
+        ),
         crate::loading_screen_packet(LoadingScreenPhase::Start, None),
     ]
 }
@@ -205,7 +219,9 @@ pub(super) fn loading_finished(runtime_id: u64) -> Vec<Packet> {
 
 /// Returns the next startup packet. A usable transfer, from the core or in a batch, ends the join;
 /// an unusable one is skipped. The core's terminal Disconnect ends it with the server's texts.
-async fn recv_startup(transport: &mut SessionTransport) -> Result<RawPacket, ProtocolError> {
+async fn recv_startup<R: bridge::FrameRead>(
+    transport: &mut SessionTransport<R>,
+) -> Result<RawPacket, ProtocolError> {
     let mut skipped = 0_u64;
     loop {
         let target = match transport.recv().await? {
@@ -245,14 +261,15 @@ async fn recv_startup(transport: &mut SessionTransport) -> Result<RawPacket, Pro
 
 /// Drains briefly after a failed startup write, reporting a transfer or disconnect that arrived
 /// instead of the write error.
-pub(super) async fn startup_write_failure(
-    transport: &mut SessionTransport,
+pub(super) async fn startup_write_failure<R: bridge::FrameRead>(
+    transport: &mut SessionTransport<R>,
     write_error: ProtocolError,
     remaining: Duration,
 ) -> ProtocolError {
-    let deadline = tokio::time::Instant::now() + remaining;
+    let expires = transport.sleep(remaining);
+    tokio::pin!(expires);
     loop {
-        match tokio::time::timeout_at(deadline, recv_startup(transport)).await {
+        match bridge::tasks::until(recv_startup(transport), &mut expires).await {
             Ok(Err(
                 error @ ProtocolError::Session(SessionError(
                     SessionFailure::ServerTransfer(_) | SessionFailure::ServerDisconnect { .. },

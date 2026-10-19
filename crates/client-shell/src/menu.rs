@@ -14,6 +14,7 @@ mod construction;
 mod death;
 pub mod disconnect;
 mod dressing_room;
+mod external;
 #[cfg(test)]
 mod flow_tests;
 mod focus;
@@ -55,8 +56,9 @@ use ui::RenderMode;
 use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
 use core_process::{auth_cache_path, core_executable};
+pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, MenuClipboard, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_input};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
@@ -121,8 +123,6 @@ pub struct MenuRuntime {
     fullscreen: bool,
     fullscreen_change: Option<bool>,
     video_settings_writer: Option<launcher_host::video_settings::writer::Writer>,
-    settings_focus: Vec<MenuAction>,
-    settings_focus_geometry: focus::SettingsFocusGeometry,
     last_saved_video_settings: launcher_host::video_settings::SavedVideoSettings,
     failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
@@ -157,7 +157,6 @@ pub struct MenuRuntime {
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,
     editing: Option<usize>,
-    settings_section: u8,
     disconnect_message: Option<String>,
     /// Death screen shown for the current death; cleared once alive again.
     death_shown: bool,
@@ -182,6 +181,7 @@ pub struct MenuRuntime {
     /// Developer recordings present placeholder accounts without signing in.
     presentation_accounts: bool,
     sign_out_requested: bool,
+    external: Option<external::ExternalServices>,
     accounts: accounts::Manager,
     pub global_resource_actions: Vec<launcher::global_resources::Action>,
     pub global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
@@ -190,10 +190,10 @@ pub struct MenuRuntime {
     pub mods: std::sync::Arc<launcher::mods::Snapshot>,
     minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
     minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
+    settings: launcher::menu::view::SettingsInteraction,
+    settings_input: focus::SettingsInput,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
-    settings_dropdown: Option<u16>,
-    settings_scale_picker: bool,
     settings_dirty: bool,
     settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
     /// Worker startup failures wait until this deadline before another attempt.
@@ -206,16 +206,7 @@ pub struct MenuRuntime {
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
-    settings_slider_drag: Option<u16>,
-    settings_slider_pointer: Option<launcher::menu::view::SettingsSliderPointer>,
-    settings_slider_hovered: Option<u16>,
-    settings_slider_selected: Option<u16>,
-    settings_control_activation: Option<(MenuAction, u64)>,
-    settings_control_activation_navigation: bool,
-    settings_input_revision: u64,
     input_mode: input::MenuInputMode,
-    key_remap: Option<u16>,
-    settings_advanced_graphics: bool,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
@@ -313,9 +304,9 @@ impl MenuRuntime {
         self.visible = visible;
         if !visible {
             self.field = None;
-            self.settings_slider_selected = None;
-            self.settings_slider_pointer = None;
-            self.settings_slider_hovered = None;
+            self.settings.slider_selected = None;
+            self.settings.slider_pointer = None;
+            self.settings.slider_hovered = None;
             self.dialog = None;
         }
     }
@@ -345,6 +336,9 @@ impl MenuRuntime {
     /// The queued join, once the saved account's check has settled (bounded) and any
     /// sign-in helper the join does not outlive has finished cleaning up.
     pub fn take_join_intent(&mut self) -> Option<JoinIntent> {
+        if self.external.is_some() {
+            return self.intents.join.take();
+        }
         let helper_outlives_join = match self.settle_join_sign_in(std::time::Instant::now()) {
             account::JoinSignIn::Waiting => return None,
             account::JoinSignIn::Settled => false,
@@ -470,9 +464,7 @@ impl MenuRuntime {
 
     fn activate_control_input(&mut self, action: MenuAction, navigation: bool) {
         if self.screen == MenuScreen::Settings {
-            self.settings_input_revision = self.settings_input_revision.wrapping_add(1);
-            self.settings_control_activation = Some((action, self.settings_input_revision));
-            self.settings_control_activation_navigation = navigation;
+            self.settings.record_activation(action, navigation);
         }
         self.activate(action);
     }
@@ -505,6 +497,9 @@ impl MenuRuntime {
             return;
         }
         if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
+            return;
+        }
+        if self.external_action(action) {
             return;
         }
         if self.account_change_pending()
@@ -780,6 +775,25 @@ impl MenuRuntime {
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
+            MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
+                if !self.over_world() {
+                    self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
+                        .definition()
+                        .index;
+                    self.enter(MenuScreen::Settings);
+                }
+            }
+            MenuAction::Mods(launcher::mods::Action::OpenUpdate(id)) => {
+                if let Some(update) = self
+                    .mods
+                    .library
+                    .updates
+                    .iter()
+                    .find(|update| update.id == id)
+                {
+                    launcher_host::desktop::open_url(&update.release_url);
+                }
+            }
             MenuAction::Mods(action) => {
                 if let Some(work) = std::sync::Arc::make_mut(&mut self.mods).apply(action) {
                     self.mod_actions.push(work);
@@ -854,6 +868,10 @@ impl MenuRuntime {
         };
         // The server just saved replaces whichever one was selected before.
         self.feeds.select_saved(saved);
+        if let Some(external) = &mut self.external {
+            external.preferences_dirty = true;
+            return true;
+        }
         if let Err(error) = self.saves.save(&self.servers) {
             self.message = Some(format!("Could not save server: {error}"));
             return false;
@@ -863,6 +881,10 @@ impl MenuRuntime {
 
     /// Queues the list for writing; a schema refusal leaves only the log.
     fn save_servers(&mut self) {
+        if let Some(external) = &mut self.external {
+            external.preferences_dirty = true;
+            return;
+        }
         if let Err(error) = self.saves.save(&self.servers) {
             bevy::log::warn!("saved servers not written: {error:#}");
         }
@@ -889,6 +911,10 @@ impl MenuRuntime {
 
     /// Queues a join to `address` for the session controller.
     pub fn request_connect(&mut self, address: String) {
+        if self.external.is_some() {
+            self.request_external_connect(address);
+            return;
+        }
         if self.account_change_pending() {
             self.message = Some("Please wait for the account change to finish.".into());
             return;
@@ -897,6 +923,7 @@ impl MenuRuntime {
             self.message = Some("That server has no address.".to_owned());
             return;
         }
+        bridge::join_profile::JoinProfile::begin();
         self.remember_session_origin();
         self.stop_catalog();
         self.hold_join_for_sign_in();

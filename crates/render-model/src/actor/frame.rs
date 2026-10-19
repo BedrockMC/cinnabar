@@ -35,6 +35,11 @@ pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_
 
 /// The body layer of an actor; equipment instances of the same actor use layers above it.
 pub const ACTOR_LAYER_BODY: u8 = 0;
+/// First player skin-animation layer, following the equipment range.
+pub const ACTOR_LAYER_SKIN_BASE: u8 = 26;
+/// World flames follow every supported animated skin layer.
+pub const ACTOR_LAYER_FLAME: u8 =
+    ACTOR_LAYER_SKIN_BASE + render_api::MAX_SKIN_ANIMATION_LAYERS as u8;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ActorRenderIdentity {
@@ -107,10 +112,32 @@ pub struct ActorMaterial {
     pub glint: super::ActorGlint,
     pub kind: assets::EntityRenderMaterial,
     pub state: Option<assets::EntityRenderMaterialState>,
+    /// Suppresses overlays without changing whether raster state was authored.
+    pub suppress_overlay: bool,
     /// Alpha-test multiplier remains a float because authored dissolve values exceed one.
     pub dissolve_multiplier: f32,
     /// RGB illumination multiplier; applies to lit and unlit draws without clamping.
     pub light_color_multiplier: f32,
+}
+
+impl ActorMaterial {
+    /// Whether color overlays may affect this material's fragment color and vertex lighting.
+    /// Dissolve alpha belongs only to its coverage parameter; authored suppression also wins.
+    #[must_use]
+    pub fn allows_overlay(self) -> bool {
+        if self.suppress_overlay {
+            return false;
+        }
+        match self.kind {
+            assets::EntityRenderMaterial::Default
+            | assets::EntityRenderMaterial::Dragon
+            | assets::EntityRenderMaterial::Glint => {
+                self.state.is_none_or(|state| !state.disable_overlay)
+            }
+            assets::EntityRenderMaterial::DissolveDepth
+            | assets::EntityRenderMaterial::DissolveColor => false,
+        }
+    }
 }
 
 impl Default for ActorMaterial {
@@ -120,6 +147,7 @@ impl Default for ActorMaterial {
             glint: Default::default(),
             kind: Default::default(),
             state: None,
+            suppress_overlay: false,
             dissolve_multiplier: 1.0,
             light_color_multiplier: 1.0,
         }
@@ -857,10 +885,19 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
 #[path = "frame/build_tests.rs"]
 mod build_tests;
 
+#[cfg(test)]
+#[path = "frame/material_tests.rs"]
+mod material_tests;
+
 impl ActorMaterial {
     /// Shader kind and independently admitted raster states in the shared instance word.
     pub fn gpu_word(self) -> u32 {
         self.kind.word(self.state)
+            | if self.suppress_overlay {
+                assets::EntityRenderMaterialState::DISABLE_OVERLAY
+            } else {
+                0
+            }
             | if self.color_mask {
                 super::glint::ACTOR_COLOR_MASK_MATERIAL_FLAG
             } else {

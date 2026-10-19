@@ -11,8 +11,8 @@ use json_ui::{
     PointerInput, Scalar, ScreenEvent, ViewState,
 };
 use server_experience::{
-    manifest::template_root,
-    screen::{self, GuiSize},
+    policy::MAX_UI_VALUES,
+    screen::{self, GuiSize, template_root},
 };
 
 use ui_engine::frame::EngineFrame;
@@ -118,7 +118,7 @@ pub(super) struct TemplateScreen {
     pub(super) size: Option<GuiSize>,
     /// The latest `Modal::texts` revision taken into `pending_texts`.
     texts_applied: u64,
-    /// Host texts for edit boxes, by `text_box_name`, waiting for a drawn frame.
+    /// Latest host text per edit box awaiting a frame, in last-write order within the modal budget.
     pending_texts: Vec<(String, String)>,
     /// Each edit box's text last reported, by `text_box_name`.
     reported: BTreeMap<String, String>,
@@ -126,6 +126,8 @@ pub(super) struct TemplateScreen {
     secondary: Option<String>,
     /// An edit box to select once drawn, by `text_box_name`.
     pending_focus: Option<String>,
+    /// The `now` of the last edit pass, the clock the selected box's caret blinks on.
+    blink_clock: Option<f64>,
 }
 
 /// What one frame of input did to a template screen's edit boxes.
@@ -147,12 +149,15 @@ impl TemplateScreen {
             self.frame = None;
             self.dispatcher = Dispatcher::default();
             self.reported.clear();
+            self.blink_clock = None;
         }
         let changed = self.revision != Some(modal.revision);
         if changed {
             self.revision = Some(modal.revision);
             self.data = Arc::new(data_source(modal));
             self.bound = None;
+            self.pending_texts
+                .retain(|(control, _)| modal.texts.contains_key(control));
             let mut texts: Vec<_> = modal
                 .texts
                 .iter()
@@ -161,7 +166,10 @@ impl TemplateScreen {
             texts.sort_by_key(|(_, (revision, _))| *revision);
             for (control, (revision, text)) in texts {
                 self.texts_applied = *revision;
-                self.pending_texts.push((control.clone(), text.clone()));
+                self.pending_texts.retain(|(pending, _)| pending != control);
+                if self.pending_texts.len() < MAX_UI_VALUES {
+                    self.pending_texts.push((control.clone(), text.clone()));
+                }
             }
         }
         changed
@@ -203,6 +211,12 @@ impl TemplateScreen {
         };
         let hits = &frame.hits;
         let point = point.map(|point| virtual_point(frame, point));
+        // The selected box's caret blinks on the edit component's interval, as vanilla's does.
+        let delta = self.blink_clock.map_or(0.0, |last| (now - last).max(0.0));
+        self.blink_clock = Some(now);
+        if delta > 0.0 {
+            self.dispatcher.tick(hits, &mut self.view, delta);
+        }
         let mut events = Vec::new();
         let on_box = point.is_some_and(|point| {
             hits.iter()
@@ -221,14 +235,18 @@ impl TemplateScreen {
             };
             self.dispatcher.pointer(hits, &mut self.view, pointer);
             (self.view.hovered, self.view.pressed) = (hovered, held);
-            let press = ButtonInput {
-                id: "button.menu_select",
-                down: true,
-                point,
-                mode: InputMode::Mouse,
-                now,
-            };
-            events.extend(self.dispatcher.button(hits, &mut self.view, press).events);
+            // The release follows at once: the dispatcher takes only a press after a release as a
+            // new interaction, so a press without one would leave the box deaf to the next.
+            for down in [true, false] {
+                let edge = ButtonInput {
+                    id: "button.menu_select",
+                    down,
+                    point,
+                    mode: InputMode::Mouse,
+                    now,
+                };
+                events.extend(self.dispatcher.button(hits, &mut self.view, edge).events);
+            }
         }
         for text in typed {
             events.extend(
@@ -319,6 +337,14 @@ impl TemplateScreen {
                     || secondary_target(region).is_some())
                 && region.contains(point)
         })
+    }
+
+    /// The collection and row of the topmost drawn cell under window-logical `point`, as the
+    /// container screens hit-test their slots.
+    pub(super) fn cell_at(&self, point: [f32; 2]) -> Option<(&str, usize)> {
+        let frame = self.frame.as_ref()?;
+        let region = json_ui::hit_test(&frame.hits, virtual_point(frame, point))?;
+        Some((region.collection.as_deref()?, region.collection_index?))
     }
 
     /// Tracks a left press and returns the control id and collection row of a press released
@@ -426,13 +452,7 @@ impl TemplateScreen {
                     scale: f64::from(frame.scale),
                 });
                 self.frame = frame;
-                if let Some(frame) = &self.frame {
-                    for (control, text) in self.pending_texts.drain(..) {
-                        self.dispatcher
-                            .set_edit_text(&frame.hits, &mut self.view, &control, &text);
-                        self.reported.insert(control, text);
-                    }
-                }
+                self.apply_pending_texts();
                 self.frame.is_some()
             }
             Err(error) => {
@@ -446,6 +466,18 @@ impl TemplateScreen {
 }
 
 impl TemplateScreen {
+    /// Applies each latest host text once after a frame exists, preserving writes while closed.
+    fn apply_pending_texts(&mut self) {
+        let Some(frame) = &self.frame else {
+            return;
+        };
+        for (control, text) in self.pending_texts.drain(..) {
+            self.dispatcher
+                .set_edit_text(&frame.hits, &mut self.view, &control, &text);
+            self.reported.insert(control, text);
+        }
+    }
+
     /// Releases selection removed from the allowed hits, then applies focus against those hits.
     pub(super) fn finish_input(&mut self, unfiltered: &[HitRegion]) {
         let lost = self.view.components.selected().is_some_and(|key| {
@@ -499,7 +531,10 @@ impl TemplateScreen {
             frame.origin[0] + ((x + width / 2.0) as f32) * frame.scale,
             frame.origin[1] + ((y + height / 2.0) as f32) * frame.scale,
         ];
-        let _ = self.edit(Some(point), true, &[], false, 0.0);
+        // A selection outside the frame's input keeps the caret's clock.
+        let clock = self.blink_clock;
+        let _ = self.edit(Some(point), true, &[], false, clock.unwrap_or(0.0));
+        self.blink_clock = clock;
     }
 }
 

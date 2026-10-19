@@ -20,6 +20,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
@@ -49,6 +50,23 @@ var (
 )
 
 func main() {
+	code := runAtUserLevel(normalUser, os.Stderr, runMain)
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+
+// runAtUserLevel refuses elevated or unknown permissions before starting any core work.
+func runAtUserLevel(check func() error, stderr io.Writer, run func() int) int {
+	if err := check(); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return run()
+}
+
+// runMain owns the core's runtime settings, lifeline and services after the permission check.
+func runMain() int {
 	configureRuntime(os.Getenv)
 	args := os.Args[1:]
 	var stdin io.Reader
@@ -61,10 +79,9 @@ func main() {
 		Grace:      shutdownGrace,
 	})
 	exitCode := execute(ctx, args, os.Stdout, os.Stderr, authcache.Source, proxy.Serve)
+	latencytrace.Finish()
 	stop()
-	if exitCode != 0 {
-		os.Exit(exitCode)
-	}
+	return exitCode
 }
 
 // configureRuntime caps scheduler threads and sets a soft memory limit unless GOMAXPROCS or
@@ -377,7 +394,7 @@ func runWithResourcePackCacheFactory(
 			statusStore.ClearTransfer()
 		}}
 		if account != nil {
-			hosting := &friendHosting{account: account, worlds: localWorlds, target: localTarget, log: logger}
+			hosting := &friendHosting{account: account, worlds: localWorlds, log: logger}
 			hostingCtx, stopHosting := context.WithCancel(ctx)
 			hostingDone := make(chan struct{})
 			go func() {

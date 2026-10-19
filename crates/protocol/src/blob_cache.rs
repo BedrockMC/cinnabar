@@ -5,10 +5,9 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{
-    self, ClientCacheBlobStatus, ClientCacheMissResponse, LevelChunk, SubChunk,
-};
+use bedrock_protocol_1_26_51::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
 use bedrock_protocol_1_26_51::types::{DimensionType, MissingBlobData, SubChunkData};
+#[cfg(test)]
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 
@@ -493,6 +492,15 @@ pub struct BlobCacheResolver {
     ready_accounted_bytes: usize,
     /// Sum of `columns.len()` across `pending` and `ready`, the recovery slots they reserve.
     retained_column_slots: usize,
+    trace_origins: Option<TraceOrigins>, // kept only while the latency trace runs
+}
+
+/// The core frame and slot that produced each retained item, for the latency trace.
+#[derive(Debug, Default)]
+struct TraceOrigins {
+    current: (u64, u32),
+    by_sequence: HashMap<u64, (u64, u32)>,
+    popped: (u64, u32),
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {

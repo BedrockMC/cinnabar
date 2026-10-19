@@ -49,6 +49,17 @@ pub(super) fn disconnect_no_retry() -> Fixture {
     Fixture::Menu(view)
 }
 
+/// Shows a join the core refused because this device's clock rejected the sign-in token.
+pub(super) fn disconnect_device_clock() -> Fixture {
+    let Fixture::Menu(mut view) = disconnect() else {
+        unreachable!()
+    };
+    view.disconnect_message = Some(launcher::menu::disconnect::from_server(
+        bridge::contract::DISCONNECT_KEY_DEVICE_CLOCK,
+    ));
+    Fixture::Menu(view)
+}
+
 /// Shows an unreachable destination under the failed-connection title.
 pub(super) fn connect_failed() -> Fixture {
     let Fixture::Menu(mut view) = disconnect() else {
@@ -172,4 +183,34 @@ pub(super) fn play_worlds_importing() -> Fixture {
     view.local.screen = launcher::local_worlds::Screen::Importing;
     view.local.busy = true;
     Fixture::Menu(view)
+}
+
+/// Drives the real delete-and-Back transition while the worker's reply is still pending.
+pub(super) fn world_edit_after_delete_back() -> Fixture {
+    use launcher::local_worlds::{Event, Input, WorldsMenu, world::World};
+    let mut worlds = WorldsMenu::default();
+    let _ = worlds.apply(Event::Listed(vec![World {
+        id: "original-fixture".into(),
+        name: "Fixture World".into(),
+        game_mode: Default::default(),
+        generator: Default::default(),
+        difficulty: Default::default(),
+        backend: Default::default(),
+        seed: 1,
+        created_unix: 0,
+        last_played_unix: 0,
+        size_bytes: 0,
+    }]));
+    for input in [
+        Input::BeginEdit(0),
+        Input::RequestDelete,
+        Input::ConfirmDelete,
+        Input::Back,
+    ] {
+        let _ = worlds.update(input);
+    }
+    let mut view = menu();
+    view.screen = MenuScreen::Play;
+    view.local = worlds.view();
+    Fixture::Menu(Box::new(view))
 }

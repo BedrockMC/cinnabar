@@ -29,8 +29,20 @@ pub const KIND_TRANSFER: u8 = 5;
 /// Terminal core disconnect message.
 pub const KIND_DISCONNECT: u8 = 6;
 
+/// Most selected server pack archives admitted for one join.
+pub const MAX_SELECTED_PACKS: usize = 32;
+
+/// Largest admitted server pack archive in bytes.
+pub const MAX_PACK_ARCHIVE_BYTES: usize = 67108864;
+
+/// Largest total selected server pack archives in bytes.
+pub const MAX_SELECTED_PACK_BYTES: usize = 134217728;
+
 /// Archive bytes in one resource-pack data frame.
 pub const PACK_CHUNK_BYTES: usize = 4194304;
+
+/// Names the directory both processes write packet latency traces to; unset disables tracing.
+pub const LATENCY_TRACE_ENV: &str = "CINNABAR_LATENCY_TRACE";
 
 /// Vanilla's player limit for a hosted local world, the host included.
 pub const HOSTED_WORLD_MAX_PLAYERS: u32 = 8;
@@ -41,11 +53,26 @@ pub const RELAY_VERSION: u32 = 2;
 /// Largest relay Hello or control JSON payload in bytes.
 pub const RELAY_CONTROL_BYTES: usize = 4096;
 
-/// Largest WebSocket play message and upload burst in bytes.
+/// Largest WebSocket play message in bytes.
 pub const RELAY_PLAY_MESSAGE_BYTES: usize = 8388608;
+
+/// Maximum queued reliable frames or browser receive chunks.
+pub const QUEUED_FRAMES: usize = 16;
+
+/// Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
+pub const RELAY_QUEUED_FRAME_BYTES: usize = 8388608;
+
+/// Upload rate limiter burst, independent of message and queue limits.
+pub const RELAY_UPLOAD_BURST_BYTES: usize = 8388608;
+
+/// Concurrent browser streams for control, active play and retiring play.
+pub const RELAY_BIDIRECTIONAL_STREAMS: usize = 3;
 
 /// Interval between control keepalives.
 pub const RELAY_KEEPALIVE_SECONDS: u32 = 30;
+
+/// Time to replenish one relay control request; busy sign-out retries wait at least this long.
+pub const RELAY_CONTROL_REFILL_MILLIS: u32 = 1000;
 
 /// WebTransport Extended CONNECT route.
 pub const RELAY_TRANSPORT_PATH: &str = "/v2/transport";
@@ -233,11 +260,14 @@ pub const RPC_CINNABAR_RATE_LIMITED: i64 = -32024;
 /// Control method for the Cinnabar API identity and visibility.
 pub const METHOD_CINNABAR_API: &str = "cinnabar_api.v1";
 
-/// Control method for nearby Cinnabar emote playback.
-pub const METHOD_CINNABAR_EMOTES: &str = "cinnabar_emotes.v1";
+/// Control method for nearby Cinnabar emotes and cosmetics.
+pub const METHOD_CINNABAR_PLAYERS: &str = "cinnabar_players.v1";
 
 /// Control method for a Cinnabar player lookup.
 pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
+
+/// Cinnabar API origin; the package workflow reads it from this manifest.
+pub const CINNABAR_API_BASE_URL: &str = "https://cinnabar-api.cinnabar-api.workers.dev";
 
 /// Most XUIDs in one Cinnabar player lookup.
 pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
@@ -314,6 +344,30 @@ pub const MESSAGE_ART_FORE: &str = "fore";
 /// Image id marker for fg artwork.
 pub const MESSAGE_ART_FG: &str = "fg";
 
+/// Core disconnect message: The core could not join the server.
+pub const DISCONNECT_KEY_CANT_CONNECT: &str = "disconnectionScreen.cantConnect";
+
+/// Core disconnect message: The core could not join the Realm.
+pub const DISCONNECT_KEY_CANT_CONNECT_TO_REALM: &str = "disconnectionScreen.cantConnectToRealm";
+
+/// Core disconnect message: The server's resource packs could not be admitted.
+pub const DISCONNECT_KEY_RESOURCE_PACK: &str = "disconnectionScreen.resourcePack";
+
+/// Core disconnect message: The client's protocol or game version is older than the core's.
+pub const DISCONNECT_KEY_OUTDATED_CLIENT: &str = "disconnectionScreen.outdatedClient";
+
+/// Core disconnect message: The client's protocol is newer than the core's.
+pub const DISCONNECT_KEY_OUTDATED_SERVER: &str = "disconnectionScreen.outdatedServer";
+
+/// Core disconnect message: The client's login data is invalid only because of its skin.
+pub const DISCONNECT_KEY_INVALID_SKIN: &str = "disconnectionScreen.invalidSkin";
+
+/// Core disconnect message: The client's login data is invalid only because of its player name.
+pub const DISCONNECT_KEY_INVALID_NAME: &str = "disconnectionScreen.invalidName";
+
+/// Core disconnect message: The sign-in token was rejected because this device's clock is behind.
+pub const DISCONNECT_KEY_DEVICE_CLOCK: &str = "cinnabar.disconnect.deviceClock";
+
 /// Inbox category names in display order.
 pub const INBOX_CATEGORIES: [&str; 4] = ["News", "Realms", "Invites", "Feedback"];
 
@@ -327,6 +381,32 @@ pub const MESSAGE_EVENT_TYPES: [&str; 7] = [
     "Dismiss",
     "ControlImpression",
 ];
+
+/// Every lang key the core sends as a whole disconnect message.
+pub const CORE_DISCONNECT_KEYS: [&str; 8] = [
+    "disconnectionScreen.cantConnect",
+    "disconnectionScreen.cantConnectToRealm",
+    "disconnectionScreen.resourcePack",
+    "disconnectionScreen.outdatedClient",
+    "disconnectionScreen.outdatedServer",
+    "disconnectionScreen.invalidSkin",
+    "disconnectionScreen.invalidName",
+    "cinnabar.disconnect.deviceClock",
+];
+
+/// A safe relay refusal code; unrecognized codes use the generic refusal.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum RefusalCode {
+    #[serde(rename = "resume_refused")]
+    ResumeRefused,
+    #[serde(rename = "admission_refused")]
+    AdmissionRefused,
+    #[serde(rename = "session_busy")]
+    SessionBusy,
+    #[serde(rename = "refused")]
+    #[serde(other)]
+    Refused,
+}
 
 /// Game mode a world starts players in.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -490,6 +570,9 @@ pub enum AuthState {
 /// Join progress stage reported by the core.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ConnectStage {
+    /// No join is being prepared.
+    #[serde(rename = "")]
+    Idle,
     /// The Realm lookup.
     #[serde(rename = "realm")]
     Realm,
@@ -500,6 +583,15 @@ pub enum ConnectStage {
     #[serde(rename = "connecting")]
     #[serde(other)]
     Connecting,
+}
+
+/// One namespaced cosmetic item in a supported slot.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarCosmeticSlot {
+    /// Catalog slot name.
+    pub slot: String,
+    /// Namespaced item identifier.
+    pub item_id: String,
 }
 
 /// A release the Cinnabar API announced on the client's channel.
@@ -516,9 +608,9 @@ pub struct CinnabarRelease {
     pub published_at: String,
 }
 
-/// Nearby subscriptions and the local custom emote, cleared when the game session ends.
+/// Nearby subscriptions, local playback and the selected slot loadout.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct CinnabarEmoteState {
+pub struct CinnabarPlayerState {
     /// Nearby Xbox account identifiers.
     pub xuids: Vec<String>,
     /// Nearby UUIDs when the server omitted Xbox identifiers.
@@ -529,6 +621,8 @@ pub struct CinnabarEmoteState {
     pub elapsed_ms: u32,
     /// Local start identity, including same-clip restarts.
     pub playback_id: u64,
+    /// Persistent selected items by slot; empty clears the loadout.
+    pub slots: Vec<CinnabarCosmeticSlot>,
 }
 
 /// An authenticated nearby player animation with a remaining lease.
@@ -544,4 +638,26 @@ pub struct CinnabarRemoteEmote {
     pub elapsed_ms: u64,
     /// Remaining playback lease.
     pub valid_for_ms: u64,
+}
+
+/// An authenticated nearby session loadout without an emote lease.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarRemoteLoadout {
+    /// Authenticated Xbox account identifier.
+    pub xuid: String,
+    /// Account UUID derived by the API.
+    pub uuid: String,
+    /// Newest accepted account revision.
+    pub revision: u64,
+    /// Equipped items; empty withdraws the loadout.
+    pub slots: Vec<CinnabarCosmeticSlot>,
+}
+
+/// Current authenticated nearby playback and session loadouts.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarPlayerUpdates {
+    /// Nearby custom emotes.
+    pub emotes: Vec<CinnabarRemoteEmote>,
+    /// Nearby authenticated loadouts.
+    pub loadouts: Vec<CinnabarRemoteLoadout>,
 }

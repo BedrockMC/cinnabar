@@ -251,7 +251,7 @@ fn player_motion(world: &World) -> Option<Value> {
             .map(|movement| movement.physics_is_authorized()),
         "jump_eligible": physics.jump_pulse_eligible(),
         "jump_held": jump_held,
-        "flying": player.facts.game_mode_capabilities().map(|abilities| abilities.flying),
+        "flying": player.facts.game_mode_capabilities().map(|abilities| abilities.flight.is_flying()),
         "dimension_transfer": world.get_resource::<ClientWorld>()
             .map(|world| world.dimension_transfer.active()),
         "respawn_input_held": world.get_resource::<ClientWorld>()
@@ -314,6 +314,11 @@ pub(super) fn snapshot(world: &World) -> Value {
             .map(|settings| settings.feel().java_animations),
         "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| format!("{:?}", settings.perspective())),
+        "hurt_camera_style": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
+            .map(|settings| {
+                let style = settings.hurt_camera_style();
+                json!({"intensity": style.intensity(), "old_tilt": style.old_tilt()})
+            }),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
             "loaded_columns": stream.loaded_column_count(),

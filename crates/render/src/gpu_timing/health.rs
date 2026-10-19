@@ -2,7 +2,8 @@
 
 use render_scene::RuntimeStage;
 use render_scene::gpu_times::{SpanValidity, span_validity};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct StageHealth {
@@ -87,6 +88,11 @@ impl HealthInterval {
     }
 }
 
+/// Whether bounded GPU-query health and work diagnostics were explicitly requested.
+pub(crate) fn requested() -> bool {
+    env_compat::var("CINNABAR_GPU_QUERY_HEALTH").as_deref() == Ok("1")
+}
+
 pub(super) struct QueryHealth {
     source: &'static str,
     started: Instant,
@@ -96,7 +102,7 @@ pub(super) struct QueryHealth {
 impl QueryHealth {
     /// The optional diagnostics resource reads only its named flag once at startup.
     pub(super) fn requested(source: &'static str) -> Option<Self> {
-        (env_compat::var("CINNABAR_GPU_QUERY_HEALTH").as_deref() == Ok("1")).then(|| Self {
+        requested().then(|| Self {
             source,
             started: Instant::now(),
             interval: HealthInterval::default(),

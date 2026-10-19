@@ -30,7 +30,7 @@ pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
 pub use mode::{MovementMode, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
-pub use water::{sample_liquid_submersion, sample_water_head};
+pub use water::{sample_actor_liquid_submersion, sample_liquid_submersion, sample_water_head};
 
 pub(crate) fn validate_player_state(state: &PlayerState) -> Result<(), SimulationError> {
     state::validate(state)
@@ -387,7 +387,11 @@ impl Simulator {
         // Edge avoidance shortens only the move request; velocity keeps each
         // unclipped axis and loses an axis only once its clip reaches zero.
         let mut edge_velocity = None;
-        if input.sneaking && input.mode != MovementMode::Crawling && grounded_at_start {
+        if !input.no_clip
+            && input.sneaking
+            && input.mode != MovementMode::Crawling
+            && grounded_at_start
+        {
             let (clipped, edge_identity) = clip_sneak_edge(
                 world,
                 next.position,
@@ -416,6 +420,7 @@ impl Simulator {
             collision_box,
             next.velocity,
             grounded_at_start,
+            input.no_clip,
         )?;
         identity = identity.merge(&motion.identity)?;
         next.position = motion.position;
@@ -423,7 +428,9 @@ impl Simulator {
         // Ground comes only from a vertical collision under a downward request,
         // so a step taken while rising leaves the ground; a free move keeps it
         // only for an exactly zero vertical request.
-        next.on_ground = if motion.collisions.y {
+        next.on_ground = if input.no_clip {
+            false
+        } else if motion.collisions.y {
             pre_collision_velocity.y < 0.0
         } else {
             grounded_at_start && pre_collision_velocity.y == 0.0

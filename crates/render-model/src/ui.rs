@@ -85,6 +85,7 @@ mod style_tests {
     fn font_coverage_never_enables_opaque_model_color_masks() {
         for rendering in [
             assets::FontRendering::Coverage,
+            assets::FontRendering::OutlineCoverage,
             assets::FontRendering::NativeCoverage,
             assets::FontRendering::NativeSdf,
         ] {
@@ -278,6 +279,8 @@ pub enum UiRenderRejectReason {
     InvalidTextureExtent,
     TextureByteLengthInvalid { actual: usize, expected: usize },
     TextureByteLimitExceeded { actual: usize, limit: usize },
+    TextureAllocationFailed { bytes: u64 },
+    GeometryAllocationFailed { bytes: u64 },
     NoPublishedScene,
     StaleRevision { current: u64, rejected: u64 },
     RevisionConflict { revision: u64 },

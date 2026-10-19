@@ -16,6 +16,7 @@ reads = [
 test-support = []
 
 [dependencies]
+cosmetics = { path = "../cosmetics" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }
 crash-handler = "0.8.1"
@@ -63,6 +64,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Ioctl",
     "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",

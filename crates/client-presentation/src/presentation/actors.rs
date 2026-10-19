@@ -7,7 +7,7 @@ use client_world::{ActorSnapshot, PlayerProfile};
 use protocol::{ActorKind, PlayerSkin};
 use render_api::SkinRgba8;
 use render_model::{
-    ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
+    ACTOR_LAYER_BODY, ActorSkinPixels, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform,
     default_actor_skin_rgba8,
 };
 use {
@@ -23,7 +23,9 @@ mod locator;
 pub use locator::actor_emitter_transform;
 mod admission;
 pub use admission::within_actor_candidate_cube;
-pub(crate) use admission::{actor_is_render_candidate, sample_candidate_scale};
+pub(crate) use admission::{
+    actor_is_render_candidate, admit_frame_bounds, rig_may_replace_geometry, sample_candidate_scale,
+};
 mod tick_cache;
 pub use tick_cache::PoseConversions;
 use tick_cache::TickKey;
@@ -50,16 +52,26 @@ pub struct ActorPresentationBatch {
     pub artwork: HashMap<ActorRenderIdentity, ActorArtworkLocation>,
 }
 
+impl ActorPresentationBatch {
+    /// The runtime-skin flag for an admitted body, or none when controllers cannot style it.
+    pub(crate) fn body_render_skin(&self, body: &ActorRigSubmission) -> Option<bool> {
+        let catalog_artwork = self.artwork.contains_key(&body.input.identity);
+        let runtime_skin =
+            !catalog_artwork && (body.texture_layer as usize) < self.skin_layers.len();
+        (body.input.identity.layer == ACTOR_LAYER_BODY && (catalog_artwork || runtime_skin))
+            .then_some(runtime_skin)
+    }
+}
+
 /// Publishes `batch`; its frame-local skin indices become the scene's stable skin slots.
 pub fn update_actor_rig_scene(
     scene: &mut ActorRenderScene,
     partial_tick: f32,
     batch: ActorPresentationBatch,
 ) -> &ActorRenderFrame {
-    // The app adapter has already applied the renderer's exact culling helper
-    // to remotes before enforcing capacity. Passing no second cull view keeps
-    // the movement-owned visible local reservation unconditional in both third-person
-    // modes while the render-owned builder still validates every other field.
+    // Remote admission already checked distance and usable model bounds before capacity.
+    // Rechecking base bounds here would lose controller replacements and the movement-owned
+    // local reservation. The render-owned builder still validates every other field.
     scene.update_rigs_with_artwork(
         partial_tick,
         None,
@@ -71,7 +83,7 @@ pub fn update_actor_rig_scene(
 
 /// Checks camera overlap, distance and frustum bounds before building a rig's presentation.
 /// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
-/// Controllers that can replace the base mesh bypass terrain proofs using its bounds.
+/// Controllers and persona meshes that can extend the base defer its bounds proof.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
@@ -89,6 +101,11 @@ pub fn rig_may_be_visible(
     ) else {
         return true;
     };
+    // The base box cannot prove exclusion for replacement or persona geometry.
+    // Feet-based candidate and distance admission still apply above.
+    if !rig.skin_layers.is_empty() || rig_may_replace_geometry(rig, frame.as_deref()) {
+        return true;
+    }
     // Per-axis scale and the death tilt never lengthen the up axis past the largest axis scale.
     let largest_axis = rig
         .axis_scale
@@ -98,13 +115,6 @@ pub fn rig_may_be_visible(
     let bounds = rig.culling_bounds();
     if !actor_bounds_are_visible(feet, scale, bounds, Some(view)) {
         return false;
-    }
-    if rig.render.iter().any(|layer| layer.geometry.is_some())
-        || frame
-            .as_ref()
-            .is_some_and(|frame| frame.may_replace_body_geometry(rig.actor.runtime_id))
-    {
-        return true;
     }
     let (low, high) = bounds.at(feet, scale);
     !occluded(low, high)
@@ -497,7 +507,7 @@ pub fn local_actor_presentation_for_visibility(
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
+/// Selects already-admitted bodies, reserving the local skin before bounded remote skins.
 pub fn select_actor_presentations(
     local_runtime_id: u64,
     local_visible: bool,
@@ -596,17 +606,19 @@ pub fn select_actor_presentations_for_view(
 }
 
 /// Appends the layers `layers_for` builds on each body already in the batch, reading the bodies
-/// in place rather than from a copy.
+/// in place rather than from a copy. The callback also receives its runtime-skin admission.
 pub fn attach_layers<Context>(
     batch: &mut ActorPresentationBatch,
     context: &mut Context,
     mut layers_for: impl for<'a> FnMut(
         &'a mut Context,
         &ActorRigSubmission,
+        Option<bool>,
     ) -> &'a mut [crate::presentation::equipment::EquipmentPresentation],
 ) {
     for index in 0..batch.submissions.len() {
-        for layer in layers_for(context, &batch.submissions[index]) {
+        let body = &batch.submissions[index];
+        for layer in layers_for(context, body, batch.body_render_skin(body)) {
             batch
                 .artwork
                 .insert(layer.submission.input.identity, layer.location);
@@ -955,7 +967,7 @@ mod layer_pass_tests {
             }),
         );
         let mut visited = Vec::new();
-        attach_layers(&mut batch, &mut visited, |visited, body| {
+        attach_layers(&mut batch, &mut visited, |visited, body, _| {
             visited.push((
                 body.input.identity.runtime_id,
                 Arc::strong_count(&body.input.previous_bones),

@@ -5,6 +5,8 @@
 use assets::material_keys::MaterialKeys;
 
 mod condition;
+mod items;
+pub(super) use items::compile_block_item_overlay;
 mod geometry_inputs;
 use pack_compiler::block_geometry as geometry;
 mod legacy;
@@ -115,12 +117,13 @@ pub(super) fn compile_block_overlay(
     let texture_policy = terrain_texture_policy();
     let mut catalog = TextureCatalog::new(view, vanilla_keys);
     catalog.texture_policy = texture_policy;
+    let geometries = geometry_catalog(view, &wanted);
     let mut builder = Builder {
         catalog,
         base_assets,
+        base_keys: vanilla_keys,
         vanilla_carried: Vec::new(),
         terrain_materials: HashMap::new(),
-        geometries: geometry_catalog(view, &wanted),
         overlay: BlockOverlay {
             max_page_layers: max_layers as u32,
             ..BlockOverlay::default()
@@ -171,7 +174,7 @@ pub(super) fn compile_block_overlay(
                 visual.components.random_offset =
                     block.physics_for_state(index as u32).random_offset;
                 legacy.apply(&block.name, &mut visual.components);
-                builder.push_state(&visual);
+                builder.push_state(&visual, &geometries);
                 builder.overlay.hashes.push(Some(state.hash));
             }
             continue;
@@ -182,7 +185,7 @@ pub(super) fn compile_block_overlay(
                 condition::state_visual(block, &expressions, values.as_deref(), &mut builder.gaps);
             visual.components.random_offset = block.physics_for_state(state).random_offset;
             legacy.apply(&block.name, &mut visual.components);
-            builder.push_state(&visual);
+            builder.push_state(&visual, &geometries);
             builder
                 .overlay
                 .hashes
@@ -248,9 +251,9 @@ impl TextureRoute {
 struct Builder<'a> {
     catalog: TextureCatalog<'a>,
     base_assets: Option<&'a assets::RuntimeAssets>,
+    base_keys: Option<&'a MaterialKeys>,
     vanilla_carried: Vec<CarriedBlock>,
     terrain_materials: HashMap<(String, u32, u32), u32>,
-    geometries: HashMap<String, Geometry>,
     overlay: BlockOverlay,
     /// Base-carrier textures for vanilla keys the server stack does not ship.
     fallback: Option<assets::VanillaFallback<'a>>,
@@ -271,9 +274,10 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
-    fn push_state(&mut self, state: &StateVisual) {
+    /// Appends one state while borrowing the immutable geometry catalog across visual variants.
+    fn push_state(&mut self, state: &StateVisual, geometries: &HashMap<String, Geometry>) {
         let light = state_light(&state.components);
-        let visual = self.visual(state);
+        let visual = self.visual(state, geometries);
         if state.components.random_offset.is_some()
             && matches!(
                 state.components.geometry.as_deref(),
@@ -298,7 +302,12 @@ impl Builder<'_> {
         self.overlay.light_properties.push(light);
     }
 
-    fn visual(&mut self, state: &StateVisual) -> BlockVisual {
+    /// Deduplicates equivalent visuals before compiling against borrowed authored geometry.
+    fn visual(
+        &mut self,
+        state: &StateVisual,
+        geometries: &HashMap<String, Geometry>,
+    ) -> BlockVisual {
         let components = &state.components;
         let key = format!("{components:?}{:?}", state.hidden_bones);
         if let Some(visual) = self.visuals.get(&key) {
@@ -312,8 +321,8 @@ impl Builder<'_> {
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
                 self.model(components, &geometry::Geometry::full_block(), &[])
             }
-            Some(identifier) => match self.geometries.get(identifier).cloned() {
-                Some(geometry) => self.model(components, &geometry, &state.hidden_bones),
+            Some(identifier) => match geometries.get(identifier) {
+                Some(geometry) => self.model(components, geometry, &state.hidden_bones),
                 None => {
                     self.gaps.missing_geometry += 1;
                     diagnostic_visual()
@@ -556,8 +565,14 @@ impl Builder<'_> {
             variant: 0,
             choice: 0,
         };
+        // Custom aliases resolve their selected filename against the complete pack stack,
+        // including carrier donors, with destination tint and UV sampling retained.
+        if self.catalog.redefined(key, 0)
+            && let Some(keys) = self.base_keys
+        {
+            return self.carrier_slot(route, keys);
+        }
         self.route_slot(route.clone()).or_else(|| {
-            // A changed catalog can name different pixels, tint, or UV sampling.
             if self.catalog.redefined(key, 0) {
                 return None;
             }

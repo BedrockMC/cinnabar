@@ -10,7 +10,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     io::Cursor,
     sync::Arc,
     time::Duration,
@@ -22,11 +22,13 @@ use render_model::UiTexturePage;
 
 use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
 
+pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
 mod oversized;
 pub use oversized::OversizedTextures;
+mod client_rasters;
 pub mod native_sheets;
 pub mod preread;
 mod source_reads;
@@ -273,6 +275,8 @@ impl Page {
 /// and a full atlas evicts its least recently drawn page.
 #[derive(Default)]
 pub struct ServerAtlas {
+    /// Prepared client artwork, owned by the screen rather than the pack stack.
+    client_rasters: BTreeMap<String, UiTexturePage>,
     /// Images read up front, by path stem.
     sources: BTreeMap<String, Source>,
     /// Sidecars read up front, by path stem, whether or not the pack has the image.
@@ -315,29 +319,13 @@ const MAX_FAILED: usize = 256;
 const MAX_EXTRA: usize = 512;
 
 /// Decoded pixels by key (at their packed size), failures, and worker decodes.
+#[derive(Default)]
 struct Decodes {
     pixels: BTreeMap<String, Arc<Vec<u8>>>,
     order: VecDeque<String>,
     bytes: usize,
     failed: VecDeque<String>,
-    pending: BTreeSet<String>,
-    sender: crossbeam_channel::Sender<(String, Option<Vec<u8>>)>,
-    receiver: crossbeam_channel::Receiver<(String, Option<Vec<u8>>)>,
-}
-
-impl Default for Decodes {
-    fn default() -> Self {
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        Self {
-            pixels: BTreeMap::new(),
-            order: VecDeque::new(),
-            bytes: 0,
-            failed: VecDeque::new(),
-            pending: BTreeSet::new(),
-            sender,
-            receiver,
-        }
-    }
+    jobs: fitted::FittedDecodes,
 }
 
 /// Where a missing texture's decode runs this frame.
@@ -365,8 +353,7 @@ impl DecodeOn {
 impl Decodes {
     /// Files finished worker decodes.
     fn collect(&mut self) {
-        while let Ok((key, pixels)) = self.receiver.try_recv() {
-            self.pending.remove(&key);
+        while let Some((key, pixels)) = self.jobs.collect() {
             self.store(key, pixels);
         }
     }
@@ -397,7 +384,7 @@ impl Decodes {
         if let Some(pixels) = self.pixels.get(key) {
             return Some(Arc::clone(pixels));
         }
-        if self.failed.iter().any(|failed| failed == key) || self.pending.contains(key) {
+        if self.failed.iter().any(|failed| failed == key) || self.jobs.pending() == Some(key) {
             return None;
         }
         match decode_on {
@@ -408,16 +395,7 @@ impl Decodes {
             DecodeOn::Later => return None,
             DecodeOn::Worker => {}
         }
-        self.pending.insert(key.to_owned());
-        let (key, bytes, size, done) = (
-            key.to_owned(),
-            Arc::clone(&source.bytes),
-            source.packed,
-            self.sender.clone(),
-        );
-        rayon::spawn(move || {
-            let _ = done.send((key, decode(&bytes, size)));
-        });
+        self.jobs.request(key, source);
         None
     }
 }
@@ -623,6 +601,9 @@ impl ServerAtlas {
     /// Pixel size of a vanilla image or a downloaded URL, reading or requesting
     /// it on first use.
     pub fn fallback_size(&self, key: &str) -> Option<[f64; 2]> {
+        if let Some(image) = self.client_rasters.get(key) {
+            return Some(image.dimensions().map(f64::from));
+        }
         self.fallback(key)
             .as_ref()
             .map(|source| source.size.map(f64::from))
@@ -730,6 +711,10 @@ impl ServerAtlas {
         }
         // Small backdrops and animation strips must precede expensive artwork.
         missing.sort_by_cached_key(|key| {
+            if let Some(image) = self.client_rasters.get(*key) {
+                let [w, h] = image.dimensions();
+                return (u64::from(w) * u64::from(h), *key);
+            }
             let area = self
                 .image(key)
                 .or_else(|| self.fallback(key))
@@ -770,16 +755,21 @@ impl ServerAtlas {
     /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
     /// while its decode is still on a worker or waits for a later frame.
     fn place(&mut self, key: &str, within_budget: bool) -> Option<usize> {
-        let source = match self.image(key) {
-            Some(source) => source,
-            None => self.fallback(key)?,
+        let (size, rgba) = if let Some(image) = self.client_rasters.get(key) {
+            (image.dimensions(), Arc::new(image.pixels().to_vec()))
+        } else {
+            let source = match self.image(key) {
+                Some(source) => source,
+                None => self.fallback(key)?,
+            };
+            if source.packed != source.size {
+                self.oversized.insert(key, &source.bytes);
+            }
+            let size = source.packed;
+            let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
+            let rgba = self.decodes.get(key, &source, decode_on)?;
+            (size, rgba)
         };
-        if source.packed != source.size {
-            self.oversized.insert(key, &source.bytes);
-        }
-        let size = source.packed;
-        let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
-        let rgba = self.decodes.get(key, &source, decode_on)?;
         let (index, origin) = self.slot(size)?;
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;
@@ -824,7 +814,13 @@ impl ServerAtlas {
             .min_by_key(|(_, page)| page.used)?;
         let page = &mut self.pages[index];
         for key in page.keys.drain(..) {
-            self.resident.remove(&key);
+            if self
+                .resident
+                .get(&key)
+                .is_some_and(|slot| usize::from(slot.page) == index)
+            {
+                self.resident.remove(&key);
+            }
         }
         page.pixels.fill(0);
         page.cursor = [0; 3];

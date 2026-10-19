@@ -163,6 +163,61 @@ fn unsupported_physical_conditions_are_counted_and_keep_base_components() {
 }
 
 #[test]
+fn discarded_wire_permutations_keep_physics_incomplete() {
+    let mut encoded = named(10, "");
+    encoded.extend(named(9, "permutations"));
+    encoded.push(10);
+    let count = 4096_u32;
+    let mut length = count << 1;
+    while length >= 128 {
+        encoded.push(length as u8 | 128);
+        length >>= 7;
+    }
+    encoded.push(length as u8);
+    for _ in 0..count {
+        encoded.extend(named(8, "condition"));
+        encoded.extend(text("1"));
+        encoded.extend(named(10, "components"));
+        encoded.extend(named(1, "minecraft:collision_box"));
+        encoded.extend([0, 0, 0]);
+    }
+    encoded.push(0);
+    let mut blocks = CustomBlocks::from_definitions([("test:oversized", encoded.as_slice())]);
+    assert_eq!(blocks.blocks.len(), 1);
+    assert!(blocks.skipped > 0);
+    resolve(&mut blocks);
+    assert_eq!(blocks.blocks[0].state_physics.len(), 1);
+    assert!(!blocks.blocks[0].state_physics_complete);
+}
+
+#[test]
+fn physical_completeness_rejects_partial_arrays_and_failed_evaluations() {
+    for unsupported in [
+        "q.unsupported()",
+        "q.block_state('test:missing')",
+        "1e30 * 1e30",
+    ] {
+        let mut block = slab();
+        Arc::make_mut(&mut block.visual).permutations[0].condition = unsupported.into();
+        let mut blocks = CustomBlocks {
+            blocks: vec![block].into(),
+            ..Default::default()
+        };
+        resolve(&mut blocks);
+        let block = &blocks.blocks[0];
+        assert_eq!(block.state_physics.len(), block.state_count as usize);
+        assert!(!block.state_physics_complete, "{unsupported}");
+        assert!(blocks.skipped > 0);
+    }
+    let mut complete = CustomBlocks {
+        blocks: vec![slab()].into(),
+        ..Default::default()
+    };
+    resolve(&mut complete);
+    assert!(complete.blocks[0].state_physics_complete);
+}
+
+#[test]
 fn later_matching_components_inherit_absent_fields_and_replace_present_fields() {
     let mut block = slab();
     let visuals = Arc::make_mut(&mut block.visual);
@@ -426,4 +481,80 @@ fn a_later_permutation_without_a_transform_inherits_the_earlier_turn() {
             .as_slice()
         )
     );
+}
+
+// Fence collision permutations resolve per connection state once the trait
+// supplies the four boolean axes: the isolated post keeps its base box while
+// a connected state takes the matching arm box.
+#[test]
+fn connection_states_select_per_state_collision() {
+    use protocol::{
+        CustomBlockVisuals, CustomPermutation, CustomPhysicalComponents, CustomStateAxis,
+        CustomStateValue, CustomVisualComponents,
+    };
+    let post = protocol::CustomBox {
+        min: [0.375, 0.0, 0.375],
+        max: [0.625, 1.5, 0.625],
+    };
+    let arm = |direction: &str, boxes: protocol::CustomBox| CustomPermutation {
+        physical: CustomPhysicalComponents {
+            collision: Some(protocol::CustomCollision {
+                enabled: true,
+                boxes: Some(Arc::from([boxes])),
+            }),
+            selection: Some(CustomSelection::Box(boxes)),
+            ..CustomPhysicalComponents::default()
+        },
+        condition: format!("q.block_state('minecraft:connection_{direction}')").into(),
+        components: CustomVisualComponents::default(),
+    };
+    let block = CustomBlock {
+        state_physics_complete: false,
+        state_physics: Default::default(),
+        player_interact: false,
+        name: "test:fence".into(),
+        tags: Default::default(),
+        state_count: 16,
+        collides: true,
+        collision_boxes: Some(Arc::from([post])),
+        selection: CustomSelection::Box(post),
+        friction: None,
+        visual: Arc::new(CustomBlockVisuals {
+            permutations: Box::new([
+                arm(
+                    "north",
+                    protocol::CustomBox {
+                        min: [0.375, 0.0, 0.0],
+                        max: [0.625, 1.5, 0.625],
+                    },
+                ),
+                arm(
+                    "south",
+                    protocol::CustomBox {
+                        min: [0.375, 0.0, 0.375],
+                        max: [0.625, 1.5, 1.0],
+                    },
+                ),
+            ]),
+            state_axes: ["north", "east", "south", "west"]
+                .map(|direction| CustomStateAxis {
+                    name: format!("minecraft:connection_{direction}").into(),
+                    values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+                })
+                .into(),
+            ..CustomBlockVisuals::default()
+        }),
+    };
+    // North varies fastest: state 1 connects north, state 4 connects south.
+    let (collides, collision, selection) = state_physics(&block, 0);
+    assert!(collides);
+    assert_eq!(collision.as_deref(), Some([post].as_slice()));
+    assert_eq!(selection, CustomSelection::Box(post));
+    let north = protocol::CustomBox {
+        min: [0.375, 0.0, 0.0],
+        max: [0.625, 1.5, 0.625],
+    };
+    let (_, collision, selection) = state_physics(&block, 1);
+    assert_eq!(collision.as_deref(), Some([north].as_slice()));
+    assert_eq!(selection, CustomSelection::Box(north));
 }

@@ -9,6 +9,7 @@ Use the [client MCP](client-mcp.md) with `headless: true` and the
 `developer-control` feature for automated input, screenshots, and recordings.
 Use `cargo run -p ui-snapshot -- --list`, then `--state NAME --out /tmp/ui.png` for isolated UI states.
 Fixtures live in `tools/ui-snapshot/src/fixtures.rs`; PNGs have viewport/backend JSON sidecars and use `.local/assets/compiled` (or `--carriers DIR`).
+Use `--time SECONDS` to compare fixed animation phases, including cosmetic gallery tiles.
 Missing carriers report a named skip; no game or window runs. Do not inject OS input
 or open a visible window for automated captures. Use a local server by default;
 remote joins require the owner's authorization because they use the configured
@@ -340,3 +341,16 @@ loses at most the queued packets and 64 KiB of written ones and leaves a capture
 out of captures and rejected-body samples, keeping only their ring header, so neither holds
 credentials or content keys; captures still hold chat and world data, so keep them outside git
 and delete them after use.
+
+## Packet latency trace
+
+Set `CINNABAR_LATENCY_TRACE` to an existing directory before launching the client; it and its core
+each write `<role>-<pid>.trace` there. Both stamp events with Unix nanoseconds read once at
+startup plus monotonic time since, so the files join on one clock. Inbound, they follow each
+packet from the core's decoded relay batch through the bridge frame, world ingress sequencing, the
+app's drain and commit, to the frame handoff and the presented frame; outbound, from the frame's
+time sample through the PlayerAuthInput send, frame flush and bridge write to the core's RakNet
+hand-off. The connection ID the core sends in its handoff, with bridge frame numbers and slots,
+links the two files. Event kinds and fields are listed in `crates/bridge/src/latency_trace.rs`
+and `core/internal/latencytrace`. Traces hold packet IDs, these identifiers and timings only, no
+packet bodies.

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use super::selected_descriptors::without_selected_identity;
 use bytes::Bytes;
 use protocol::{
     ActorUseAction, ActorUsePacketError, ActorUseRequest, BlockUsePacketError, BlockUseRequest,
@@ -243,7 +244,10 @@ fn assert_actor_builder_matches_fixture(
     .expect("valid actor-use request");
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
-    assert_eq!(encode(&built).unwrap().as_ref(), fixture);
+    assert_eq!(
+        encode(&built).unwrap(),
+        encode(&without_selected_identity(decoded)).unwrap()
+    );
 }
 
 fn assert_builder_matches_fixture(fixture: &'static [u8], request: BlockUseRequest) {
@@ -251,7 +255,14 @@ fn assert_builder_matches_fixture(fixture: &'static [u8], request: BlockUseReque
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     let encoded = encode(&built).expect("encode builder packet");
-    assert_eq!(encoded.as_ref(), fixture);
+    assert_eq!(
+        encoded,
+        encode(&without_selected_identity(decode_one(
+            fixture,
+            PacketId::InventoryTransaction
+        )))
+        .unwrap()
+    );
 }
 
 /// Destroy keeps the fixture's stack and pose, but clears fields used only for placement.
@@ -259,7 +270,8 @@ fn assert_destroy_builder_clears_placement_fields(
     fixture: &'static [u8],
     request: BlockUseRequest,
 ) {
-    let mut expected = decode_one(fixture, PacketId::InventoryTransaction);
+    let mut expected =
+        without_selected_identity(decode_one(fixture, PacketId::InventoryTransaction));
     let packets::Packet::InventoryTransaction(packet) = &mut *expected.data else {
         panic!("expected inventory transaction");
     };
@@ -286,6 +298,7 @@ fn filled_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
     assert_builder_matches_fixture(
         CLICK_BLOCK,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [13, 71, -29],
             face: 5,
             selected_slot: 7,
@@ -304,6 +317,7 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
     assert_builder_matches_fixture(
         CLICK_BLOCK_EMPTY_HAND,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [-8, 63, 21],
             face: 0,
             selected_slot: 0,
@@ -322,6 +336,7 @@ fn destroy_block_decoding_retains_placement_fields_but_builder_clears_them() {
     assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [24, 68, -41],
             face: 3,
             selected_slot: 5,
@@ -337,6 +352,7 @@ fn destroy_block_decoding_retains_placement_fields_but_builder_clears_them() {
     assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK_EMPTY_HAND,
         BlockUseRequest {
+            hand: protocol::ItemUseHand::Mainhand,
             block_position: [-17, 92, 6],
             face: 1,
             selected_slot: 0,
@@ -401,6 +417,7 @@ fn container_close_fixture_cross_decodes_and_round_trips_exactly() {
 fn base_request() -> BlockUseRequest {
     let digest: [u8; 32] = Sha256::digest([]).into();
     BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [0, 64, 0],
         face: 1,
         selected_slot: 4,
@@ -707,6 +724,7 @@ fn click_block_transaction_carries_trigger_and_prediction() {
         panic!("item use");
     };
     let request = BlockUseRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         block_position: [
             fixture.position.x.0,
             fixture.position.y.0,
@@ -771,6 +789,7 @@ fn decoded_transaction(packet: protocol::Packet) -> InventoryTransactionPacketDa
 
 fn held_request() -> HeldItemRequest {
     HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: 3,
         selected_item: VerifiedNetworkItemStack::try_new(
             NetworkItemStack::empty(),
@@ -954,6 +973,51 @@ fn plain_click_air_has_no_actions_or_legacy_request() {
         panic!("item use");
     };
     assert!(transaction.actions.actions.is_empty());
+}
+
+/// A fresh writable book initialises with an empty pages list, as BDS requires.
+#[test]
+fn fresh_book_click_air_carries_empty_pages_and_legacy_request() {
+    use protocol::book_needs_init;
+    let extra: Arc<[u8]> = Arc::from([]);
+    assert!(book_needs_init(&extra));
+    let digest: [u8; 32] = Sha256::digest(&extra).into();
+    let from = VerifiedNetworkItemStack::try_new(
+        NetworkItemStack {
+            network_id: 386,
+            metadata: 0,
+            stack_network_id: 41,
+            count: 1,
+            nbt_digest: digest,
+            block_runtime_id: 0,
+            extra_data: extra,
+        },
+        digest,
+    )
+    .unwrap();
+    let change = protocol::writable_book_init_change(&from, -6).expect("fresh book inits");
+    assert_eq!(change.from, from);
+    assert_eq!(change.to.count(), 1);
+    assert!(!protocol::book_needs_init(change.to.extra_data()));
+    assert_eq!(protocol::item_book(change.to.extra_data()).pages.len(), 0);
+    let mut request = held_request();
+    request.selected_item = from;
+    let built = decoded_inventory_packet(click_air_packet(request, Some(change)).unwrap());
+    assert_eq!(built.legacy_request_id.0, -6);
+    let slots = built.legacy_set_item_slots.expect("legacy set slots");
+    assert_eq!(slots[0].slots.as_ref(), [3]);
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
+        built.transaction
+    else {
+        panic!("item use");
+    };
+    assert_eq!(transaction.actions.actions.len(), 1);
+    let action = &transaction.actions.actions[0];
+    assert_eq!(action.slot.0, 3);
+    assert!(action.from_item.user_data_buffer.is_empty());
+    assert!(!action.to_item.user_data_buffer.is_empty());
+    assert!(!protocol::book_needs_init(&action.to_item.user_data_buffer));
+    assert_eq!(transaction.item.stack_size.0, 1);
 }
 
 #[test]

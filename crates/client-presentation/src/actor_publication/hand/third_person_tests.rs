@@ -101,6 +101,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     prepared_actor_artwork: &mut prepared_artwork,
                 },
                 super::super::ActorFrameInput {
+                    cosmetics: Vec::new(),
                     local_feed: None,
                     predicted_eye: Some([0.0, 65.62, 0.0]),
                     predicted_feet: Some([0.0, 64.0, 0.0]),
@@ -109,9 +110,12 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                     renders_game: true,
                     hide_hand: false,
                     remote_emotes: Vec::new(),
+                    remote_hats: Vec::new(),
                     custom_emote: match case {
-                        BodyCase::Emote => Some((actor_animation::CustomEmote::Twerk, 0.1)),
-                        BodyCase::InvalidEmote => Some((actor_animation::CustomEmote::Twerk, -1.0)),
+                        BodyCase::Emote => Some((cosmetics::test_support::playback_emote(), 0.1)),
+                        BodyCase::InvalidEmote => {
+                            Some((cosmetics::test_support::playback_emote(), -1.0))
+                        }
                         _ => None,
                     },
                 },
@@ -163,7 +167,7 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
             if case == BodyCase::Emote {
                 let pose = actor_animation::sample_custom_emote(
                     &rig,
-                    actor_animation::CustomEmote::Twerk,
+                    cosmetics::test_support::playback_emote(),
                     0.1,
                     0.1,
                 )

@@ -6,6 +6,7 @@ use protocol::{
 
 use super::cells::Held;
 use super::gesture::Submission;
+use super::queue::RollbackAuthority;
 use super::{
     Cell, InventoryGestureError, InventoryPendingState, PendingRequest, PlayerInventoryLedger,
 };
@@ -30,10 +31,15 @@ impl PlayerInventoryLedger {
         self.invalidate_request_sources(cell, i32::MIN);
     }
 
+    /// Writes backing authority and records which personal observation cells changed.
     pub(super) fn set_authoritative_cell(&mut self, cell: Cell, held: Option<Held>) -> bool {
         self.prepare_authoritative_cell(cell);
         let written = self.confirmed.set(cell, held);
         if written {
+            self.offhand_written |= cell == Cell::Offhand;
+            if let Some(index) = cell.personal_index() {
+                self.personal_writes |= 1 << index;
+            }
             self.note_observed_gear(cell);
         }
         written
@@ -164,6 +170,10 @@ impl PlayerInventoryLedger {
         let remainder = request.world_drop.expect("world drop").legacy_request_id;
         request.state = InventoryPendingState::AwaitingResponse;
         request.transport_deadline_millis = None;
+        // Admission transfers this player's transaction to gameplay backing.
+        request.storage_generation = None;
+        request.storage_identity = None;
+        request.personal_generation = None;
         let request_id = request.request_id;
         let prediction = &mut request.predicted[0];
         let from = prediction.held.clone();
@@ -173,13 +183,19 @@ impl PlayerInventoryLedger {
         let cell = prediction.cell;
         let to = prediction.held.clone();
         self.confirmed.set(cell, to.clone());
-        self.rebase_predictions(request_id, cell, from.as_ref(), to);
+        self.rebase_predictions(
+            request_id,
+            cell,
+            from.as_ref(),
+            to,
+            RollbackAuthority::Known,
+        );
         self.refold();
         self.finish_closing();
         true
     }
 
-    /// Publishes an admitted one-item use before exact drop descriptors are built or retried.
+    /// Publishes admitted consumption or book initialization before exact drop descriptors are built.
     /// The caller's slot revision and source must still match the backing inventory.
     pub fn settle_use_slot_change(
         &mut self,
@@ -187,13 +203,12 @@ impl PlayerInventoryLedger {
         revision: u64,
         change: &protocol::PredictedSlotChange,
     ) -> bool {
+        if change.from.count() == change.to.count() {
+            return self.settle_book_init_slot_change(slot, revision, change);
+        }
         let cell = Cell::Inventory(slot);
         if self.authoritative_slot_revision(slot) != Some(revision)
             || !protocol::is_legacy_request_id(change.legacy_request_id)
-            || self
-                .queue
-                .iter()
-                .any(|request| request.world_drop.is_none() && request.touches(cell))
             || change.to != change.from.less_one(change.legacy_request_id)
         {
             return false;
@@ -204,30 +219,51 @@ impl PlayerInventoryLedger {
         if verified(Some(&before)).ok().as_ref() != Some(&change.from) {
             return false;
         }
-        let after = consumed_stack(Some(&before), 1, Some(change.to.stack_network_id()));
-        for request in self
-            .queue
-            .iter_mut()
-            .filter(|request| request.locally_committed() && request.touches(cell))
+        self.consume_retained_source(cell, &before, change.legacy_request_id);
+        true
+    }
+
+    /// Settles the current writable book's empty-pages update, preserving sparse screen ownership.
+    fn settle_book_init_slot_change(
+        &mut self,
+        slot: u8,
+        revision: u64,
+        change: &protocol::PredictedSlotChange,
+    ) -> bool {
+        let cell = Cell::Inventory(slot);
+        if self.authoritative_slot_revision(slot) != Some(revision)
+            || !protocol::is_legacy_request_id(change.legacy_request_id)
+            || self.slot_backing_transport_pending(slot)
+            || self
+                .negotiated_item_entry(change.from.network_id())
+                .and_then(|entry| {
+                    assets::facts::ItemFacts::builtin()
+                        .ok()?
+                        .book_editable(&entry.identifier)
+                })
+                != Some(true)
+            || protocol::writable_book_init_change(&change.from, change.legacy_request_id).as_ref()
+                != Some(change)
         {
-            let drop = request.world_drop.as_mut().expect("committed world drop");
-            drop.consumed_after = drop.consumed_after.saturating_add(1);
-            for prediction in &mut request.predicted {
-                if prediction.cell != cell {
-                    continue;
-                }
-                prediction.before = consumed_stack(prediction.before.as_ref(), 1, None);
-                let rename = (prediction
-                    .held
-                    .as_ref()
-                    .map(|held| held.stack.stack_network_id)
-                    == Some(before.stack.stack_network_id))
-                .then_some(change.to.stack_network_id());
-                prediction.held = consumed_stack(prediction.held.as_ref(), 1, rename);
-            }
+            return false;
         }
-        self.confirmed.set(cell, after.clone());
-        self.rebase_predictions(i32::MAX, cell, Some(&before), after);
+        let Some(mut held) = self.confirmed.get(cell).cloned() else {
+            return false;
+        };
+        if verified(Some(&held)).ok().as_ref() != Some(&change.from) {
+            return false;
+        }
+        let before = held.clone();
+        held.stack.extra_data = change.to.extra_data().into();
+        held.stack.nbt_digest = change.to.nbt_digest();
+        self.confirmed.set(cell, Some(held.clone()));
+        self.rebase_predictions(
+            i32::MAX,
+            cell,
+            Some(&before),
+            Some(held),
+            RollbackAuthority::Known,
+        );
         self.refold();
         true
     }
@@ -241,10 +277,18 @@ impl PlayerInventoryLedger {
         };
         let request: PendingRequest = self.queue.remove(index).expect("index observed");
         if self.request_is_current(&request) {
-            for prediction in request.predicted {
-                self.confirmed.set(prediction.cell, prediction.held);
+            for prediction in &request.predicted {
+                self.confirmed.set(prediction.cell, prediction.held.clone());
+                self.rebase_predictions(
+                    request.request_id,
+                    prediction.cell,
+                    prediction.held.as_ref(),
+                    prediction.held.clone(),
+                    RollbackAuthority::Known,
+                );
             }
         }
+        self.finish_request_retirement(request.request_id, false);
         self.refold();
         self.finish_closing();
         true
@@ -275,17 +319,4 @@ fn verified(held: Option<&Held>) -> Result<VerifiedNetworkItemStack, InventoryGe
     let digest = stack.nbt_digest;
     VerifiedNetworkItemStack::try_new(stack, digest)
         .map_err(|_| InventoryGestureError::InvalidRequest)
-}
-
-/// Removes admitted consumption from a snapshot, optionally renaming its surviving stack.
-fn consumed_stack(held: Option<&Held>, amount: u16, name: Option<i32>) -> Option<Held> {
-    let mut held = held?.clone();
-    held.stack.count = held.stack.count.saturating_sub(amount);
-    if held.stack.count == 0 {
-        return None;
-    }
-    if let Some(name) = name {
-        held.stack.stack_network_id = name;
-    }
-    Some(held)
 }

@@ -1,8 +1,14 @@
+#[cfg(test)]
+mod armour_tests;
 mod bodies;
+#[cfg(test)]
+mod cape_tests;
 mod commit;
 mod flames;
 mod geometry;
 mod hand_frame;
+mod hats;
+pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
 mod occlusion;
 mod paintings;
@@ -36,7 +42,7 @@ use crate::local_player::{LocalAvatarPresentation, LocalAvatarVisibilityCarrier,
 use crate::{
     actor_clock::authoritative_local_actor_eye,
     dropped_items::DroppedItemPublisher,
-    presentation::{actors::select_actor_presentations_for_view, equipment::EquipmentRuntime},
+    presentation::{actors::select_actor_presentations, equipment::EquipmentRuntime},
 };
 use bevy::prelude::{Query, Transform, With};
 
@@ -53,6 +59,9 @@ pub struct ActorWorld<'a> {
 
 /// Gameplay and screen observations captured at the actor preparation boundary.
 pub struct ActorFrameInput {
+    pub cosmetics: Vec<cosmetics::Item>,
+    /// Authenticated nearby hats bound to current actor lifetimes.
+    pub remote_hats: Vec<RemoteHat>,
     pub local_feed: Option<LocalPlayerFeed>,
     pub predicted_eye: Option<[f32; 3]>,
     pub predicted_feet: Option<[f32; 3]>,
@@ -60,7 +69,7 @@ pub struct ActorFrameInput {
     pub swing_progress: Option<actor_animation::LocalSwingProgress>,
     pub renders_game: bool,
     pub hide_hand: bool,
-    pub custom_emote: Option<(actor_animation::CustomEmote, f64)>,
+    pub custom_emote: Option<(cosmetics::emotes::Item, f64)>,
     /// API-authenticated playback already resolved to this session's actor lifetimes.
     pub remote_emotes: Vec<RemoteEmote>,
 }
@@ -70,8 +79,16 @@ pub struct ActorFrameInput {
 pub struct RemoteEmote {
     pub runtime_id: u64,
     pub spawn_revision: u64,
-    pub emote: actor_animation::CustomEmote,
+    pub emote: cosmetics::emotes::Item,
     pub elapsed: f64,
+}
+
+/// A built-in hat bound to one remote spawn, independent of server skin handling.
+#[derive(Clone, Copy, Debug)]
+pub struct RemoteHat {
+    pub runtime_id: u64,
+    pub spawn_revision: u64,
+    pub hat: cosmetics::Item,
 }
 
 /// Presentation-owned resources that determine the avatar's current view.
@@ -124,6 +141,7 @@ pub struct ActorFramePublication<'w, 's> {
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
     flames: Option<ResMut<'w, WorldActorFlames>>,
+    cosmetic_emitters: Option<ResMut<'w, CosmeticEmitterPlacements>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -136,6 +154,9 @@ pub fn prepare_actor_render_frame(
 ) {
     let state = &mut *params.state;
     let Some(input) = state.input.take() else {
+        if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+            placements.0.clear();
+        }
         return;
     };
     let step = state
@@ -216,13 +237,14 @@ pub fn prepare_actor_render_frame(
         params.equipment.as_deref_mut(),
         &mut new_geometries,
     );
+    let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
-    let mut batch = select_actor_presentations_for_view(
+    // Remote bodies passed frame-model admission before bounded skin registration.
+    let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible,
         local,
         bodies.remotes,
-        cull_view,
     );
     if let Some(stream) = stream {
         state
@@ -267,7 +289,15 @@ pub fn prepare_actor_render_frame(
         ),
         &mut new_geometries,
     );
+    state
+        .hat_state
+        .attach(&mut batch, stream, &input.remote_hats, &mut params.scene);
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    if let Some(placements) = params.cosmetic_emitters.as_deref_mut() {
+        state
+            .hat_state
+            .place_emitters(&batch, step.partial_tick, &mut placements.0);
+    }
     state
         .body_scratch
         .recycle(bodies.java_posed, bodies.remote_skin_layers);
@@ -279,6 +309,7 @@ pub fn prepare_actor_render_frame(
             stream.map(WorldStream::authority),
             yaw,
             step.partial_tick,
+            local_flame_feet,
             &mut batch,
         );
     }
@@ -356,6 +387,9 @@ pub fn prepare_actor_render_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod culling_capacity_tests;
 
 #[cfg(test)]
 mod xp_orb_tests;

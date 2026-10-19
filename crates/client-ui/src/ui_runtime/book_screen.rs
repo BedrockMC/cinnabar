@@ -1,6 +1,6 @@
 //! The writable-book, written-book and lectern reading screens.
 
-use protocol::{BookEdit, MAX_BOOK_PAGES, Packet};
+use protocol::{BookEdit, MAX_BOOK_PAGE_BYTES, MAX_BOOK_PAGES, Packet};
 use semantic_input::KeyboardKey;
 
 use super::UiRuntime;
@@ -70,7 +70,10 @@ impl BookState {
         };
         for ch in text.chars() {
             let allowed = !ch.is_control() || (newlines && ch == '\n');
-            if allowed && field.chars().count() < limit {
+            if allowed
+                && field.chars().count() < limit
+                && field.len() + ch.len_utf8() <= MAX_BOOK_PAGE_BYTES
+            {
                 field.push(ch);
             }
         }
@@ -196,11 +199,13 @@ impl BookState {
 }
 
 impl UiRuntime {
-    /// Queues a client packet for the next network flush.
-    pub fn queue_client_packet(&mut self, packet: Packet) {
-        if self.client_packets.len() < MAX_QUEUED_CLIENT_PACKETS {
-            self.client_packets.push_back(packet);
+    /// Queues a client packet for the next flush; returns false when the queue is full.
+    pub fn queue_client_packet(&mut self, packet: Packet) -> bool {
+        if self.client_packets.len() >= MAX_QUEUED_CLIENT_PACKETS {
+            return false;
         }
+        self.client_packets.push_back(packet);
+        true
     }
 
     pub fn take_client_packet(&mut self) -> Option<Packet> {
@@ -221,12 +226,18 @@ impl UiRuntime {
         self.chat_focused = false;
     }
 
-    /// Opens the book in the selected hotbar slot; whether one was there.
-    pub fn open_held_book(&mut self, player_runtime: &player_state::PlayerState) -> bool {
+    /// Opens the selected backing book after its item-use transaction is admitted.
+    /// A rejected send leaves the book closed and its inventory stack unchanged.
+    pub fn open_held_book(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        position: Option<[f32; 3]>,
+        send: impl FnOnce(Packet) -> bool,
+    ) -> bool {
         let Some(slot) = player_runtime.selected_hotbar_slot() else {
             return false;
         };
-        let Some(stack) = player_runtime.inventory.ledger().displayed_stack(slot) else {
+        let Some(stack) = player_runtime.selected_backing_stack() else {
             return false;
         };
         let Some(entry) = player_runtime
@@ -250,11 +261,64 @@ impl UiRuntime {
             book.title.as_deref().unwrap_or_default().to_owned(),
             book.author.as_deref().unwrap_or_default().to_owned(),
         );
+        if player_runtime
+            .inventory
+            .pending_hotbar_selection()
+            .is_some()
+        {
+            return true;
+        }
+        let Some(position) = position else {
+            return true;
+        };
+        let Ok(from) = protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest)
+        else {
+            return true;
+        };
+        let initialization = if editable && protocol::book_needs_init(&stack.extra_data) {
+            let Some(revision) = player_runtime
+                .inventory
+                .ledger()
+                .authoritative_slot_revision(slot)
+            else {
+                return true;
+            };
+            let Some(change) = protocol::next_legacy_request_id()
+                .and_then(|id| protocol::writable_book_init_change(&from, id))
+            else {
+                return true;
+            };
+            Some((revision, change))
+        } else {
+            None
+        };
+        let Ok(packet) = protocol::click_air_packet(
+            protocol::HeldItemRequest {
+                hand: protocol::ItemUseHand::Mainhand,
+                selected_slot: slot,
+                selected_item: from,
+                player_position: position,
+            },
+            initialization.as_ref().map(|(_, change)| change.clone()),
+        ) else {
+            return true;
+        };
+        if !send(packet) {
+            return true;
+        }
+        if let Some((revision, change)) = initialization
+            && !player_runtime
+                .inventory
+                .ledger_mut()
+                .settle_use_slot_change(slot, revision, &change)
+        {
+            return true;
+        }
         self.open_book(state);
         true
     }
 
-    /// Retains a complete book commit before removing the editable screen state.
+    /// Retains a complete book commit before closing; false preserves the editor on refusal.
     pub fn commit_book(&mut self, sign: bool) -> bool {
         let Some(book) = self.screen.book.as_ref() else {
             return true;
@@ -273,21 +337,27 @@ impl UiRuntime {
         {
             return false;
         }
-        let mut packets: std::collections::VecDeque<_> = book
+        let Some(mut packets) = book
             .edits()
             .iter()
-            .filter_map(|edit| protocol::book_edit_packet(slot, edit))
-            .collect();
-        if sign
-            && let Some(packet) = protocol::book_edit_packet(
+            .map(|edit| protocol::book_edit_packet(slot, edit))
+            .collect::<Option<std::collections::VecDeque<_>>>()
+        else {
+            tracing::warn!("Book edit exceeds protocol limits; keeping the editor open");
+            return false;
+        };
+        if sign {
+            let Some(packet) = protocol::book_edit_packet(
                 slot,
                 &BookEdit::Finalize {
                     title: book.title.clone(),
                     author: book.author.clone(),
                     xuid: String::new(),
                 },
-            )
-        {
+            ) else {
+                tracing::warn!("Book signature exceeds protocol limits; keeping the editor open");
+                return false;
+            };
             packets.push_back(packet);
         }
         self.book_packets = packets;
@@ -433,6 +503,23 @@ mod tests {
         state.signing = true;
         state.type_text(&"t".repeat(40));
         assert_eq!(state.title.chars().count(), MAX_TITLE_CHARS);
+    }
+
+    #[test]
+    fn unicode_page_typing_obeys_both_character_and_wire_byte_limits() {
+        for character in ['a', 'é', '€', '🦀'] {
+            let mut state = book(true);
+            state.pages[0].clear();
+            state.type_text(&character.to_string().repeat(MAX_PAGE_CHARS + 1));
+            assert_eq!(
+                state.pages[0].chars().count(),
+                MAX_PAGE_CHARS.min(MAX_BOOK_PAGE_BYTES / character.len_utf8())
+            );
+            assert!(protocol::book_edit_packet(0, &state.edits()[0]).is_some());
+            state.backspace();
+            state.type_text("a");
+            assert!(state.pages[0].len() <= MAX_BOOK_PAGE_BYTES);
+        }
     }
 }
 

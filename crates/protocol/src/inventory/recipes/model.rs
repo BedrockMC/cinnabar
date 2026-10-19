@@ -108,11 +108,16 @@ impl Recipe {
 pub(in crate::inventory) struct Record {
     pub(in crate::inventory) id: u32,
     pub(in crate::inventory) recipe: Option<Recipe>,
+    pub(super) identity_index: Option<usize>,
 }
 
+/// Decoded crafting and station storage share one lifetime credit.
 #[derive(Debug)]
 pub(in crate::inventory) struct Batch {
     pub(in crate::inventory) records: Vec<Record>,
+    pub(super) screen: super::screen::ScreenRecipes,
+    pub(super) brewing: Vec<super::brewing::BrewingMix>,
+    pub(super) identities: Vec<super::identity::RecipeIdentity>,
     pub(in crate::inventory) clear: bool,
     pub(super) _permit: Permit,
 }
@@ -121,10 +126,14 @@ pub(in crate::inventory) struct Batch {
 #[derive(Debug, Clone)]
 pub struct RecipeUpdate {
     pub(in crate::inventory) batch: Option<Arc<Batch>>,
-    pub(in crate::inventory) screen: Option<Arc<super::screen::ScreenRecipes>>,
 }
 
 impl RecipeUpdate {
+    /// Borrows all mix records in wire order while this update retains their allocation credit.
+    pub fn brewing_mixes(&self) -> Option<&[super::brewing::BrewingMix]> {
+        Some(&self.batch.as_ref()?.brewing)
+    }
+
     pub fn is_unavailable(&self) -> bool {
         self.batch.is_none()
     }
@@ -133,27 +142,29 @@ impl RecipeUpdate {
     }
     /// Number of station recipes explicitly declined by this update.
     pub fn skipped_screen_recipes(&self) -> usize {
-        self.screen.as_ref().map_or(0, |screen| screen.skipped)
+        self.batch.as_ref().map_or(0, |batch| batch.screen.skipped)
     }
     pub fn record_count(&self) -> usize {
         self.batch.as_ref().map_or(0, |b| b.records.len())
     }
     pub(in crate::inventory) fn unavailable() -> Self {
-        Self {
-            batch: None,
-            screen: None,
-        }
+        Self { batch: None }
     }
 }
 
 impl PartialEq for RecipeUpdate {
     fn eq(&self, other: &Self) -> bool {
-        self.screen == other.screen
-            && match (&self.batch, &other.batch) {
-                (Some(a), Some(b)) => a.clear == b.clear && a.records == b.records,
-                (None, None) => true,
-                _ => false,
+        match (&self.batch, &other.batch) {
+            (Some(a), Some(b)) => {
+                a.clear == b.clear
+                    && a.records == b.records
+                    && a.screen == b.screen
+                    && a.brewing == b.brewing
+                    && a.identities == b.identities
             }
+            (None, None) => true,
+            _ => false,
+        }
     }
 }
 impl Eq for RecipeUpdate {}
@@ -165,6 +176,13 @@ pub struct RecipeHandle {
     pub(in crate::inventory) index: usize,
 }
 impl RecipeHandle {
+    /// Reads the exact named metadata parsed with this numeric record, including after ID sorting.
+    pub fn identity(&self) -> Option<&super::identity::RecipeIdentity> {
+        self.batch.records[self.index]
+            .identity_index
+            .and_then(|index| self.batch.identities.get(index))
+    }
+
     pub fn network_id(&self) -> u32 {
         self.batch.records[self.index].id
     }

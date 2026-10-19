@@ -1,7 +1,8 @@
 //! Production overlay vertices must stay in front of two-sided leaf depth from either view.
 use crate::{gpu_snapshot::Gpu, shader_safety, shader_source};
 use render_model::{
-    BlockEntityScene, BlockSelectionFrame, BlockSelectionTarget, CrackInstance, SceneClock,
+    BlockEntityScene, BlockSelectionFrame, BlockSelectionTarget, CrackInstance,
+    MIN_DYNAMIC_ATLAS_WIDTH, SceneClock,
 };
 
 #[test]
@@ -44,9 +45,9 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
     );
     let atlas = assets::encode_block_entity_catalog(
         b"{}",
+        MIN_DYNAMIC_ATLAS_WIDTH,
         16,
-        16,
-        &[255; 16 * 16 * 4],
+        &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 16 * 4],
         &[assets::BlockEntityPlacement {
             name: "textures/environment/destroy_stage_0".into(),
             x: 0,
@@ -130,10 +131,9 @@ fn bamboo_leaf_overlays_survive_front_and_reverse_depth_without_duplicate_quads(
         "production block-overlay pipeline must validate: {validation:?}"
     );
     let words = gpu.words(bytemuck::cast_slice(&vertices), wgpu::BufferUsages::STORAGE);
-    let lightmap = gpu.buffer(
-        bytemuck::cast_slice(&render_model::LightmapInputs::default().build()),
-        wgpu::BufferUsages::UNIFORM,
-    );
+    let lightmap = gpu.lightmap(bytemuck::cast_slice(
+        &render_model::LightmapInputs::default().build(),
+    ));
     let output = gpu.words(
         &[0; 8],
         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,

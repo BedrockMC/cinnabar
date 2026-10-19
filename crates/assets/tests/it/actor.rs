@@ -4,6 +4,9 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "actor/inheritance.rs"]
+mod inheritance;
+
 /// Builds a single-cube geometry for UV eligibility checks.
 fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeometry {
     use assets::{EntityGeometryBone, EntityGeometryCube, EntityGeometryScalar as Scalar};
@@ -109,11 +112,11 @@ fn inflated_fins_validate_faces_that_gained_area() {
         let mut bones = model.bones.to_vec();
         if bone_inflate {
             bones[0].inflate = Scalar::new(0.1);
-        } else {
-            let mut cubes = bones[0].cubes.to_vec();
-            cubes[0].inflate = Scalar::new(0.1).unwrap();
-            bones[0].cubes = cubes.into();
         }
+        // Both producer paths resolve inflation on the cube before UV admission.
+        let mut cubes = bones[0].cubes.to_vec();
+        cubes[0].inflate = Scalar::new(0.1).unwrap();
+        bones[0].cubes = cubes.into();
         model.bones = bones.into();
         assert!(!assets::neutral_actor_geometry_uvs_are_supported(
             &[model],

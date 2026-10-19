@@ -29,6 +29,7 @@ mod primary_lookup;
 mod snapshot;
 pub use snapshot::CollisionSnapshot;
 mod identity;
+mod observation;
 mod physics_table;
 mod raycast;
 mod section;
@@ -632,6 +633,7 @@ pub struct LenientCollisionBoxes {
 
 /// Read-only collision adapter over the palette-packed world store.
 pub struct PaletteWorld<'a> {
+    read_observation: Option<observation::ReadObservation>,
     unsupported_actor_selections: std::sync::atomic::AtomicU32,
     pick_context: assets::block_shapes::PickContext,
     store: &'a ChunkStore,
@@ -668,6 +670,7 @@ impl<'a> PaletteWorld<'a> {
         pick_context: assets::block_shapes::PickContext,
     ) -> Self {
         Self {
+            read_observation: None,
             unsupported_actor_selections: std::sync::atomic::AtomicU32::new(0),
             pick_context,
             store,
@@ -711,10 +714,12 @@ impl<'a> PaletteWorld<'a> {
 
     /// A loaded column's revision, or the boundary revision of an absent movement column.
     fn column_revision(&self, key: ChunkKey) -> Result<ChunkCollisionRevision, WorldQueryError> {
-        self.store
-            .collision_revision(key)
-            .or_else(|| self.unloaded_boundary_revision(key))
-            .ok_or(WorldQueryError::UnloadedChunk(key))
+        self.record_column_read(
+            self.store
+                .collision_revision(key)
+                .or_else(|| self.unloaded_boundary_revision(key))
+                .ok_or(WorldQueryError::UnloadedChunk(key)),
+        )
     }
 
     /// Whether every layer of a loaded block is air.
@@ -808,6 +813,26 @@ impl CollisionWorld for PaletteWorld<'_> {
         delta: Vec3,
     ) -> Result<(Option<f64>, LenientSkipCounts), WorldQueryError> {
         self.camera_segment_entry_lenient(origin, delta)
+    }
+
+    /// Reads the same layers and availability as `block_physics`, without its owned result.
+    fn visit_block_materials(
+        &self,
+        block: [i32; 3],
+        visitor: &mut dyn FnMut(BlockPhysicsFacts),
+    ) -> Result<(), WorldQueryError> {
+        self.column_revision(ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4))?;
+        for runtime_id in self
+            .layers_at(block, &mut section::SectionCache::default())?
+            .iter()
+        {
+            let facts = self
+                .registry
+                .movement_facts(runtime_id)
+                .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
+            visitor(facts);
+        }
+        Ok(())
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {

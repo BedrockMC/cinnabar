@@ -1,4 +1,5 @@
 //! A left click during gameplay must reach the attack producers through the production input chain.
+mod books;
 mod latency;
 use bevy::{
     input::{ButtonInput, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, touch::Touches},
@@ -15,7 +16,7 @@ use bevy::prelude::{IntoScheduleConfigs, Update};
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use {
     crate::{
-        app::configure_client_frame_schedule,
+        game_frame::configure_client_frame_schedule,
         runtime::world::ClientWorld,
         semantic_controls::{
             collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -79,7 +80,7 @@ pub(crate) fn gameplay_app(menu_visible: bool) -> App {
         .unwrap();
     app.init_resource::<Time<Real>>()
         .init_resource::<Time>()
-        .init_resource::<crate::ui_runtime::emotes::EmoteInputConsumed>()
+        .init_resource::<client_state::EmoteInputConsumed>()
         .init_resource::<ButtonInput<bevy::input::keyboard::KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseMotion>()

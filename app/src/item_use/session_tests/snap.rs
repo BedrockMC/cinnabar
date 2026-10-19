@@ -50,6 +50,7 @@ fn assert_release_after_snap(
     let frame = use_frame(sample.tick);
     let selection = frame.selection.unwrap();
     let release = protocol::release_item_packet(protocol::HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: selection.slot,
         selected_item: selection.item,
         player_position: sample.position,
@@ -66,7 +67,7 @@ fn assert_release_after_snap(
         &mut ticker,
         1,
         Some(evidence()),
-        |identity, packet, guard| {
+        |identity, packet, guard, _| {
             written = Some(identity);
             network.send_physics_packet(identity, packet, guard)
         },
@@ -149,7 +150,7 @@ fn assert_release_after_snap(
         &mut ticker,
         1,
         Some(evidence()),
-        |identity, packet, guard| {
+        |identity, packet, guard, _| {
             flags.push(
                 protocol::player_auth_input_trace_sample(&packet)
                     .unwrap()
@@ -192,6 +193,7 @@ fn admitted_riptide_after_prediction(mode: PhysicsCorrectionMode, written: bool)
     ticker.enqueue_completed_physics(facing.clone()).unwrap();
     let selection = use_frame(facing.tick).selection.unwrap();
     let release = protocol::release_item_packet(protocol::HeldItemRequest {
+        hand: protocol::ItemUseHand::Mainhand,
         selected_slot: selection.slot,
         selected_item: selection.item,
         player_position: facing.position,

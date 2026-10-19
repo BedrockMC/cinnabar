@@ -1,3 +1,7 @@
+#[cfg(target_arch = "wasm32")]
+use super::compile_execution::scope;
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::scope;
 use std::sync::Arc;
 
 use resource_pack::{LayeredPackView, PackAdmission};
@@ -5,7 +9,7 @@ use resource_pack::{LayeredPackView, PackAdmission};
 use super::{
     block_overlay::{CompiledBlockOverlay, compile_block_overlay},
     glyph_sheets::compile_session_glyphs,
-    item_icons::{BlockIcons, compile_session_icons, custom_block_icons},
+    item_icons::{BlockIcons, compile_session_icons, custom_block_icons_with_tint},
 };
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
@@ -133,12 +137,15 @@ pub(super) fn prepare_join(
     cancelled: &(dyn Fn() -> bool + Sync),
     bases: JoinBases<'_>,
 ) -> Option<Result<PackApplication, pack_runtime::RequiredPackRejected>> {
-    let prepare = || prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases);
+    let profile = bridge::join_profile::JoinProfile::current();
+    let prepare = || {
+        profile.run(|| prepare_join_with(&reuse::LATEST, preparation, game_data, cancelled, bases))
+    };
+    #[cfg(not(target_arch = "wasm32"))]
     if preparation.has_applied_packs() {
-        chunk_pipeline::on_idle_world_cores(prepare)
-    } else {
-        prepare()
+        return chunk_pipeline::on_idle_world_cores(prepare);
     }
+    prepare()
 }
 
 /// [`prepare_join`] against an explicit set of kept stacks.
@@ -297,8 +304,10 @@ fn compile_application(
     let mut block_entity_art = None;
     // The entity compile checks cancellation between its own steps, as it outlasts the rest.
     let mut entities_stopped = false;
-    rayon::scope(|scope| {
+    let profile = bridge::join_profile::JoinProfile::current();
+    scope(|scope| {
         scope.spawn(|_| {
+            let _binding = profile.enter();
             block_entity_art = compile_part(
                 &stack,
                 cancelled,
@@ -309,6 +318,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             aim_assist = compile_part(
                 &stack,
                 cancelled,
@@ -321,6 +331,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             blocks = compile_part(
                 &stack,
                 cancelled,
@@ -360,18 +371,41 @@ fn compile_application(
                 changes.icons || changes.blocks,
                 previous.and_then(|old| old.item_icons.clone()),
                 icon_keys,
-                || {
-                    let mut block_icons =
+                |view| {
+                    let item_overlay = super::block_overlay::compile_block_item_overlay(
+                        view,
+                        custom_blocks,
+                        BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys),
+                        max_layers,
+                        base_world_assets(),
+                    );
+                    let grass = super::item_icons::carried_grass_tint(
+                        view,
+                        BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys),
+                    );
+                    let mut block_icons = if let Some((compiled, definitions)) = &item_overlay {
+                        custom_block_icons_with_tint(
+                            &compiled.overlay,
+                            definitions,
+                            false,
+                            &inputs.block_items,
+                            base_world_assets(),
+                            grass,
+                        )
+                    } else {
                         overlay
                             .as_deref()
                             .map_or_else(BlockIcons::default, |compiled| {
-                                custom_block_icons(
+                                custom_block_icons_with_tint(
                                     &compiled.overlay,
                                     custom_blocks,
                                     hashed_block_ids,
                                     &inputs.block_items,
+                                    base_world_assets(),
+                                    grass,
                                 )
-                            });
+                            })
+                    };
                     if let (Some(compiled), Some((_, base))) =
                         (overlay.as_deref(), BASE_MATERIAL_KEYS.get())
                     {
@@ -382,6 +416,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             language = compile_part(
                 &stack,
                 cancelled,
@@ -392,6 +427,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             glyphs = compile_part(
                 &stack,
                 cancelled,
@@ -402,6 +438,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             entities = compile_part(
                 &stack,
                 cancelled,
@@ -420,6 +457,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             artwork = compile_part(
                 &stack,
                 cancelled,
@@ -430,6 +468,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             ui = compile_part(
                 &stack,
                 cancelled,
@@ -440,6 +479,7 @@ fn compile_application(
             );
         });
         scope.spawn(|_| {
+            let _binding = profile.enter();
             sounds = compile_part(
                 &stack,
                 cancelled,
@@ -567,6 +607,7 @@ pub(crate) fn await_overlay_texture_device() {
 /// Publishes the active device's array limit to pack preparation workers at startup.
 pub(crate) fn initialize_overlay_texture_limit(
     device: Option<bevy::prelude::Res<bevy::render::renderer::RenderDevice>>,
+    memory: Option<bevy::prelude::Res<crate::host_memory::HostMemory>>,
 ) {
     let max_dimension_2d = device.as_ref().map_or_else(
         || wgpu::Limits::default().max_texture_dimension_2d,
@@ -575,7 +616,10 @@ pub(crate) fn initialize_overlay_texture_limit(
     assets::texture::policy::set_device_policy(max_dimension_2d);
     assets::texture::policy::set_terrain_device_policy(
         max_dimension_2d,
-        resource_pack::subpacks::device_memory_tier(launcher_host::memory::physical_bytes()),
+        resource_pack::subpacks::device_memory_tier(memory.map_or_else(
+            || crate::host_memory::HostMemory::default().0,
+            |memory| memory.0,
+        )),
     );
     let limit = device.map_or_else(
         || wgpu::Limits::default().max_texture_array_layers,
@@ -638,7 +682,7 @@ fn compile_icons(
     changed: bool,
     reuse: Option<Arc<SessionIcons>>,
     icon_keys: &[(Arc<str>, Arc<str>)],
-    bake_blocks: impl FnOnce() -> BlockIcons,
+    bake_blocks: impl FnOnce(&LayeredPackView) -> BlockIcons,
 ) -> CompiledIcons {
     pack_runtime::reload_diff::compile_part(
         stack,
@@ -646,7 +690,7 @@ fn compile_icons(
         changed,
         pack_runtime::reload_diff::Subscriber::Icons,
         reuse,
-        |view| compile_session_icons(view, icon_keys, bake_blocks()),
+        |view| compile_session_icons(view, icon_keys, bake_blocks(view)),
     )
 }
 

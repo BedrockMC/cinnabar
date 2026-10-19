@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -29,9 +30,9 @@ const (
 	// packs that Cinnabar cannot truthfully apply yet.
 	PackAdmissionRequiredUnsupported PackAdmissionFailureReason = iota + 1
 
-	maxSelectedResourcePacks          = 32
-	maxSelectedResourcePackTotalBytes = 128 * 1024 * 1024
-	maxResourcePackArchiveBytes       = 64 * 1024 * 1024
+	maxSelectedResourcePacks          = bridgecontract.MaxSelectedPacks
+	maxSelectedResourcePackTotalBytes = bridgecontract.MaxSelectedPackBytes
+	maxResourcePackArchiveBytes       = bridgecontract.MaxPackArchiveBytes
 	// Transfer sizes may differ from their offer, so downloads are bounded
 	// separately: gophertunnel holds every downloaded pack in memory until the
 	// handoff is captured, and past this ceiling the dial is cancelled.
@@ -514,6 +515,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 		return resolveUpstreamTarget(ctx, upstreamAddress, account, logger, nil)
 	}
 	connections.dialTarget = func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		logger := joinprofile.Logger(ctx, logger)
 		return connectUpstream(ctx, target.address, authenticationMode(accountTokenSource(account)), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			attempt := withJoinStages(dialer, logger)
 			dial := attempt.DialContextNetwork
@@ -641,7 +643,9 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	if isSession && session.sessionResolveTarget() != nil {
 		resolve = session.sessionResolveTarget()
 	}
+	resolveDone := joinprofile.Stage(ctx, "target_resolution")
 	target, err = resolve(withConnectProgress(ctx, report))
+	resolveDone()
 	if err != nil {
 		return nil, err
 	}
@@ -669,6 +673,11 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		target.clientData(&dialer.ClientData)
 	}
 	dialer = withResourcePackAcquisitionBudget(dialer, budget)
+	if joinprofile.Enabled {
+		var reportPacks func()
+		dialer, reportPacks = withJoinPackProfile(ctx, dialer, connections.logger)
+		defer reportPacks()
+	}
 	upstream, err = connections.dialTarget(dialCtx, target, dialer)
 	budget.finish()
 	// The dialed upstream owns its own context; releasing dialCtx now cannot

@@ -21,18 +21,36 @@ const (
 	SessionKindTransfer = 5
 	// SessionKindDisconnect: Terminal core disconnect message.
 	SessionKindDisconnect = 6
+	// MaxSelectedPacks: Most selected server pack archives admitted for one join.
+	MaxSelectedPacks = 32
+	// MaxPackArchiveBytes: Largest admitted server pack archive in bytes.
+	MaxPackArchiveBytes = 67108864
+	// MaxSelectedPackBytes: Largest total selected server pack archives in bytes.
+	MaxSelectedPackBytes = 134217728
 	// SessionPackChunkBytes: Archive bytes in one resource-pack data frame.
 	SessionPackChunkBytes = 4194304
+	// LatencyTraceEnv: Names the directory both processes write packet latency traces to; unset disables tracing.
+	LatencyTraceEnv = "CINNABAR_LATENCY_TRACE"
 	// HostedWorldMaxPlayers: Vanilla's player limit for a hosted local world, the host included.
 	HostedWorldMaxPlayers = 8
 	// RelayVersion: Browser relay protocol version.
 	RelayVersion = 2
 	// RelayControlBytes: Largest relay Hello or control JSON payload in bytes.
 	RelayControlBytes = 4096
-	// RelayPlayMessageBytes: Largest WebSocket play message and upload burst in bytes.
+	// RelayPlayMessageBytes: Largest WebSocket play message in bytes.
 	RelayPlayMessageBytes = 8388608
+	// QueuedFrames: Maximum queued reliable frames or browser receive chunks.
+	QueuedFrames = 16
+	// RelayQueuedFrameBytes: Ordinary browser frame queue budget; a larger bridge frame is admitted alone.
+	RelayQueuedFrameBytes = 8388608
+	// RelayUploadBurstBytes: Upload rate limiter burst, independent of message and queue limits.
+	RelayUploadBurstBytes = 8388608
+	// RelayBidirectionalStreams: Concurrent browser streams for control, active play and retiring play.
+	RelayBidirectionalStreams = 3
 	// RelayKeepAliveSeconds: Interval between control keepalives.
 	RelayKeepAliveSeconds = 30
+	// RelayControlRefillMillis: Time to replenish one relay control request; busy sign-out retries wait at least this long.
+	RelayControlRefillMillis = 1000
 	// RelayTransportPath: WebTransport Extended CONNECT route.
 	RelayTransportPath = "/v2/transport"
 	// RelayControlPath: WebSocket control route.
@@ -157,8 +175,8 @@ const (
 	RPCCinnabarRateLimited = -32024
 	// MethodCinnabarAPI: Control method for the Cinnabar API identity and visibility.
 	MethodCinnabarAPI = "cinnabar_api.v1"
-	// MethodCinnabarEmotes: Control method for nearby Cinnabar emote playback.
-	MethodCinnabarEmotes = "cinnabar_emotes.v1"
+	// MethodCinnabarPlayers: Control method for nearby Cinnabar emotes and cosmetics.
+	MethodCinnabarPlayers = "cinnabar_players.v1"
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
@@ -221,6 +239,30 @@ const (
 	MessageArtFore = "fore"
 	// MessageArtFg: Image id marker for fg artwork.
 	MessageArtFg = "fg"
+	// DisconnectKeyCantConnect: Core disconnect message: The core could not join the server.
+	DisconnectKeyCantConnect = "disconnectionScreen.cantConnect"
+	// DisconnectKeyCantConnectToRealm: Core disconnect message: The core could not join the Realm.
+	DisconnectKeyCantConnectToRealm = "disconnectionScreen.cantConnectToRealm"
+	// DisconnectKeyResourcePack: Core disconnect message: The server's resource packs could not be admitted.
+	DisconnectKeyResourcePack = "disconnectionScreen.resourcePack"
+	// DisconnectKeyOutdatedClient: Core disconnect message: The client's protocol or game version is older than the core's.
+	DisconnectKeyOutdatedClient = "disconnectionScreen.outdatedClient"
+	// DisconnectKeyOutdatedServer: Core disconnect message: The client's protocol is newer than the core's.
+	DisconnectKeyOutdatedServer = "disconnectionScreen.outdatedServer"
+	// DisconnectKeyInvalidSkin: Core disconnect message: The client's login data is invalid only because of its skin.
+	DisconnectKeyInvalidSkin = "disconnectionScreen.invalidSkin"
+	// DisconnectKeyInvalidName: Core disconnect message: The client's login data is invalid only because of its player name.
+	DisconnectKeyInvalidName = "disconnectionScreen.invalidName"
+	// DisconnectKeyDeviceClock: Core disconnect message: The sign-in token was rejected because this device's clock is behind.
+	DisconnectKeyDeviceClock = "cinnabar.disconnect.deviceClock"
+	// RelayRefusalResume: A safe relay refusal code; unrecognized codes use the generic refusal. ResumeRefused.
+	RelayRefusalResume = "resume_refused"
+	// RelayRefusalAdmission: A safe relay refusal code; unrecognized codes use the generic refusal. AdmissionRefused.
+	RelayRefusalAdmission = "admission_refused"
+	// RelayRefusalSessionBusy: A safe relay refusal code; unrecognized codes use the generic refusal. SessionBusy.
+	RelayRefusalSessionBusy = "session_busy"
+	// RelayRefusalUnknown: A safe relay refusal code; unrecognized codes use the generic refusal. Refused.
+	RelayRefusalUnknown = "refused"
 	// GameModeSurvival: Game mode a world starts players in. Survival.
 	GameModeSurvival = "survival"
 	// GameModeCreative: Game mode a world starts players in. Creative.
@@ -307,6 +349,8 @@ const (
 	AuthSignedIn = "signed_in"
 	// AuthFailed: Sign-in state of the core. Failed.
 	AuthFailed = "failed"
+	// ConnectStageIdle: Join progress stage reported by the core. Idle.
+	ConnectStageIdle = ""
 	// ConnectStageRealm: Join progress stage reported by the core. Realm.
 	ConnectStageRealm = "realm"
 	// ConnectStagePacks: Join progress stage reported by the core. Packs.
@@ -314,6 +358,14 @@ const (
 	// ConnectStageConnecting: Join progress stage reported by the core. Connecting.
 	ConnectStageConnecting = "connecting"
 )
+
+// CinnabarCosmeticSlot: One namespaced cosmetic item in a supported slot.
+type CinnabarCosmeticSlot struct {
+	// Slot: Catalog slot name.
+	Slot string `json:"slot"`
+	// ItemID: Namespaced item identifier.
+	ItemID string `json:"item_id"`
+}
 
 // CinnabarRelease: A release the Cinnabar API announced on the client's channel.
 type CinnabarRelease struct {
@@ -327,8 +379,8 @@ type CinnabarRelease struct {
 	PublishedAt string `json:"published_at"`
 }
 
-// CinnabarEmoteState: Nearby subscriptions and the local custom emote, cleared when the game session ends.
-type CinnabarEmoteState struct {
+// CinnabarPlayerState: Nearby subscriptions, local playback and the selected slot loadout.
+type CinnabarPlayerState struct {
 	// XUIDs: Nearby Xbox account identifiers.
 	XUIDs []string `json:"xuids"`
 	// UUIDs: Nearby UUIDs when the server omitted Xbox identifiers.
@@ -339,6 +391,8 @@ type CinnabarEmoteState struct {
 	ElapsedMS uint32 `json:"elapsed_ms"`
 	// PlaybackID: Local start identity, including same-clip restarts.
 	PlaybackID uint64 `json:"playback_id"`
+	// Slots: Persistent selected items by slot; empty clears the loadout.
+	Slots []CinnabarCosmeticSlot `json:"slots"`
 }
 
 // CinnabarRemoteEmote: An authenticated nearby player animation with a remaining lease.
@@ -355,8 +409,31 @@ type CinnabarRemoteEmote struct {
 	ValidForMS uint64 `json:"valid_for_ms"`
 }
 
+// CinnabarRemoteLoadout: An authenticated nearby session loadout without an emote lease.
+type CinnabarRemoteLoadout struct {
+	// XUID: Authenticated Xbox account identifier.
+	XUID string `json:"xuid"`
+	// UUID: Account UUID derived by the API.
+	UUID string `json:"uuid"`
+	// Revision: Newest accepted account revision.
+	Revision uint64 `json:"revision"`
+	// Slots: Equipped items; empty withdraws the loadout.
+	Slots []CinnabarCosmeticSlot `json:"slots"`
+}
+
+// CinnabarPlayerUpdates: Current authenticated nearby playback and session loadouts.
+type CinnabarPlayerUpdates struct {
+	// Emotes: Nearby custom emotes.
+	Emotes []CinnabarRemoteEmote `json:"emotes"`
+	// Loadouts: Nearby authenticated loadouts.
+	Loadouts []CinnabarRemoteLoadout `json:"loadouts"`
+}
+
 // InboxCategories: Inbox category names in display order.
 var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
 
 // MessageEventTypes: Messaging report types accepted by the core.
 var MessageEventTypes = [...]string{"Impression", "DeleteAllRead", "ReadAll", "Delete", "Click", "Dismiss", "ControlImpression"}
+
+// CoreDisconnectKeys: Every lang key the core sends as a whole disconnect message.
+var CoreDisconnectKeys = [...]string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "disconnectionScreen.outdatedClient", "disconnectionScreen.outdatedServer", "disconnectionScreen.invalidSkin", "disconnectionScreen.invalidName", "cinnabar.disconnect.deviceClock"}

@@ -11,6 +11,7 @@ pub mod equipment;
 mod font_atlas;
 pub mod font_shading;
 mod frame_pacing;
+pub mod hats;
 pub use font_atlas::{
     FONT_ATLAS_GUTTER, FONT_ATLAS_SIDE, FontAtlas, FontAtlasFrame, FontAtlasVertex, FontRect,
 };
@@ -33,9 +34,9 @@ pub use actor::{
     DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, FrameSlotRecency,
     MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES,
     MAX_RENDER_BONES_PER_ACTOR, MAX_RENDERED_PLAYERS, ONE_SIDED_BACK_UV, PLAYER_SKIN_BUDGET_BYTES,
-    RenderBoneTransform, SKIN_CLASS_SIDES, STANDARD_BIPED_VERTEX_COUNT, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE, actor_catalog_budget_bytes, actor_skin_side,
-    append_entity_cube_vertices, attachable_geometry, attachable_raster_frame,
+    RenderBoneTransform, SKIN_CLASS_SIDES, STANDARD_BIPED_BONES, STANDARD_BIPED_VERTEX_COUNT,
+    STANDARD_SKIN_BYTES, STANDARD_SKIN_SIDE, UNIT_AXIS_SCALE, actor_catalog_budget_bytes,
+    actor_skin_side, append_entity_cube_vertices, attachable_geometry, attachable_raster_frame,
     default_actor_skin_rgba8, diagnostic_geometry, entity_geometry, equipment_geometry,
     equipment_rig_id, find_geometry_index, fit_rgba_within, geometry_bone_binding_expressions,
     geometry_bone_names, geometry_bone_pivots, geometry_from_geometry_index,
@@ -85,10 +86,10 @@ pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
     MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
     MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-    UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
-    UI_NATIVE_SHEET_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET,
-    UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage,
-    UiTexturePlan,
+    UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
+    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET,
+    UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat,
+    UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -152,12 +153,13 @@ pub mod viewmodel;
 pub mod weather;
 pub use actor::ActorRigVertexSegments;
 pub use actor::{
-    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ActorDrawManifestEntry,
-    ActorGpuInstance, ActorMaterial, ActorRenderIdentity, ActorRigFrameBuilder,
-    ActorRigGeometrySpan, ActorRigRejects, ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute,
-    ActorRigSubmission, IDENTITY_UV_ANIM, MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES,
-    actor_bounds_are_visible, actor_rig_submission_is_visible, pack_actor_light,
-    pack_actor_light_without_lightmap, pack_overlay_rgba8,
+    ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ACTOR_LAYER_FLAME,
+    ACTOR_LAYER_SKIN_BASE, ActorDrawManifestEntry, ActorGpuInstance, ActorMaterial,
+    ActorRenderIdentity, ActorRigFrameBuilder, ActorRigGeometrySpan, ActorRigRejects,
+    ActorRigRenderFrame, ActorRigRenderInput, ActorRigRoute, ActorRigSubmission, IDENTITY_UV_ANIM,
+    MAX_ACTOR_BONE_ARENA_BYTES, MAX_ACTOR_RENDER_INSTANCES, actor_bounds_are_visible,
+    actor_rig_submission_is_visible, pack_actor_light, pack_actor_light_without_lightmap,
+    pack_overlay_rgba8,
 };
 pub use actor::{ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorCullView, MAX_ACTOR_RENDER_DISTANCE_BLOCKS};
 pub use actor::{
@@ -175,7 +177,8 @@ pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
-    AtlasRect, BlockEntityAtlas, MAP_CELL, TEXT_CELL, TEXT_SLOT_COUNT, TextureRef,
+    AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,
+    TextureRef,
 };
 pub use block_entity::{
     BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,
@@ -220,7 +223,7 @@ pub use dropped_item::{rope_color, rope_point, rope_ribbon};
 pub use hand::{
     HAND_ITEM_LAYER_FLAG, HAND_OFFHAND_LAYER_FLAG, HandItemAlphaMode, HandItemAtlas, HandRigLight,
 };
-pub use lightmap::{LightmapInputs, darkness_pulse};
+pub use lightmap::{LightmapInputs, LightmapUniform, darkness_pulse};
 
 pub use viewmodel::{ViewmodelGeometry, ViewmodelSkin};
 pub use weather::{

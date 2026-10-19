@@ -6,6 +6,9 @@ interface hud {
     set-label: func(text: string) -> result<_, string>;
     /// Bounded host-rendered HUD cards; requires hud authority. Empty clears them.
     set-content: func(json: string) -> result<_, string>;
+    /// Atomically replaces named HUD cards, removes named cards, and optionally replaces
+    /// presentation metadata while retaining other cards. Uses the bounded HudUpdate schema.
+    update-content: func(json: string) -> result<_, string>;
     /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
     set-crosshair: func(json: string) -> result<_, string>;
     /// Adds one bounded local-only system chat line after a successful callback; requires hud.
@@ -95,6 +98,11 @@ interface player-state {
         look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
         invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
     }
+    record observed-actor {
+        actor: actor,
+        /// Replicated health attribute maximum; absent when the server has supplied none.
+        max-health: option<f32>,
+    }
     enum combat-kind { attack-admitted, hurt, death }
     record combat-event {
         sequence: u64, session: u64, dimension: s32, kind: combat-kind,
@@ -109,6 +117,9 @@ interface player-state {
     read-ping: func() -> result<option<u32>, string>;
     /// At most 16 nearby actors within 128 blocks; player rows require players, other rows entities.
     read-actors: func() -> result<list<actor>, string>;
+    /// Reads a smaller prefix of the same authorized observations to bound guest copying work.
+    /// limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
+    read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
@@ -156,6 +167,7 @@ interface settings {
 /// Local control edges, available only with explicit controls authority.
 interface input {
     use panel.{event};
+    record text-event { id: string, value: string }
     record controls {
         seconds: f32,
         focused: bool,
@@ -179,6 +191,9 @@ interface input {
     /// Reads selected fields from the same current frame, preserving native key order.
     /// Requires controls authority and shares the read-controls callback read budget.
     read-selected-controls: func(selection: selection) -> result<controls, string>;
+    /// Committed single-line native text edits, separate from legacy numeric control events.
+    /// Requires controls authority; repeated reads see the same bounded batch in a frame callback.
+    read-text-events: func() -> result<list<text-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
@@ -226,6 +241,10 @@ interface gameplay {
     pulse-jump: func() -> result<_, string>;
     /// Cancels pending local jump input after a successful callback, even outside gameplay.
     cancel-jump: func() -> result<_, string>;
+    record movement-toggles { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
+    /// Renews ordinary input toggle modes for this focused gameplay frame. Omission restores saved settings.
+    /// Requires movement authority; server movement, hunger and item-use restrictions still apply.
+    set-movement-toggles: func(policy: option<movement-toggles>) -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
     /// Bounded local actor attack range; none restores ordinary game-mode rules.
@@ -372,10 +391,35 @@ interface screen {
     set-text: func(control: string, text: string) -> result<_, string>;
     /// Selects the drawn edit box named `control`, as a press on it would.
     focus-text: func(control: string) -> result<_, string>;
+    /// The modifier keys held with the event being delivered, such as Shift with a press.
+    held-modifiers: func() -> modifiers;
+    /// Monotonic seconds since the mod loaded, to animate by, as JEI cycles ingredients.
+    elapsed-seconds: func() -> f64;
+}
+
+/// Vanilla inventory requests a player mod asks for; each is one the vanilla screens can make,
+/// and the server checks it. Every function errs without the `inventory` permission. Requests
+/// are sent after the callback returns, at most `MAX_INVENTORY_REQUESTS` per callback.
+interface inventory {
+    use cinnabar:session/items@0.1.0.{item-key};
+
+    /// Takes `count` of creative item `key` into the first free inventory slot, else the
+    /// cursor, as a click on the creative catalog does. Errs outside Creative or when the
+    /// item is not in the creative content.
+    creative-take: func(key: item-key, count: u8) -> result<_, string>;
+    /// Crafts crafting recipe `network-id` once from inventory ingredients onto the cursor, as
+    /// a click on the recipe book does. Errs while no crafting screen is up.
+    fill-recipe: func(network-id: u32) -> result<_, string>;
 }
 
 /// Opt-in local camera policy; requires the explicit camera grant.
 interface camera {
+    /// Damage shake only; death rotation and ordinary view bob remain independent.
+    record hurt-camera-style { intensity: f32, old-tilt: bool }
+    /// Current-frame damage presentation, with finite intensity from zero through two.
+    /// Presentation remains available while a menu owns input. None, omission, unload,
+    /// and failed callbacks restore current player settings; this does not change look or movement.
+    set-hurt-camera-style: func(style: option<hurt-camera-style>) -> result<_, string>;
     /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
     /// Omission, no gameplay frame, or a failed callback restores server rotation.
     set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
@@ -456,6 +500,7 @@ interface terrain {
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import cinnabar:world-draw/masks@0.1.0;
     import terrain;
     import player-state;
     import item-use;
@@ -468,6 +513,7 @@ world extension {
     import panel;
     import settings;
     import render;
+    import cinnabar:world-draw/drawing@0.1.0;
     /// Creates the initial retained UI state.
     export init: func();
     /// Bounded frame callback used to measure the spike's crossing cost.
@@ -483,6 +529,7 @@ world extension {
 world player-mod {
     include extension;
     import screen;
+    import inventory;
     import cinnabar:session/items@0.1.0;
     import cinnabar:session/recipes@0.1.0;
 

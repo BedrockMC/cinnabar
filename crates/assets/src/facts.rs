@@ -1,6 +1,7 @@
 //! Validated block and item facts compiled from the pinned registries.
 
 pub mod block;
+pub mod liquid;
 pub mod rules;
 pub use block::{BlockFact, BlockFacts, BlockStateIdentity};
 mod placement;
@@ -20,9 +21,10 @@ pub mod entity;
 mod item;
 mod item_carrier;
 pub use item::{
-    ArmourMaterial, ContainerRoles, FILLED_MAP_IDENTIFIER, ItemFact, ItemFactRecord,
-    ItemFactsPayload, ItemRepairMaterial, ItemTag, ItemTagDefinition, ItemTagSet, ItemTier,
-    ItemTraits, ItemUseAnimationFact, PotionForm, TOTEM_IDENTIFIER,
+    ARROW_IDENTIFIER, ArmourMaterial, BANNER_IDENTIFIER, ContainerRoles, EMPTY_BUCKET_IDENTIFIER,
+    FILLED_MAP_IDENTIFIER, ItemFact, ItemFactRecord, ItemFactsPayload, ItemRepairMaterial, ItemTag,
+    ItemTagDefinition, ItemTagSet, ItemTier, ItemTraits, ItemUseAnimationFact, PotionForm,
+    TOTEM_IDENTIFIER,
 };
 pub use item_carrier::{
     ITEM_FACTS_EXPANSION_PATH, ITEM_FACTS_FILENAME, ITEM_FACTS_INPUTS, ITEM_FACTS_SOURCE_PATH,

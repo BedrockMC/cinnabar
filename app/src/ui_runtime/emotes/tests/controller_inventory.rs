@@ -1,6 +1,6 @@
 //! Closing-frame wheel ownership covers raw inventory consumers after the wheel.
 use super::*;
-use crate::ui_runtime::interaction::drive_world_inventory_keys;
+use crate::ui_runtime::interaction::inventory::drive_world_inventory_keys;
 use inventory::inventory_ledger::PLAYER_INVENTORY_SLOT_COUNT;
 use protocol::{
     ContainerIdentity, InventoryContentEvent, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
@@ -9,6 +9,16 @@ use std::sync::Arc;
 
 fn inventory_harness(identifier: &str) -> Harness {
     let mut h = Harness::new();
+    let (network, captured) = client_runtime::network::NetworkHandle::<
+        crate::runtime::network::resource_packs::PackApplication,
+    >::stub_capturing_packets();
+    let mut movement = client_interaction::movement::MovementTicker::default();
+    movement.reset(1, 0, [0.0, 70.0, 0.0]);
+    movement.set_source(gameplay::movement::MovementSource::Physics);
+    h.app
+        .insert_resource(network)
+        .insert_resource(movement)
+        .insert_non_send(captured);
     h.app.add_systems(
         Update,
         drive_world_inventory_keys
@@ -49,6 +59,7 @@ fn inventory_harness(identifier: &str) -> Harness {
 
 #[test]
 fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     for closing_button in [GamepadButton::South, GamepadButton::East] {
         let mut h = inventory_harness("minecraft:stone");
         let pad = h.app.world_mut().spawn(Gamepad::default()).id();
@@ -116,6 +127,7 @@ fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
 
 #[test]
 fn closing_emote_wheel_consumes_book_use_and_allows_a_fresh_gameplay_use() {
+    let _catalog = cosmetics::test_support::playback_catalog();
     let mut h = inventory_harness("minecraft:writable_book");
     h.press(KeyCode::KeyB);
     h.queue(KeyCode::Escape);

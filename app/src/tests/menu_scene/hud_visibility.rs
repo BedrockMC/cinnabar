@@ -1,7 +1,9 @@
 //! HUD visibility through both first-person hand publishers and retained name tags.
+
 use crate::runtime::network::resource_packs::PackApplication;
 use crate::ui_runtime::presentation::publish::PreparedUiPublication;
 use bevy::window::{PrimaryWindow, Window};
+use client_presentation::environment::{WeatherState, WorldClock};
 use client_runtime::network::NetworkHandle;
 use protocol::identity::FifoSequence;
 use simulation_clock::PhysicsTick;
@@ -12,7 +14,6 @@ use {
 };
 use {
     crate::{
-        environment::{WeatherState, WorldClock},
         runtime::{visibility::CaveVisibilityCache, world::WorldStreamFramePoll},
         ui_runtime::presentation::prepare_ui_runtime,
     },
@@ -96,6 +97,7 @@ pub(super) fn fixture_world() -> World {
     world.init_resource::<WorldClock>();
     world.init_resource::<WeatherState>();
     world.init_resource::<ItemUseRuntime>();
+    world.init_resource::<client_interaction::melee::MeleeRuntime>();
     world.init_resource::<MovementTicker>();
     world.spawn((Window::default(), PrimaryWindow));
     let camera = world

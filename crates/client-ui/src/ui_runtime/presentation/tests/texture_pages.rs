@@ -127,12 +127,8 @@ fn projected_nametag_glyphs_keep_logical_page_order_without_shadow() {
         .unwrap();
     // The world glyphs now rasterize into the retained GPU line atlas, not HUD vertices.
     let scene = presentation.nametag_scene();
-    assert_eq!(scene.records.len(), 3);
-    assert_eq!(
-        scene.records[1].color,
-        [1.0, 1.0, 1.0, render_model::NAMETAG_DIM_TEXT_ALPHA]
-    );
-    assert_eq!(scene.records[2].color, [1.0; 4]);
+    assert_eq!(scene.records.len(), 2);
+    assert_eq!(scene.records[1].color, [1.0; 4]);
     assert_eq!(scene.atlas.len(), 1);
     assert!(
         scene.atlas[0]
@@ -551,6 +547,7 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
         view_depth: 5.0,
         camera_forward_y: 0.0,
         cinnabar_badge: false,
+        counter: None,
     }]);
     let before = presentation.nametag_scene();
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
@@ -560,16 +557,14 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
             rgba8[at..at + 4].copy_from_slice(&[255; 4]);
         }
     }
-    let sheets = Arc::new(SessionGlyphSheets {
-        named: Default::default(),
-        prepared: Default::default(),
-        cells: assets::extract_cells(&assets::GlyphSheet {
+    let sheets = Arc::new(SessionGlyphSheets::new(assets::extract_cells(
+        &assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
             height: 128,
             rgba8: rgba8.into(),
-        }),
-    });
+        },
+    )));
     session_glyphs::observe(&mut presentation, Some(&sheets));
     let changed = presentation.nametag_scene();
     assert!(!Arc::ptr_eq(
@@ -704,16 +699,14 @@ fn item_icons_survive_session_glyphs_ui_pack_and_server_icons() {
     session_icons::observe(&mut presentation, Some(&icons));
     let mut rgba8 = vec![0u8; 128 * 128 * 4];
     rgba8[..8 * 128 * 4].fill(255);
-    let sheets = Arc::new(SessionGlyphSheets {
-        named: Default::default(),
-        prepared: Default::default(),
-        cells: assets::extract_cells(&assets::GlyphSheet {
+    let sheets = Arc::new(SessionGlyphSheets::new(assets::extract_cells(
+        &assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
             height: 128,
             rgba8: rgba8.into(),
-        }),
-    });
+        },
+    )));
     session_glyphs::observe(&mut presentation, Some(&sheets));
     presentation.set_server_ui_pack(&super::forms::ServerUiPack::default());
     for identifier in [
@@ -769,16 +762,14 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
         presentation.textures.plan().bytes()
     );
     assert_icon_drawable(&presentation, &sample);
-    let sheets = Arc::new(SessionGlyphSheets {
-        named: Default::default(),
-        prepared: Default::default(),
-        cells: assets::extract_cells(&assets::GlyphSheet {
+    let sheets = Arc::new(SessionGlyphSheets::new(assets::extract_cells(
+        &assets::GlyphSheet {
             high_byte: 0xe0,
             width: 128,
             height: 128,
             rgba8: vec![255; 128 * 128 * 4].into(),
-        }),
-    });
+        },
+    )));
     session_glyphs::observe(&mut presentation, Some(&sheets));
     assert!(presentation.font.glyph('\u{e005}').is_some());
     assert_icon_drawable(&presentation, &sample);

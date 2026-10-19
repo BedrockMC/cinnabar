@@ -8,8 +8,11 @@ use bevy::prelude::IntoSystemSet;
 mod categories;
 pub(crate) use categories::draw_categories;
 mod health;
+pub(crate) use health::requested as query_health_requested;
 #[cfg(target_os = "macos")]
 mod metal_frame;
+#[cfg(target_os = "macos")]
+mod metal_queue;
 mod systems;
 pub(crate) use systems::profiled;
 #[cfg(all(test, target_os = "macos"))]
@@ -20,7 +23,7 @@ mod overdraw;
 mod pass;
 pub(crate) mod readback;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(feature = "tracy")]
 mod tracy;
 

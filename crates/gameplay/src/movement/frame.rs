@@ -244,10 +244,11 @@ impl LocomotionState {
                     analogue_move_vector: analogue_movement,
                     mode_intent: ModeIntent {
                         spectator: facts.spectator,
+                        no_clip: facts.no_clip,
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
                         can_fly: facts.can_fly,
-                        server_flying: facts.server_flying,
+                        flight: facts.flight,
                         ability_sequence: facts.ability_sequence,
                         fly_speed: facts.fly_speed,
                         vertical_fly_speed: facts.vertical_fly_speed,
@@ -326,7 +327,7 @@ impl LocomotionState {
             let admitted = if withhold_input {
                 movement_ticker.withhold_respawn_input(sample)
             } else {
-                movement_ticker.enqueue_completed_physics(sample)
+                movement_ticker.enqueue_completed_physics_at(sample, Some(now))
             };
             if let Err(fault) = admitted {
                 debug!(?fault, "local Physics movement authority failed closed");

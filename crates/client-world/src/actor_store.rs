@@ -12,6 +12,7 @@ mod appearance_preparation;
 mod colliders;
 mod effect_members;
 pub use colliders::ActorCollisionBounds;
+mod local_presentation;
 mod native_facts;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
@@ -133,7 +134,10 @@ pub struct ActorSnapshot {
     pub player_mode: Option<MovePlayerMode>,
     pub player_game_mode: Option<protocol::GameModeUpdate>,
     pub source_tick: Option<u64>,
+    /// Accepted actor metadata, independent of local animation flags.
     pub metadata: HashMap<u32, ActorMetadataValue>,
+    /// Primary flags for local rendering, retired by the next received primary word.
+    local_presentation_flags: Option<u64>,
     pub attributes: HashMap<std::sync::Arc<str>, ActorAttribute>,
     pub int_properties: HashMap<u32, i32>,
     pub float_properties: HashMap<u32, f32>,
@@ -207,10 +211,15 @@ impl ActorSnapshot {
     }
 
     /// Builds retained state using the constructor facts resolved at admission.
-    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64, entity_fact: EntityFact) -> Self {
+    fn from_spawn(
+        spawn: ActorSpawnEvent,
+        spawn_revision: u64,
+        entity_fact: EntityFact,
+        hitbox_budget: &mut hitbox::Budget,
+    ) -> Self {
         let terrain_interlock = terrain_interlock::TerrainInterlock::attached(
             entity_fact.native_class,
-            std::time::Instant::now(),
+            web_time::Instant::now(),
         );
         let position = spawn.position;
         let pitch = movement_interpolation::signed_pitch(spawn.pitch);
@@ -245,6 +254,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::with_capacity(spawn.metadata.len()),
+            local_presentation_flags: None,
             attributes: HashMap::with_capacity(spawn.attributes.len()),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
@@ -265,7 +275,7 @@ impl ActorSnapshot {
                 -snapshot.falling_block_network_offset(),
             );
         }
-        snapshot.apply_metadata(&spawn.metadata);
+        snapshot.apply_metadata(&spawn.metadata, hitbox_budget);
         snapshot.apply_attributes(&spawn.attributes);
         snapshot.sync_status_from_health();
         snapshot.apply_properties(&spawn.properties);
@@ -314,6 +324,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
+            local_presentation_flags: None,
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
             float_properties: HashMap::new(),
@@ -325,55 +336,13 @@ impl ActorSnapshot {
             dragon_animation: None,
             hitboxes: None,
         };
-        // Predicted flags must retain the visible-name default until the server replaces them.
-        snapshot.set_flag(ActorFlag::ShowName.wire_value(), true);
+        // Retain the visible-name default until the server replaces it.
+        snapshot.metadata.insert(
+            ActorDataKey::Flags.wire_value(),
+            ActorMetadataValue::Flags(1 << ActorFlag::ShowName.wire_value()),
+        );
         snapshot.apply_local_flags(feed);
         snapshot
-    }
-
-    /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim, glide
-    /// and predicted item use. Shield blocking stays server-owned.
-    fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
-        self.set_flag(ActorFlag::Sneaking.wire_value(), feed.sneaking);
-        self.set_flag(ActorFlag::Sprinting.wire_value(), feed.sprinting);
-        self.set_flag(ActorFlag::Gliding.wire_value(), feed.gliding);
-        self.set_flag(ActorFlag::DamageNearbyMobs.wire_value(), feed.spinning);
-        // Sprinting in water is swimming; the water sample lags one frame.
-        let in_water = self.status.fluid.is_some_and(|(water, _)| water);
-        self.set_flag(ActorFlag::Swimming.wire_value(), feed.sprinting && in_water);
-        match feed.item_use {
-            LocalItemUse::Unpredicted => {}
-            LocalItemUse::Idle => self.set_flag(ActorFlag::UsingItem.wire_value(), false),
-            LocalItemUse::Using => self.set_flag(ActorFlag::UsingItem.wire_value(), true),
-            LocalItemUse::Predicted { elapsed_ticks, .. } => {
-                self.set_flag(ActorFlag::UsingItem.wire_value(), elapsed_ticks.is_some());
-            }
-        }
-    }
-
-    /// Sets one actor flag bit in the primary or overflow word, creating the word when absent.
-    fn set_flag(&mut self, bit: u32, on: bool) {
-        let (key, bit, empty) = if bit < 64 {
-            (
-                ActorDataKey::Flags.wire_value(),
-                bit,
-                ActorMetadataValue::Flags(0),
-            )
-        } else {
-            (
-                ActorDataKey::FlagsTwo.wire_value(),
-                bit - 64,
-                ActorMetadataValue::FlagsExtended(0),
-            )
-        };
-        let entry = self.metadata.entry(key).or_insert(empty);
-        if let ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags) = entry {
-            if on {
-                *flags |= 1_u64 << bit;
-            } else {
-                *flags &= !(1_u64 << bit);
-            }
-        }
     }
 
     fn current_pose(&self) -> ActorPose {
@@ -436,15 +405,19 @@ impl ActorSnapshot {
         player_flags || self.flag(ActorFlag::Sleeping.wire_value())
     }
 
-    /// Whether the using-item flag is set; for the local player's food and drink it is the
-    /// server's admission of the use.
+    /// Whether the rendered actor uses its held item, including a local visual pose.
     #[must_use]
     pub fn is_using_item(&self) -> bool {
         self.flag(ActorFlag::UsingItem.wire_value())
     }
 
-    /// Reads one actor flag bit from the primary or overflow flag word.
+    /// Reads a rendering flag, including the local rig's visual primary word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
+        if bit < u64::BITS
+            && let Some(flags) = self.local_presentation_flags
+        {
+            return flags & (1_u64 << bit) != 0;
+        }
         let (key, bit) = if bit < 64 {
             (ActorDataKey::Flags.wire_value(), bit)
         } else {
@@ -516,7 +489,11 @@ impl ActorSnapshot {
         }
     }
 
-    fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {
+    fn apply_metadata(
+        &mut self,
+        metadata: &[protocol::ActorMetadata],
+        hitbox_budget: &mut hitbox::Budget,
+    ) -> bool {
         let falling_block_offset = self
             .is_falling_block()
             .then(|| self.falling_block_network_offset());
@@ -532,8 +509,10 @@ impl ActorSnapshot {
                 self.status.fuse_age_ticks = self.status.age_ticks;
             }
             if metadata.key == ActorDataKey::HitBox.wire_value() {
-                std::sync::Arc::make_mut(self.hitboxes.get_or_insert_with(Default::default))
-                    .apply(&metadata.value);
+                rejected |= hitbox_budget.apply(&mut self.hitboxes, &metadata.value);
+            }
+            if metadata.key == ActorDataKey::Flags.wire_value() {
+                self.local_presentation_flags = None;
             }
             self.metadata.insert(metadata.key, metadata.value.clone());
         }
@@ -753,6 +732,7 @@ pub(crate) struct ActorStore {
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
     custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
     actors: HashMap<u64, ActorSnapshot>,
+    hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
     rider_to_ridden: FastHashMap<i64, i64>,
@@ -910,6 +890,8 @@ fn event_dimension(event: &ActorEvent) -> Option<i32> {
 
 #[cfg(test)]
 mod animation_tests;
+#[cfg(test)]
+mod local_presentation_tests;
 #[cfg(test)]
 mod local_tests;
 mod player_appearance;

@@ -21,7 +21,7 @@ pub(super) struct GameplayContext<'w> {
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
     real_time: Option<Res<'w, Time<Real>>>,
-    clock: Option<Res<'w, crate::environment::WorldClock>>,
+    clock: Option<Res<'w, client_presentation::environment::WorldClock>>,
     pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
     pub(super) player: Option<Res<'w, client_state::PlayerRuntime>>,
@@ -118,7 +118,7 @@ impl GameplayContext<'_> {
         let capabilities = player.facts.game_mode_capabilities();
         if player.facts.is_immobile()
             || player.facts.mount_unique_id().is_some()
-            || capabilities.is_some_and(|abilities| abilities.flying)
+            || capabilities.is_some_and(|abilities| abilities.flight.is_flying())
             || !self.physics.as_ref()?.jump_pulse_eligible()
         {
             return None;

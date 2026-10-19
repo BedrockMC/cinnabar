@@ -23,6 +23,8 @@ pub(crate) fn key_hash(seed: u64, bytes: &[u8]) -> u64 {
 
 /// The hash of the empty key, where every layout key starts.
 pub(crate) const KEY_ROOT: u64 = 0xcbf2_9ce4_8422_2325;
+/// Ordinary virtualized grids start with this many cells before their first layout.
+const INITIAL_GRID_WINDOW: usize = 64;
 
 /// Properties that scroll layout publishes back into binding bags.
 pub(super) const SCROLL_PROPERTIES: [&str; 3] = [
@@ -78,13 +80,20 @@ pub struct BindState {
     /// View notifications the last bind ran.
     pub(super) views_run: usize,
     /// Collections whose large grids build only the cells around those layout shows.
-    pub(super) virtual_grids: BTreeSet<String>,
+    pub(super) virtual_grids: BTreeMap<String, GridPolicy>,
     /// The cells each virtualized grid builds, by its key; the rest bind as placeholders.
     pub(super) grid_windows: KeyMap<Range<usize>>,
     /// Grids whose built cells moved since the last bind, which it rebuilds.
     pub(super) moved_windows: Vec<u64>,
     /// Each grid's cell template with its placeholder, so standing placeholders are reused.
     pub(super) placeholders: Vec<(u64, Arc<ResolvedControl>, Arc<ResolvedControl>)>,
+}
+
+/// An opted grid's first window and the host's guarantee about cell paint bounds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct GridPolicy {
+    initial: usize,
+    clipped: bool,
 }
 
 /// Allocate an opaque lifetime identity only when a custom control is created.
@@ -103,6 +112,12 @@ pub(super) struct Retained {
     pub(super) incarnation: Option<u64>,
     pub(super) parent_incarnation: Option<u64>,
     pub(super) bag: BTreeMap<String, Scalar>,
+    /// Inherited creation inputs before view bindings transformed the bag.
+    pub(super) creation_inputs: Arc<super::bag::Bag>,
+    /// Changed creation inputs that view observers must consume before normal settling.
+    pub(super) creation_writes: BTreeSet<String>,
+    /// Each view writer invalidated by a changed creation target.
+    pub(super) creation_views: BTreeSet<usize>,
     /// Literal properties bindings set on components.
     pub(super) native: BTreeMap<String, Value>,
     /// `once` bindings already applied, by index.
@@ -119,6 +134,38 @@ pub(super) struct Retained {
     pub(super) generation: u64,
     /// Whether its subtree waited hidden then.
     pub(super) deferred: bool,
+}
+
+impl Retained {
+    /// Refreshes changed inputs while preserving standing view outputs. Changed
+    /// targets notify their readers before ordinary view settling can overwrite them.
+    pub(super) fn refresh_creation_values(
+        &mut self,
+        own: &mut super::bag::Bag,
+        inputs: &super::bag::Bag,
+        bindings: &[super::spec::Binding],
+    ) {
+        for (name, value) in inputs {
+            let changed = self.creation_inputs.get(name) != Some(value);
+            let mut written = false;
+            for (index, binding) in bindings.iter().enumerate() {
+                if matches!(&binding.kind, super::spec::Kind::View { target, .. } if target == name)
+                    && self.views.get(&index).is_some_and(Option::is_some)
+                {
+                    written = true;
+                    if changed {
+                        self.creation_views.insert(index);
+                    }
+                }
+            }
+            if written && changed {
+                self.creation_writes.insert(name.clone());
+            }
+            if !written || changed {
+                own.insert(name.clone(), value.clone());
+            }
+        }
+    }
 }
 
 impl BindState {
@@ -178,12 +225,51 @@ impl BindState {
     /// their rect, and read through `once` bindings only what stays fixed per index: a cell built
     /// late must match one built with the grid.
     pub fn virtualize_grid(&mut self, collection: &str) {
-        self.virtual_grids.insert(collection.to_owned());
+        self.virtualize_grid_with_window(collection, INITIAL_GRID_WINDOW);
+    }
+
+    /// Selects a smaller first window for fixed native viewports with large tile templates.
+    pub fn virtualize_grid_with_window(&mut self, collection: &str, initial: usize) {
+        self.set_grid_policy(collection, initial, false);
+    }
+
+    /// Opts in host-admitted tiles whose descendants cannot paint outside their cell rectangle.
+    pub fn virtualize_clipped_grid(&mut self, collection: &str, initial: usize) {
+        self.set_grid_policy(collection, initial, true);
+    }
+
+    /// Invalidates placeholder geometry when the owning host changes its grid guarantee.
+    fn set_grid_policy(&mut self, collection: &str, initial: usize, clipped: bool) {
+        let policy = GridPolicy {
+            initial: initial.clamp(1, INITIAL_GRID_WINDOW),
+            clipped,
+        };
+        if self.virtual_grids.get(collection) == Some(&policy) {
+            return;
+        }
+        self.virtual_grids.insert(collection.to_owned(), policy);
+        self.grid_windows.clear();
+        self.placeholders.clear();
+    }
+
+    /// Whether the host guarantees this collection's cells cannot overflow their rectangles.
+    pub(super) fn clips_grid_cells(&self, collection: Option<&str>) -> bool {
+        collection
+            .and_then(|name| self.virtual_grids.get(name))
+            .is_some_and(|policy| policy.clipped)
     }
 
     /// Whether grids listing `collection` build only the cells around those in view.
     pub(super) fn virtualizes(&self, collection: Option<&str>) -> bool {
-        collection.is_some_and(|name| self.virtual_grids.contains(name))
+        collection.is_some_and(|name| self.virtual_grids.contains_key(name))
+    }
+
+    /// The first unmeasured window for the opted collection, retaining the ordinary default.
+    pub(super) fn initial_grid_window(&self, collection: Option<&str>) -> usize {
+        collection
+            .and_then(|name| self.virtual_grids.get(name))
+            .map(|policy| policy.initial)
+            .unwrap_or(INITIAL_GRID_WINDOW)
     }
 
     /// Moves each virtualized grid's built cells over the cells `report` laid out in view, with
@@ -200,13 +286,18 @@ impl BindState {
             }) {
                 continue;
             }
-            let margin = view.len() / 4 + 1;
+            let margin = Self::grid_window_margin(view.len());
             self.grid_windows
                 .insert(*grid, view.start.saturating_sub(margin)..view.end + margin);
             self.moved_windows.push(*grid);
             moved = true;
         }
         moved
+    }
+
+    /// Shares the retained-cell margin with hosts that admit a fixed viewport's node budget.
+    pub fn grid_window_margin(visible: usize) -> usize {
+        visible / 4 + 1
     }
 
     /// Whether scroll feedback can affect a bound property or view.

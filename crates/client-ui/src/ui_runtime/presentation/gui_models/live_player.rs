@@ -14,6 +14,9 @@ pub(super) struct LivePlayer {
     geometry: Option<ActorRigGeometry>,
     pub(super) vertices: Vec<ActorVertex>,
     pub(super) cape_vertices: Vec<ActorVertex>,
+    pub(super) hat_vertices: std::collections::HashMap<cosmetics::Item, Vec<ActorVertex>>,
+    hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
+    pub(super) hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,
     bones: Vec<RenderBoneTransform>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
@@ -23,6 +26,18 @@ pub(super) struct LivePlayer {
 }
 
 impl UiPresentationRuntime {
+    /// Shares the actor frame's evaluated motion without advancing a second animation clock.
+    pub fn set_cosmetic_motion(
+        &mut self,
+        motion: &[(cosmetics::Item, render_model::hats::Motion)],
+    ) {
+        let motion: std::collections::HashMap<_, _> = motion.iter().copied().collect();
+        if self.gui_models.live_player.hat_motion != motion {
+            self.gui_models.live_player.hat_motion = motion;
+            self.last_frame = None;
+        }
+    }
+
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
     pub fn capture_hud_player(
         &mut self,
@@ -37,7 +52,7 @@ impl UiPresentationRuntime {
         &mut self,
         stream: Option<&chunk_pipeline::WorldStream>,
         swimming: bool,
-        emote: Option<(actor_animation::CustomEmote, f64)>,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
         let fire_frames = self.gui_models.fire.frames.len();
         let draw_cape =
@@ -45,6 +60,7 @@ impl UiPresentationRuntime {
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
         live.cape_vertices.clear();
+        live.hat_vertices.clear();
         live.parts = [None; 6];
         live.fire_size = None;
         live.outer_y = if swimming {
@@ -97,10 +113,7 @@ impl UiPresentationRuntime {
             Vec3::from_array(rig.axis_scale)
                 * (rig.scale / super::super::player_preview::PLAYER_MODEL_SCALE),
         );
-        for (part, name) in ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"]
-            .into_iter()
-            .enumerate()
-        {
+        for (part, name) in render_model::STANDARD_BIPED_BONES.into_iter().enumerate() {
             if let Some(index) = rig.bone_names.iter().position(|bone| bone.as_ref() == name)
                 && let (Some(rest), Some(posed)) = (rig.rest.get(index), pose.get(index))
                 && let (Some(rest), Some(posed)) = (bone_matrix(rest), bone_matrix(posed))
@@ -138,6 +151,33 @@ impl UiPresentationRuntime {
         }
         let frame = offset * actor_scale * basis;
         project_vertices(geometry, &live.bones, frame, &mut live.vertices);
+        live.hat_pose
+            .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
+        for &hat in &self.menu_preview_model.cosmetics {
+            let Some(index) = rig
+                .bone_names
+                .iter()
+                .position(|bone| bone.eq_ignore_ascii_case(&hat.descriptor().attachment_bone))
+            else {
+                continue;
+            };
+            let Some(head) = live.bones.get(index) else {
+                continue;
+            };
+            let pose = live.hat_pose.entry(hat).or_default().pose(
+                hat,
+                *head,
+                live.hat_motion.get(&hat).copied().unwrap_or_default(),
+            );
+            let vertices = live.hat_vertices.entry(hat).or_default();
+            project_vertices(
+                &render_model::hats::rig(hat).geometry,
+                &pose,
+                frame,
+                vertices,
+            );
+            discard_collapsed_faces(vertices);
+        }
         if draw_cape && let Some(cape) = &self.gui_models.cape {
             let pose = cape.pose(
                 rig.bone_names,
